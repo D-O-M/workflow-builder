@@ -25,6 +25,7 @@ interface Node {
 interface Connection {
   from: number;
   to: number;
+  anchor: number;
 }
 
 interface DragNode {
@@ -69,9 +70,11 @@ export class App implements AfterViewInit {
   private animationId: number | null = null;
 
   protected readonly hoveredNodeId = signal<number | null>(null);
+  protected readonly hoveredAnchor = signal<number | null>(null);
 
   protected readonly dragConnection = signal<{
     from: number;
+    anchor: number;
     x: number;
     y: number;
   } | null>(null);
@@ -118,8 +121,8 @@ export class App implements AfterViewInit {
     nodes.push({
       id: Date.now(),
       name,
-      x: pos.x,
-      y: pos.y,
+      x: this.snap(pos.x),
+      y: this.snap(pos.y),
       width: 240,
       height: 160,
     });
@@ -141,6 +144,10 @@ export class App implements AfterViewInit {
       this.dragConnection.update((d) =>
         d ? { ...d, x: worldX, y: worldY } : d,
       );
+      const target = this.nodes().find(
+        (n) => n.id !== this.dragConnection()!.from && this.inNode(worldX, worldY, n),
+      );
+      this.hoveredNodeId.set(target ? target.id : null);
       return;
     }
     if (this.dragNode()) {
@@ -148,7 +155,11 @@ export class App implements AfterViewInit {
       this.nodes.update((nodes) =>
         nodes.map((n) =>
           n.id === drag.id
-            ? { ...n, x: worldX - drag.dx, y: worldY - drag.dy }
+            ? {
+                ...n,
+                x: this.snap(worldX - drag.dx),
+                y: this.snap(worldY - drag.dy),
+              }
             : n,
         ),
       );
@@ -165,6 +176,12 @@ export class App implements AfterViewInit {
     }
     const node = this.nodes().find((n) => this.inNode(worldX, worldY, n));
     this.hoveredNodeId.set(node ? node.id : null);
+    if (node) {
+      const idx = this.inAnchorCircle(worldX, worldY, node);
+      this.hoveredAnchor.set(idx);
+    } else {
+      this.hoveredAnchor.set(null);
+    }
   }
 
   protected onMouseDown(event: MouseEvent): void {
@@ -174,8 +191,14 @@ export class App implements AfterViewInit {
     const worldY = y - off.y;
     const hovered = this.nodes().find((n) => this.inNode(worldX, worldY, n));
     if (hovered) {
-      if (this.inSourceCircle(worldX, worldY, hovered)) {
-        this.dragConnection.set({ from: hovered.id, x: worldX, y: worldY });
+      const anchor = this.inAnchorCircle(worldX, worldY, hovered);
+      if (anchor !== null) {
+        this.dragConnection.set({
+          from: hovered.id,
+          anchor,
+          x: worldX,
+          y: worldY,
+        });
         this.startAnimation();
       } else {
         this.dragNode.set({
@@ -186,6 +209,7 @@ export class App implements AfterViewInit {
         this.startAnimation();
       }
       this.hoveredNodeId.set(hovered.id);
+      this.hoveredAnchor.set(anchor);
     } else {
       this.dragOffset.set({ x, y });
       this.startAnimation();
@@ -201,19 +225,23 @@ export class App implements AfterViewInit {
     const drag = this.dragConnection();
     if (drag) {
       const target = this.nodes().find(
-        (n) => n.id !== drag.from && this.inDestCircle(worldX, worldY, n),
+        (n) => n.id !== drag.from && this.inNode(worldX, worldY, n),
       );
       if (target) {
         const exists = this.connections().some(
-          (c) => c.from === drag.from && c.to === target.id,
+          (c) =>
+            (c.from === drag.from && c.to === target.id) ||
+            (c.from === target.id && c.to === drag.from),
         );
         if (!exists) {
           const connections = [...this.connections()];
-          connections.push({ from: drag.from, to: target.id });
+          connections.push({ from: drag.from, to: target.id, anchor: drag.anchor });
           this.connections.set(connections);
         }
       }
       this.dragConnection.set(null);
+      this.hoveredAnchor.set(null);
+      this.hoveredNodeId.set(null);
     }
 
     if (this.dragNode()) {
@@ -232,6 +260,7 @@ export class App implements AfterViewInit {
     this.dragNode.set(null);
     this.dragOffset.set(null);
     this.hoveredNodeId.set(null);
+    this.hoveredAnchor.set(null);
     this.stopAnimation();
   }
 
@@ -244,16 +273,27 @@ export class App implements AfterViewInit {
     );
   }
 
-  private inSourceCircle(x: number, y: number, node: Node): boolean {
-    const cx = node.x + node.width;
-    const cy = node.y + node.height;
-    return Math.hypot(x - cx, y - cy) <= 10;
+
+  private anchorPositions(node: Node): Point[] {
+    return [
+      { x: node.x + node.width / 2, y: node.y },
+      { x: node.x + node.width, y: node.y + node.height / 2 },
+      { x: node.x + node.width / 2, y: node.y + node.height },
+    ];
   }
 
-  private inDestCircle(x: number, y: number, node: Node): boolean {
-    const cx = node.x;
-    const cy = node.y + node.height;
-    return Math.hypot(x - cx, y - cy) <= 10;
+  private inAnchorCircle(
+    x: number,
+    y: number,
+    node: Node,
+  ): number | null {
+    const anchors = this.anchorPositions(node);
+    for (let i = 0; i < anchors.length; i++) {
+      if (Math.hypot(x - anchors[i].x, y - anchors[i].y) <= 10) {
+        return i;
+      }
+    }
+    return null;
   }
 
   private snap(value: number): number {
@@ -314,6 +354,30 @@ export class App implements AfterViewInit {
     ctx.lineTo(snapX, snapY);
     ctx.lineTo(ex, ey);
     ctx.stroke();
+    this.drawArrowHead(ctx, snapX, snapY, ex, ey);
+  }
+
+  private drawArrowHead(
+    ctx: CanvasRenderingContext2D,
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+  ): void {
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    const size = 8;
+    ctx.beginPath();
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(
+      toX - size * Math.cos(angle - Math.PI / 6),
+      toY - size * Math.sin(angle - Math.PI / 6),
+    );
+    ctx.lineTo(
+      toX - size * Math.cos(angle + Math.PI / 6),
+      toY - size * Math.sin(angle + Math.PI / 6),
+    );
+    ctx.closePath();
+    ctx.fill();
   }
 
   private draw(): void {
@@ -333,19 +397,25 @@ export class App implements AfterViewInit {
     for (const conn of this.connections()) {
       const from = this.nodes().find((n) => n.id === conn.from)!;
       const to = this.nodes().find((n) => n.id === conn.to)!;
-      this.drawOrthogonalLine(
-        ctx,
-        from.x + from.width,
-        from.y + from.height,
-        to.x,
-        to.y + to.height,
-      );
+      const start = this.anchorPositions(from)[conn.anchor];
+      const end = { x: to.x, y: to.y + to.height / 2 };
+      this.drawOrthogonalLine(ctx, start.x, start.y, end.x, end.y);
     }
 
     const hovered = this.hoveredNodeId();
     const drag = this.dragConnection();
 
     for (const node of this.nodes()) {
+      const isHoveredDest =
+        drag &&
+        node.id !== drag.from &&
+        hovered === node.id;
+      if (isHoveredDest) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(0,0,255,0.5)';
+        ctx.setLineDash([4, 4]);
+      }
+
       ctx.strokeRect(node.x, node.y, node.width, node.height);
       this.drawWrappedText(
         ctx,
@@ -355,37 +425,32 @@ export class App implements AfterViewInit {
         node.width - 20,
       );
 
-      let circleColor: string | null = null;
-      let circleX = node.x + node.width;
-      let circleY = node.y + node.height;
-      if (drag) {
-        if (drag.from === node.id) {
-          circleColor = 'blue';
-        } else {
-          circleColor = 'green';
-          circleX = node.x;
-        }
-      } else if (hovered === node.id) {
-        circleColor = 'blue';
+      if (isHoveredDest) {
+        ctx.restore();
       }
-      if (circleColor) {
+
+      const anchors = this.anchorPositions(node);
+      if (drag && drag.from === node.id) {
+        const pos = anchors[drag.anchor];
         ctx.beginPath();
-        ctx.fillStyle = circleColor;
-        ctx.arc(circleX, circleY, 10, 0, 2 * Math.PI);
+        ctx.arc(pos.x, pos.y, 10, 0, 2 * Math.PI);
         ctx.fill();
-        ctx.fillStyle = 'white';
+      } else if (!drag && hovered === node.id) {
+        for (let i = 0; i < anchors.length; i++) {
+          ctx.beginPath();
+          ctx.globalAlpha =
+            this.hoveredAnchor() === i ? 1 : 0.3;
+          ctx.arc(anchors[i].x, anchors[i].y, 10, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
       }
     }
 
     if (drag) {
       const from = this.nodes().find((n) => n.id === drag.from)!;
-      this.drawOrthogonalLine(
-        ctx,
-        from.x + from.width,
-        from.y + from.height,
-        drag.x,
-        drag.y,
-      );
+      const start = this.anchorPositions(from)[drag.anchor];
+      this.drawOrthogonalLine(ctx, start.x, start.y, drag.x, drag.y);
     }
 
     ctx.restore();
