@@ -5,12 +5,15 @@
   (mousedown)="onMouseDown($event)"
   (mouseup)="onMouseUp($event)"
   (mouseleave)="onMouseLeave()"
+  (wheel)="onWheel($event)"
 ></canvas>
+
+<div class="zoom-display">{{ Math.round(zoom() * 100) }}%</div>
 
 @if (showModal()) {
   <div class="modal-backdrop">
     <div class="modal">
-      <input [formControl]="nodeName" placeholder="Node name" />
+      <input #nameInput [formControl]="nodeName" placeholder="Node name" />
       <div class="actions">
         <button type="button" (click)="createNode()">Create</button>
         <button type="button" (click)="showModal.set(false)">Cancel</button>
