@@ -8,7 +8,10 @@
   (wheel)="onWheel($event)"
 ></canvas>
 
-<div class="zoom-display">{{ Math.round(zoom() * 100) }}%</div>
+<div class="zoom-display">
+  {{ Math.round(zoom() * 100) }}%
+  <button type="button" (click)="resetView()">Reset</button>
+</div>
 
 @if (showModal()) {
   <div class="modal-backdrop">
