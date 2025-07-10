@@ -3,7 +3,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   effect,
+  ElementRef,
   inject,
+  Injector,
+  runInInjectionContext,
   signal,
   viewChild,
 } from '@angular/core';
@@ -33,8 +36,13 @@ interface Connection {
 })
 export class App implements AfterViewInit {
   protected readonly title = signal('workflow-builder');
+  private readonly injector = inject(Injector);
 
-  private readonly canvas = viewChild<HTMLCanvasElement>('canvas');
+  private readonly canvasRef = viewChild.required<ElementRef<HTMLCanvasElement>>('myCanvas');
+
+  private get canvas(): HTMLCanvasElement {
+    return this.canvasRef().nativeElement;
+  }
 
   private ctx?: CanvasRenderingContext2D;
 
@@ -54,19 +62,21 @@ export class App implements AfterViewInit {
   protected readonly nodeName = new FormControl('', { nonNullable: true });
 
   ngAfterViewInit(): void {
-    const c = this.canvas();
+    const c = this.canvasRef();
     if (!c) return;
-    this.ctx = c.getContext('2d')!;
-    c.width = c.clientWidth;
-    c.height = c.clientHeight;
+    this.ctx = c.nativeElement.getContext('2d')!;
+    c.nativeElement.width = c.nativeElement.clientWidth;
+    c.nativeElement.height = c.nativeElement.clientHeight;
 
-    effect(() => {
-      this.draw();
+    runInInjectionContext(this.injector, () => {
+      effect(() => {
+        this.draw();
+      });
     });
   }
 
   protected openModal(event: MouseEvent): void {
-    const rect = this.canvas()!.getBoundingClientRect();
+    const rect = this.canvas!.getBoundingClientRect();
     this.newNodePos.set({
       x: event.clientX - rect.left,
       y: event.clientY - rect.top,
@@ -96,7 +106,7 @@ export class App implements AfterViewInit {
   }
 
   private getMousePos(event: MouseEvent): { x: number; y: number } {
-    const rect = this.canvas()!.getBoundingClientRect();
+    const rect = this.canvas!.getBoundingClientRect();
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }
 
@@ -180,13 +190,14 @@ export class App implements AfterViewInit {
   }
 
   private draw(): void {
+    console.log('drawing', this.nodes().length, this.connections().length);
     const ctx = this.ctx;
-    const canvas = this.canvas();
+    const canvas = this.canvas;
     if (!ctx || !canvas) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = 'white';
-    ctx.fillStyle = 'white';
+    ctx.strokeStyle = 'blue';
+    ctx.fillStyle = 'blue';
     ctx.lineWidth = 2;
 
     for (const conn of this.connections()) {
