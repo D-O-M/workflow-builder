@@ -4,3 +4,25 @@ canvas {
   height: 100vh;
   background-color: black;
 }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal {
+  background-color: white;
+  padding: 1rem;
+  border-radius: 4px;
+  min-width: 200px;
+}
+
+.actions {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+}

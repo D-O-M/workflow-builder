@@ -1,1 +1,20 @@
-<canvas></canvas>
+<canvas
+  #canvas
+  (dblclick)="openModal($event)"
+  (mousemove)="onMouseMove($event)"
+  (mousedown)="onMouseDown($event)"
+  (mouseup)="onMouseUp($event)"
+  (mouseleave)="onMouseLeave()"
+></canvas>
+
+@if (showModal()) {
+  <div class="modal-backdrop">
+    <div class="modal">
+      <input [formControl]="nodeName" placeholder="Node name" />
+      <div class="actions">
+        <button type="button" (click)="createNode()">Create</button>
+        <button type="button" (click)="showModal.set(false)">Cancel</button>
+      </div>
+    </div>
+  </div>
+}
