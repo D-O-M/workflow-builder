@@ -26,6 +26,8 @@ interface Connection {
   from: number;
   to: number;
   anchor: number;
+  side: 'left' | 'right' | 'top' | 'bottom';
+  pos: number;
 }
 
 interface DragNode {
@@ -41,17 +43,22 @@ interface Point {
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, ReactiveFormsModule],
+  imports: [ReactiveFormsModule],
   templateUrl: './app.html',
   styleUrl: './app.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class App implements AfterViewInit {
   protected readonly title = signal('workflow-builder');
+  protected readonly Math = Math;
   private readonly injector = inject(Injector);
 
   private readonly canvasRef =
     viewChild.required<ElementRef<HTMLCanvasElement>>('myCanvas');
+
+  private readonly inputRef = viewChild<ElementRef<HTMLInputElement>>('nameInput');
+
+  protected readonly zoom = signal(1);
 
   private get canvas(): HTMLCanvasElement {
     return this.canvasRef().nativeElement;
@@ -105,9 +112,14 @@ export class App implements AfterViewInit {
       y: event.clientY - rect.top,
     };
     const off = this.offset();
-    this.newNodePos.set({ x: canvasPos.x - off.x, y: canvasPos.y - off.y });
+    const zoom = this.zoom();
+    this.newNodePos.set({
+      x: (canvasPos.x - off.x) / zoom,
+      y: (canvasPos.y - off.y) / zoom,
+    });
     this.nodeName.setValue('');
     this.showModal.set(true);
+    queueMicrotask(() => this.inputRef()?.nativeElement.focus());
   }
 
   protected createNode(): void {
@@ -138,15 +150,24 @@ export class App implements AfterViewInit {
   protected onMouseMove(event: MouseEvent): void {
     const { x, y } = this.getMousePos(event);
     const off = this.offset();
-    const worldX = x - off.x;
-    const worldY = y - off.y;
+    const zoom = this.zoom();
+    const worldX = (x - off.x) / zoom;
+    const worldY = (y - off.y) / zoom;
     if (this.dragConnection()) {
-      this.dragConnection.update((d) =>
-        d ? { ...d, x: worldX, y: worldY } : d,
-      );
+      const drag = this.dragConnection()!;
       const target = this.nodes().find(
-        (n) => n.id !== this.dragConnection()!.from && this.inNode(worldX, worldY, n),
+        (n) => n.id !== drag.from && this.inNode(worldX, worldY, n),
       );
+      if (target) {
+        const snap = this.snapPointToSide(worldX, worldY, target);
+        this.dragConnection.update((d) =>
+          d ? { ...d, x: snap.x, y: snap.y } : d,
+        );
+      } else {
+        this.dragConnection.update((d) =>
+          d ? { ...d, x: worldX, y: worldY } : d,
+        );
+      }
       this.hoveredNodeId.set(target ? target.id : null);
       return;
     }
@@ -187,8 +208,9 @@ export class App implements AfterViewInit {
   protected onMouseDown(event: MouseEvent): void {
     const { x, y } = this.getMousePos(event);
     const off = this.offset();
-    const worldX = x - off.x;
-    const worldY = y - off.y;
+    const zoom = this.zoom();
+    const worldX = (x - off.x) / zoom;
+    const worldY = (y - off.y) / zoom;
     const hovered = this.nodes().find((n) => this.inNode(worldX, worldY, n));
     if (hovered) {
       const anchor = this.inAnchorCircle(worldX, worldY, hovered);
@@ -219,8 +241,9 @@ export class App implements AfterViewInit {
   protected onMouseUp(event: MouseEvent): void {
     const { x, y } = this.getMousePos(event);
     const off = this.offset();
-    const worldX = x - off.x;
-    const worldY = y - off.y;
+    const zoom = this.zoom();
+    const worldX = (x - off.x) / zoom;
+    const worldY = (y - off.y) / zoom;
 
     const drag = this.dragConnection();
     if (drag) {
@@ -234,8 +257,15 @@ export class App implements AfterViewInit {
             (c.from === target.id && c.to === drag.from),
         );
         if (!exists) {
+          const snap = this.snapPointToSide(worldX, worldY, target);
           const connections = [...this.connections()];
-          connections.push({ from: drag.from, to: target.id, anchor: drag.anchor });
+          connections.push({
+            from: drag.from,
+            to: target.id,
+            anchor: drag.anchor,
+            side: snap.side,
+            pos: snap.pos,
+          });
           this.connections.set(connections);
         }
       }
@@ -264,6 +294,16 @@ export class App implements AfterViewInit {
     this.stopAnimation();
   }
 
+  protected onWheel(event: WheelEvent): void {
+    event.preventDefault();
+    const delta = Math.sign(event.deltaY);
+    this.zoom.update((z) => {
+      let nz = z - delta * 0.05;
+      nz = Math.min(3, Math.max(0.05, nz));
+      return parseFloat(nz.toFixed(2));
+    });
+  }
+
   private inNode(x: number, y: number, node: Node): boolean {
     return (
       x >= node.x &&
@@ -273,13 +313,61 @@ export class App implements AfterViewInit {
     );
   }
 
+  private clamp(v: number, min: number, max: number): number {
+    return Math.min(Math.max(v, min), max);
+  }
+
+  private snapPointToSide(
+    x: number,
+    y: number,
+    node: Node,
+  ): { x: number; y: number; side: 'left' | 'right' | 'top' | 'bottom'; pos: number } {
+    const left = Math.abs(x - node.x);
+    const right = Math.abs(x - (node.x + node.width));
+    const top = Math.abs(y - node.y);
+    const bottom = Math.abs(y - (node.y + node.height));
+    const min = Math.min(left, right, top, bottom);
+    if (min === left) {
+      const yy = this.clamp(y, node.y, node.y + node.height);
+      return { x: node.x, y: yy, side: 'left', pos: yy - node.y };
+    } else if (min === right) {
+      const yy = this.clamp(y, node.y, node.y + node.height);
+      return { x: node.x + node.width, y: yy, side: 'right', pos: yy - node.y };
+    } else if (min === top) {
+      const xx = this.clamp(x, node.x, node.x + node.width);
+      return { x: xx, y: node.y, side: 'top', pos: xx - node.x };
+    } else {
+      const xx = this.clamp(x, node.x, node.x + node.width);
+      return {
+        x: xx,
+        y: node.y + node.height,
+        side: 'bottom',
+        pos: xx - node.x,
+      };
+    }
+  }
+
 
   private anchorPositions(node: Node): Point[] {
-    return [
-      { x: node.x + node.width / 2, y: node.y },
-      { x: node.x + node.width, y: node.y + node.height / 2 },
-      { x: node.x + node.width / 2, y: node.y + node.height },
-    ];
+    const anchors: Point[] = [];
+    const offs = [0.25, 0.5, 0.75];
+    for (const o of offs) {
+      anchors.push({ x: node.x + node.width * o, y: node.y });
+    }
+    for (const o of offs) {
+      anchors.push({ x: node.x + node.width, y: node.y + node.height * o });
+    }
+    for (const o of offs) {
+      anchors.push({ x: node.x + node.width * o, y: node.y + node.height });
+    }
+    for (const o of offs) {
+      anchors.push({ x: node.x, y: node.y + node.height * o });
+    }
+    return anchors;
+  }
+
+  private anchorRadius(idx: number): number {
+    return [1, 4, 7, 10].includes(idx) ? 12 : 10;
   }
 
   private inAnchorCircle(
@@ -289,7 +377,7 @@ export class App implements AfterViewInit {
   ): number | null {
     const anchors = this.anchorPositions(node);
     for (let i = 0; i < anchors.length; i++) {
-      if (Math.hypot(x - anchors[i].x, y - anchors[i].y) <= 10) {
+      if (Math.hypot(x - anchors[i].x, y - anchors[i].y) <= this.anchorRadius(i)) {
         return i;
       }
     }
@@ -391,6 +479,8 @@ export class App implements AfterViewInit {
     ctx.lineWidth = 2;
 
     ctx.save();
+    const zoom = this.zoom();
+    ctx.scale(zoom, zoom);
     const off = this.offset();
     ctx.translate(off.x, off.y);
 
@@ -398,7 +488,20 @@ export class App implements AfterViewInit {
       const from = this.nodes().find((n) => n.id === conn.from)!;
       const to = this.nodes().find((n) => n.id === conn.to)!;
       const start = this.anchorPositions(from)[conn.anchor];
-      const end = { x: to.x, y: to.y + to.height / 2 };
+      let end: Point;
+      switch (conn.side) {
+        case 'left':
+          end = { x: to.x, y: to.y + conn.pos };
+          break;
+        case 'right':
+          end = { x: to.x + to.width, y: to.y + conn.pos };
+          break;
+        case 'top':
+          end = { x: to.x + conn.pos, y: to.y };
+          break;
+        default:
+          end = { x: to.x + conn.pos, y: to.y + to.height };
+      }
       this.drawOrthogonalLine(ctx, start.x, start.y, end.x, end.y);
     }
 
@@ -433,14 +536,20 @@ export class App implements AfterViewInit {
       if (drag && drag.from === node.id) {
         const pos = anchors[drag.anchor];
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 10, 0, 2 * Math.PI);
+        ctx.arc(pos.x, pos.y, this.anchorRadius(drag.anchor), 0, 2 * Math.PI);
         ctx.fill();
       } else if (!drag && hovered === node.id) {
         for (let i = 0; i < anchors.length; i++) {
           ctx.beginPath();
           ctx.globalAlpha =
             this.hoveredAnchor() === i ? 1 : 0.3;
-          ctx.arc(anchors[i].x, anchors[i].y, 10, 0, 2 * Math.PI);
+          ctx.arc(
+            anchors[i].x,
+            anchors[i].y,
+            this.anchorRadius(i),
+            0,
+            2 * Math.PI,
+          );
           ctx.fill();
           ctx.globalAlpha = 1;
         }
