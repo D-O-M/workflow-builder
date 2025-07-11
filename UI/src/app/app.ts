@@ -174,17 +174,9 @@ export class App implements AfterViewInit {
         );
         this.hoveredNodeId.set(target.id);
       } else {
-        const block = this.nodes().find((n) => this.inNodeBuffer(worldX, worldY, n));
-        if (block) {
-          const pos = this.snapOutsideBuffer(worldX, worldY, block);
-          this.dragConnection.update((d) =>
-            d ? { ...d, x: pos.x, y: pos.y, side: undefined } : d,
-          );
-        } else {
-          this.dragConnection.update((d) =>
-            d ? { ...d, x: worldX, y: worldY, side: undefined } : d,
-          );
-        }
+        this.dragConnection.update((d) =>
+          d ? { ...d, x: worldX, y: worldY, side: undefined } : d,
+        );
         this.hoveredNodeId.set(null);
       }
       return;
@@ -339,9 +331,6 @@ export class App implements AfterViewInit {
     return node.containsBuffered(x, y, this.nodeMargin);
   }
 
-  private snapOutsideBuffer(x: number, y: number, node: NodeModel): Point {
-    return node.snapPointOutsideBuffer(x, y, this.nodeMargin);
-  }
 
   private clamp(v: number, min: number, max: number): number {
     return NodeModel.clamp(v, min, max);
