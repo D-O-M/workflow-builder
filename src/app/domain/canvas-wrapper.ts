@@ -64,6 +64,7 @@ export class CanvasWrapper {
     ey: number,
     side?: Side,
     destNode?: NodeModel,
+    startSide?: Side,
   ): void {
     const snapX = this.snap(ex);
     const snapY = this.snap(ey);
@@ -71,6 +72,23 @@ export class CanvasWrapper {
     this.ctx.moveTo(sx, sy);
 
     const pad = this.nodeMargin;
+
+    let curX = sx;
+    let curY = sy;
+
+    if (startSide === 'left') {
+      curX -= pad;
+    } else if (startSide === 'right') {
+      curX += pad;
+    } else if (startSide === 'top') {
+      curY -= pad;
+    } else if (startSide === 'bottom') {
+      curY += pad;
+    }
+
+    if (curX !== sx || curY !== sy) {
+      this.ctx.lineTo(curX, curY);
+    }
 
     if (destNode) {
       const left = destNode.x - pad;
@@ -80,8 +98,6 @@ export class CanvasWrapper {
 
       if (side === 'left' || side === 'right') {
         const approachX = side === 'left' ? left : right;
-        let curX = sx;
-        let curY = sy;
         if (curY >= top && curY <= bottom) {
           const escapeY = curY < destNode.y + destNode.height / 2 ? top : bottom;
           this.ctx.lineTo(curX, escapeY);
@@ -96,8 +112,7 @@ export class CanvasWrapper {
         }
       } else if (side === 'top' || side === 'bottom') {
         const approachY = side === 'top' ? top : bottom;
-        let curX = sx;
-        let curY = sy;
+        
         if (curX >= left && curX <= right) {
           const escapeX = curX < destNode.x + destNode.width / 2 ? left : right;
           this.ctx.lineTo(escapeX, curY);
@@ -113,13 +128,13 @@ export class CanvasWrapper {
       }
     } else {
       if (side === 'left' || side === 'right') {
-        if (sx !== snapX) this.ctx.lineTo(snapX, sy);
+        if (curX !== snapX) this.ctx.lineTo(snapX, curY);
       } else if (side === 'top' || side === 'bottom') {
-        if (sy !== snapY) this.ctx.lineTo(sx, snapY);
-      } else if (Math.abs(ex - sx) > Math.abs(ey - sy)) {
-        if (sx !== snapX) this.ctx.lineTo(snapX, sy);
-      } else if (sy !== snapY) {
-        this.ctx.lineTo(sx, snapY);
+        if (curY !== snapY) this.ctx.lineTo(curX, snapY);
+      } else if (Math.abs(ex - curX) > Math.abs(ey - curY)) {
+        if (curX !== snapX) this.ctx.lineTo(snapX, curY);
+      } else if (curY !== snapY) {
+        this.ctx.lineTo(curX, snapY);
       }
     }
 
