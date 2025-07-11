@@ -12,9 +12,11 @@ import {
 } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
 import { CanvasWrapper } from './domain/canvas-wrapper';
 import { ConnectionModel } from './domain/connection-model';
 import { NodeModel, Point, Side } from './domain/node-model';
+import { Task } from './domain/task';
 
 interface DragNode {
   id: number;
@@ -37,8 +39,8 @@ export class App implements AfterViewInit {
   private readonly canvasRef =
     viewChild.required<ElementRef<HTMLCanvasElement>>('myCanvas');
 
-  private readonly inputRef =
-    viewChild<ElementRef<HTMLInputElement>>('nameInput');
+  private readonly selectRef =
+    viewChild<ElementRef<HTMLSelectElement>>('taskSelect');
 
   protected readonly zoom = signal(1);
 
@@ -73,7 +75,9 @@ export class App implements AfterViewInit {
   protected readonly showModal = signal(false);
   private readonly newNodePos = signal<{ x: number; y: number } | null>(null);
 
-  protected readonly nodeName = new FormControl('', { nonNullable: true });
+  protected readonly tasks = signal<Task[]>([]);
+  protected readonly selectedTask = new FormControl('', { nonNullable: true });
+  private readonly http = inject(HttpClient);
 
   ngAfterViewInit(): void {
     const c = this.canvasRef();
@@ -82,6 +86,13 @@ export class App implements AfterViewInit {
     this.canvasWrapper = new CanvasWrapper(ctx, this.gridSize, this.nodeMargin);
     c.nativeElement.width = c.nativeElement.clientWidth;
     c.nativeElement.height = c.nativeElement.clientHeight;
+
+    this.http.get<Task[]>('/tasks').subscribe((t) => {
+      this.tasks.set(t);
+      if (t.length > 0) {
+        this.selectedTask.setValue(t[0].name);
+      }
+    });
 
     runInInjectionContext(this.injector, () => {
       effect(() => {
@@ -102,13 +113,14 @@ export class App implements AfterViewInit {
       x: (canvasPos.x - off.x) / zoom,
       y: (canvasPos.y - off.y) / zoom,
     });
-    this.nodeName.setValue('');
+    const tasks = this.tasks();
+    this.selectedTask.setValue(tasks[0]?.name ?? '');
     this.showModal.set(true);
-    queueMicrotask(() => this.inputRef()?.nativeElement.focus());
+    queueMicrotask(() => this.selectRef()?.nativeElement.focus());
   }
 
   protected createNode(): void {
-    const name = this.nodeName.value.trim();
+    const name = this.selectedTask.value;
     const pos = this.newNodePos();
     if (!name || !pos) {
       this.showModal.set(false);
