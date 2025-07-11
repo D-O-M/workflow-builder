@@ -73,6 +73,7 @@ export class App implements AfterViewInit {
   protected readonly connections = signal<Connection[]>([]);
 
   private readonly gridSize = 20;
+  private readonly nodeMargin = 20;
 
   protected readonly offset = signal<Point>({ x: 0, y: 0 });
   protected readonly dragOffset = signal<Point | null>(null);
@@ -515,87 +516,84 @@ export class App implements AfterViewInit {
     ex: number,
     ey: number,
     side?: Side,
-    arrowTarget?: Point,
+    destNode?: Node,
   ): void {
     const snapX = this.snap(ex);
     const snapY = this.snap(ey);
     ctx.beginPath();
     ctx.moveTo(sx, sy);
-    const offset = 20;
-    if (side === 'left') {
-      if (ex >= sx) {
-        ctx.lineTo(sx - offset, sy);
-        ctx.lineTo(sx - offset, snapY);
-      } else {
-        ctx.lineTo(snapX, sy);
-      }
-    } else if (side === 'right') {
-      if (ex <= sx) {
-        ctx.lineTo(sx + offset, sy);
-        ctx.lineTo(sx + offset, snapY);
-      } else {
-        ctx.lineTo(snapX, sy);
-      }
-    } else if (side === 'top') {
-      if (ey >= sy) {
-        ctx.lineTo(sx, sy - offset);
-        ctx.lineTo(snapX, sy - offset);
-      } else {
-        ctx.lineTo(sx, snapY);
-      }
-    } else if (side === 'bottom') {
-      if (ey <= sy) {
-        ctx.lineTo(sx, sy + offset);
-        ctx.lineTo(snapX, sy + offset);
-      } else {
-        ctx.lineTo(sx, snapY);
+
+    const pad = this.nodeMargin;
+
+    if (destNode) {
+      const left = destNode.x - pad;
+      const right = destNode.x + destNode.width + pad;
+      const top = destNode.y - pad;
+      const bottom = destNode.y + destNode.height + pad;
+
+      if (side === 'left' || side === 'right') {
+        const approachX = side === 'left' ? left : right;
+        let curY = sy;
+        if (curY >= top && curY <= bottom) {
+          const mid = destNode.y + destNode.height / 2;
+          const escapeY = curY < mid ? top : bottom;
+          ctx.lineTo(sx, escapeY);
+          curY = escapeY;
+        }
+        ctx.lineTo(approachX, curY);
+        ctx.lineTo(approachX, snapY);
+      } else if (side === 'top' || side === 'bottom') {
+        const approachY = side === 'top' ? top : bottom;
+        let curX = sx;
+        if (curX >= left && curX <= right) {
+          const mid = destNode.x + destNode.width / 2;
+          const escapeX = curX < mid ? left : right;
+          ctx.lineTo(escapeX, sy);
+          curX = escapeX;
+        }
+        ctx.lineTo(curX, approachY);
+        ctx.lineTo(snapX, approachY);
       }
     } else {
-      ctx.lineTo(snapX, sy);
+      const offset = 20;
+      if (side === 'left') {
+        if (ex >= sx) {
+          ctx.lineTo(sx - offset, sy);
+          ctx.lineTo(sx - offset, snapY);
+        } else {
+          ctx.lineTo(snapX, sy);
+        }
+      } else if (side === 'right') {
+        if (ex <= sx) {
+          ctx.lineTo(sx + offset, sy);
+          ctx.lineTo(sx + offset, snapY);
+        } else {
+          ctx.lineTo(snapX, sy);
+        }
+      } else if (side === 'top') {
+        if (ey >= sy) {
+          ctx.lineTo(sx, sy - offset);
+          ctx.lineTo(snapX, sy - offset);
+        } else {
+          ctx.lineTo(sx, snapY);
+        }
+      } else if (side === 'bottom') {
+        if (ey <= sy) {
+          ctx.lineTo(sx, sy + offset);
+          ctx.lineTo(snapX, sy + offset);
+        } else {
+          ctx.lineTo(sx, snapY);
+        }
+      } else {
+        ctx.lineTo(snapX, sy);
+      }
     }
+
     ctx.lineTo(snapX, snapY);
-
-    if (arrowTarget) {
-      const dx = arrowTarget.x - ex;
-      const dy = arrowTarget.y - ey;
-      let destSide: Side;
-      if (Math.abs(dx) > Math.abs(dy)) {
-        destSide = dx > 0 ? 'right' : 'left';
-      } else {
-        destSide = dy > 0 ? 'bottom' : 'top';
-      }
-      if (destSide === 'left') {
-        ctx.lineTo(ex + offset, snapY);
-        ctx.lineTo(ex + offset, ey);
-      } else if (destSide === 'right') {
-        ctx.lineTo(ex - offset, snapY);
-        ctx.lineTo(ex - offset, ey);
-      } else if (destSide === 'top') {
-        ctx.lineTo(snapX, ey + offset);
-        ctx.lineTo(ex, ey + offset);
-      } else {
-        ctx.lineTo(snapX, ey - offset);
-        ctx.lineTo(ex, ey - offset);
-      }
-    }
-
     ctx.lineTo(ex, ey);
     ctx.stroke();
 
-    const arrowSize = 8;
-    let bx = ex;
-    let by = ey;
-    if (arrowTarget) {
-      const dx = arrowTarget.x - ex;
-      const dy = arrowTarget.y - ey;
-      if (Math.abs(dx) > Math.abs(dy)) {
-        bx = dx > 0 ? ex - arrowSize : ex + arrowSize;
-      } else {
-        by = dy > 0 ? ey - arrowSize : ey + arrowSize;
-      }
-    }
-
-    this.drawArrowHead(ctx, bx, by, ex, ey);
+    this.drawArrowHead(ctx, snapX, snapY, ex, ey);
   }
 
   private drawArrowHead(
@@ -662,7 +660,7 @@ export class App implements AfterViewInit {
         end.x,
         end.y,
         this.anchorSide(conn.anchor),
-        { x: to.x + to.width / 2, y: to.y + to.height / 2 },
+        to,
       );
     }
 
@@ -729,12 +727,7 @@ export class App implements AfterViewInit {
           drag.x,
           drag.y,
           this.anchorSide(drag.anchor),
-          hoveredNode
-            ? {
-                x: hoveredNode.x + hoveredNode.width / 2,
-                y: hoveredNode.y + hoveredNode.height / 2,
-              }
-            : undefined,
+          hoveredNode,
         );
       }
     }
