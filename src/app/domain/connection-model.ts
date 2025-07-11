@@ -27,16 +27,23 @@ export class ConnectionModel {
         end = { x: this.to.x + this.pos, y: this.to.y + this.to.height };
     }
 
+    const tipX = wrapper.snap(end.x);
+    const tipY = wrapper.snap(end.y);
+    const baseX =
+      tipX - (this.side === 'right' ? wrapper.arrowSize : this.side === 'left' ? -wrapper.arrowSize : 0);
+    const baseY =
+      tipY - (this.side === 'bottom' ? wrapper.arrowSize : this.side === 'top' ? -wrapper.arrowSize : 0);
+
     wrapper.drawOrthogonalLine(
       start.x,
       start.y,
-      end.x - (this.side === 'right' ? wrapper.arrowSize : this.side === 'left' ? -wrapper.arrowSize : 0),
-      end.y - (this.side === 'bottom' ? wrapper.arrowSize : this.side === 'top' ? -wrapper.arrowSize : 0),
+      baseX,
+      baseY,
       this.side,
       this.to,
       NodeModel.anchorSide(this.anchor),
     );
 
-    wrapper.drawArrowHead(end.x, end.y, this.side);
+    wrapper.drawArrowHead(tipX, tipY, this.side);
   }
 }
