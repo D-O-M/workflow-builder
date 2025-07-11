@@ -137,8 +137,15 @@ export class CanvasWrapper {
         x <= this.snap(n.x + n.width + buffer) &&
         y >= this.snap(n.y - buffer) &&
         y <= this.snap(n.y + n.height + buffer);
-      if (destNode && check(destNode)) {
-        return x !== end.x || y !== end.y;
+      if (destNode) {
+        const insideDest =
+          x >= this.snap(destNode.x) &&
+          x <= this.snap(destNode.x + destNode.width) &&
+          y >= this.snap(destNode.y) &&
+          y <= this.snap(destNode.y + destNode.height);
+        if (insideDest) {
+          return x !== end.x || y !== end.y;
+        }
       }
       return obstacles.some(check);
     };
@@ -146,7 +153,7 @@ export class CanvasWrapper {
     const turnPenalty = 0.1;
 
     const startTime = performance.now();
-    const timeLimit = 5; // ms
+    const timeLimit = 20; // ms
     let best = startNode;
 
     while (open.length) {
