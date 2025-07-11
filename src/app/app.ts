@@ -660,7 +660,7 @@ export class App implements AfterViewInit {
         start.y,
         end.x,
         end.y,
-        this.anchorSide(conn.anchor),
+        conn.side,
         to,
       );
     }
