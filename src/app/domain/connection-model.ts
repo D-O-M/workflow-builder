@@ -27,6 +27,14 @@ export class ConnectionModel {
         end = { x: this.to.x + this.pos, y: this.to.y + this.to.height };
     }
 
-    wrapper.drawOrthogonalLine(start.x, start.y, end.x, end.y, this.side, this.to);
+    wrapper.drawOrthogonalLine(
+      start.x,
+      start.y,
+      end.x,
+      end.y,
+      this.side,
+      this.to,
+      NodeModel.anchorSide(this.anchor),
+    );
   }
 }

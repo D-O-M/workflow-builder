@@ -67,6 +67,7 @@ export class App implements AfterViewInit {
     anchor: number;
     x: number;
     y: number;
+    side?: Side;
   } | null>(null);
 
   protected readonly showModal = signal(false);
@@ -169,11 +170,11 @@ export class App implements AfterViewInit {
         const dir = this.sideFromPoint(worldX, worldY, target);
         const snap = this.snapPointFixedSide(worldX, worldY, target, dir);
         this.dragConnection.update((d) =>
-          d ? { ...d, x: snap.x, y: snap.y } : d,
+          d ? { ...d, x: snap.x, y: snap.y, side: dir } : d,
         );
       } else {
         this.dragConnection.update((d) =>
-          d ? { ...d, x: worldX, y: worldY } : d,
+          d ? { ...d, x: worldX, y: worldY, side: undefined } : d,
         );
       }
       this.hoveredNodeId.set(target ? target.id : null);
@@ -227,6 +228,7 @@ export class App implements AfterViewInit {
           anchor,
           x: worldX,
           y: worldY,
+          side: undefined,
         });
         this.startAnimation();
       } else {
@@ -412,8 +414,17 @@ export class App implements AfterViewInit {
     ey: number,
     side?: Side,
     destNode?: NodeModel,
+    startSide?: Side,
   ): void {
-    this.canvasWrapper!.drawOrthogonalLine(sx, sy, ex, ey, side, destNode);
+    this.canvasWrapper!.drawOrthogonalLine(
+      sx,
+      sy,
+      ex,
+      ey,
+      side,
+      destNode,
+      startSide,
+    );
   }
 
 
@@ -514,8 +525,9 @@ export class App implements AfterViewInit {
           start.y,
           drag.x,
           drag.y,
-          this.anchorSide(drag.anchor),
+          drag.side ?? this.anchorSide(drag.anchor),
           hoveredNode,
+          this.anchorSide(drag.anchor),
         );
       }
     }
