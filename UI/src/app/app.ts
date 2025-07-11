@@ -159,7 +159,7 @@ export class App implements AfterViewInit {
       }
       const conns = this.connections();
       const target = this.nodes().find((n) => {
-        if (n.id === drag.from || !this.inNode(worldX, worldY, n)) return false;
+        if (n.id === drag.from || !this.inNodeBuffer(worldX, worldY, n)) return false;
         return !conns.some(
           (c) =>
             (c.from.id === drag.from && c.to.id === n.id) ||
@@ -172,12 +172,21 @@ export class App implements AfterViewInit {
         this.dragConnection.update((d) =>
           d ? { ...d, x: snap.x, y: snap.y, side: dir } : d,
         );
+        this.hoveredNodeId.set(target.id);
       } else {
-        this.dragConnection.update((d) =>
-          d ? { ...d, x: worldX, y: worldY, side: undefined } : d,
-        );
+        const block = this.nodes().find((n) => this.inNodeBuffer(worldX, worldY, n));
+        if (block) {
+          const pos = this.snapOutsideBuffer(worldX, worldY, block);
+          this.dragConnection.update((d) =>
+            d ? { ...d, x: pos.x, y: pos.y, side: undefined } : d,
+          );
+        } else {
+          this.dragConnection.update((d) =>
+            d ? { ...d, x: worldX, y: worldY, side: undefined } : d,
+          );
+        }
+        this.hoveredNodeId.set(null);
       }
-      this.hoveredNodeId.set(target ? target.id : null);
       return;
     }
     if (this.dragNode()) {
@@ -258,7 +267,7 @@ export class App implements AfterViewInit {
     if (drag) {
       const conns = this.connections();
       const target = this.nodes().find((n) => {
-        if (n.id === drag.from || !this.inNode(worldX, worldY, n)) return false;
+        if (n.id === drag.from || !this.inNodeBuffer(worldX, worldY, n)) return false;
         return !conns.some(
           (c) =>
             (c.from.id === drag.from && c.to.id === n.id) ||
@@ -324,6 +333,14 @@ export class App implements AfterViewInit {
 
   private inNode(x: number, y: number, node: NodeModel): boolean {
     return node.contains(x, y);
+  }
+
+  private inNodeBuffer(x: number, y: number, node: NodeModel): boolean {
+    return node.containsBuffered(x, y, this.nodeMargin);
+  }
+
+  private snapOutsideBuffer(x: number, y: number, node: NodeModel): Point {
+    return node.snapPointOutsideBuffer(x, y, this.nodeMargin);
   }
 
   private clamp(v: number, min: number, max: number): number {
