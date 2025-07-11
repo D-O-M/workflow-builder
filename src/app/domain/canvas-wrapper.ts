@@ -18,12 +18,7 @@ export class CanvasWrapper {
     return Math.round(value / this.gridSize) * this.gridSize;
   }
 
-  drawWrappedText(
-    text: string,
-    x: number,
-    y: number,
-    maxWidth: number,
-  ): void {
+  drawWrappedText(text: string, x: number, y: number, maxWidth: number): void {
     const words = text.split(/\s+/);
     let line = '';
     const lineHeight = 16;
@@ -40,19 +35,27 @@ export class CanvasWrapper {
     this.ctx.fillText(line, x, y);
   }
 
-  private drawArrowHead(fromX: number, fromY: number, toX: number, toY: number): void {
-    const angle = Math.atan2(toY - fromY, toX - fromX);
+  drawArrowHead(x: number, y: number, side: Side): void {
     const size = 8;
     this.ctx.beginPath();
-    this.ctx.moveTo(toX, toY);
-    this.ctx.lineTo(
-      toX - size * Math.cos(angle - Math.PI / 6),
-      toY - size * Math.sin(angle - Math.PI / 6),
-    );
-    this.ctx.lineTo(
-      toX - size * Math.cos(angle + Math.PI / 6),
-      toY - size * Math.sin(angle + Math.PI / 6),
-    );
+    this.ctx.moveTo(x, y);
+    switch (side) {
+      case 'left':
+        this.ctx.lineTo(x + size, y - size / 2);
+        this.ctx.lineTo(x + size, y + size / 2);
+        break;
+      case 'right':
+        this.ctx.lineTo(x - size, y - size / 2);
+        this.ctx.lineTo(x - size, y + size / 2);
+        break;
+      case 'top':
+        this.ctx.lineTo(x - size / 2, y + size);
+        this.ctx.lineTo(x + size / 2, y + size);
+        break;
+      default:
+        this.ctx.lineTo(x - size / 2, y - size);
+        this.ctx.lineTo(x + size / 2, y - size);
+    }
     this.ctx.closePath();
     this.ctx.fill();
   }
@@ -99,7 +102,8 @@ export class CanvasWrapper {
       if (side === 'left' || side === 'right') {
         const approachX = side === 'left' ? left : right;
         if (curY >= top && curY <= bottom) {
-          const escapeY = curY < destNode.y + destNode.height / 2 ? top : bottom;
+          const escapeY =
+            curY < destNode.y + destNode.height / 2 ? top : bottom;
           this.ctx.lineTo(curX, escapeY);
           curY = escapeY;
         }
@@ -112,7 +116,7 @@ export class CanvasWrapper {
         }
       } else if (side === 'top' || side === 'bottom') {
         const approachY = side === 'top' ? top : bottom;
-        
+
         if (curX >= left && curX <= right) {
           const escapeX = curX < destNode.x + destNode.width / 2 ? left : right;
           this.ctx.lineTo(escapeX, curY);
@@ -141,7 +145,5 @@ export class CanvasWrapper {
     this.ctx.lineTo(snapX, snapY);
     this.ctx.lineTo(ex, ey);
     this.ctx.stroke();
-
-    this.drawArrowHead(snapX, snapY, ex, ey);
   }
 }

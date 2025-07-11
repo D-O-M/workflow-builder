@@ -36,5 +36,7 @@ export class ConnectionModel {
       this.to,
       NodeModel.anchorSide(this.anchor),
     );
+
+    wrapper.drawArrowHead(end.x, end.y, this.side);
   }
 }

@@ -359,7 +359,6 @@ export class App implements AfterViewInit {
     return node.snapPointFixedSide(x, y, side);
   }
 
-
   private sideFromPoint(x: number, y: number, node: NodeModel): Side {
     return node.sideFromPoint(x, y);
   }
@@ -426,7 +425,6 @@ export class App implements AfterViewInit {
       startSide,
     );
   }
-
 
   private draw(): void {
     const wrapper = this.canvasWrapper;
@@ -519,16 +517,32 @@ export class App implements AfterViewInit {
           hovered && hovered !== drag.from
             ? this.nodes().find((n) => n.id === hovered)
             : undefined;
-        this.drawOrthogonalLine(
-          ctx,
-          start.x,
-          start.y,
-          drag.x,
-          drag.y,
-          drag.side ?? this.anchorSide(drag.anchor),
-          hoveredNode,
-          this.anchorSide(drag.anchor),
-        );
+        if (hoveredNode && drag.side) {
+          const pos = this.snapPointFixedSide(
+            drag.x,
+            drag.y,
+            hoveredNode,
+            drag.side,
+          ).pos;
+          new ConnectionModel(
+            from,
+            hoveredNode,
+            drag.anchor,
+            drag.side,
+            pos,
+          ).draw(wrapper);
+        } else {
+          this.drawOrthogonalLine(
+            ctx,
+            start.x,
+            start.y,
+            drag.x,
+            drag.y,
+            drag.side ?? this.anchorSide(drag.anchor),
+            hoveredNode,
+            this.anchorSide(drag.anchor),
+          );
+        }
       }
     }
 
