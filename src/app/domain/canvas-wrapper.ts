@@ -38,6 +38,8 @@ export class CanvasWrapper {
 
   drawArrowHead(x: number, y: number, side: Side): void {
     const size = this.arrowSize;
+    x = this.snap(x);
+    y = this.snap(y);
     this.ctx.beginPath();
     switch (side) {
       case 'left':
@@ -73,6 +75,99 @@ export class CanvasWrapper {
       const left = Math.min(x1, x2);
       this.ctx.fillRect(left, y1 - t / 2, Math.abs(x2 - x1), t);
     }
+  }
+
+  private findPath(
+    sx: number,
+    sy: number,
+    ex: number,
+    ey: number,
+    startDir: Side = 'right',
+  ): { x: number; y: number }[] {
+    const grid = this.gridSize;
+    const manhattan = (x1: number, y1: number, x2: number, y2: number) =>
+      (Math.abs(x1 - x2) + Math.abs(y1 - y2)) / grid;
+
+    const start = { x: this.snap(sx), y: this.snap(sy) };
+    const end = { x: this.snap(ex), y: this.snap(ey) };
+
+    const margin = grid * 10;
+    const minX = Math.min(start.x, end.x) - margin;
+    const maxX = Math.max(start.x, end.x) + margin;
+    const minY = Math.min(start.y, end.y) - margin;
+    const maxY = Math.max(start.y, end.y) + margin;
+
+    type Node = {
+      x: number;
+      y: number;
+      dir: Side;
+      g: number;
+      f: number;
+      parent?: Node;
+    };
+
+    const key = (x: number, y: number, d: Side) => `${x},${y},${d}`;
+
+    const open: Node[] = [];
+    const map = new Map<string, Node>();
+    const startNode: Node = {
+      x: start.x,
+      y: start.y,
+      dir: startDir,
+      g: 0,
+      f: manhattan(start.x, start.y, end.x, end.y),
+    };
+    open.push(startNode);
+    map.set(key(start.x, start.y, startDir), startNode);
+
+    const dirs: { side: Side; dx: number; dy: number }[] = [
+      { side: 'left', dx: -grid, dy: 0 },
+      { side: 'right', dx: grid, dy: 0 },
+      { side: 'top', dx: 0, dy: -grid },
+      { side: 'bottom', dx: 0, dy: grid },
+    ];
+
+    const turnPenalty = 0.1;
+
+    while (open.length) {
+      open.sort((a, b) => a.f - b.f);
+      const current = open.shift()!;
+
+      if (current.x === end.x && current.y === end.y) {
+        const path: { x: number; y: number }[] = [];
+        let c: Node | undefined = current;
+        while (c) {
+          path.push({ x: c.x, y: c.y });
+          c = c.parent;
+        }
+        return path.reverse();
+      }
+
+      for (const d of dirs) {
+        const nx = current.x + d.dx;
+        const ny = current.y + d.dy;
+
+        if (nx < minX || nx > maxX || ny < minY || ny > maxY) continue;
+
+        const cost = current.g + 1 + (d.side === current.dir ? 0 : turnPenalty);
+        const k = key(nx, ny, d.side);
+        const existing = map.get(k);
+        if (!existing || cost < existing.g) {
+          const node: Node = {
+            x: nx,
+            y: ny,
+            dir: d.side,
+            g: cost,
+            f: cost + manhattan(nx, ny, end.x, end.y),
+            parent: current,
+          };
+          map.set(k, node);
+          open.push(node);
+        }
+      }
+    }
+
+    return [start, end];
   }
 
   drawOrthogonalLine(
@@ -113,49 +208,9 @@ export class CanvasWrapper {
       lineTo(curX, curY);
     }
 
-    if (destNode) {
-      const left = destNode.x - pad;
-      const right = destNode.x + destNode.width + pad;
-      const top = destNode.y - pad;
-      const bottom = destNode.y + destNode.height + pad;
-
-      if (side === 'left' || side === 'right') {
-        const approachX = side === 'left' ? left : right;
-        if (curY >= top && curY <= bottom) {
-          const escapeY =
-            curY < destNode.y + destNode.height / 2 ? top : bottom;
-          lineTo(curX, escapeY);
-        }
-        if (curX !== approachX) {
-          lineTo(approachX, curY);
-        }
-        if (curY !== snapY) {
-          lineTo(curX, snapY);
-        }
-      } else if (side === 'top' || side === 'bottom') {
-        const approachY = side === 'top' ? top : bottom;
-
-        if (curX >= left && curX <= right) {
-          const escapeX = curX < destNode.x + destNode.width / 2 ? left : right;
-          lineTo(escapeX, curY);
-        }
-        if (curY !== approachY) {
-          lineTo(curX, approachY);
-        }
-        if (curX !== snapX) {
-          lineTo(snapX, curY);
-        }
-      }
-    } else {
-      if (side === 'left' || side === 'right') {
-        if (curX !== snapX) lineTo(snapX, curY);
-      } else if (side === 'top' || side === 'bottom') {
-        if (curY !== snapY) lineTo(curX, snapY);
-      } else if (Math.abs(ex - curX) > Math.abs(ey - curY)) {
-        if (curX !== snapX) lineTo(snapX, curY);
-      } else if (curY !== snapY) {
-        lineTo(curX, snapY);
-      }
+    const path = this.findPath(curX, curY, snapX, snapY, startSide);
+    for (let i = 1; i < path.length; i++) {
+      lineTo(path[i].x, path[i].y);
     }
 
     lineTo(snapX, snapY);
