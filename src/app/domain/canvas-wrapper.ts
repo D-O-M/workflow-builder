@@ -6,6 +6,7 @@ export class CanvasWrapper {
     public readonly ctx: CanvasRenderingContext2D,
     private readonly gridSize: number,
     private readonly nodeMargin: number,
+    private readonly obstacleBuffer = 1,
   ) {}
 
   clear(width: number, height: number): void {
@@ -82,6 +83,8 @@ export class CanvasWrapper {
     sy: number,
     ex: number,
     ey: number,
+    obstacles: NodeModel[] = [],
+    destNode?: NodeModel,
     startDir: Side = 'right',
   ): { x: number; y: number }[] {
     const grid = this.gridSize;
@@ -127,6 +130,19 @@ export class CanvasWrapper {
       { side: 'bottom', dx: 0, dy: grid },
     ];
 
+    const buffer = this.obstacleBuffer * grid;
+    const blocked = (x: number, y: number): boolean => {
+      const check = (n: NodeModel) =>
+        x >= this.snap(n.x - buffer) &&
+        x <= this.snap(n.x + n.width + buffer) &&
+        y >= this.snap(n.y - buffer) &&
+        y <= this.snap(n.y + n.height + buffer);
+      if (destNode && check(destNode)) {
+        return x !== end.x || y !== end.y;
+      }
+      return obstacles.some(check);
+    };
+
     const turnPenalty = 0.1;
 
     while (open.length) {
@@ -148,6 +164,7 @@ export class CanvasWrapper {
         const ny = current.y + d.dy;
 
         if (nx < minX || nx > maxX || ny < minY || ny > maxY) continue;
+        if (blocked(nx, ny)) continue;
 
         const cost = current.g + 1 + (d.side === current.dir ? 0 : turnPenalty);
         const k = key(nx, ny, d.side);
@@ -175,6 +192,7 @@ export class CanvasWrapper {
     sy: number,
     ex: number,
     ey: number,
+    obstacles: NodeModel[] = [],
     side?: Side,
     destNode?: NodeModel,
     startSide?: Side,
@@ -208,7 +226,15 @@ export class CanvasWrapper {
       lineTo(curX, curY);
     }
 
-    const path = this.findPath(curX, curY, snapX, snapY, startSide);
+    const path = this.findPath(
+      curX,
+      curY,
+      snapX,
+      snapY,
+      obstacles,
+      destNode,
+      startSide,
+    );
     for (let i = 1; i < path.length; i++) {
       lineTo(path[i].x, path[i].y);
     }

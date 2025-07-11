@@ -10,7 +10,7 @@ export class ConnectionModel {
     public pos: number,
   ) {}
 
-  draw(wrapper: CanvasWrapper): void {
+  draw(wrapper: CanvasWrapper, obstacles: NodeModel[] = []): void {
     const start = this.from.anchorPositions()[this.anchor];
     let end: Point;
     switch (this.side) {
@@ -39,6 +39,7 @@ export class ConnectionModel {
       start.y,
       baseX,
       baseY,
+      obstacles,
       this.side,
       this.to,
       NodeModel.anchorSide(this.anchor),
