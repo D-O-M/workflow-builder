@@ -246,20 +246,50 @@ export class CanvasWrapper {
       lineTo(curX, curY);
     }
 
+    let targetX = snapX;
+    let targetY = snapY;
+    let searchObstacles = obstacles;
+
+    if (destNode && side) {
+      const margin = this.nodeMargin;
+      switch (side) {
+        case 'left':
+          targetX = this.snap(destNode.x - margin);
+          targetY = snapY;
+          break;
+        case 'right':
+          targetX = this.snap(destNode.x + destNode.width + margin);
+          targetY = snapY;
+          break;
+        case 'top':
+          targetX = snapX;
+          targetY = this.snap(destNode.y - margin);
+          break;
+        case 'bottom':
+          targetX = snapX;
+          targetY = this.snap(destNode.y + destNode.height + margin);
+          break;
+      }
+      searchObstacles = [...obstacles, destNode];
+    }
+
     const path = this.findPath(
       curX,
       curY,
-      snapX,
-      snapY,
-      obstacles,
-      destNode,
+      targetX,
+      targetY,
+      searchObstacles,
+      undefined,
       startSide,
     );
     for (let i = 1; i < path.length; i++) {
       lineTo(path[i].x, path[i].y);
     }
 
-    lineTo(snapX, snapY);
+    lineTo(targetX, targetY);
+    if (destNode) {
+      lineTo(snapX, snapY);
+    }
     lineTo(ex, ey);
   }
 }
