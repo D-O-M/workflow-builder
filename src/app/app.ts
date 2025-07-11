@@ -172,12 +172,11 @@ export class App implements AfterViewInit {
           d ? { ...d, anchor: newAnchor } : d,
         );
       }
-      const curAnchor = this.dragConnection()!.anchor;
       const target = this.nodes().find(
         (n) => n.id !== drag.from && this.inNode(worldX, worldY, n),
       );
       if (target) {
-        const dir = this.directionFromTo(from, target);
+        const dir = this.sideFromPoint(worldX, worldY, target);
         const snap = this.snapPointFixedSide(worldX, worldY, target, dir);
         this.dragConnection.update((d) =>
           d ? { ...d, x: snap.x, y: snap.y } : d,
@@ -276,8 +275,7 @@ export class App implements AfterViewInit {
             (c.from === target.id && c.to === drag.from),
         );
         if (!exists) {
-          const from = this.nodes().find((n) => n.id === drag.from)!;
-          const dir = this.directionFromTo(from, target);
+          const dir = this.sideFromPoint(worldX, worldY, target);
           const snap = this.snapPointFixedSide(worldX, worldY, target, dir);
           const connections = [...this.connections()];
           connections.push({
@@ -439,15 +437,16 @@ export class App implements AfterViewInit {
     }
   }
 
-  private directionFromTo(from: Node, to: Node): Side {
-    const ax = from.x + from.width / 2;
-    const ay = from.y + from.height / 2;
-    const bx = to.x + to.width / 2;
-    const by = to.y + to.height / 2;
-    if (Math.abs(ax - bx) > Math.abs(ay - by)) {
-      return ax < bx ? 'left' : 'right';
+
+  private sideFromPoint(x: number, y: number, node: Node): Side {
+    const cx = node.x + node.width / 2;
+    const cy = node.y + node.height / 2;
+    const dx = x - cx;
+    const dy = y - cy;
+    if (Math.abs(dx) * node.height > Math.abs(dy) * node.width) {
+      return dx < 0 ? 'left' : 'right';
     }
-    return ay < by ? 'top' : 'bottom';
+    return dy < 0 ? 'top' : 'bottom';
   }
 
   private anchorRadius(idx: number): number {
