@@ -173,9 +173,15 @@ export class App implements AfterViewInit {
           d ? { ...d, anchor: newAnchor } : d,
         );
       }
-      const target = this.nodes().find(
-        (n) => n.id !== drag.from && this.inNode(worldX, worldY, n),
-      );
+      const conns = this.connections();
+      const target = this.nodes().find((n) => {
+        if (n.id === drag.from || !this.inNode(worldX, worldY, n)) return false;
+        return !conns.some(
+          (c) =>
+            (c.from === drag.from && c.to === n.id) ||
+            (c.to === drag.from && c.from === n.id),
+        );
+      });
       if (target) {
         const dir = this.sideFromPoint(worldX, worldY, target);
         const snap = this.snapPointFixedSide(worldX, worldY, target, dir);
@@ -266,9 +272,15 @@ export class App implements AfterViewInit {
 
     const drag = this.dragConnection();
     if (drag) {
-      const target = this.nodes().find(
-        (n) => n.id !== drag.from && this.inNode(worldX, worldY, n),
-      );
+      const conns = this.connections();
+      const target = this.nodes().find((n) => {
+        if (n.id === drag.from || !this.inNode(worldX, worldY, n)) return false;
+        return !conns.some(
+          (c) =>
+            (c.from === drag.from && c.to === n.id) ||
+            (c.to === drag.from && c.from === n.id),
+        );
+      });
       if (target) {
         const exists = this.connections().some(
           (c) =>
@@ -533,59 +545,48 @@ export class App implements AfterViewInit {
 
       if (side === 'left' || side === 'right') {
         const approachX = side === 'left' ? left : right;
+        let curX = sx;
         let curY = sy;
         if (curY >= top && curY <= bottom) {
-          const mid = destNode.y + destNode.height / 2;
-          const escapeY = curY < mid ? top : bottom;
-          ctx.lineTo(sx, escapeY);
+          const escapeY =
+            curY < destNode.y + destNode.height / 2 ? top : bottom;
+          ctx.lineTo(curX, escapeY);
           curY = escapeY;
         }
-        ctx.lineTo(approachX, curY);
-        ctx.lineTo(approachX, snapY);
+        if (curX !== approachX) {
+          ctx.lineTo(approachX, curY);
+          curX = approachX;
+        }
+        if (curY !== snapY) {
+          ctx.lineTo(curX, snapY);
+        }
       } else if (side === 'top' || side === 'bottom') {
         const approachY = side === 'top' ? top : bottom;
         let curX = sx;
+        let curY = sy;
         if (curX >= left && curX <= right) {
-          const mid = destNode.x + destNode.width / 2;
-          const escapeX = curX < mid ? left : right;
-          ctx.lineTo(escapeX, sy);
+          const escapeX =
+            curX < destNode.x + destNode.width / 2 ? left : right;
+          ctx.lineTo(escapeX, curY);
           curX = escapeX;
         }
-        ctx.lineTo(curX, approachY);
-        ctx.lineTo(snapX, approachY);
+        if (curY !== approachY) {
+          ctx.lineTo(curX, approachY);
+          curY = approachY;
+        }
+        if (curX !== snapX) {
+          ctx.lineTo(snapX, curY);
+        }
       }
     } else {
-      const offset = 20;
-      if (side === 'left') {
-        if (ex >= sx) {
-          ctx.lineTo(sx - offset, sy);
-          ctx.lineTo(sx - offset, snapY);
-        } else {
-          ctx.lineTo(snapX, sy);
-        }
-      } else if (side === 'right') {
-        if (ex <= sx) {
-          ctx.lineTo(sx + offset, sy);
-          ctx.lineTo(sx + offset, snapY);
-        } else {
-          ctx.lineTo(snapX, sy);
-        }
-      } else if (side === 'top') {
-        if (ey >= sy) {
-          ctx.lineTo(sx, sy - offset);
-          ctx.lineTo(snapX, sy - offset);
-        } else {
-          ctx.lineTo(sx, snapY);
-        }
-      } else if (side === 'bottom') {
-        if (ey <= sy) {
-          ctx.lineTo(sx, sy + offset);
-          ctx.lineTo(snapX, sy + offset);
-        } else {
-          ctx.lineTo(sx, snapY);
-        }
-      } else {
-        ctx.lineTo(snapX, sy);
+      if (side === 'left' || side === 'right') {
+        if (sx !== snapX) ctx.lineTo(snapX, sy);
+      } else if (side === 'top' || side === 'bottom') {
+        if (sy !== snapY) ctx.lineTo(sx, snapY);
+      } else if (Math.abs(ex - sx) > Math.abs(ey - sy)) {
+        if (sx !== snapX) ctx.lineTo(snapX, sy);
+      } else if (sy !== snapY) {
+        ctx.lineTo(sx, snapY);
       }
     }
 
@@ -670,10 +671,25 @@ export class App implements AfterViewInit {
     for (const node of this.nodes()) {
       const isHoveredDest =
         drag && node.id !== drag.from && hovered === node.id;
+      const eligible =
+        drag &&
+        node.id !== drag.from &&
+        !this.connections().some(
+          (c) =>
+            (c.from === drag.from && c.to === node.id) ||
+            (c.to === drag.from && c.from === node.id),
+        );
+
+      let saved = false;
       if (isHoveredDest) {
         ctx.save();
         ctx.strokeStyle = 'rgba(0,0,255,0.5)';
         ctx.setLineDash([4, 4]);
+        saved = true;
+      } else if (eligible) {
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        saved = true;
       }
 
       ctx.strokeRect(node.x, node.y, node.width, node.height);
@@ -686,6 +702,8 @@ export class App implements AfterViewInit {
       );
 
       if (isHoveredDest) {
+        ctx.restore();
+      } else if (saved) {
         ctx.restore();
       }
 
