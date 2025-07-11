@@ -1,6 +1,7 @@
 import { NodeModel, Side } from './node-model';
 
 export class CanvasWrapper {
+  readonly arrowSize = 8;
   constructor(
     public readonly ctx: CanvasRenderingContext2D,
     private readonly gridSize: number,
@@ -36,28 +37,42 @@ export class CanvasWrapper {
   }
 
   drawArrowHead(x: number, y: number, side: Side): void {
-    const size = 8;
+    const size = this.arrowSize;
     this.ctx.beginPath();
-    this.ctx.moveTo(x, y);
     switch (side) {
       case 'left':
-        this.ctx.lineTo(x + size, y - size / 2);
-        this.ctx.lineTo(x + size, y + size / 2);
-        break;
-      case 'right':
+        this.ctx.moveTo(x, y);
         this.ctx.lineTo(x - size, y - size / 2);
         this.ctx.lineTo(x - size, y + size / 2);
         break;
-      case 'top':
-        this.ctx.lineTo(x - size / 2, y + size);
-        this.ctx.lineTo(x + size / 2, y + size);
+      case 'right':
+        this.ctx.moveTo(x, y);
+        this.ctx.lineTo(x + size, y - size / 2);
+        this.ctx.lineTo(x + size, y + size / 2);
         break;
-      default:
+      case 'top':
+        this.ctx.moveTo(x, y);
         this.ctx.lineTo(x - size / 2, y - size);
         this.ctx.lineTo(x + size / 2, y - size);
+        break;
+      default:
+        this.ctx.moveTo(x, y);
+        this.ctx.lineTo(x - size / 2, y + size);
+        this.ctx.lineTo(x + size / 2, y + size);
     }
     this.ctx.closePath();
     this.ctx.fill();
+  }
+
+  private drawSegment(x1: number, y1: number, x2: number, y2: number): void {
+    const t = this.ctx.lineWidth;
+    if (x1 === x2) {
+      const top = Math.min(y1, y2);
+      this.ctx.fillRect(x1 - t / 2, top, t, Math.abs(y2 - y1));
+    } else if (y1 === y2) {
+      const left = Math.min(x1, x2);
+      this.ctx.fillRect(left, y1 - t / 2, Math.abs(x2 - x1), t);
+    }
   }
 
   drawOrthogonalLine(
@@ -71,13 +86,18 @@ export class CanvasWrapper {
   ): void {
     const snapX = this.snap(ex);
     const snapY = this.snap(ey);
-    this.ctx.beginPath();
-    this.ctx.moveTo(sx, sy);
 
     const pad = this.nodeMargin;
 
     let curX = sx;
     let curY = sy;
+
+    const lineTo = (x: number, y: number) => {
+      if (curX === x && curY === y) return;
+      this.drawSegment(curX, curY, x, y);
+      curX = x;
+      curY = y;
+    };
 
     if (startSide === 'left') {
       curX -= pad;
@@ -90,7 +110,7 @@ export class CanvasWrapper {
     }
 
     if (curX !== sx || curY !== sy) {
-      this.ctx.lineTo(curX, curY);
+      lineTo(curX, curY);
     }
 
     if (destNode) {
@@ -104,46 +124,41 @@ export class CanvasWrapper {
         if (curY >= top && curY <= bottom) {
           const escapeY =
             curY < destNode.y + destNode.height / 2 ? top : bottom;
-          this.ctx.lineTo(curX, escapeY);
-          curY = escapeY;
+          lineTo(curX, escapeY);
         }
         if (curX !== approachX) {
-          this.ctx.lineTo(approachX, curY);
-          curX = approachX;
+          lineTo(approachX, curY);
         }
         if (curY !== snapY) {
-          this.ctx.lineTo(curX, snapY);
+          lineTo(curX, snapY);
         }
       } else if (side === 'top' || side === 'bottom') {
         const approachY = side === 'top' ? top : bottom;
 
         if (curX >= left && curX <= right) {
           const escapeX = curX < destNode.x + destNode.width / 2 ? left : right;
-          this.ctx.lineTo(escapeX, curY);
-          curX = escapeX;
+          lineTo(escapeX, curY);
         }
         if (curY !== approachY) {
-          this.ctx.lineTo(curX, approachY);
-          curY = approachY;
+          lineTo(curX, approachY);
         }
         if (curX !== snapX) {
-          this.ctx.lineTo(snapX, curY);
+          lineTo(snapX, curY);
         }
       }
     } else {
       if (side === 'left' || side === 'right') {
-        if (curX !== snapX) this.ctx.lineTo(snapX, curY);
+        if (curX !== snapX) lineTo(snapX, curY);
       } else if (side === 'top' || side === 'bottom') {
-        if (curY !== snapY) this.ctx.lineTo(curX, snapY);
+        if (curY !== snapY) lineTo(curX, snapY);
       } else if (Math.abs(ex - curX) > Math.abs(ey - curY)) {
-        if (curX !== snapX) this.ctx.lineTo(snapX, curY);
+        if (curX !== snapX) lineTo(snapX, curY);
       } else if (curY !== snapY) {
-        this.ctx.lineTo(curX, snapY);
+        lineTo(curX, snapY);
       }
     }
 
-    this.ctx.lineTo(snapX, snapY);
-    this.ctx.lineTo(ex, ey);
-    this.ctx.stroke();
+    lineTo(snapX, snapY);
+    lineTo(ex, ey);
   }
 }
