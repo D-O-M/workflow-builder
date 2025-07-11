@@ -32,29 +32,6 @@ export class NodeModel {
     );
   }
 
-  snapPointOutsideBuffer(x: number, y: number, buffer: number): Point {
-    const left = this.x - buffer;
-    const right = this.x + this.width + buffer;
-    const top = this.y - buffer;
-    const bottom = this.y + this.height + buffer;
-
-    const dxLeft = Math.abs(x - left);
-    const dxRight = Math.abs(x - right);
-    const dyTop = Math.abs(y - top);
-    const dyBottom = Math.abs(y - bottom);
-
-    const min = Math.min(dxLeft, dxRight, dyTop, dyBottom);
-    if (min === dxLeft) {
-      return { x: left, y: NodeModel.clamp(y, top, bottom) };
-    }
-    if (min === dxRight) {
-      return { x: right, y: NodeModel.clamp(y, top, bottom) };
-    }
-    if (min === dyTop) {
-      return { x: NodeModel.clamp(x, left, right), y: top };
-    }
-    return { x: NodeModel.clamp(x, left, right), y: bottom };
-  }
 
   constructor(
     public id: number,
