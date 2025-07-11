@@ -58,7 +58,8 @@ export class App implements AfterViewInit {
   private readonly canvasRef =
     viewChild.required<ElementRef<HTMLCanvasElement>>('myCanvas');
 
-  private readonly inputRef = viewChild<ElementRef<HTMLInputElement>>('nameInput');
+  private readonly inputRef =
+    viewChild<ElementRef<HTMLInputElement>>('nameInput');
 
   protected readonly zoom = signal(1);
 
@@ -167,7 +168,9 @@ export class App implements AfterViewInit {
         (side === 'bottom' && worldY < from.y)
       ) {
         const newAnchor = this.oppositeAnchor(drag.anchor);
-        this.dragConnection.update((d) => (d ? { ...d, anchor: newAnchor } : d));
+        this.dragConnection.update((d) =>
+          d ? { ...d, anchor: newAnchor } : d,
+        );
       }
       const curAnchor = this.dragConnection()!.anchor;
       const target = this.nodes().find(
@@ -344,7 +347,12 @@ export class App implements AfterViewInit {
     x: number,
     y: number,
     node: Node,
-  ): { x: number; y: number; side: 'left' | 'right' | 'top' | 'bottom'; pos: number } {
+  ): {
+    x: number;
+    y: number;
+    side: 'left' | 'right' | 'top' | 'bottom';
+    pos: number;
+  } {
     const left = Math.abs(x - node.x);
     const right = Math.abs(x - (node.x + node.width));
     const top = Math.abs(y - node.y);
@@ -369,7 +377,6 @@ export class App implements AfterViewInit {
       };
     }
   }
-
 
   private anchorPositions(node: Node): Point[] {
     const anchors: Point[] = [];
@@ -447,14 +454,12 @@ export class App implements AfterViewInit {
     return [1, 4, 7, 10].includes(idx) ? 12 : 10;
   }
 
-  private inAnchorCircle(
-    x: number,
-    y: number,
-    node: Node,
-  ): number | null {
+  private inAnchorCircle(x: number, y: number, node: Node): number | null {
     const anchors = this.anchorPositions(node);
     for (let i = 0; i < anchors.length; i++) {
-      if (Math.hypot(x - anchors[i].x, y - anchors[i].y) <= this.anchorRadius(i)) {
+      if (
+        Math.hypot(x - anchors[i].x, y - anchors[i].y) <= this.anchorRadius(i)
+      ) {
         return i;
       }
     }
@@ -550,10 +555,48 @@ export class App implements AfterViewInit {
       ctx.lineTo(snapX, sy);
     }
     ctx.lineTo(snapX, snapY);
+
+    if (arrowTarget) {
+      const dx = arrowTarget.x - ex;
+      const dy = arrowTarget.y - ey;
+      let destSide: Side;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        destSide = dx > 0 ? 'right' : 'left';
+      } else {
+        destSide = dy > 0 ? 'bottom' : 'top';
+      }
+      if (destSide === 'left') {
+        ctx.lineTo(ex + offset, snapY);
+        ctx.lineTo(ex + offset, ey);
+      } else if (destSide === 'right') {
+        ctx.lineTo(ex - offset, snapY);
+        ctx.lineTo(ex - offset, ey);
+      } else if (destSide === 'top') {
+        ctx.lineTo(snapX, ey + offset);
+        ctx.lineTo(ex, ey + offset);
+      } else {
+        ctx.lineTo(snapX, ey - offset);
+        ctx.lineTo(ex, ey - offset);
+      }
+    }
+
     ctx.lineTo(ex, ey);
     ctx.stroke();
-    const target = arrowTarget ?? { x: ex, y: ey };
-    this.drawArrowHead(ctx, ex, ey, target.x, target.y);
+
+    const arrowSize = 8;
+    let bx = ex;
+    let by = ey;
+    if (arrowTarget) {
+      const dx = arrowTarget.x - ex;
+      const dy = arrowTarget.y - ey;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        bx = dx > 0 ? ex - arrowSize : ex + arrowSize;
+      } else {
+        by = dy > 0 ? ey - arrowSize : ey + arrowSize;
+      }
+    }
+
+    this.drawArrowHead(ctx, bx, by, ex, ey);
   }
 
   private drawArrowHead(
@@ -629,9 +672,7 @@ export class App implements AfterViewInit {
 
     for (const node of this.nodes()) {
       const isHoveredDest =
-        drag &&
-        node.id !== drag.from &&
-        hovered === node.id;
+        drag && node.id !== drag.from && hovered === node.id;
       if (isHoveredDest) {
         ctx.save();
         ctx.strokeStyle = 'rgba(0,0,255,0.5)';
@@ -660,8 +701,7 @@ export class App implements AfterViewInit {
       } else if (!drag && hovered === node.id) {
         for (let i = 0; i < anchors.length; i++) {
           ctx.beginPath();
-          ctx.globalAlpha =
-            this.hoveredAnchor() === i ? 1 : 0.3;
+          ctx.globalAlpha = this.hoveredAnchor() === i ? 1 : 0.3;
           ctx.arc(
             anchors[i].x,
             anchors[i].y,
@@ -677,22 +717,27 @@ export class App implements AfterViewInit {
 
     if (drag) {
       const from = this.nodes().find((n) => n.id === drag.from)!;
-      const start = this.anchorPositions(from)[drag.anchor];
-      const hoveredNode =
-        hovered && hovered !== drag.from
-          ? this.nodes().find((n) => n.id === hovered)
-          : undefined;
-      this.drawOrthogonalLine(
-        ctx,
-        start.x,
-        start.y,
-        drag.x,
-        drag.y,
-        this.anchorSide(drag.anchor),
-        hoveredNode
-          ? { x: hoveredNode.x + hoveredNode.width / 2, y: hoveredNode.y + hoveredNode.height / 2 }
-          : undefined,
-      );
+      if (!this.inNode(drag.x, drag.y, from)) {
+        const start = this.anchorPositions(from)[drag.anchor];
+        const hoveredNode =
+          hovered && hovered !== drag.from
+            ? this.nodes().find((n) => n.id === hovered)
+            : undefined;
+        this.drawOrthogonalLine(
+          ctx,
+          start.x,
+          start.y,
+          drag.x,
+          drag.y,
+          this.anchorSide(drag.anchor),
+          hoveredNode
+            ? {
+                x: hoveredNode.x + hoveredNode.width / 2,
+                y: hoveredNode.y + hoveredNode.height / 2,
+              }
+            : undefined,
+        );
+      }
     }
 
     ctx.restore();
