@@ -145,18 +145,21 @@ export class CanvasWrapper {
 
     const turnPenalty = 0.1;
 
+    const startTime = performance.now();
+    const timeLimit = 5; // ms
+    let best = startNode;
+
     while (open.length) {
       open.sort((a, b) => a.f - b.f);
       const current = open.shift()!;
 
+      if (current.f < best.f) {
+        best = current;
+      }
+
       if (current.x === end.x && current.y === end.y) {
-        const path: { x: number; y: number }[] = [];
-        let c: Node | undefined = current;
-        while (c) {
-          path.push({ x: c.x, y: c.y });
-          c = c.parent;
-        }
-        return path.reverse();
+        best = current;
+        break;
       }
 
       for (const d of dirs) {
@@ -182,9 +185,19 @@ export class CanvasWrapper {
           open.push(node);
         }
       }
+
+      if (performance.now() - startTime > timeLimit) {
+        break;
+      }
     }
 
-    return [start, end];
+    const path: { x: number; y: number }[] = [];
+    let c: Node | undefined = best;
+    while (c) {
+      path.push({ x: c.x, y: c.y });
+      c = c.parent;
+    }
+    return path.length ? path.reverse() : [start, end];
   }
 
   drawOrthogonalLine(
