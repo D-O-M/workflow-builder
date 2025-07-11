@@ -204,7 +204,7 @@ export class App implements AfterViewInit {
       this.dragOffset.set({ x, y });
       return;
     }
-    const node = this.nodes().find((n) => this.inNode(worldX, worldY, n));
+    const node = this.nodes().find((n) => this.inNodeBuffer(worldX, worldY, n));
     this.hoveredNodeId.set(node ? node.id : null);
     if (node) {
       const idx = this.inAnchorCircle(worldX, worldY, node);
