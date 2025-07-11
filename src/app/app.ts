@@ -12,36 +12,15 @@ import {
 } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
-
-interface Node {
-  id: number;
-  name: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface Connection {
-  from: number;
-  to: number;
-  anchor: number;
-  side: 'left' | 'right' | 'top' | 'bottom';
-  pos: number;
-}
+import { CanvasWrapper } from './domain/canvas-wrapper';
+import { ConnectionModel } from './domain/connection-model';
+import { NodeModel, Point, Side } from './domain/node-model';
 
 interface DragNode {
   id: number;
   dx: number;
   dy: number;
 }
-
-interface Point {
-  x: number;
-  y: number;
-}
-
-type Side = 'left' | 'right' | 'top' | 'bottom';
 
 @Component({
   selector: 'app-root',
@@ -67,10 +46,10 @@ export class App implements AfterViewInit {
     return this.canvasRef().nativeElement;
   }
 
-  private ctx?: CanvasRenderingContext2D;
+  private canvasWrapper?: CanvasWrapper;
 
-  protected readonly nodes = signal<Node[]>([]);
-  protected readonly connections = signal<Connection[]>([]);
+  protected readonly nodes = signal<NodeModel[]>([]);
+  protected readonly connections = signal<ConnectionModel[]>([]);
 
   private readonly gridSize = 20;
   private readonly nodeMargin = 20;
@@ -98,7 +77,8 @@ export class App implements AfterViewInit {
   ngAfterViewInit(): void {
     const c = this.canvasRef();
     if (!c) return;
-    this.ctx = c.nativeElement.getContext('2d')!;
+    const ctx = c.nativeElement.getContext('2d')!;
+    this.canvasWrapper = new CanvasWrapper(ctx, this.gridSize, this.nodeMargin);
     c.nativeElement.width = c.nativeElement.clientWidth;
     c.nativeElement.height = c.nativeElement.clientHeight;
 
@@ -134,14 +114,17 @@ export class App implements AfterViewInit {
       return;
     }
     const nodes = [...this.nodes()];
-    nodes.push({
-      id: Date.now(),
-      name,
-      x: this.snap(pos.x),
-      y: this.snap(pos.y),
-      width: 240,
-      height: 160,
-    });
+    const wrapper = this.canvasWrapper!;
+    nodes.push(
+      new NodeModel(
+        Date.now(),
+        name,
+        wrapper.snap(pos.x),
+        wrapper.snap(pos.y),
+        240,
+        160,
+      ),
+    );
     this.nodes.set(nodes);
     this.showModal.set(false);
   }
@@ -178,8 +161,8 @@ export class App implements AfterViewInit {
         if (n.id === drag.from || !this.inNode(worldX, worldY, n)) return false;
         return !conns.some(
           (c) =>
-            (c.from === drag.from && c.to === n.id) ||
-            (c.to === drag.from && c.from === n.id),
+            (c.from.id === drag.from && c.to.id === n.id) ||
+            (c.to.id === drag.from && c.from.id === n.id),
         );
       });
       if (target) {
@@ -198,16 +181,15 @@ export class App implements AfterViewInit {
     }
     if (this.dragNode()) {
       const drag = this.dragNode()!;
+      const wrapper = this.canvasWrapper!;
       this.nodes.update((nodes) =>
-        nodes.map((n) =>
-          n.id === drag.id
-            ? {
-                ...n,
-                x: this.snap(worldX - drag.dx),
-                y: this.snap(worldY - drag.dy),
-              }
-            : n,
-        ),
+        nodes.map((n) => {
+          if (n.id === drag.id) {
+            n.x = wrapper.snap(worldX - drag.dx);
+            n.y = wrapper.snap(worldY - drag.dy);
+          }
+          return n;
+        }),
       );
       return;
     }
@@ -277,27 +259,24 @@ export class App implements AfterViewInit {
         if (n.id === drag.from || !this.inNode(worldX, worldY, n)) return false;
         return !conns.some(
           (c) =>
-            (c.from === drag.from && c.to === n.id) ||
-            (c.to === drag.from && c.from === n.id),
+            (c.from.id === drag.from && c.to.id === n.id) ||
+            (c.to.id === drag.from && c.from.id === n.id),
         );
       });
       if (target) {
         const exists = this.connections().some(
           (c) =>
-            (c.from === drag.from && c.to === target.id) ||
-            (c.from === target.id && c.to === drag.from),
+            (c.from.id === drag.from && c.to.id === target.id) ||
+            (c.from.id === target.id && c.to.id === drag.from),
         );
         if (!exists) {
           const dir = this.sideFromPoint(worldX, worldY, target);
           const snap = this.snapPointFixedSide(worldX, worldY, target, dir);
           const connections = [...this.connections()];
-          connections.push({
-            from: drag.from,
-            to: target.id,
-            anchor: drag.anchor,
-            side: dir,
-            pos: snap.pos,
-          });
+          const fromNode = this.nodes().find((n) => n.id === drag.from)!;
+          connections.push(
+            new ConnectionModel(fromNode, target, drag.anchor, dir, snap.pos),
+          );
           this.connections.set(connections);
         }
       }
@@ -341,136 +320,53 @@ export class App implements AfterViewInit {
     this.offset.set({ x: 0, y: 0 });
   }
 
-  private inNode(x: number, y: number, node: Node): boolean {
-    return (
-      x >= node.x &&
-      x <= node.x + node.width &&
-      y >= node.y &&
-      y <= node.y + node.height
-    );
+  private inNode(x: number, y: number, node: NodeModel): boolean {
+    return node.contains(x, y);
   }
 
   private clamp(v: number, min: number, max: number): number {
-    return Math.min(Math.max(v, min), max);
+    return NodeModel.clamp(v, min, max);
   }
 
   private snapPointToSide(
     x: number,
     y: number,
-    node: Node,
-  ): {
-    x: number;
-    y: number;
-    side: 'left' | 'right' | 'top' | 'bottom';
-    pos: number;
-  } {
-    const left = Math.abs(x - node.x);
-    const right = Math.abs(x - (node.x + node.width));
-    const top = Math.abs(y - node.y);
-    const bottom = Math.abs(y - (node.y + node.height));
-    const min = Math.min(left, right, top, bottom);
-    if (min === left) {
-      const yy = this.clamp(y, node.y, node.y + node.height);
-      return { x: node.x, y: yy, side: 'left', pos: yy - node.y };
-    } else if (min === right) {
-      const yy = this.clamp(y, node.y, node.y + node.height);
-      return { x: node.x + node.width, y: yy, side: 'right', pos: yy - node.y };
-    } else if (min === top) {
-      const xx = this.clamp(x, node.x, node.x + node.width);
-      return { x: xx, y: node.y, side: 'top', pos: xx - node.x };
-    } else {
-      const xx = this.clamp(x, node.x, node.x + node.width);
-      return {
-        x: xx,
-        y: node.y + node.height,
-        side: 'bottom',
-        pos: xx - node.x,
-      };
-    }
+    node: NodeModel,
+  ): { x: number; y: number; side: Side; pos: number } {
+    return node.snapPointToSide(x, y);
   }
 
-  private anchorPositions(node: Node): Point[] {
-    const anchors: Point[] = [];
-    const offs = [0.25, 0.5, 0.75];
-    for (const o of offs) {
-      anchors.push({ x: node.x + node.width * o, y: node.y });
-    }
-    for (const o of offs) {
-      anchors.push({ x: node.x + node.width, y: node.y + node.height * o });
-    }
-    for (const o of offs) {
-      anchors.push({ x: node.x + node.width * o, y: node.y + node.height });
-    }
-    for (const o of offs) {
-      anchors.push({ x: node.x, y: node.y + node.height * o });
-    }
-    return anchors;
+  private anchorPositions(node: NodeModel): Point[] {
+    return node.anchorPositions();
   }
 
   private anchorSide(idx: number): Side {
-    if (idx < 3) return 'top';
-    if (idx < 6) return 'right';
-    if (idx < 9) return 'bottom';
-    return 'left';
+    return NodeModel.anchorSide(idx);
   }
 
   private oppositeAnchor(idx: number): number {
-    return [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5][idx];
+    return NodeModel.oppositeAnchor(idx);
   }
 
   private snapPointFixedSide(
     x: number,
     y: number,
-    node: Node,
+    node: NodeModel,
     side: Side,
   ): { x: number; y: number; side: Side; pos: number } {
-    switch (side) {
-      case 'left':
-        const yyL = this.clamp(y, node.y, node.y + node.height);
-        return { x: node.x, y: yyL, side: 'left', pos: yyL - node.y };
-      case 'right':
-        const yyR = this.clamp(y, node.y, node.y + node.height);
-        return {
-          x: node.x + node.width,
-          y: yyR,
-          side: 'right',
-          pos: yyR - node.y,
-        };
-      case 'top':
-        const xxT = this.clamp(x, node.x, node.x + node.width);
-        return { x: xxT, y: node.y, side: 'top', pos: xxT - node.x };
-      default:
-        const xxB = this.clamp(x, node.x, node.x + node.width);
-        return {
-          x: xxB,
-          y: node.y + node.height,
-          side: 'bottom',
-          pos: xxB - node.x,
-        };
-    }
+    return node.snapPointFixedSide(x, y, side);
   }
 
 
-  private sideFromPoint(x: number, y: number, node: Node): Side {
-    const cx = node.x + node.width / 2;
-    const cy = node.y + node.height / 2;
-    const dx = x - cx;
-    const dy = y - cy;
-    if (Math.abs(dx) * node.height > Math.abs(dy) * node.width) {
-      return dx < 0 ? 'left' : 'right';
-    }
-    return dy < 0 ? 'top' : 'bottom';
+  private sideFromPoint(x: number, y: number, node: NodeModel): Side {
+    return node.sideFromPoint(x, y);
   }
 
-  private anchorRadius(idx: number): number {
-    return [1, 4, 7, 10].includes(idx) ? 12 : 10;
-  }
-
-  private inAnchorCircle(x: number, y: number, node: Node): number | null {
+  private inAnchorCircle(x: number, y: number, node: NodeModel): number | null {
     const anchors = this.anchorPositions(node);
     for (let i = 0; i < anchors.length; i++) {
       if (
-        Math.hypot(x - anchors[i].x, y - anchors[i].y) <= this.anchorRadius(i)
+        Math.hypot(x - anchors[i].x, y - anchors[i].y) <= node.anchorRadius(i)
       ) {
         return i;
       }
@@ -479,7 +375,7 @@ export class App implements AfterViewInit {
   }
 
   private snap(value: number): number {
-    return Math.round(value / this.gridSize) * this.gridSize;
+    return this.canvasWrapper!.snap(value);
   }
 
   private startAnimation(): void {
@@ -505,20 +401,7 @@ export class App implements AfterViewInit {
     y: number,
     maxWidth: number,
   ): void {
-    const words = text.split(/\s+/);
-    let line = '';
-    const lineHeight = 16;
-    for (const word of words) {
-      const test = line ? `${line} ${word}` : word;
-      if (ctx.measureText(test).width > maxWidth && line) {
-        ctx.fillText(line, x, y);
-        line = word;
-        y += lineHeight;
-      } else {
-        line = test;
-      }
-    }
-    ctx.fillText(line, x, y);
+    this.canvasWrapper!.drawWrappedText(text, x, y, maxWidth);
   }
 
   private drawOrthogonalLine(
@@ -528,107 +411,19 @@ export class App implements AfterViewInit {
     ex: number,
     ey: number,
     side?: Side,
-    destNode?: Node,
+    destNode?: NodeModel,
   ): void {
-    const snapX = this.snap(ex);
-    const snapY = this.snap(ey);
-    ctx.beginPath();
-    ctx.moveTo(sx, sy);
-
-    const pad = this.nodeMargin;
-
-    if (destNode) {
-      const left = destNode.x - pad;
-      const right = destNode.x + destNode.width + pad;
-      const top = destNode.y - pad;
-      const bottom = destNode.y + destNode.height + pad;
-
-      if (side === 'left' || side === 'right') {
-        const approachX = side === 'left' ? left : right;
-        let curX = sx;
-        let curY = sy;
-        if (curY >= top && curY <= bottom) {
-          const escapeY =
-            curY < destNode.y + destNode.height / 2 ? top : bottom;
-          ctx.lineTo(curX, escapeY);
-          curY = escapeY;
-        }
-        if (curX !== approachX) {
-          ctx.lineTo(approachX, curY);
-          curX = approachX;
-        }
-        if (curY !== snapY) {
-          ctx.lineTo(curX, snapY);
-        }
-      } else if (side === 'top' || side === 'bottom') {
-        const approachY = side === 'top' ? top : bottom;
-        let curX = sx;
-        let curY = sy;
-        if (curX >= left && curX <= right) {
-          const escapeX =
-            curX < destNode.x + destNode.width / 2 ? left : right;
-          ctx.lineTo(escapeX, curY);
-          curX = escapeX;
-        }
-        if (curY !== approachY) {
-          ctx.lineTo(curX, approachY);
-          curY = approachY;
-        }
-        if (curX !== snapX) {
-          ctx.lineTo(snapX, curY);
-        }
-      }
-    } else {
-      if (side === 'left' || side === 'right') {
-        if (sx !== snapX) ctx.lineTo(snapX, sy);
-      } else if (side === 'top' || side === 'bottom') {
-        if (sy !== snapY) ctx.lineTo(sx, snapY);
-      } else if (Math.abs(ex - sx) > Math.abs(ey - sy)) {
-        if (sx !== snapX) ctx.lineTo(snapX, sy);
-      } else if (sy !== snapY) {
-        ctx.lineTo(sx, snapY);
-      }
-    }
-
-    ctx.lineTo(snapX, snapY);
-    ctx.lineTo(ex, ey);
-    ctx.stroke();
-
-    this.drawArrowHead(ctx, snapX, snapY, ex, ey);
+    this.canvasWrapper!.drawOrthogonalLine(sx, sy, ex, ey, side, destNode);
   }
 
-  private drawArrowHead(
-    ctx: CanvasRenderingContext2D,
-    fromX: number,
-    fromY: number,
-    toX: number,
-    toY: number,
-  ): void {
-    const angle = Math.atan2(toY - fromY, toX - fromX);
-    const size = 8;
-    ctx.beginPath();
-    ctx.moveTo(toX, toY);
-    ctx.lineTo(
-      toX - size * Math.cos(angle - Math.PI / 6),
-      toY - size * Math.sin(angle - Math.PI / 6),
-    );
-    ctx.lineTo(
-      toX - size * Math.cos(angle + Math.PI / 6),
-      toY - size * Math.sin(angle + Math.PI / 6),
-    );
-    ctx.closePath();
-    ctx.fill();
-  }
 
   private draw(): void {
-    const ctx = this.ctx;
+    const wrapper = this.canvasWrapper;
     const canvas = this.canvas;
-    if (!ctx || !canvas) return;
+    if (!wrapper || !canvas) return;
+    const ctx = wrapper.ctx;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = 'blue';
-    ctx.fillStyle = 'blue';
-    ctx.lineWidth = 2;
+    wrapper.clear(canvas.width, canvas.height);
 
     ctx.save();
     const zoom = this.zoom();
@@ -637,32 +432,7 @@ export class App implements AfterViewInit {
     ctx.translate(off.x, off.y);
 
     for (const conn of this.connections()) {
-      const from = this.nodes().find((n) => n.id === conn.from)!;
-      const to = this.nodes().find((n) => n.id === conn.to)!;
-      const start = this.anchorPositions(from)[conn.anchor];
-      let end: Point;
-      switch (conn.side) {
-        case 'left':
-          end = { x: to.x, y: to.y + conn.pos };
-          break;
-        case 'right':
-          end = { x: to.x + to.width, y: to.y + conn.pos };
-          break;
-        case 'top':
-          end = { x: to.x + conn.pos, y: to.y };
-          break;
-        default:
-          end = { x: to.x + conn.pos, y: to.y + to.height };
-      }
-      this.drawOrthogonalLine(
-        ctx,
-        start.x,
-        start.y,
-        end.x,
-        end.y,
-        conn.side,
-        to,
-      );
+      conn.draw(wrapper);
     }
 
     const hovered = this.hoveredNodeId();
@@ -676,8 +446,8 @@ export class App implements AfterViewInit {
         node.id !== drag.from &&
         !this.connections().some(
           (c) =>
-            (c.from === drag.from && c.to === node.id) ||
-            (c.to === drag.from && c.from === node.id),
+            (c.from.id === drag.from && c.to.id === node.id) ||
+            (c.to.id === drag.from && c.from.id === node.id),
         );
 
       let saved = false;
@@ -711,7 +481,7 @@ export class App implements AfterViewInit {
       if (drag && drag.from === node.id) {
         const pos = anchors[drag.anchor];
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, this.anchorRadius(drag.anchor), 0, 2 * Math.PI);
+        ctx.arc(pos.x, pos.y, node.anchorRadius(drag.anchor), 0, 2 * Math.PI);
         ctx.fill();
       } else if (!drag && hovered === node.id) {
         for (let i = 0; i < anchors.length; i++) {
@@ -720,7 +490,7 @@ export class App implements AfterViewInit {
           ctx.arc(
             anchors[i].x,
             anchors[i].y,
-            this.anchorRadius(i),
+            node.anchorRadius(i),
             0,
             2 * Math.PI,
           );
