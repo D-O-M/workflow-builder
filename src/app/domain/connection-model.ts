@@ -30,8 +30,8 @@ export class ConnectionModel {
     wrapper.drawOrthogonalLine(
       start.x,
       start.y,
-      end.x,
-      end.y,
+      end.x - (this.side === 'right' ? wrapper.arrowSize : this.side === 'left' ? -wrapper.arrowSize : 0),
+      end.y - (this.side === 'bottom' ? wrapper.arrowSize : this.side === 'top' ? -wrapper.arrowSize : 0),
       this.side,
       this.to,
       NodeModel.anchorSide(this.anchor),
