@@ -16,7 +16,11 @@
 @if (showModal()) {
   <div class="modal-backdrop">
     <div class="modal">
-      <input #nameInput [formControl]="nodeName" placeholder="Node name" />
+      <select #taskSelect [formControl]="selectedTask">
+        @for (task of tasks(); track task.name) {
+          <option [value]="task.name">{{ task.name }}</option>
+        }
+      </select>
       <div class="actions">
         <button type="button" (click)="createNode()">Create</button>
         <button type="button" (click)="showModal.set(false)">Cancel</button>
