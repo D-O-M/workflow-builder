@@ -1,0 +1,13 @@
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\bin\Debug\net9.0\Backend.ServiceDefaults.deps.json
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\bin\Debug\net9.0\Backend.ServiceDefaults.dll
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\bin\Debug\net9.0\Backend.ServiceDefaults.pdb
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\obj\Debug\net9.0\Backend.ServiceDefaults.csproj.AssemblyReference.cache
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\obj\Debug\net9.0\Backend.ServiceDefaults.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\obj\Debug\net9.0\Backend.ServiceDefaults.AssemblyInfoInputs.cache
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\obj\Debug\net9.0\Backend.ServiceDefaults.AssemblyInfo.cs
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\obj\Debug\net9.0\Backend.ServiceDefaults.csproj.CoreCompileInputs.cache
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\obj\Debug\net9.0\Backend.ServiceDefaults.sourcelink.json
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\obj\Debug\net9.0\Backend.ServiceDefaults.dll
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\obj\Debug\net9.0\refint\Backend.ServiceDefaults.dll
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\obj\Debug\net9.0\Backend.ServiceDefaults.pdb
+C:\Users\domc\source\repos\workflow-builder\Backend.ServiceDefaults\obj\Debug\net9.0\ref\Backend.ServiceDefaults.dll
