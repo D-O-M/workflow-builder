@@ -411,6 +411,7 @@ export class App implements AfterViewInit {
     sy: number,
     ex: number,
     ey: number,
+    obstacles: NodeModel[],
     side?: Side,
     destNode?: NodeModel,
     startSide?: Side,
@@ -420,6 +421,7 @@ export class App implements AfterViewInit {
       sy,
       ex,
       ey,
+      obstacles,
       side,
       destNode,
       startSide,
@@ -441,7 +443,10 @@ export class App implements AfterViewInit {
     ctx.translate(off.x, off.y);
 
     for (const conn of this.connections()) {
-      conn.draw(wrapper);
+      const obstacles = this.nodes().filter(
+        (n) => n.id !== conn.from.id && n.id !== conn.to.id,
+      );
+      conn.draw(wrapper, obstacles);
     }
 
     const hovered = this.hoveredNodeId();
@@ -524,20 +529,27 @@ export class App implements AfterViewInit {
             hoveredNode,
             drag.side,
           ).pos;
+          const obstacles = this.nodes().filter(
+            (n) => n.id !== from.id && n.id !== hoveredNode.id,
+          );
           new ConnectionModel(
             from,
             hoveredNode,
             drag.anchor,
             drag.side,
             pos,
-          ).draw(wrapper);
+          ).draw(wrapper, obstacles);
         } else {
+          const obstacles = this.nodes().filter(
+            (n) => n.id !== from.id && n.id !== hoveredNode?.id,
+          );
           this.drawOrthogonalLine(
             ctx,
             start.x,
             start.y,
             drag.x,
             drag.y,
+            obstacles,
             drag.side ?? this.anchorSide(drag.anchor),
             hoveredNode,
             this.anchorSide(drag.anchor),
