@@ -23,7 +23,8 @@ var frontend = builder.AddDockerfile("frontend", uiDirectoryPath)
 
 MountUiRootFilesAndTopDirs(frontend, uiDirectoryPath, "/app");
 
-builder.AddProject<Projects.Backend_API>("backend-api");
+var api = builder.AddProject<Projects.Backend_API>("backend-api");
+frontend.WithReference(api);
 
 builder.Build().Run();
 
