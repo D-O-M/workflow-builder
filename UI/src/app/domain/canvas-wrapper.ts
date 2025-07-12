@@ -89,6 +89,7 @@ export class CanvasWrapper {
     side?: Side,
     destNode?: NodeModel,
     startSide?: Side,
+    startNode?: NodeModel,
   ): void {
     const options: PathfinderOptions = {
       gridSize: this.gridSize,
@@ -105,6 +106,7 @@ export class CanvasWrapper {
       side,
       destNode,
       startSide,
+      startNode,
     );
     for (const seg of segments) {
       this.drawSegment(seg.x1, seg.y1, seg.x2, seg.y2);

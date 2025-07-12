@@ -44,6 +44,7 @@ export class ConnectionModel {
       this.side,
       this.to,
       NodeModel.anchorSide(this.anchor),
+      this.from,
     );
   }
 
@@ -80,6 +81,7 @@ export class ConnectionModel {
       this.side,
       this.to,
       NodeModel.anchorSide(this.anchor),
+      this.from,
     );
 
     wrapper.drawArrowHead(tipX, tipY, this.side);
