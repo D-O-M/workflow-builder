@@ -74,9 +74,7 @@
         },
         "serve": {
           "builder": "@angular/build:dev-server",
-          "options": {
-            "proxyConfig": "src/proxy.conf.json"
-          },
+          "options": {},
           "configurations": {
             "production": {
               "buildTarget": "workflow-builder:build:production"
