@@ -96,4 +96,31 @@ describe('pathfinder', () => {
     const targetX = 80; // snap(dst.x - margin)
     expect(prev.x2).toBe(targetX);
   });
+
+  it('snaps endpoint inside destination buffer to the border', () => {
+    const src = new NodeModel(1, 'src', 0, 0, 40, 40);
+    const dst = new NodeModel(2, 'dst', 90, 60, 40, 40);
+    const anchor = src.anchorPositions()[3];
+    const ex = dst.x - 2; // inside left buffer
+    const ey = dst.y + dst.height / 2;
+    const segs = orthogonalSegments(
+      anchor.x,
+      anchor.y,
+      ex,
+      ey,
+      opts,
+      [],
+      'left',
+      dst,
+      'right',
+      src,
+    );
+    for (let i = 1; i < segs.length; i++) {
+      expect(segs[i - 1].x2).toBe(segs[i].x1);
+      expect(segs[i - 1].y2).toBe(segs[i].y1);
+    }
+    const last = segs[segs.length - 1];
+    expect(last.x2).toBe(dst.x);
+    expect(last.y2).toBe(ey);
+  });
 });
