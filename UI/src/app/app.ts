@@ -434,6 +434,7 @@ export class App implements AfterViewInit {
     side?: Side,
     destNode?: NodeModel,
     startSide?: Side,
+    startNode?: NodeModel,
   ): void {
     this.canvasWrapper!.drawOrthogonalLine(
       sx,
@@ -444,6 +445,7 @@ export class App implements AfterViewInit {
       side,
       destNode,
       startSide,
+      startNode,
     );
   }
 
@@ -572,6 +574,7 @@ export class App implements AfterViewInit {
             drag.side ?? this.anchorSide(drag.anchor),
             hoveredNode,
             this.anchorSide(drag.anchor),
+            from,
           );
         }
       }

@@ -30,4 +30,70 @@ describe('pathfinder', () => {
     expect(last.x2).toBe(60);
     expect(last.y2).toBe(0);
   });
+  it('draws initial segment to buffer edge when leaving source', () => {
+    const src = new NodeModel(1, 'src', 0, 0, 40, 40);
+    const anchor = src.anchorPositions()[3]; // right side
+    const ex = anchor.x + 30;
+    const ey = anchor.y;
+    const segs = orthogonalSegments(
+      anchor.x,
+      anchor.y,
+      ex,
+      ey,
+      opts,
+      [],
+      undefined,
+      undefined,
+      'right',
+      src,
+    );
+    expect(segs[0]).toEqual({ x1: anchor.x, y1: anchor.y, x2: anchor.x + opts.nodeMargin, y2: anchor.y });
+  });
+
+  it('returns direct segment while inside source buffer', () => {
+    const src = new NodeModel(1, 'src', 0, 0, 40, 40);
+    const anchor = src.anchorPositions()[3];
+    const ex = anchor.x + 2; // within margin
+    const ey = anchor.y;
+    const segs = orthogonalSegments(
+      anchor.x,
+      anchor.y,
+      ex,
+      ey,
+      opts,
+      [],
+      undefined,
+      undefined,
+      'right',
+      src,
+    );
+    expect(segs.length).toBe(1);
+    expect(segs[0]).toEqual({ x1: anchor.x, y1: anchor.y, x2: ex, y2: ey });
+  });
+
+  it('stops path at destination buffer before snapping to edge', () => {
+    const src = new NodeModel(1, 'src', 0, 0, 40, 40);
+    const dst = new NodeModel(2, 'dst', 83, 57, 40, 40);
+    const anchor = src.anchorPositions()[3];
+    const ex = dst.x; // left edge
+    const ey = dst.y + dst.height / 2;
+    const segs = orthogonalSegments(
+      anchor.x,
+      anchor.y,
+      ex,
+      ey,
+      opts,
+      [],
+      'left',
+      dst,
+      'right',
+      src,
+    );
+    const last = segs[segs.length - 1];
+    expect(last.x2).toBe(ex);
+    expect(last.y2).toBe(ey);
+    const prev = segs[segs.length - 2];
+    const targetX = 80; // snap(dst.x - margin)
+    expect(prev.x2).toBe(targetX);
+  });
 });
