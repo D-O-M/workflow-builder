@@ -1,4 +1,5 @@
 import { NodeModel, Side } from './node-model';
+import { PathfinderOptions, orthogonalSegments } from './pathfinder';
 
 export class CanvasWrapper {
   readonly arrowSize = 8;
@@ -78,134 +79,6 @@ export class CanvasWrapper {
     }
   }
 
-  private findPath(
-    sx: number,
-    sy: number,
-    ex: number,
-    ey: number,
-    obstacles: NodeModel[] = [],
-    destNode?: NodeModel,
-    startDir: Side = 'right',
-  ): { x: number; y: number }[] {
-    const grid = this.gridSize;
-    const manhattan = (x1: number, y1: number, x2: number, y2: number) =>
-      (Math.abs(x1 - x2) + Math.abs(y1 - y2)) / grid;
-
-    const start = { x: this.snap(sx), y: this.snap(sy) };
-    const end = { x: this.snap(ex), y: this.snap(ey) };
-
-    const margin = grid * 10;
-    const minX = Math.min(start.x, end.x) - margin;
-    const maxX = Math.max(start.x, end.x) + margin;
-    const minY = Math.min(start.y, end.y) - margin;
-    const maxY = Math.max(start.y, end.y) + margin;
-
-    type Node = {
-      x: number;
-      y: number;
-      dir: Side;
-      g: number;
-      f: number;
-      parent?: Node;
-    };
-
-    const key = (x: number, y: number, d: Side) => `${x},${y},${d}`;
-
-    const open: Node[] = [];
-    const map = new Map<string, Node>();
-    const startNode: Node = {
-      x: start.x,
-      y: start.y,
-      dir: startDir,
-      g: 0,
-      f: manhattan(start.x, start.y, end.x, end.y),
-    };
-    open.push(startNode);
-    map.set(key(start.x, start.y, startDir), startNode);
-
-    const dirs: { side: Side; dx: number; dy: number }[] = [
-      { side: 'left', dx: -grid, dy: 0 },
-      { side: 'right', dx: grid, dy: 0 },
-      { side: 'top', dx: 0, dy: -grid },
-      { side: 'bottom', dx: 0, dy: grid },
-    ];
-
-    const buffer = this.obstacleBuffer * grid;
-    const blocked = (x: number, y: number): boolean => {
-      const check = (n: NodeModel) =>
-        x >= this.snap(n.x - buffer) &&
-        x <= this.snap(n.x + n.width + buffer) &&
-        y >= this.snap(n.y - buffer) &&
-        y <= this.snap(n.y + n.height + buffer);
-      if (destNode) {
-        const insideDest =
-          x >= this.snap(destNode.x) &&
-          x <= this.snap(destNode.x + destNode.width) &&
-          y >= this.snap(destNode.y) &&
-          y <= this.snap(destNode.y + destNode.height);
-        if (insideDest) {
-          return x !== end.x || y !== end.y;
-        }
-      }
-      return obstacles.some(check);
-    };
-
-    const turnPenalty = 0.1;
-
-    const startTime = performance.now();
-    const timeLimit = 20; // ms
-    let best = startNode;
-
-    while (open.length) {
-      open.sort((a, b) => a.f - b.f);
-      const current = open.shift()!;
-
-      if (current.f < best.f) {
-        best = current;
-      }
-
-      if (current.x === end.x && current.y === end.y) {
-        best = current;
-        break;
-      }
-
-      for (const d of dirs) {
-        const nx = current.x + d.dx;
-        const ny = current.y + d.dy;
-
-        if (nx < minX || nx > maxX || ny < minY || ny > maxY) continue;
-        if (blocked(nx, ny)) continue;
-
-        const cost = current.g + 1 + (d.side === current.dir ? 0 : turnPenalty);
-        const k = key(nx, ny, d.side);
-        const existing = map.get(k);
-        if (!existing || cost < existing.g) {
-          const node: Node = {
-            x: nx,
-            y: ny,
-            dir: d.side,
-            g: cost,
-            f: cost + manhattan(nx, ny, end.x, end.y),
-            parent: current,
-          };
-          map.set(k, node);
-          open.push(node);
-        }
-      }
-
-      if (performance.now() - startTime > timeLimit) {
-        break;
-      }
-    }
-
-    const path: { x: number; y: number }[] = [];
-    let c: Node | undefined = best;
-    while (c) {
-      path.push({ x: c.x, y: c.y });
-      c = c.parent;
-    }
-    return path.length ? path.reverse() : [start, end];
-  }
 
   drawOrthogonalLine(
     sx: number,
@@ -217,79 +90,24 @@ export class CanvasWrapper {
     destNode?: NodeModel,
     startSide?: Side,
   ): void {
-    const snapX = this.snap(ex);
-    const snapY = this.snap(ey);
-
-    const pad = this.nodeMargin;
-
-    let curX = sx;
-    let curY = sy;
-
-    const lineTo = (x: number, y: number) => {
-      if (curX === x && curY === y) return;
-      this.drawSegment(curX, curY, x, y);
-      curX = x;
-      curY = y;
+    const options: PathfinderOptions = {
+      gridSize: this.gridSize,
+      nodeMargin: this.nodeMargin,
+      obstacleBuffer: this.obstacleBuffer,
     };
-
-    if (startSide === 'left') {
-      curX -= pad;
-    } else if (startSide === 'right') {
-      curX += pad;
-    } else if (startSide === 'top') {
-      curY -= pad;
-    } else if (startSide === 'bottom') {
-      curY += pad;
-    }
-
-    if (curX !== sx || curY !== sy) {
-      lineTo(curX, curY);
-    }
-
-    let targetX = snapX;
-    let targetY = snapY;
-    let searchObstacles = obstacles;
-
-    if (destNode && side) {
-      const margin = this.nodeMargin;
-      switch (side) {
-        case 'left':
-          targetX = this.snap(destNode.x - margin);
-          targetY = snapY;
-          break;
-        case 'right':
-          targetX = this.snap(destNode.x + destNode.width + margin);
-          targetY = snapY;
-          break;
-        case 'top':
-          targetX = snapX;
-          targetY = this.snap(destNode.y - margin);
-          break;
-        case 'bottom':
-          targetX = snapX;
-          targetY = this.snap(destNode.y + destNode.height + margin);
-          break;
-      }
-      searchObstacles = [...obstacles, destNode];
-    }
-
-    const path = this.findPath(
-      curX,
-      curY,
-      targetX,
-      targetY,
-      searchObstacles,
+    const segments = orthogonalSegments(
+      sx,
+      sy,
+      ex,
+      ey,
+      options,
+      obstacles,
+      side,
       destNode,
       startSide,
     );
-    for (let i = 1; i < path.length; i++) {
-      lineTo(path[i].x, path[i].y);
+    for (const seg of segments) {
+      this.drawSegment(seg.x1, seg.y1, seg.x2, seg.y2);
     }
-
-    lineTo(targetX, targetY);
-    if (destNode) {
-      lineTo(snapX, snapY);
-    }
-    lineTo(ex, ey);
   }
 }
