@@ -156,10 +156,23 @@ export function orthogonalSegments(
   startNode?: NodeModel,
 ): Segment[] {
   const grid = opts.gridSize;
-  const snapX = snap(ex, grid);
-  const snapY = snap(ey, grid);
-
   const pad = opts.nodeMargin;
+
+  let dx = ex;
+  let dy = ey;
+  if (
+    destNode &&
+    side &&
+    destNode.containsBuffered(ex, ey, pad) &&
+    !destNode.contains(ex, ey)
+  ) {
+    const snapPoint = destNode.snapPointFixedSide(ex, ey, side);
+    dx = snapPoint.x;
+    dy = snapPoint.y;
+  }
+
+  const snapX = snap(dx, grid);
+  const snapY = snap(dy, grid);
 
   let curX = sx;
   let curY = sy;
@@ -172,8 +185,7 @@ export function orthogonalSegments(
     curY = y;
   };
 
-  const inStartBuffer =
-    startNode?.containsBuffered(ex, ey, pad) ?? false;
+  const inStartBuffer = startNode?.containsBuffered(dx, dy, pad) ?? false;
 
   if (startSide && !inStartBuffer) {
     let nx = curX;
@@ -193,7 +205,7 @@ export function orthogonalSegments(
   }
 
   if (inStartBuffer) {
-    lineTo(ex, ey);
+    lineTo(dx, dy);
     return segments;
   }
 
@@ -242,7 +254,7 @@ export function orthogonalSegments(
   if (destNode) {
     lineTo(snapX, snapY);
   }
-  lineTo(ex, ey);
+  lineTo(dx, dy);
 
   return segments;
 }
