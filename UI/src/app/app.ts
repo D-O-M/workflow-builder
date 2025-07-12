@@ -87,7 +87,7 @@ export class App implements AfterViewInit {
     c.nativeElement.width = c.nativeElement.clientWidth;
     c.nativeElement.height = c.nativeElement.clientHeight;
 
-    this.http.get<Task[]>('/api/tasks').subscribe((t) => {
+    this.http.get<Task[]>('tasks').subscribe((t) => {
       this.tasks.set(t);
       if (t.length > 0) {
         this.selectedTask.setValue(t[0].name);
