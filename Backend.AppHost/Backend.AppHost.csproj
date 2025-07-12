@@ -5,11 +5,12 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <UserSecretsId>9e5f968a-7ae5-44ed-8ec1-bc5daf7531bd</UserSecretsId>
+    <UserSecretsId>WorkflowBuilder</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.AppHost" Version="9.3.1" />
+    <PackageReference Include="Aspire.Hosting.SqlServer" Version="9.3.2" />
   </ItemGroup>
 
   <ItemGroup>
