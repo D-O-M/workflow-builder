@@ -87,7 +87,7 @@ export class App implements AfterViewInit {
     c.nativeElement.width = c.nativeElement.clientWidth;
     c.nativeElement.height = c.nativeElement.clientHeight;
 
-    this.http.get<Task[]>('/tasks').subscribe((t) => {
+    this.http.get<Task[]>('/api/tasks').subscribe((t) => {
       this.tasks.set(t);
       if (t.length > 0) {
         this.selectedTask.setValue(t[0].name);
@@ -171,7 +171,8 @@ export class App implements AfterViewInit {
       }
       const conns = this.connections();
       const target = this.nodes().find((n) => {
-        if (n.id === drag.from || !this.inNodeBuffer(worldX, worldY, n)) return false;
+        if (n.id === drag.from || !this.inNodeBuffer(worldX, worldY, n))
+          return false;
         return !conns.some(
           (c) =>
             (c.from.id === drag.from && c.to.id === n.id) ||
@@ -271,7 +272,8 @@ export class App implements AfterViewInit {
     if (drag) {
       const conns = this.connections();
       const target = this.nodes().find((n) => {
-        if (n.id === drag.from || !this.inNodeBuffer(worldX, worldY, n)) return false;
+        if (n.id === drag.from || !this.inNodeBuffer(worldX, worldY, n))
+          return false;
         return !conns.some(
           (c) =>
             (c.from.id === drag.from && c.to.id === n.id) ||
@@ -342,7 +344,6 @@ export class App implements AfterViewInit {
   private inNodeBuffer(x: number, y: number, node: NodeModel): boolean {
     return node.containsBuffered(x, y, this.nodeMargin);
   }
-
 
   private clamp(v: number, min: number, max: number): number {
     return NodeModel.clamp(v, min, max);
