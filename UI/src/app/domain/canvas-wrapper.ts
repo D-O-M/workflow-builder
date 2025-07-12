@@ -279,7 +279,7 @@ export class CanvasWrapper {
       targetX,
       targetY,
       searchObstacles,
-      undefined,
+      destNode,
       startSide,
     );
     for (let i = 1; i < path.length; i++) {
