@@ -1,5 +1,4 @@
 import { NodeModel, Side } from './node-model';
-import { performance } from 'perf_hooks';
 
 export interface PathfinderOptions {
   gridSize: number;
