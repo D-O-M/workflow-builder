@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net9.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <InvariantGlobalization>true</InvariantGlobalization>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Analyzer Include="..\PluginManifestGenerator\bin\Debug\netstandard2.0\PluginManifestGenerator.dll" />
+    </ItemGroup>
+
+    <Import Project="PluginManifestExport.targets" />
+
+    <Target Name="ExtractPluginManifest" AfterTargets="Build">
+        <Exec Command="dotnet run --project ..\ManifestExtractor\ManifestExtractor.csproj &quot;$(TargetPath)&quot; &quot;GeneratedPluginManifests.MyPlugin_Manifest&quot; &quot;$(ProjectDir)$(AssemblyName).plugin.yaml&quot;" />
+    </Target>
+
+</Project>

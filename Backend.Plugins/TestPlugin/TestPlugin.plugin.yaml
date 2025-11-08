@@ -1,0 +1,26 @@
+plugin: MyPlugin
+inputChannels:
+  - type: PlayerInput
+    description: (description not resolvable statically)
+    fields:
+      - name: Score
+        type: Int32
+      - name: Speed
+        type: Single
+      - name: Name
+        type: String
+outputChannels:
+  - type: PlayerOutput
+    description: (description not resolvable statically)
+    fields:
+      - name: Health
+        type: Int32
+      - name: Alive
+        type: Boolean
+  - type: OtherThing
+    description: (description not resolvable statically)
+    fields:
+      - name: Foo
+        type: String
+      - name: Bar
+        type: Decimal

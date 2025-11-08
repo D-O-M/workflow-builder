@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Backend.PluginLoader": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
