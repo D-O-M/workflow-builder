@@ -1,4 +1,7 @@
 
+using Backend.Conformation.DAL;
+using Microsoft.EntityFrameworkCore;
+
 namespace Backend.API;
 
 public class Program
@@ -9,6 +12,10 @@ public class Program
         builder.AddServiceDefaults();
 
         // Add services to the container.
+        builder.Services.AddDbContextPool<WorkflowDbContext>(options =>
+        {
+            options.UseSqlServer(builder.Configuration.GetConnectionString("SqlServer"));
+        });
 
         builder.Services.AddControllers();
         // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -25,7 +32,7 @@ public class Program
             });
         });
 
-    var app = builder.Build();
+        var app = builder.Build();
 
         app.MapDefaultEndpoints();
 

@@ -1,0 +1,44 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <Target Name="ExtractPluginManifest" AfterTargets="CoreCompile">
+    <ItemGroup>
+      <GeneratedSources Include="$(IntermediateOutputPath)GeneratedPluginManifests\*_Manifest.g.cs" />
+    </ItemGroup>
+
+    <ReadLinesFromFile File="@(GeneratedSources)" >
+      <Output TaskParameter="Lines" ItemName="ManifestLines"/>
+    </ReadLinesFromFile>
+
+    <WriteLinesToFile
+      File="$(ProjectDir)GeneratedManifests\PluginManifest.json"
+      Lines="@(ManifestLines->FilterManifestLines())"
+      Overwrite="true"
+      Encoding="UTF8" />
+
+  </Target>
+
+  <UsingTask
+    TaskName="FilterManifestLines"
+    TaskFactory="CodeTaskFactory"
+    AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup />
+    <Task>
+      <Reference Include="System.Core" />
+      <Using Namespace="System.Linq" />
+      <Code Type="Fragment" Language="cs">
+        <![CDATA[
+        return new ITaskItem[] {
+            new TaskItem(string.Join("\n", ManifestLines
+                .Select(l => l.Trim())
+                .SkipWhile(l => !l.Contains("public static string Json"))
+                .Skip(1)
+                .TakeWhile(l => !l.Contains("};"))
+                .Select(l => l.TrimStart().TrimEnd('\\', '\"'))
+                .ToList()))
+        };
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+
+</Project>

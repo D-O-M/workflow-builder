@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Backend.Conformation.DAL\Backend.Conformation.DAL.csproj" />
+    <ProjectReference Include="..\Backend.Interfaces\Backend.Interfaces.csproj" />
+    <ProjectReference Include="..\Backend.Mappers\Backend.Mappers.csproj" />
+  </ItemGroup>
+
+</Project>
