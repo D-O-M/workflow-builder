@@ -1,11 +1,16 @@
+using Plugins.Harness;
+
 namespace TestPlugin;
 
-public class MyPlugin : PluginBase
+public class MyPlugin : IPlugin
 {
-    public override Channel[] InputChannels => [new Channel<PlayerInput>("Player Input")];
+    public PlayerInput PlayerInput { get; set; }
 
-    public override Channel[] OutputChannels => [
-        new Channel<PlayerOutput>("Player Output"),
-        new Channel<OtherThing>("Other")
-    ];
+    public bool Success { get; set; }
+
+    public Task Execute()
+    {
+        Success = true;
+        return Task.CompletedTask;
+    }
 }
