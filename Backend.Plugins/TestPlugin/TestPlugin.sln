@@ -1,13 +1,15 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36327.8 d17.14
+VisualStudioVersion = 17.14.36327.8
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestPlugin", "TestPlugin.csproj", "{2B658D2E-03D6-4CE5-83DA-7B8EB0DE619F}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PluginManifestGenerator", "..\PluginManifestGenerator\PluginManifestGenerator.csproj", "{745AC60B-8927-420C-855F-37FDCDA4B57D}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ManifestExtractor", "..\ManifestExtractor\ManifestExtractor.csproj", "{F66917D4-42E8-46E6-A574-24B4BA9CBB3F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Plugins.Harness", "..\Harness\Plugins.Harness.csproj", "{5AF40390-364D-4951-987A-7D86D6CCC27F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -27,6 +29,10 @@ Global
 		{F66917D4-42E8-46E6-A574-24B4BA9CBB3F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F66917D4-42E8-46E6-A574-24B4BA9CBB3F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F66917D4-42E8-46E6-A574-24B4BA9CBB3F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5AF40390-364D-4951-987A-7D86D6CCC27F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5AF40390-364D-4951-987A-7D86D6CCC27F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5AF40390-364D-4951-987A-7D86D6CCC27F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5AF40390-364D-4951-987A-7D86D6CCC27F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

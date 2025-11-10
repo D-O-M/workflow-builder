@@ -12,6 +12,10 @@
         <Analyzer Include="..\PluginManifestGenerator\bin\Debug\netstandard2.0\PluginManifestGenerator.dll" />
     </ItemGroup>
 
+    <ItemGroup>
+      <ProjectReference Include="..\Harness\Plugins.Harness.csproj" />
+    </ItemGroup>
+
     <Import Project="PluginManifestExport.targets" />
 
     <Target Name="ExtractPluginManifest" AfterTargets="Build">

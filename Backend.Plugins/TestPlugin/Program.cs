@@ -1,9 +1,6 @@
-namespace TestPlugin;
+using Plugins.Harness;
+using TestPlugin;
 
-internal class Program
-{
-    static async Task Main(string[] args)
-    {
-        Console.WriteLine("Hello, World!");
-    }
-}
+var plugin = Plugin.CreateBuilder<MyPlugin>()
+    .ConfigureInputChannel(p => p.PlayerInput)
+    .ConfigureOutputChannel(p => p.Success);
