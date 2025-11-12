@@ -2,16 +2,19 @@ namespace Plugins.Harness;
 
 internal abstract class Channel
 {
+    public abstract string Name { get; }
     public abstract Type MessageType { get; }
 }
 
-internal class Channel<TPlugin, TChannelType> : Channel
+internal sealed class Channel<TPlugin, TChannelType> : Channel
 {
-    public Channel(Func<TPlugin, TChannelType> targetProperty)
+    public Channel(string name, Func<TPlugin, TChannelType> getter)
     {
-        TargetProperty = targetProperty;
+        Name = name;
+        Getter = getter;
     }
 
-    public Func<TPlugin, TChannelType> TargetProperty { get; init; }
-    public override Type MessageType => typeof(TPlugin);
+    public Func<TPlugin, TChannelType> Getter { get; }
+    public override string Name { get; }
+    public override Type MessageType => typeof(TChannelType);
 }

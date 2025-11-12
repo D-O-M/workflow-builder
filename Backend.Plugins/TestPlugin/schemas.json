@@ -1,0 +1,37 @@
+{
+  "components": {
+    "schemas": {
+      "TestPlugin.PlayerInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Score": {
+            "type": "integer"
+          },
+          "Speed": {
+            "type": "number"
+          },
+          "Name": {
+            "type": "string"
+          }
+        }
+      },
+      "TestPlugin.State": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "PlayerId": {
+            "type": "integer"
+          },
+          "PlayerIP": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "PlayerId": {
+      "type": "integer"
+    },
+    "PlayerIP": {
+      "type": "string"
+    }
+  }
+}
