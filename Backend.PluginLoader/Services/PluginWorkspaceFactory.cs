@@ -1,0 +1,56 @@
+using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+
+namespace Backend.PluginLoader.Services;
+
+internal interface IPluginWorkspaceFactory
+{
+    Task<string> CreateWorkspaceAsync(string pluginName, Version pluginVersion, CancellationToken cancellationToken);
+}
+
+internal sealed class PluginWorkspaceFactory : IPluginWorkspaceFactory
+{
+    private readonly ILogger<PluginWorkspaceFactory> _logger;
+
+    public PluginWorkspaceFactory(ILogger<PluginWorkspaceFactory> logger)
+    {
+        _logger = logger;
+    }
+
+    public Task<string> CreateWorkspaceAsync(string pluginName, Version pluginVersion, CancellationToken cancellationToken)
+    {
+        var sanitizedName = Sanitize(pluginName);
+        var workDir = Path.Combine(Path.GetTempPath(), $"plugin_{sanitizedName}_{pluginVersion}");
+
+        try
+        {
+            if (Directory.Exists(workDir))
+            {
+                Directory.Delete(workDir, recursive: true);
+            }
+
+            Directory.CreateDirectory(workDir);
+            _logger.LogInformation("Created workspace {Workspace} for plugin {Plugin} ({Version})", workDir, pluginName, pluginVersion);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to prepare workspace {Workspace} for plugin {Plugin} ({Version})", workDir, pluginName, pluginVersion);
+            throw;
+        }
+
+        return Task.FromResult(workDir);
+    }
+
+    private static string Sanitize(string value)
+    {
+        foreach (var ch in Path.GetInvalidFileNameChars())
+        {
+            value = value.Replace(ch, '_');
+        }
+
+        return value;
+    }
+}

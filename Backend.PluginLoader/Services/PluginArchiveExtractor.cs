@@ -1,0 +1,62 @@
+using System;
+using System.IO;
+using System.IO.Compression;
+using System.Threading;
+using System.Threading.Tasks;
+using Azure.Storage.Blobs;
+using Microsoft.Extensions.Logging;
+
+namespace Backend.PluginLoader.Services;
+
+internal interface IPluginArchiveExtractor
+{
+    Task ExtractAsync(BlobClient blobClient, string destinationDirectory, CancellationToken cancellationToken);
+}
+
+internal sealed class PluginArchiveExtractor : IPluginArchiveExtractor
+{
+    private readonly ILogger<PluginArchiveExtractor> _logger;
+
+    public PluginArchiveExtractor(ILogger<PluginArchiveExtractor> logger)
+    {
+        _logger = logger;
+    }
+
+    public async Task ExtractAsync(BlobClient blobClient, string destinationDirectory, CancellationToken cancellationToken)
+    {
+        await using var zipStream = await blobClient.OpenReadAsync(cancellationToken: cancellationToken);
+        using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: false);
+        ExtractArchiveToDirectory(archive, destinationDirectory, overwrite: true);
+        _logger.LogInformation("Extracted blob {BlobName} to {Destination}", blobClient.Name, destinationDirectory);
+    }
+
+    private static void ExtractArchiveToDirectory(ZipArchive archive, string destinationDirectoryFullPath, bool overwrite)
+    {
+        destinationDirectoryFullPath = Path.GetFullPath(destinationDirectoryFullPath);
+        foreach (var entry in archive.Entries)
+        {
+            var fullPath = Path.Combine(destinationDirectoryFullPath, entry.FullName);
+            var normalized = Path.GetFullPath(fullPath);
+            if (!normalized.StartsWith(destinationDirectoryFullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(entry.Name))
+            {
+                Directory.CreateDirectory(normalized);
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(normalized)!);
+            if (!overwrite && File.Exists(normalized))
+            {
+                continue;
+            }
+
+            using var entryStream = entry.Open();
+            using var outStream = File.Create(normalized);
+            entryStream.CopyTo(outStream);
+        }
+    }
+}
