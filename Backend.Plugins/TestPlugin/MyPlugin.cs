@@ -4,7 +4,8 @@ namespace TestPlugin;
 
 public class MyPlugin : IPlugin
 {
-    public PlayerInput PlayerInput { get; set; }
+    public required State State { get; set; }
+    public required PlayerInput PlayerInput { get; init; }
 
     public bool Success { get; set; }
 

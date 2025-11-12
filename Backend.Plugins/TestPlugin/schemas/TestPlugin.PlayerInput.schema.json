@@ -1,0 +1,17 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "Score": {
+      "type": "integer"
+    },
+    "Speed": {
+      "type": "number"
+    },
+    "Name": {
+      "type": "string"
+    }
+  }
+}

@@ -1,4 +1,14 @@
+using System.Net;
+using Plugins.Harness;
+
 namespace TestPlugin;
+
+public class State : IGlobalState
+{
+    public int PlayerId { get; set; }
+    public string PlayerIP { get; set; }
+}
+
 public class PlayerInput
 {
     public int Score { get; set; }

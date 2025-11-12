@@ -1,0 +1,16 @@
+{
+  "DisplayName": "A Test Plugin",
+  "InputChannels": [
+    {
+      "Name": "PlayerInput",
+      "Type": "TestPlugin.PlayerInput"
+    }
+  ],
+  "OutputChannels": [
+    {
+      "Name": "Success",
+      "Type": "System.Boolean"
+    }
+  ],
+  "GlobalState": "TestPlugin.State"
+}
