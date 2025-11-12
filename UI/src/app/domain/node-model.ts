@@ -3,57 +3,43 @@ export interface Point {
     y: number;
 }
 
-export interface CardinalPoints {
-    north: number;
-    east: number;
-    south: number;
-    west: number;
-}
-
 export type Side = 'left' | 'right' | 'top' | 'bottom';
 
 export class NodeModel {
     static buffer = 20;
 
-    get cardinalCenterPoints(): { west: number; east: number; north: number; south: number; } {
-        return {
-            east: this.x - NodeModel.buffer,
-            west: this.x + this.width + NodeModel.buffer,
-            south: this.y + this.height + NodeModel.buffer,
-            north: this.y - NodeModel.buffer
-        };
+    static anchorSide(idx: number): Side {
+        if (idx < 3) return 'top';
+        if (idx < 6) return 'right';
+        if (idx < 9) return 'bottom';
+        return 'left';
     }
 
-    static anchorSide(idx: number): Side {
-        if (idx < 3) return "top";
-        if (idx < 6) return "right";
-        if (idx < 9) return "bottom";
-        return "left";
-    }
     static oppositeAnchor(idx: number): number {
         return [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5][idx];
     }
+
     static clamp(v: number, min: number, max: number): number {
         return Math.min(Math.max(v, min), max);
     }
 
     contains(x: number, y: number): boolean {
-        const { north, east, south, west } = this.cardinalCenterPoints;
-        return x >= east &&
-            x <= west &&
-            y >= north &&
-            y <= south;
+        return (
+            x >= this.x &&
+            x <= this.x + this.width &&
+            y >= this.y &&
+            y <= this.y + this.height
+        );
     }
 
-    /*containsBuffered(x: number, y: number, buffer: number): boolean {
-      return (
-        x >= this.x - buffer &&
-        x <= this.x + this.width + buffer &&
-        y >= this.y - buffer &&
-        y <= this.y + this.height + buffer
-      );
-    }*/
-
+    containsBuffered(x: number, y: number, buffer: number): boolean {
+        return (
+            x >= this.x - buffer &&
+            x <= this.x + this.width + buffer &&
+            y >= this.y - buffer &&
+            y <= this.y + this.height + buffer
+        );
+    }
 
     constructor(
         public id: number,
@@ -62,7 +48,7 @@ export class NodeModel {
         public y: number,
         public width: number,
         public height: number,
-    ) { }
+    ) {}
 
     draw(ctx: CanvasRenderingContext2D, drawText: (
       ctx: CanvasRenderingContext2D,
