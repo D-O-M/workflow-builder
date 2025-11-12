@@ -236,7 +236,8 @@ export class CanvasWrapper {
     ): void {
         const options: PathfinderOptions = {
             gridSize: this.gridSize,
-            nodeMargin: NodeModel.buffer
+            nodeMargin: NodeModel.buffer,
+            obstacleBuffer: Math.max(NodeModel.buffer / this.gridSize, 1),
         };
         const segments = orthogonalSegments(
             sx,
@@ -250,9 +251,6 @@ export class CanvasWrapper {
             startSide,
             startNode,
         );
-
-        console.log(segments);
-
         for (const seg of segments) {
             this.drawSegment(seg.x1, seg.y1, seg.x2, seg.y2);
         }

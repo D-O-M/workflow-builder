@@ -3,6 +3,7 @@ import { NodeModel, Side } from './node-model';
 export interface PathfinderOptions {
     gridSize: number;
     nodeMargin: number;
+    obstacleBuffer?: number;
 }
 
 export interface Point { x: number; y: number }
@@ -65,29 +66,48 @@ export function findPath(
         { side: 'bottom', dx: 0, dy: grid },
     ];
 
-    const buffer = NodeModel.buffer;
+    const baseBuffer = (opts.obstacleBuffer ?? 1) * grid;
     const blocked = (x: number, y: number): boolean => {
-        const check = (n: NodeModel) =>
-            x >= snap(n.x - buffer, grid) &&
-            x <= snap(n.x + n.width + buffer, grid) &&
-            y >= snap(n.y - buffer, grid) &&
-            y <= snap(n.y + n.height + buffer, grid);
-        /*if (destNode) {
-            const insideDest =
-                x >= snap(destNode.x, grid) &&
-                x <= snap(destNode.x + destNode.width, grid) &&
-                y >= snap(destNode.y, grid) &&
-                y <= snap(destNode.y + destNode.height, grid);
-            if (insideDest) {
-                return x !== end.x || y !== end.y;
+        for (const node of obstacles) {
+            const buffer = node === destNode ? opts.nodeMargin : baseBuffer;
+            const minX = snap(node.x - buffer, grid);
+            const maxX = snap(node.x + node.width + buffer, grid);
+            const minY = snap(node.y - buffer, grid);
+            const maxY = snap(node.y + node.height + buffer, grid);
+
+            if (x < minX || x > maxX || y < minY || y > maxY) {
+                continue;
             }
-        }*/
-        return obstacles.some(check);
+
+            if (node === destNode) {
+                if (x === end.x && y === end.y) {
+                    return false;
+                }
+
+                const insideDestination =
+                    x >= snap(destNode.x, grid) &&
+                    x <= snap(destNode.x + destNode.width, grid) &&
+                    y >= snap(destNode.y, grid) &&
+                    y <= snap(destNode.y + destNode.height, grid);
+
+                if (insideDestination) {
+                    return x !== end.x || y !== end.y;
+                }
+            }
+
+            return true;
+        }
+
+        return false;
     };
 
     const turnPenalty = 0.1;
 
-    const startTime = performance.now();
+    const perf =
+        typeof performance === 'undefined'
+            ? { now: () => Date.now() }
+            : performance;
+    const startTime = perf.now();
     const timeLimit = 20; // ms
     let best = startNode;
 
@@ -128,7 +148,7 @@ export function findPath(
             }
         }
 
-        if (performance.now() - startTime > timeLimit) {
+        if (perf.now() - startTime > timeLimit) {
             break;
         }
     }
@@ -159,16 +179,16 @@ export function orthogonalSegments(
 
     let dx = endingX;
     let dy = endingY;
-    /*if (
-      destNode &&
-      side &&
-      destNode.containsBuffered(endingX, endingY, pad) &&
-      !destNode.contains(endingX, endingY)
+    if (
+        destNode &&
+        side &&
+        destNode.containsBuffered(endingX, endingY, pad) &&
+        !destNode.contains(endingX, endingY)
     ) {
-      const snapPoint = destNode.snapPointFixedSide(endingX, endingY, side);
-      dx = snapPoint.x;
-      dy = snapPoint.y;
-    }*/
+        const snapPoint = destNode.snapPointFixedSide(endingX, endingY, side);
+        dx = snapPoint.x;
+        dy = snapPoint.y;
+    }
 
     const snapX = snap(dx, grid);
     const snapY = snap(dy, grid);
@@ -184,9 +204,9 @@ export function orthogonalSegments(
         curY = y;
     };
 
-    /*const inForbiddenArea = startNode?.contains(dx, dy) ?? false;
+    const inStartBuffer = startNode?.containsBuffered(dx, dy, pad) ?? false;
 
-    if (startSide && !inForbiddenArea) {
+    if (startSide && !inStartBuffer) {
         let nx = curX;
         let ny = curY;
         if (startSide === 'left') {
@@ -201,12 +221,12 @@ export function orthogonalSegments(
         if (nx !== curX || ny !== curY) {
             lineTo(nx, ny);
         }
-    }*/
+    }
 
-    /*if (inForbiddenArea) {
+    if (inStartBuffer) {
         lineTo(dx, dy);
         return segments;
-    }*/
+    }
 
     let targetX = snapX;
     let targetY = snapY;

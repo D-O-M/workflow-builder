@@ -1,26 +1,37 @@
-<canvas
-  #myCanvas
-  (dblclick)="openModal($event)"
-  (mousemove)="onMouseMove($event)"
-  (mousedown)="onMouseDown($event)"
-  (mouseup)="onMouseUp($event)"
-  (mouseleave)="onMouseLeave()"
-  (wheel)="onWheel($event)"
-></canvas>
+<div class="canvas-container">
+  <canvas
+    #myCanvas
+    (dblclick)="openModal($event)"
+    (mousemove)="onMouseMove($event)"
+    (mousedown)="onMouseDown($event)"
+    (mouseup)="onMouseUp($event)"
+    (mouseleave)="onMouseLeave()"
+    (wheel)="onWheel($event)"
+  ></canvas>
 
-<div class="zoom-display">
-  {{ Math.round(zoom() * 100) }}%
-  <button type="button" (click)="resetView()">Reset</button>
+  <div class="zoom-display" aria-live="polite">
+    <span class="zoom-value">{{ Math.round(zoom() * 100) }}%</span>
+    <button type="button" (click)="resetView()">Reset</button>
+  </div>
 </div>
 
 @if (showModal()) {
-  <div class="modal-backdrop">
-    <div class="modal">
-      <select #taskSelect [formControl]="selectedTask">
-        @for (task of tasks(); track task.name) {
-          <option [value]="task.name">{{ task.name }}</option>
-        }
-      </select>
+  <div class="modal-backdrop" role="presentation">
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="create-node-heading"
+    >
+      <h2 id="create-node-heading">Add task</h2>
+      <label class="field">
+        <span>Select a task</span>
+        <select #taskSelect [formControl]="selectedTask">
+          @for (task of tasks(); track task.name) {
+            <option [value]="task.name">{{ task.name }}</option>
+          }
+        </select>
+      </label>
       <div class="actions">
         <button type="button" (click)="createNode()">Create</button>
         <button type="button" (click)="showModal.set(false)">Cancel</button>
