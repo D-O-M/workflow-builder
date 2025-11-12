@@ -1,0 +1,67 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using Backend.Interfaces.Repositories;
+using Microsoft.Extensions.Logging;
+
+namespace Backend.PluginLoader.Services;
+
+internal interface IPluginDiscoveryService
+{
+    Task<IReadOnlyList<PluginBlobInfo>> GetNewPluginsAsync(CancellationToken cancellationToken);
+}
+
+internal sealed class PluginDiscoveryService : IPluginDiscoveryService
+{
+    private readonly BlobContainerClient _blobContainerClient;
+    private readonly IWorkflowTaskRepository _workflowTaskRepository;
+    private readonly IPluginBlobNameParser _blobNameParser;
+    private readonly ILogger<PluginDiscoveryService> _logger;
+
+    public PluginDiscoveryService(
+        BlobContainerClient blobContainerClient,
+        IWorkflowTaskRepository workflowTaskRepository,
+        IPluginBlobNameParser blobNameParser,
+        ILogger<PluginDiscoveryService> logger)
+    {
+        _blobContainerClient = blobContainerClient;
+        _workflowTaskRepository = workflowTaskRepository;
+        _blobNameParser = blobNameParser;
+        _logger = logger;
+    }
+
+    public async Task<IReadOnlyList<PluginBlobInfo>> GetNewPluginsAsync(CancellationToken cancellationToken)
+    {
+        var workflowTasks = (await _workflowTaskRepository.GetAll(cancellationToken))
+            .GroupBy(t => t.Name)
+            .ToDictionary(g => g.Key, g => g.Select(t => t.Version).ToHashSet());
+
+        var pendingPlugins = new List<PluginBlobInfo>();
+
+        await foreach (var blob in _blobContainerClient.GetBlobsAsync(
+                           traits: BlobTraits.None,
+                           states: BlobStates.None,
+                           cancellationToken: cancellationToken))
+        {
+            try
+            {
+                var pluginInfo = _blobNameParser.Parse(blob.Name);
+
+                if (!workflowTasks.TryGetValue(pluginInfo.PluginName, out var versions) || !versions.Contains(pluginInfo.Version))
+                {
+                    pendingPlugins.Add(pluginInfo);
+                }
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogWarning(ex, "Skipping blob {BlobName} due to invalid naming convention", blob.Name);
+            }
+        }
+
+        return pendingPlugins;
+    }
+}
