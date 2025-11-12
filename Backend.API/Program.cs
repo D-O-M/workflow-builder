@@ -1,5 +1,5 @@
 
-using Backend.Conformation.DAL;
+using Backend.Relational.DAL;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.API;

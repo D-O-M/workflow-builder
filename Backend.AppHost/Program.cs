@@ -1,3 +1,5 @@
+using Aspire.Hosting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
 internal class Program
@@ -37,21 +39,30 @@ internal class Program
         //    .WithEndpoint(port: 10000, targetPort: 10000)
         //    .WithVolume("blob-data, /blob-data");
 
-        var storage = builder.AddAzureStorage("Storage");
+        var azureStorage = builder.AddAzureStorage(
+            builder.Configuration.GetValue<string>("AzureStorage:ResourceName")!);
 
         if (builder.Environment.IsDevelopment())
         {
-            storage.RunAsEmulator();
+            azureStorage.RunAsEmulator();
         }
 
-        var blobs = storage.AddBlobs("BlobConnection");
-        var queues = storage.AddQueues("QueueConnection");
+        var blobs = azureStorage.AddBlobs("BlobConnection");
+        var queues = azureStorage.AddQueues("QueueConnection");
+
+        var pluginsBlobResourceName = builder.Configuration.GetValue<string>(
+            "AzureStorage:BlobContainers:Plugins:ResourceName")!;
+        var pluginsBlobContainerName = builder.Configuration.GetValue<string>(
+            "AzureStorage:BlobContainers:Plugins:ContainerName")!;
+        var blobContainer = azureStorage.AddBlobContainer(
+            pluginsBlobResourceName,
+            pluginsBlobContainerName);
 
         MountUiRootFilesAndTopDirs(frontend, uiDirectoryPath, "/app");
 
         var api = builder.AddProject<Projects.Backend_API>("backend-api")
-            .WithReference(blobs)
-            .WaitFor(blobs)
+            .WithReference(blobContainer)
+            .WaitFor(blobContainer)
             .WithReference(queues)
             .WaitFor(queues)
             .WithReference(sqlDb)
@@ -60,10 +71,14 @@ internal class Program
         builder.AddProject<Projects.Backend_PluginLoader>("plugin-loader")
             .WithReference(blobs)
             .WaitFor(blobs)
+            .WithReference(blobContainer)
+            .WaitFor(blobContainer)
             .WithReference(queues)
             .WaitFor(queues)
             .WithReference(sqlDb)
-            .WaitFor(sqlDb);
+            .WaitFor(sqlDb)
+            .WithEnvironment("AzureStorage__BlobContainers__Plugins__ResourceName", pluginsBlobResourceName)
+            .WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName);
 
         frontend.WithReference(api)
             .WaitFor(api);
