@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace Backend.Conformation.DAL;
+namespace Backend.Relational.DAL;
 
 public class WorkflowDbContext : DbContext
 {
@@ -10,22 +10,24 @@ public class WorkflowDbContext : DbContext
         base.Database.Migrate();
     }
 
-    public DbSet<Channel> Channels { get; set; }
-    public DbSet<ChannelParameter> ChannelParameters { get; set; }
-    public DbSet<Workflow> Workflows { get; set; }
-    public DbSet<WorkflowTask> WorkflowTasks { get; set; }
+    //public DbSet<ChannelSchema> Channels { get; set; }
+    public DbSet<ChannelSchema> ChannelSchemas { get; set; }
+    public DbSet<ChannelParameterSchema> ChannelParameterSchemas { get; set; }
+    public DbSet<TaskSchema> TaskSchemas { get; set; }
+    //public DbSet<Workflow> Workflows { get; set; }
+    //public DbSet<TaskSchema> WorkflowTasks { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.Entity<Channel>(entity =>
+        modelBuilder.Entity<ChannelSchema>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
         });
 
-        modelBuilder.Entity<ChannelParameter>(entity =>
+        modelBuilder.Entity<ChannelParameterSchema>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
@@ -36,32 +38,25 @@ public class WorkflowDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<WorkflowTask>(entity =>
+        modelBuilder.Entity<TaskSchema>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
-            entity.HasMany(entity => entity.InputChannels)
-                .WithOne(channel => channel.DestinationNode)
-                .HasForeignKey(channel => channel.DestinationNodeId)
-                .OnDelete(DeleteBehavior.Restrict);
-            entity.HasMany(entity => entity.OutputChannels)
-                .WithOne(channel => channel.SourceNode)
-                .HasForeignKey(channel => channel.SourceNodeId)
-                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.Property(e => e.Version)
+                .HasConversion(
+                    inValue => inValue.ToString(),
+                    outValue => Version.Parse(outValue));
         });
 
-        modelBuilder.Entity<Workflow>(entity =>
+        /*modelBuilder.Entity<Workflow>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
             entity.Property(e => e.Description).HasMaxLength(500);
             entity.HasMany(e => e.Tasks)
-                .WithMany()
-                .UsingEntity<TaskWorkflow>("WorkflowToWorkflowTask");
-            entity.HasMany(e => e.Channels)
-                .WithMany()
-                .UsingEntity<ChannelWorkflow>("WorkflowToChannel");
-        });
+                .WithOne(t => t.Workflow);
+        });*/
 
         // Optional: Apply configurations via Fluent API
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(WorkflowDbContext).Assembly);

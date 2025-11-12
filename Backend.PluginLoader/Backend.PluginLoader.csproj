@@ -17,9 +17,10 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Backend.Conformation.DAL\Backend.Conformation.DAL.csproj" />
+      <ProjectReference Include="..\Backend.Conformation.DAL\Backend.Relational.DAL.csproj" />
       <ProjectReference Include="..\Backend.Interfaces\Backend.Interfaces.csproj" />
       <ProjectReference Include="..\Backend.Repositories\Backend.Repositories.csproj" />
+      <ProjectReference Include="..\Backend.ServiceDefaults\Backend.ServiceDefaults.csproj" />
     </ItemGroup>
 
 </Project>

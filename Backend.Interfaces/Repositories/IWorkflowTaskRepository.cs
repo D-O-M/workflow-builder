@@ -6,5 +6,5 @@ public interface IWorkflowTaskRepository
 {
     Task<List<WorkflowTaskInfo>> GetAll(CancellationToken cancellationToken);
 
-    Task CreateWorkflowTask(Manifest manifest, CancellationToken cancellationToken);
+    Task CreateTaskSchema(Manifest manifest, CancellationToken cancellationToken);
 }

@@ -1,34 +1,45 @@
-using Backend.Conformation.DAL;
+using Azure.Storage.Blobs;
+using Backend.Relational.DAL;
 using Backend.Interfaces.Repositories;
 using Backend.PluginLoader.Services;
 using Backend.Repositories;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Azure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-var app = Host.CreateDefaultBuilder()
-    .ConfigureAppConfiguration((context, config) =>
-        config.AddUserSecrets<Program>(optional: false)
-            .AddEnvironmentVariables())
-    .ConfigureServices((context, services) =>
-    {
-        var sqlConnectionString = context.Configuration.GetConnectionString("TasksDB");
-        services.AddDbContextPool<WorkflowDbContext>(options =>
-            options.UseSqlServer(sqlConnectionString));
+// Create builder (this replaces Host.CreateDefaultBuilder())
+var builder = Host.CreateApplicationBuilder(args);
+builder.AddServiceDefaults();
 
-        var blobConnectionString = context.Configuration.GetConnectionString("BlobConnection");
+// ✅ Configuration (you can directly access builder.Configuration)
+builder.Configuration
+    .AddUserSecrets<Program>(optional: false)
+    .AddEnvironmentVariables();
 
-        services.AddAzureClients(builder =>
-        {
-            builder.AddBlobServiceClient(blobConnectionString);
-        });
+// ✅ Services (no ConfigureServices callback — just use builder.Services)
+var sqlConnectionString = builder.Configuration.GetConnectionString("TasksDB");
+builder.Services.AddDbContextPool<WorkflowDbContext>(options =>
+    options.UseSqlServer(sqlConnectionString));
 
-        services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
-        services.AddHostedService<PluginReceptionService>();
-    })
-    .Build();
+builder.Services.AddSingleton(_ =>
+{
+    var blobConnectionString = builder.Configuration.GetConnectionString("BlobConnection");
+    var containerName = builder.Configuration["AzureStorage:BlobContainers:Plugins:ContainerName"]!;
+
+    var blobContainerClient = new BlobContainerClient(
+        blobConnectionString,
+        containerName);
+
+    return blobContainerClient;
+});
+
+builder.Services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
+builder.Services.AddHostedService<PluginReceptionService>();
+
+// Build & run host
+var app = builder.Build();
+await app.RunAsync();
 
 /*builder.Services.AddAzureClients(async clientBuilder =>
 {

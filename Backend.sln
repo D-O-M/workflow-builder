@@ -8,7 +8,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.ServiceDefaults", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.API", "Backend.API\Backend.API.csproj", "{30C95E0D-A039-2B54-7539-E8F4FF187070}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.Conformation.DAL", "Backend.Conformation.DAL\Backend.Conformation.DAL.csproj", "{2715D768-A7CC-6218-4E51-BB433B12C893}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.Relational.DAL", "Backend.Conformation.DAL\Backend.Relational.DAL.csproj", "{2715D768-A7CC-6218-4E51-BB433B12C893}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.State.DAL", "Backend.State.DAL\Backend.State.DAL.csproj", "{A061AE9B-3C14-7876-71D3-741D22FB6D72}"
 EndProject

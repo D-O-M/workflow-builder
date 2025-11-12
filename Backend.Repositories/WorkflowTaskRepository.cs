@@ -1,9 +1,9 @@
-using Backend.Conformation.DAL;
+using Backend.Relational.DAL;
 using Backend.DTOs;
 using Backend.Interfaces.Repositories;
 using Backend.Mappers;
 using Microsoft.EntityFrameworkCore;
-using DAL = Backend.Conformation.DAL;
+using DAL = Backend.Relational.DAL;
 
 namespace Backend.Repositories;
 
@@ -17,32 +17,38 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
     }
 
     public async Task<List<WorkflowTaskInfo>> GetAll(CancellationToken cancellationToken) =>
-        await _context.WorkflowTasks
+        await _context.TaskSchemas
             .ProjectToWorkflowTaskInfoDto()
             .ToListAsync(cancellationToken);
 
-    public async Task CreateWorkflowTask(Manifest manifest, CancellationToken cancellationToken)
+    public async Task CreateTaskSchema(Manifest manifest, CancellationToken cancellationToken)
     {
-        var workflowTask = new WorkflowTask(
-            Name: manifest.Name,
-            Path: manifest.Path,
-            Version: manifest.Version);
+        var workflowTask = new TaskSchema
+        {
+            Name = manifest.Name,
+            Path = manifest.Path,
+            Version = manifest.Version
+        };
 
         foreach (var channel in manifest.Channels)
         {
-            DAL.Channel newChannel = new DAL.Channel(channel.Name, null, null);
+            DAL.ChannelSchema newChannel = new DAL.ChannelSchema
+            {
+                Name = channel.Name
+            };
 
             foreach (var parameter in channel.Parameters)
             {
-                newChannel.Parameters.Add(new(
-                    Name: parameter.Name,
-                    Type: parameter.Type
-                ));
+                newChannel.Parameters.Add(new()
+                {
+                    Name = parameter.Name,
+                    Type = parameter.Type
+                });
             }
 
-            if (channel.Type is ManifestChannelType.Input)
+            if (channel.ChannelType is ManifestChannelType.Input)
                 workflowTask.InputChannels.Add(newChannel);
-            else if (channel.Type is ManifestChannelType.Output)
+            else if (channel.ChannelType is ManifestChannelType.Output)
                 workflowTask.OutputChannels.Add(newChannel);
         }
 
