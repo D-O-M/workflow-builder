@@ -35,7 +35,14 @@ builder.Services.AddSingleton(_ =>
 });
 
 builder.Services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
-builder.Services.AddHostedService<PluginReceptionService>();
+builder.Services.AddSingleton<IPluginBlobNameParser, PluginBlobNameParser>();
+builder.Services.AddSingleton<IPluginDiscoveryService, PluginDiscoveryService>();
+builder.Services.AddSingleton<IPluginWorkspaceFactory, PluginWorkspaceFactory>();
+builder.Services.AddSingleton<IPluginArchiveExtractor, PluginArchiveExtractor>();
+builder.Services.AddSingleton<IPluginManifestReader, PluginManifestReader>();
+builder.Services.AddSingleton<IPluginSchemaAggregator, PluginSchemaAggregator>();
+builder.Services.AddSingleton<IPluginBundleProcessor, PluginReceptionService>();
+builder.Services.AddHostedService<PluginLoaderService>();
 
 // Build & run host
 var app = builder.Build();
