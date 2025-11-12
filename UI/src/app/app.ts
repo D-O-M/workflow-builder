@@ -4,7 +4,6 @@ import {
     Component,
     effect,
     ElementRef,
-    HostListener,
     inject,
     Injector,
     runInInjectionContext,
@@ -78,11 +77,6 @@ export class App implements AfterViewInit {
     protected readonly selectedTask = new FormControl('', { nonNullable: true });
     private readonly http = inject(HttpClient);
 
-    @HostListener('mousemove', ['$event'])
-    onMouseMoved(event: MouseEvent) {
-        console.log(event);
-    }
-
     ngAfterViewInit(): void {
         const c = this.canvasRef();
         if (!c) return;
@@ -141,15 +135,30 @@ export class App implements AfterViewInit {
         return { x: event.clientX - rect.left, y: event.clientY - rect.top };
     }
 
-    protected onMouseMove(event: MouseEvent): void {
-        const { x, y } = this.getMousePos(event);
+    private getWorldCoordinates(event: MouseEvent): {
+        canvas: { x: number; y: number };
+        world: { x: number; y: number };
+    } {
+        const canvasPos = this.getMousePos(event);
         const offset = this.canvasWrapper!.viewportOffset();
         const zoom = this.canvasWrapper!.zoomLevel();
-        const worldX = (x - offset.x) / zoom;
-        const worldY = (y - offset.y) / zoom;
+        return {
+            canvas: canvasPos,
+            world: {
+                x: (canvasPos.x - offset.x) / zoom,
+                y: (canvasPos.y - offset.y) / zoom,
+            },
+        };
+    }
+
+    protected onMouseMove(event: MouseEvent): void {
+        const wrapper = this.canvasWrapper!;
+        const { canvas, world } = this.getWorldCoordinates(event);
+        const { x, y } = canvas;
+        const { x: worldX, y: worldY } = world;
         if (this.dragConnection()) {
             const drag = this.dragConnection()!;
-            const from = this.canvasWrapper!.getNodeById(drag.from);
+            const from = wrapper.getNodeById(drag.from);
             const side = this.anchorSide(drag.anchor);
             // switch anchor if dragged beyond opposite side
             if (
@@ -164,8 +173,10 @@ export class App implements AfterViewInit {
                 );
             }
 
-            const target = this.canvasWrapper!.getNodeByCoordinates({ x: worldX, y: worldY },
-                ...this.canvasWrapper!.getNodesConnectedTo(this.canvasWrapper!.getNodeById(drag.from)));
+            const target = wrapper.getNodeByCoordinates(
+                { x: worldX, y: worldY },
+                ...wrapper.getNodesConnectedTo(wrapper.getNodeById(drag.from)),
+            );
 
             if (target) {
                 const dir = this.sideFromPoint(worldX, worldY, target);
@@ -185,22 +196,23 @@ export class App implements AfterViewInit {
         if (this.dragNode()) {
             const drag = this.dragNode()!;
 
-            this.canvasWrapper!.updateNodeCoordinates(
-                drag.id,
-                { x: worldX - drag.dx, y: worldY - drag.dy });
+            wrapper.updateNodeCoordinates(drag.id, {
+                x: worldX - drag.dx,
+                y: worldY - drag.dy,
+            });
 
             return;
         }
         if (this.dragOffset()) {
             const last = this.dragOffset()!;
-            this.canvasWrapper!.viewportOffset.update((o) => ({
+            wrapper.viewportOffset.update((o) => ({
                 x: o.x + (x - last.x),
                 y: o.y + (y - last.y),
             }));
             this.dragOffset.set({ x, y });
             return;
         }
-        const node = this.canvasWrapper!.getNodeByCoordinates({ x: worldX, y: worldY });
+        const node = wrapper.getNodeByCoordinates({ x: worldX, y: worldY });
         this.hoveredNodeId.set(node ? node.id : null);
 
         if (node) {
@@ -212,15 +224,12 @@ export class App implements AfterViewInit {
     }
 
     protected onMouseDown(event: MouseEvent): void {
-        const { x, y } = this.getMousePos(event);
-        const off = this.canvasWrapper!.viewportOffset();
+        const wrapper = this.canvasWrapper!;
+        const { canvas, world } = this.getWorldCoordinates(event);
+        const { x, y } = canvas;
+        const { x: worldX, y: worldY } = world;
 
-        const zoom = this.canvasWrapper!.zoomLevel();
-
-        const worldX = (x - off.x) / zoom;
-        const worldY = (y - off.y) / zoom;
-
-        const hovered = this.canvasWrapper!.getNodeByCoordinates({ x: worldX, y: worldY });
+        const hovered = wrapper.getNodeByCoordinates({ x: worldX, y: worldY });
 
         if (hovered) {
             const anchor = this.inAnchorCircle(worldX, worldY, hovered);
@@ -250,21 +259,27 @@ export class App implements AfterViewInit {
     }
 
     protected onMouseUp(event: MouseEvent): void {
-        const { x, y } = this.getMousePos(event);
-        const offset = this.canvasWrapper!.viewportOffset();
-        const zoom = this.canvasWrapper!.zoomLevel();
-        const worldX = (x - offset.x) / zoom;
-        const worldY = (y - offset.y) / zoom;
+        const wrapper = this.canvasWrapper!;
+        const { world } = this.getWorldCoordinates(event);
+        const { x: worldX, y: worldY } = world;
 
         const drag = this.dragConnection();
         if (drag) {
-            const target = this.canvasWrapper!.getNodeByCoordinates({ x: worldX, y: worldY },
-                ...this.canvasWrapper!.getNodesConnectedTo(this.canvasWrapper!.getNodeById(drag.from)));
+            const target = wrapper.getNodeByCoordinates(
+                { x: worldX, y: worldY },
+                ...wrapper.getNodesConnectedTo(wrapper.getNodeById(drag.from)),
+            );
 
             if (target) {
                 const dir = this.sideFromPoint(worldX, worldY, target);
                 const snap = this.snapPointFixedSide(worldX, worldY, target, dir);
-                this.canvasWrapper!.createConnection(drag.from, target.id, drag.anchor, dir, snap.pos);
+                wrapper.createConnection(
+                    drag.from,
+                    target.id,
+                    drag.anchor,
+                    dir,
+                    snap.pos,
+                );
             }
             this.dragConnection.set(null);
             this.hoveredAnchor.set(null);
