@@ -3,28 +3,31 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Backend.PluginLoader.Services;
-using Microsoft.Extensions.Logging;
-using Moq;
+using Backend.Utilities;
+using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
-using TUnit.Core;
 
 namespace Backend.PluginLoader.Tests.Services;
 
-public sealed class PluginWorkspaceFactoryTests : IDisposable
+public sealed class PluginWorkspaceFactoryUtilityTests : IDisposable
 {
-    private readonly PluginWorkspaceFactory _factory;
+    private readonly PluginWorkspaceFactoryUtility _factory;
     private readonly List<string> _createdDirectories = new();
 
-    public PluginWorkspaceFactoryTests()
+    public PluginWorkspaceFactoryUtilityTests()
     {
-        _factory = new PluginWorkspaceFactory(Mock.Of<ILogger<PluginWorkspaceFactory>>());
+        _factory = new PluginWorkspaceFactoryUtility(
+            new NullLogger<PluginWorkspaceFactoryUtility>());
     }
 
     [Test]
     public async Task CreateWorkspaceAsync_SanitizesPluginName()
     {
-        var path = await _factory.CreateWorkspaceAsync("plugin:name", new Version(1, 0), CancellationToken.None);
+        var path = await _factory.CreateWorkspaceAsync(
+            "plugin:name",
+            new Version(1, 0),
+            CancellationToken.None);
+
         _createdDirectories.Add(path);
 
         Path.GetFileName(path).ShouldContain("plugin_name");

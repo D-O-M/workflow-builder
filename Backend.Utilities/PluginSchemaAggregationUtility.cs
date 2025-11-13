@@ -1,25 +1,16 @@
-using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Threading;
-using System.Threading.Tasks;
-using Backend.PluginLoader.DTOs;
+using Backend.DTOs;
+using Backend.Interfaces.Utilities;
 using Microsoft.Extensions.Logging;
 
-namespace Backend.PluginLoader.Services;
+namespace Backend.Utilities;
 
-internal sealed record PluginSchemaResult(JsonNode AggregateNode, SchemasFile? TypedSchemas, int DefinitionCount);
-
-internal interface IPluginSchemaAggregator
+public sealed class PluginSchemaAggregationUtility : IPluginSchemaAggregationUtility
 {
-    Task<PluginSchemaResult?> LoadAsync(string workspaceDirectory, CancellationToken cancellationToken);
-}
+    private readonly ILogger<PluginSchemaAggregationUtility> _logger;
 
-internal sealed class PluginSchemaAggregator : IPluginSchemaAggregator
-{
-    private readonly ILogger<PluginSchemaAggregator> _logger;
-
-    public PluginSchemaAggregator(ILogger<PluginSchemaAggregator> logger)
+    public PluginSchemaAggregationUtility(ILogger<PluginSchemaAggregationUtility> logger)
     {
         _logger = logger;
     }

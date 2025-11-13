@@ -1,22 +1,22 @@
-namespace Backend.PluginLoader.DTOs;
+namespace Backend.DTOs;
 
-internal record SchemasFile
+public record SchemasFile
 {
     public required SchemasFileComponents Components { get; set; }
 }
 
-internal record SchemasFileComponents
+public record SchemasFileComponents
 {
     public required Dictionary<string, TypeSchema> Schemas { get; set; }
 }
 
-internal record TypeSchema
+public record TypeSchema
 {
     public required string[] Type { get; set; }
     public required Dictionary<string, TypeInfo> Properties { get; set; }
 }
 
-internal record TypeInfo
+public record TypeInfo
 {
     public required string Type { get; set; }
 }

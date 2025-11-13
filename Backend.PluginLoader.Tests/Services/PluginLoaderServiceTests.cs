@@ -1,10 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Backend.DTOs;
+using Backend.Interfaces.Services;
 using Backend.PluginLoader.Services;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
-using TUnit.Core;
 
 namespace Backend.PluginLoader.Tests.Services;
 
@@ -21,15 +22,24 @@ public class PluginLoaderServiceTests
             new PluginBlobInfo("PluginB_2.0.0.zip", "PluginB", new Version(2, 0, 0))
         };
 
-        discovery.Setup(d => d.GetNewPluginsAsync(It.IsAny<CancellationToken>()))
+        discovery.Setup(d => d.GetNewPluginsAsync(CancellationToken.None))
             .ReturnsAsync(plugins);
 
-        var service = new PluginLoaderService(discovery.Object, processor.Object, Mock.Of<ILogger<PluginLoaderService>>(), TimeSpan.Zero);
+        var service = new PluginLoaderService(
+            discovery.Object,
+            processor.Object,
+            new NullLogger<PluginLoaderService>(),
+            TimeSpan.Zero);
 
         await service.ExecuteCycleAsync(CancellationToken.None);
 
-        processor.Verify(p => p.ProcessAsync(plugins[0], It.IsAny<CancellationToken>()), Times.Once);
-        processor.Verify(p => p.ProcessAsync(plugins[1], It.IsAny<CancellationToken>()), Times.Once);
+        processor.Verify(
+            p => p.ProcessAsync(plugins[0], CancellationToken.None),
+            Times.Once);
+
+        processor.Verify(
+            p => p.ProcessAsync(plugins[1], CancellationToken.None),
+            Times.Once);
     }
 
     [Test]
@@ -43,16 +53,22 @@ public class PluginLoaderServiceTests
             new PluginBlobInfo("PluginB_2.0.0.zip", "PluginB", new Version(2, 0, 0))
         };
 
-        discovery.Setup(d => d.GetNewPluginsAsync(It.IsAny<CancellationToken>()))
+        discovery.Setup(d => d.GetNewPluginsAsync(CancellationToken.None))
             .ReturnsAsync(plugins);
 
-        processor.Setup(p => p.ProcessAsync(plugins[0], It.IsAny<CancellationToken>()))
+        processor.Setup(p => p.ProcessAsync(plugins[0], CancellationToken.None))
             .ThrowsAsync(new InvalidOperationException("Processing failed"));
 
-        var service = new PluginLoaderService(discovery.Object, processor.Object, Mock.Of<ILogger<PluginLoaderService>>(), TimeSpan.Zero);
+        var service = new PluginLoaderService(
+            discovery.Object,
+            processor.Object,
+            new NullLogger<PluginLoaderService>(),
+            TimeSpan.Zero);
 
         await service.ExecuteCycleAsync(CancellationToken.None);
 
-        processor.Verify(p => p.ProcessAsync(plugins[1], It.IsAny<CancellationToken>()), Times.Once);
+        processor.Verify(
+            p => p.ProcessAsync(plugins[1], CancellationToken.None),
+            Times.Once);
     }
 }

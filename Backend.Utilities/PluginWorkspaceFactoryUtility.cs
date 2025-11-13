@@ -1,21 +1,13 @@
-using System;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
+using Backend.Interfaces.Utilities;
 using Microsoft.Extensions.Logging;
 
-namespace Backend.PluginLoader.Services;
+namespace Backend.Utilities;
 
-internal interface IPluginWorkspaceFactory
+public sealed class PluginWorkspaceFactoryUtility : IPluginWorkspaceFactoryUtility
 {
-    Task<string> CreateWorkspaceAsync(string pluginName, Version pluginVersion, CancellationToken cancellationToken);
-}
+    private readonly ILogger<PluginWorkspaceFactoryUtility> _logger;
 
-internal sealed class PluginWorkspaceFactory : IPluginWorkspaceFactory
-{
-    private readonly ILogger<PluginWorkspaceFactory> _logger;
-
-    public PluginWorkspaceFactory(ILogger<PluginWorkspaceFactory> logger)
+    public PluginWorkspaceFactoryUtility(ILogger<PluginWorkspaceFactoryUtility> logger)
     {
         _logger = logger;
     }

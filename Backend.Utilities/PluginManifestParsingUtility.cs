@@ -1,22 +1,15 @@
-using System.IO;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
-using Backend.PluginLoader.DTOs;
+using Backend.DTOs;
+using Backend.Interfaces.Utilities;
 using Microsoft.Extensions.Logging;
 
-namespace Backend.PluginLoader.Services;
+namespace Backend.Utilities;
 
-internal interface IPluginManifestReader
+public sealed class PluginManifestParsingUtility : IPluginManifestParsingUtility
 {
-    Task<ManifestFile?> ReadAsync(string workspaceDirectory, CancellationToken cancellationToken);
-}
+    private readonly ILogger<PluginManifestParsingUtility> _logger;
 
-internal sealed class PluginManifestReader : IPluginManifestReader
-{
-    private readonly ILogger<PluginManifestReader> _logger;
-
-    public PluginManifestReader(ILogger<PluginManifestReader> logger)
+    public PluginManifestParsingUtility(ILogger<PluginManifestParsingUtility> logger)
     {
         _logger = logger;
     }

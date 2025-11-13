@@ -1,31 +1,24 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Backend.DTOs;
 using Backend.Interfaces.Repositories;
+using Backend.Interfaces.Services;
+using Backend.Interfaces.Utilities;
 using Microsoft.Extensions.Logging;
 
-namespace Backend.PluginLoader.Services;
+namespace Backend.Services;
 
-internal interface IPluginDiscoveryService
-{
-    Task<IReadOnlyList<PluginBlobInfo>> GetNewPluginsAsync(CancellationToken cancellationToken);
-}
-
-internal sealed class PluginDiscoveryService : IPluginDiscoveryService
+public sealed class PluginDiscoveryService : IPluginDiscoveryService
 {
     private readonly BlobContainerClient _blobContainerClient;
     private readonly IWorkflowTaskRepository _workflowTaskRepository;
-    private readonly IPluginBlobNameParser _blobNameParser;
+    private readonly IPluginBlobNameParsingUtility _blobNameParser;
     private readonly ILogger<PluginDiscoveryService> _logger;
 
     public PluginDiscoveryService(
         BlobContainerClient blobContainerClient,
         IWorkflowTaskRepository workflowTaskRepository,
-        IPluginBlobNameParser blobNameParser,
+        IPluginBlobNameParsingUtility blobNameParser,
         ILogger<PluginDiscoveryService> logger)
     {
         _blobContainerClient = blobContainerClient;
