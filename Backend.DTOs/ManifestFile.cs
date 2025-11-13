@@ -1,6 +1,6 @@
-namespace Backend.PluginLoader.DTOs;
+namespace Backend.DTOs;
 
-internal record ManifestFile
+public record ManifestFile
 {
     public required string DisplayName { get; set; }
     public required string GlobalState { get; set; }
@@ -8,7 +8,7 @@ internal record ManifestFile
     public required List<ManifestFileChannelInfo> OutputChannels { get; set; }
 }
 
-internal record ManifestFileChannelInfo
+public record ManifestFileChannelInfo
 {
     public required string Name { get; set; }
     public required string Type { get; set; }

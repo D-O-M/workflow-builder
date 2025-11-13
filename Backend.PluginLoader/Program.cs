@@ -1,8 +1,12 @@
 using Azure.Storage.Blobs;
-using Backend.Relational.DAL;
 using Backend.Interfaces.Repositories;
+using Backend.Interfaces.Services;
+using Backend.Interfaces.Utilities;
 using Backend.PluginLoader.Services;
+using Backend.Relational.DAL;
 using Backend.Repositories;
+using Backend.Services;
+using Backend.Utilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,13 +39,13 @@ builder.Services.AddSingleton(_ =>
 });
 
 builder.Services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
-builder.Services.AddSingleton<IPluginBlobNameParser, PluginBlobNameParser>();
+builder.Services.AddSingleton<IPluginBlobNameParsingUtility, PluginBlobNameParsingUtility>();
 builder.Services.AddSingleton<IPluginDiscoveryService, PluginDiscoveryService>();
-builder.Services.AddSingleton<IPluginWorkspaceFactory, PluginWorkspaceFactory>();
-builder.Services.AddSingleton<IPluginArchiveExtractor, PluginArchiveExtractor>();
-builder.Services.AddSingleton<IPluginManifestReader, PluginManifestReader>();
-builder.Services.AddSingleton<IPluginSchemaAggregator, PluginSchemaAggregator>();
-builder.Services.AddSingleton<IPluginBundleProcessor, PluginReceptionService>();
+builder.Services.AddSingleton<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
+builder.Services.AddSingleton<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
+builder.Services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();
+builder.Services.AddSingleton<IPluginSchemaAggregationUtility, PluginSchemaAggregationUtility>();
+builder.Services.AddSingleton<IPluginBundleProcessor, PluginBundleProcessor>();
 builder.Services.AddHostedService<PluginLoaderService>();
 
 // Build & run host

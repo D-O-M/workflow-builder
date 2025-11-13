@@ -1,20 +1,18 @@
 using System;
+using Backend.Interfaces.Utilities;
 using Backend.PluginLoader.Services;
-using Microsoft.Extensions.Logging;
-using Moq;
+using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
-using TUnit.Core;
 
 namespace Backend.PluginLoader.Tests.Services;
 
-public class PluginBlobNameParserTests
+public class PluginBlobNameParsingUtilityTests
 {
-    private readonly PluginBlobNameParser _sut;
+    private readonly IPluginBlobNameParsingUtility _sut;
 
-    public PluginBlobNameParserTests()
+    public PluginBlobNameParsingUtilityTests()
     {
-        var logger = Mock.Of<ILogger<PluginBlobNameParser>>();
-        _sut = new PluginBlobNameParser(logger);
+        _sut = new PluginBlobNameParsingUtility(new NullLogger<PluginBlobNameParsingUtility>());
     }
 
     [Test]

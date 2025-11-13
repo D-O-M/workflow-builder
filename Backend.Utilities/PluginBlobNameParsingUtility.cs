@@ -1,23 +1,20 @@
-using System;
 using System.Text.RegularExpressions;
+using Backend.DTOs;
+using Backend.Interfaces.Utilities;
 using Microsoft.Extensions.Logging;
 
 namespace Backend.PluginLoader.Services;
 
-internal interface IPluginBlobNameParser
-{
-    PluginBlobInfo Parse(string blobName);
-}
-
-internal sealed class PluginBlobNameParser : IPluginBlobNameParser
+public sealed class PluginBlobNameParsingUtility : IPluginBlobNameParsingUtility
 {
     private static readonly Regex BlobNamePattern = new(
         @"^(?<name>.+)_(?<version>\d+(\.\d+){0,3})\.zip$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    private readonly ILogger<PluginBlobNameParser> _logger;
+    private readonly ILogger<PluginBlobNameParsingUtility> _logger;
 
-    public PluginBlobNameParser(ILogger<PluginBlobNameParser> logger)
+    public PluginBlobNameParsingUtility(
+        ILogger<PluginBlobNameParsingUtility> logger)
     {
         _logger = logger;
     }

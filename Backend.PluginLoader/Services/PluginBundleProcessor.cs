@@ -1,11 +1,10 @@
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
 using Azure.Storage.Blobs;
-using Backend.PluginLoader.DTOs;
+using Backend.DTOs;
+using Backend.Interfaces.Utilities;
 using Microsoft.Extensions.Logging;
 
+[assembly: InternalsVisibleTo("DynamicProxyGenAssembly2")]
 namespace Backend.PluginLoader.Services;
 
 internal interface IPluginBundleProcessor
@@ -13,22 +12,22 @@ internal interface IPluginBundleProcessor
     Task ProcessAsync(PluginBlobInfo pluginInfo, CancellationToken cancellationToken);
 }
 
-internal sealed class PluginReceptionService : IPluginBundleProcessor
+internal sealed class PluginBundleProcessor : IPluginBundleProcessor
 {
     private readonly BlobContainerClient _blobContainerClient;
-    private readonly IPluginWorkspaceFactory _workspaceFactory;
-    private readonly IPluginArchiveExtractor _archiveExtractor;
-    private readonly IPluginManifestReader _manifestReader;
-    private readonly IPluginSchemaAggregator _schemaAggregator;
-    private readonly ILogger<PluginReceptionService> _logger;
+    private readonly IPluginWorkspaceFactoryUtility _workspaceFactory;
+    private readonly IPluginArchiveExtractionUtility _archiveExtractor;
+    private readonly IPluginManifestParsingUtility _manifestReader;
+    private readonly IPluginSchemaAggregationUtility _schemaAggregator;
+    private readonly ILogger<PluginBundleProcessor> _logger;
 
-    public PluginReceptionService(
+    public PluginBundleProcessor(
         BlobContainerClient blobContainerClient,
-        IPluginWorkspaceFactory workspaceFactory,
-        IPluginArchiveExtractor archiveExtractor,
-        IPluginManifestReader manifestReader,
-        IPluginSchemaAggregator schemaAggregator,
-        ILogger<PluginReceptionService> logger)
+        IPluginWorkspaceFactoryUtility workspaceFactory,
+        IPluginArchiveExtractionUtility archiveExtractor,
+        IPluginManifestParsingUtility manifestReader,
+        IPluginSchemaAggregationUtility schemaAggregator,
+        ILogger<PluginBundleProcessor> logger)
     {
         _blobContainerClient = blobContainerClient;
         _workspaceFactory = workspaceFactory;
@@ -76,7 +75,7 @@ internal sealed class PluginReceptionService : IPluginBundleProcessor
 
         _logger.LogInformation(
             "Loaded {SchemaCount} schema definition(s) for plugin {Plugin} ({Version}).",
-            schemas.Value.DefinitionCount,
+            schemas.DefinitionCount,
             pluginInfo.PluginName,
             pluginInfo.Version);
     }

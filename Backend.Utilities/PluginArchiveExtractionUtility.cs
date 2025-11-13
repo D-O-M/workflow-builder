@@ -1,23 +1,15 @@
-using System;
-using System.IO;
 using System.IO.Compression;
-using System.Threading;
-using System.Threading.Tasks;
 using Azure.Storage.Blobs;
+using Backend.Interfaces.Utilities;
 using Microsoft.Extensions.Logging;
 
-namespace Backend.PluginLoader.Services;
+namespace Backend.Utilities;
 
-internal interface IPluginArchiveExtractor
+public sealed class PluginArchiveExtractionUtility : IPluginArchiveExtractionUtility
 {
-    Task ExtractAsync(BlobClient blobClient, string destinationDirectory, CancellationToken cancellationToken);
-}
+    private readonly ILogger<PluginArchiveExtractionUtility> _logger;
 
-internal sealed class PluginArchiveExtractor : IPluginArchiveExtractor
-{
-    private readonly ILogger<PluginArchiveExtractor> _logger;
-
-    public PluginArchiveExtractor(ILogger<PluginArchiveExtractor> logger)
+    public PluginArchiveExtractionUtility(ILogger<PluginArchiveExtractionUtility> logger)
     {
         _logger = logger;
     }
