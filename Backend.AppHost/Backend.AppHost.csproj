@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <Sdk Name="Aspire.AppHost.Sdk" Version="9.3.1" />
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Backend.API\Backend.API.csproj" />
+    <ProjectReference Include="..\Backend.Engine\Backend.Engine.csproj" />
     <ProjectReference Include="..\Backend.PluginLoader\Backend.PluginLoader.csproj" />
   </ItemGroup>
 </Project>
