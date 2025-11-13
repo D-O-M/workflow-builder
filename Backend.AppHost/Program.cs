@@ -68,6 +68,14 @@ internal class Program
             .WithReference(sqlDb)
             .WaitFor(sqlDb);
 
+        var engine = builder.AddProject<Projects.Backend_Engine>("backend-engine")
+            .WithReference(blobContainer)
+            .WaitFor(blobContainer)
+            .WithReference(queues)
+            .WaitFor(queues)
+            .WithReference(sqlDb)
+            .WaitFor(sqlDb);
+
         builder.AddProject<Projects.Backend_PluginLoader>("plugin-loader")
             .WithReference(blobs)
             .WaitFor(blobs)
