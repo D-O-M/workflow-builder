@@ -6,8 +6,8 @@ using System.Threading.Tasks;
 namespace Backend.Plugins.Communication;
 
 /// <summary>
-/// Handles the engine side of the IPC negotiation and provides a ready-to-use
-/// channel back to callers.
+/// Handles the initiator side of the IPC negotiation and provides a
+/// ready-to-use channel back to callers.
 /// </summary>
 public sealed class SignalBroadcaster
 {
@@ -20,23 +20,23 @@ public sealed class SignalBroadcaster
         _handshakeReader = handshakeReader ?? throw new ArgumentNullException(nameof(handshakeReader));
     }
 
-    public async Task<SignalConnection> EstablishAsync(NanoServiceHandshake handshake, CancellationToken cancellationToken)
+    public async Task<SignalConnection> EstablishAsync(SignalHandshake handshake, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(handshake);
 
-        var payload = NanoServiceHandshakeSerializer.Serialize(handshake);
+        var payload = SignalHandshakeSerializer.Serialize(handshake);
         await _handshakeWriter.WriteLineAsync(payload).WaitAsync(cancellationToken);
         await _handshakeWriter.FlushAsync().WaitAsync(cancellationToken);
 
-        var expectedAck = $"{NanoServiceProtocolConstants.HandshakeAcknowledgementPrefix}:{handshake.SessionId:N}";
+        var expectedAck = $"{SignalProtocolConstants.HandshakeAcknowledgementPrefix}:{handshake.SessionId:N}";
         var ack = await _handshakeReader.ReadLineAsync().WaitAsync(cancellationToken);
         if (!string.Equals(ack, expectedAck, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
-                $"Unexpected nano service handshake acknowledgement. Expected '{expectedAck}' but received '{ack ?? "<null>"}'.");
+                $"Unexpected signal handshake acknowledgement. Expected '{expectedAck}' but received '{ack ?? "<null>"}'.");
         }
 
-        var channel = NanoServiceProtocolFactory.CreateEngineChannel(handshake);
+        var channel = SignalProtocolFactory.CreateChannel(handshake, SignalEndpointRole.Initiator);
         return new SignalConnection(handshake, channel);
     }
 }

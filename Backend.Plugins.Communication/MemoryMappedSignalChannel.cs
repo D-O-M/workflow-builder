@@ -5,25 +5,25 @@ namespace Backend.Plugins.Communication;
 /// <summary>
 /// Wraps two ring buffers (one per direction) to expose a duplex channel.
 /// </summary>
-public sealed class MemoryMappedNanoServiceChannel : INanoServiceChannel
+public sealed class MemoryMappedSignalChannel : ISignalChannel
 {
     private readonly MemoryMappedRingBuffer _outbound;
     private readonly MemoryMappedRingBuffer _inbound;
     private bool _disposed;
 
-    public MemoryMappedNanoServiceChannel(MemoryMappedRingBuffer outbound, MemoryMappedRingBuffer inbound)
+    public MemoryMappedSignalChannel(MemoryMappedRingBuffer outbound, MemoryMappedRingBuffer inbound)
     {
         _outbound = outbound;
         _inbound = inbound;
     }
 
-    public bool TrySend(in NanoServiceMessage message)
+    public bool TrySend(in SignalMessage message)
     {
         EnsureNotDisposed();
         return _outbound.TryWrite(message.Command, message.Payload.Span);
     }
 
-    public bool TryReceive(out NanoServiceMessage message)
+    public bool TryReceive(out SignalMessage message)
     {
         EnsureNotDisposed();
         return _inbound.TryRead(out message);

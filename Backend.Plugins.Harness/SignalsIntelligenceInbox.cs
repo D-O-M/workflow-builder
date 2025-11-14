@@ -5,6 +5,7 @@ namespace Backend.Plugins.Harness;
 internal enum SignalsIntelligenceMessageKind
 {
     InputChannelModel,
+    OutputChannelModel,
     GlobalState
 }
 
