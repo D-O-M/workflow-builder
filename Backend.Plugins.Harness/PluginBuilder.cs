@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Reflection;
+using Backend.Plugins.Communication;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -22,6 +23,9 @@ public class PluginBuilder<TPlugin>
     public PluginBuilder(string displayName)
     {
         _hostAppBuilder.Logging.ClearProviders().AddSimpleConsole();
+        _hostAppBuilder.Services.AddSingleton<SignalsIntelligenceInbox>();
+        _hostAppBuilder.Services.AddSingleton<SignalClient>();
+        _hostAppBuilder.Services.AddHostedService<SignalsIntelligenceService>();
         _displayName = displayName;
     }
 
