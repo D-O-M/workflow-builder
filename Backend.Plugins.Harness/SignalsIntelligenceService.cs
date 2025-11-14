@@ -40,7 +40,7 @@ internal sealed class SignalsIntelligenceService : BackgroundService
         }
     }
 
-    private async Task PumpMessagesAsync(INanoServiceChannel channel, CancellationToken stoppingToken)
+    private async Task PumpMessagesAsync(ISignalChannel channel, CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -52,11 +52,8 @@ internal sealed class SignalsIntelligenceService : BackgroundService
 
             switch (message.Command)
             {
-                case NanoServiceCommand.ModelWrite:
-                    await HandleChannelModelAsync(message.Payload, stoppingToken);
-                    break;
-                case NanoServiceCommand.StatePush:
-                    await HandleGlobalStateAsync(message.Payload, stoppingToken);
+                case SignalCommand.Action:
+                    await HandleActionAsync(message.Payload, stoppingToken);
                     break;
                 default:
                     _logger.LogDebug("Ignoring unsupported command {Command}", message.Command);
@@ -65,28 +62,46 @@ internal sealed class SignalsIntelligenceService : BackgroundService
         }
     }
 
-    private async ValueTask HandleChannelModelAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+    private async ValueTask HandleActionAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
-        var envelope = EnginePayloadSerializer.DeserializeChannelModel(payload.Span);
-        var message = new SignalsIntelligenceMessage(
-            SignalsIntelligenceMessageKind.InputChannelModel,
-            envelope.ChannelName,
-            envelope.ModelType,
-            envelope.ContentType,
-            envelope.ModelData);
-
-        await _inbox.Writer.WriteAsync(message, cancellationToken);
+        var action = SignalActionSerializer.Deserialize(payload.Span);
+        switch (action.Class)
+        {
+            case SignalActionClass.InputChannel:
+                await PublishMessageAsync(
+                    SignalsIntelligenceMessageKind.InputChannelModel,
+                    action,
+                    cancellationToken);
+                break;
+            case SignalActionClass.OutputChannel:
+                await PublishMessageAsync(
+                    SignalsIntelligenceMessageKind.OutputChannelModel,
+                    action,
+                    cancellationToken);
+                break;
+            case SignalActionClass.GlobalState:
+                await PublishMessageAsync(
+                    SignalsIntelligenceMessageKind.GlobalState,
+                    action,
+                    cancellationToken);
+                break;
+            default:
+                _logger.LogDebug("Ignoring unsupported action class {Class}", action.Class);
+                break;
+        }
     }
 
-    private async ValueTask HandleGlobalStateAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+    private async ValueTask PublishMessageAsync(
+        SignalsIntelligenceMessageKind kind,
+        SignalAction action,
+        CancellationToken cancellationToken)
     {
-        var envelope = EnginePayloadSerializer.DeserializeGlobalState(payload.Span);
         var message = new SignalsIntelligenceMessage(
-            SignalsIntelligenceMessageKind.GlobalState,
-            identifier: envelope.StateType,
-            ModelType: envelope.StateType,
-            ContentType: envelope.ContentType,
-            Payload: envelope.StateData);
+            kind,
+            action.Identifier,
+            action.Type ?? string.Empty,
+            action.ContentType ?? "application/octet-stream",
+            action.Data);
 
         await _inbox.Writer.WriteAsync(message, cancellationToken);
     }

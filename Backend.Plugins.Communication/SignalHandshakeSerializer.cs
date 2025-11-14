@@ -7,7 +7,7 @@ namespace Backend.Plugins.Communication;
 /// Serialises the handshake into a compact Base64 payload that can be shipped
 /// over STDIO without leaking implementation details to consumers.
 /// </summary>
-public static class NanoServiceHandshakeSerializer
+public static class SignalHandshakeSerializer
 {
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
@@ -15,24 +15,24 @@ public static class NanoServiceHandshakeSerializer
         WriteIndented = false
     };
 
-    public static string Serialize(NanoServiceHandshake handshake)
+    public static string Serialize(SignalHandshake handshake)
     {
         ArgumentNullException.ThrowIfNull(handshake);
         var json = JsonSerializer.Serialize(handshake, Options);
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
     }
 
-    public static NanoServiceHandshake Deserialize(string payload)
+    public static SignalHandshake Deserialize(string payload)
     {
         ArgumentException.ThrowIfNullOrEmpty(payload);
         var json = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
-        var handshake = JsonSerializer.Deserialize<NanoServiceHandshake>(json, Options)
-            ?? throw new InvalidOperationException("Unable to read nano service handshake payload.");
+        var handshake = JsonSerializer.Deserialize<SignalHandshake>(json, Options)
+            ?? throw new InvalidOperationException("Unable to read signal handshake payload.");
 
-        if (handshake.ProtocolVersion != NanoServiceHandshake.CurrentProtocolVersion)
+        if (handshake.ProtocolVersion != SignalHandshake.CurrentProtocolVersion)
         {
             throw new InvalidOperationException(
-                $"Protocol mismatch. Engine expects v{NanoServiceHandshake.CurrentProtocolVersion} but received v{handshake.ProtocolVersion}.");
+                $"Protocol mismatch. Expected v{SignalHandshake.CurrentProtocolVersion} but received v{handshake.ProtocolVersion}.");
         }
 
         return handshake;
