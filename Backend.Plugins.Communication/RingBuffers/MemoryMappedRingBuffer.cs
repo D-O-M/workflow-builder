@@ -1,8 +1,6 @@
 using System.Buffers;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
-using System.Threading;
-using Backend.Plugins.Communication;
 
 namespace Backend.Plugins.Communication.RingBuffers;
 
@@ -11,7 +9,7 @@ namespace Backend.Plugins.Communication.RingBuffers;
 /// memory-mapped file. The structure is OS-independent and can be shared across
 /// processes.
 /// </summary>
-internal sealed class MemoryMappedRingBuffer : IDisposable
+public sealed class MemoryMappedRingBuffer : IDisposable
 {
     private const int HeaderSize = sizeof(int) * 2; // head + tail
     private const int MessageHeaderSize = 1 + sizeof(int); // command + payload length

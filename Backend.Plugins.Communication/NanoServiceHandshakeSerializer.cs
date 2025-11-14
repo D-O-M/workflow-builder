@@ -26,12 +26,8 @@ public static class NanoServiceHandshakeSerializer
     {
         ArgumentException.ThrowIfNullOrEmpty(payload);
         var json = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
-        var handshake = JsonSerializer.Deserialize<NanoServiceHandshake>(json, Options);
-
-        if (handshake is null)
-        {
-            throw new InvalidOperationException("Unable to read nano service handshake payload.");
-        }
+        var handshake = JsonSerializer.Deserialize<NanoServiceHandshake>(json, Options)
+            ?? throw new InvalidOperationException("Unable to read nano service handshake payload.");
 
         if (handshake.ProtocolVersion != NanoServiceHandshake.CurrentProtocolVersion)
         {
