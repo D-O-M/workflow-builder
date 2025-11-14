@@ -12,12 +12,12 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Harness\Plugins.Harness.csproj" />
+        <Content Include="manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <Content Include="schemas\**\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
 
     <ItemGroup>
-        <Content Include="manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-        <Content Include="schemas\**\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+      <ProjectReference Include="..\..\Backend.Plugins.Harness\Backend.Plugins.Harness.csproj" />
     </ItemGroup>
 
 </Project>

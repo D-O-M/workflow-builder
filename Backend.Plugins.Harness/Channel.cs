@@ -1,4 +1,4 @@
-namespace Plugins.Harness;
+namespace Backend.Plugins.Harness;
 
 internal abstract class Channel
 {

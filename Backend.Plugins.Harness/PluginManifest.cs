@@ -1,4 +1,4 @@
-namespace Plugins.Harness;
+namespace Backend.Plugins.Harness;
 
 public sealed class PluginManifest
 {
