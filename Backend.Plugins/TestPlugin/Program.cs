@@ -1,4 +1,4 @@
-using Plugins.Harness;
+using Backend.Plugins.Harness;
 using TestPlugin;
 
 var plugin = Plugin.CreateBuilder<MyPlugin>("A Test Plugin")

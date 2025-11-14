@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace Plugins.Harness;
+namespace Backend.Plugins.Harness;
 
 public class PluginBuilder<TPlugin>
     where TPlugin : class, IPlugin

@@ -1,4 +1,4 @@
-using Plugins.Harness;
+using Backend.Plugins.Harness;
 
 namespace TestPlugin;
 
