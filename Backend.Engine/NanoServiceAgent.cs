@@ -1,20 +1,38 @@
 using System.Diagnostics;
+using System.Collections.Generic;
 
 namespace Backend.Engine;
 
 public class NanoServiceAgent
 {
     private readonly ILogger _logger;
+    private readonly NanoServiceSignalsClient _signalsClient;
 
-    public NanoServiceAgent(ILogger<NanoServiceAgent> logger)
+    public NanoServiceAgent(
+        ILogger<NanoServiceAgent> logger,
+        NanoServiceSignalsClient signalsClient)
     {
         _logger = logger;
+        _signalsClient = signalsClient;
     }
 
-    public bool Initialise(FileInfo fileInfo)
+    public async Task<bool> InitialiseAsync(
+        FileInfo fileInfo,
+        IEnumerable<NanoServiceInputChannelModel> inputChannels,
+        NanoServiceGlobalStateSnapshot? globalState,
+        CancellationToken cancellationToken)
     {
         var process = CreateProcess(fileInfo);
-        return process.Start();
+        if (!process.Start())
+        {
+            return false;
+        }
+
+        await _signalsClient.EstablishAsync(process, fileInfo.Name, inputChannels, globalState, cancellationToken);
+
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        return true;
     }
 
     private Process CreateProcess(FileInfo executableFileInfo)
@@ -23,10 +41,11 @@ public class NanoServiceAgent
         {
             FileName = executableFileInfo.Name,
             Arguments = "",
-            WorkingDirectory = executableFileInfo.Directory!.Name,
+            WorkingDirectory = executableFileInfo.Directory!.FullName,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = true,
             CreateNoWindow = true
         };
 

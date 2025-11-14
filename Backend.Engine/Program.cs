@@ -34,6 +34,7 @@ builder.Services.AddSingleton(_ =>
 
 builder.Services.AddSingleton<EngineInstanceInfo>();
 builder.Services.AddHostedService<NanoServiceOrchestrator>();
+builder.Services.AddTransient<NanoServiceSignalsClient>();
 builder.Services.AddTransient<NanoServiceAgent>();
 builder.Services.AddScoped<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
 builder.Services.AddScoped<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
