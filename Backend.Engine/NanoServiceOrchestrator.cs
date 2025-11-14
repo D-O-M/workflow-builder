@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Azure.Storage.Blobs;
 using Backend.DTOs;
 using Backend.Interfaces.Repositories;
@@ -51,7 +52,11 @@ public class NanoServiceOrchestrator : BackgroundService
         foreach (var (fileInfo, taskInfo) in _plugins)
         {
             var newAgent = _serviceProvider.GetRequiredService<NanoServiceAgent>();
-            newAgent.Initialise(fileInfo);
+            await newAgent.InitialiseAsync(
+                fileInfo,
+                Array.Empty<NanoServiceInputChannelModel>(),
+                globalState: null,
+                stoppingToken);
             _agents.Add(fileInfo.Name, newAgent);
         }
 

@@ -14,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Backend.Repositories\Backend.Repositories.csproj" />
     <ProjectReference Include="..\Backend.Utilities\Backend.Utilities.csproj" />
+    <ProjectReference Include="..\Backend.Plugins.Communication\Backend.Plugins.Communication.csproj" />
   </ItemGroup>
 
 </Project>
