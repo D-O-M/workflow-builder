@@ -19,12 +19,6 @@ public class Plugin<TPlugin> : Plugin
         _pluginBuilder = pluginBuilder;
     }
 
-    public new static PluginBuilder<TPlugin> CreateBuilder<TPlugin2>()
-        where TPlugin2 : class, IPlugin
-    {
-        throw new InvalidOperationException("The plugin has already been built.");
-    }
-
     public async Task RunAsync() =>
         await _pluginBuilder.RunAsync();
 }
