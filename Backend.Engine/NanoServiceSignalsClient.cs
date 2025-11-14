@@ -44,7 +44,7 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
             throw new InvalidOperationException("Nano service process was started without redirected STDIO streams.");
         }
 
-        var handshake = NanoServiceProtocolFactory.CreateHandshake(nanoServiceName, Environment.ProcessId);
+        var handshake = SignalProtocolFactory.CreateHandshake(nanoServiceName, Environment.ProcessId);
         var broadcaster = new SignalBroadcaster(stdin, stdout);
         _connection = await broadcaster.EstablishAsync(handshake, cancellationToken);
 
@@ -59,25 +59,28 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
     {
         foreach (var channel in channels)
         {
-            var payload = new EngineChannelModelPayload(
+            var action = new SignalAction(
+                SignalActionClass.InputChannel,
                 channel.ChannelName,
                 channel.ModelType,
                 contentType: "application/json",
-                ModelData: SerializeModel(channel.Model));
+                Data: SerializeModel(channel.Model));
 
-            await SendAsync(new NanoServiceMessage(NanoServiceCommand.ModelWrite, EnginePayloadSerializer.SerializeChannelModel(payload)), cancellationToken);
+            await SendAsync(new SignalMessage(SignalCommand.Action, SignalActionSerializer.Serialize(action)), cancellationToken);
             _logger.LogInformation("Sent model for channel {ChannelName}", channel.ChannelName);
         }
     }
 
     private async Task SendGlobalStateAsync(NanoServiceGlobalStateSnapshot snapshot, CancellationToken cancellationToken)
     {
-        var payload = new EngineGlobalStatePayload(
+        var action = new SignalAction(
+            SignalActionClass.GlobalState,
             snapshot.StateType,
+            Type: snapshot.StateType,
             contentType: "application/json",
-            StateData: SerializeModel(snapshot.State));
+            Data: SerializeModel(snapshot.State));
 
-        await SendAsync(new NanoServiceMessage(NanoServiceCommand.StatePush, EnginePayloadSerializer.SerializeGlobalState(payload)), cancellationToken);
+        await SendAsync(new SignalMessage(SignalCommand.Action, SignalActionSerializer.Serialize(action)), cancellationToken);
         _logger.LogInformation("Pushed global state {StateType}", snapshot.StateType);
     }
 
@@ -91,7 +94,7 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
         return JsonSerializer.SerializeToUtf8Bytes(model, model.GetType(), ModelSerializerOptions);
     }
 
-    private async Task SendAsync(NanoServiceMessage message, CancellationToken cancellationToken)
+    private async Task SendAsync(SignalMessage message, CancellationToken cancellationToken)
     {
         var channel = _connection?.Channel;
         if (channel is null)

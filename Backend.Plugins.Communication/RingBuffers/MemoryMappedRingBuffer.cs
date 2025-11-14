@@ -33,7 +33,7 @@ public sealed class MemoryMappedRingBuffer : IDisposable
         _mutex = new Mutex(false, mutexName);
     }
 
-    public bool TryWrite(NanoServiceCommand command, ReadOnlySpan<byte> payload)
+    public bool TryWrite(SignalCommand command, ReadOnlySpan<byte> payload)
     {
         EnsureNotDisposed();
         var messageLength = payload.Length + MessageHeaderSize;
@@ -67,7 +67,7 @@ public sealed class MemoryMappedRingBuffer : IDisposable
         return true;
     }
 
-    public bool TryRead(out NanoServiceMessage message)
+    public bool TryRead(out SignalMessage message)
     {
         EnsureNotDisposed();
         using var releaser = new CrossProcessMutexGuard(_mutex);
@@ -76,13 +76,13 @@ public sealed class MemoryMappedRingBuffer : IDisposable
 
         if (head == tail)
         {
-            message = NanoServiceMessage.Empty();
+            message = SignalMessage.Empty();
             return false;
         }
 
         Span<byte> header = stackalloc byte[MessageHeaderSize];
         ReadFromRing(tail, header);
-        var command = (NanoServiceCommand)header[0];
+        var command = (SignalCommand)header[0];
         var payloadLength = MemoryMarshal.Read<int>(header[1..]);
         tail = Advance(tail, header.Length);
 
@@ -103,7 +103,7 @@ public sealed class MemoryMappedRingBuffer : IDisposable
 
         WriteTail(tail);
 
-        message = new NanoServiceMessage(command, payload);
+        message = new SignalMessage(command, payload);
         return true;
     }
 
