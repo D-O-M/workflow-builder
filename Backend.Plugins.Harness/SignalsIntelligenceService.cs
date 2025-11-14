@@ -8,24 +8,26 @@ internal sealed class SignalsIntelligenceService : BackgroundService
 {
     private readonly ILogger<SignalsIntelligenceService> _logger;
     private readonly SignalsIntelligenceInbox _inbox;
+    private readonly SignalClient _signalClient;
 
     public SignalsIntelligenceService(
         ILogger<SignalsIntelligenceService> logger,
-        SignalsIntelligenceInbox inbox)
+        SignalsIntelligenceInbox inbox,
+        SignalClient signalClient)
     {
         _logger = logger;
         _inbox = inbox;
+        _signalClient = signalClient;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
         {
-            var handshake = await PerformHandshakeAsync(stoppingToken);
-            _logger.LogInformation("Established session {SessionId}" , handshake.SessionId);
+            await using var connection = await _signalClient.EstablishAsync(stoppingToken);
+            _logger.LogInformation("Established session {SessionId}" , connection.Handshake.SessionId);
 
-            using var channel = NanoServiceProtocolFactory.CreateNanoServiceChannel(handshake);
-            await PumpMessagesAsync(channel, stoppingToken);
+            await PumpMessagesAsync(connection.Channel, stoppingToken);
         }
         catch (OperationCanceledException)
         {
@@ -36,21 +38,6 @@ internal sealed class SignalsIntelligenceService : BackgroundService
             _logger.LogCritical(ex, "Signals intelligence channel terminated unexpectedly.");
             throw;
         }
-    }
-
-    private static async Task<NanoServiceHandshake> PerformHandshakeAsync(CancellationToken cancellationToken)
-    {
-        var payloadTask = Console.In.ReadLineAsync();
-        var payload = await payloadTask.AsTask().WaitAsync(cancellationToken)
-            ?? throw new InvalidOperationException("Engine handshake payload was not received.");
-
-        var handshake = NanoServiceHandshakeSerializer.Deserialize(payload);
-
-        var ackLine = $"{NanoServiceProtocolConstants.HandshakeAcknowledgementPrefix}:{handshake.SessionId:N}";
-        await Console.Out.WriteLineAsync(ackLine).WaitAsync(cancellationToken);
-        await Console.Out.FlushAsync().WaitAsync(cancellationToken);
-
-        return handshake;
     }
 
     private async Task PumpMessagesAsync(INanoServiceChannel channel, CancellationToken stoppingToken)

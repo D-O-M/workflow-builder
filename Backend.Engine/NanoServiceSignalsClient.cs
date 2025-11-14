@@ -19,7 +19,7 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
     };
 
     private readonly ILogger<NanoServiceSignalsClient> _logger;
-    private INanoServiceChannel? _channel;
+    private SignalConnection? _connection;
 
     public NanoServiceSignalsClient(ILogger<NanoServiceSignalsClient> logger)
     {
@@ -36,20 +36,6 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(process);
         ArgumentException.ThrowIfNullOrEmpty(nanoServiceName);
 
-        var handshake = NanoServiceProtocolFactory.CreateHandshake(nanoServiceName, Environment.ProcessId);
-        await PerformHandshakeAsync(process, handshake, cancellationToken);
-
-        _channel = NanoServiceProtocolFactory.CreateEngineChannel(handshake);
-
-        await SendInputChannelsAsync(inputChannels, cancellationToken);
-        if (globalState is not null)
-        {
-            await SendGlobalStateAsync(globalState, cancellationToken);
-        }
-    }
-
-    private static async Task PerformHandshakeAsync(Process process, NanoServiceHandshake handshake, CancellationToken cancellationToken)
-    {
         var stdin = process.StandardInput;
         var stdout = process.StandardOutput;
 
@@ -58,15 +44,14 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
             throw new InvalidOperationException("Nano service process was started without redirected STDIO streams.");
         }
 
-        var payload = NanoServiceHandshakeSerializer.Serialize(handshake);
-        await stdin.WriteLineAsync(payload).WaitAsync(cancellationToken);
-        await stdin.FlushAsync().WaitAsync(cancellationToken);
+        var handshake = NanoServiceProtocolFactory.CreateHandshake(nanoServiceName, Environment.ProcessId);
+        var broadcaster = new SignalBroadcaster(stdin, stdout);
+        _connection = await broadcaster.EstablishAsync(handshake, cancellationToken);
 
-        var expectedAck = $"{NanoServiceProtocolConstants.HandshakeAcknowledgementPrefix}:{handshake.SessionId:N}";
-        var ack = await stdout.ReadLineAsync().WaitAsync(cancellationToken);
-        if (!string.Equals(ack, expectedAck, StringComparison.Ordinal))
+        await SendInputChannelsAsync(inputChannels, cancellationToken);
+        if (globalState is not null)
         {
-            throw new InvalidOperationException($"Unexpected nano service handshake acknowledgement. Expected '{expectedAck}' but received '{ack ?? "<null>"}'.");
+            await SendGlobalStateAsync(globalState, cancellationToken);
         }
     }
 
@@ -108,14 +93,15 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
 
     private async Task SendAsync(NanoServiceMessage message, CancellationToken cancellationToken)
     {
-        if (_channel is null)
+        var channel = _connection?.Channel;
+        if (channel is null)
         {
             throw new InvalidOperationException("Nano service channel is not ready yet.");
         }
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (_channel.TrySend(message))
+            if (channel.TrySend(message))
             {
                 return;
             }
@@ -128,11 +114,10 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_channel is not null)
+        if (_connection is not null)
         {
-            _channel.Dispose();
-            _channel = null;
+            await _connection.DisposeAsync();
+            _connection = null;
         }
-        await Task.CompletedTask;
     }
 }
