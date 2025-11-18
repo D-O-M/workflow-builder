@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Backend.DTOs\Backend.DTOs.csproj" />
+    <ProjectReference Include="..\Backend.State.DAL\Backend.Database.State.csproj" />
   </ItemGroup>
 
 </Project>
