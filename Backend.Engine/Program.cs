@@ -33,6 +33,7 @@ builder.Services.AddSingleton(_ =>
 });
 
 builder.Services.AddSingleton<EngineInstanceInfo>();
+builder.Services.AddSingleton<IAgentManager, AgentManager>();
 builder.Services.AddHostedService<NanoServiceOrchestrator>();
 builder.Services.AddTransient<NanoServiceSignalsClient>();
 builder.Services.AddTransient<NanoServiceAgent>();
