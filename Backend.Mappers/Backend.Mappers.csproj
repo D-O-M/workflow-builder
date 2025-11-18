@@ -11,7 +11,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Backend.Conformation.DAL\Backend.Relational.DAL.csproj" />
+    <ProjectReference Include="..\Backend.Conformation.DAL\Backend.Database.Relational.csproj" />
     <ProjectReference Include="..\Backend.DTOs\Backend.DTOs.csproj" />
   </ItemGroup>
 
