@@ -1,9 +1,9 @@
-using Backend.Relational.DAL;
+using Backend.Database.Relational.Entities;
 using Backend.DTOs;
 using Backend.Interfaces.Repositories;
 using Backend.Mappers;
+using Backend.Relational.DAL;
 using Microsoft.EntityFrameworkCore;
-using DAL = Backend.Relational.DAL;
 
 namespace Backend.Repositories;
 
@@ -23,23 +23,19 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
 
     public async Task CreateTaskSchema(Manifest manifest, CancellationToken cancellationToken)
     {
-        var workflowTask = new TaskSchema
-        {
-            Name = manifest.Name,
-            Path = manifest.Path,
-            Version = manifest.Version
-        };
+        ChannelSpecification? inputChannelSpec = null;
+        var outputChannelSpecs = new List<ChannelSpecification>();
 
         foreach (var channel in manifest.Channels)
         {
-            DAL.ChannelSchema newChannel = new DAL.ChannelSchema
+            var newChannel = new ChannelSpecification
             {
                 Name = channel.Name
             };
 
             foreach (var parameter in channel.Parameters)
             {
-                newChannel.Parameters.Add(new()
+                newChannel.Properties.Add(new()
                 {
                     Name = parameter.Name,
                     Type = parameter.Type
@@ -47,10 +43,27 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
             }
 
             if (channel.ChannelType is ManifestChannelType.Input)
-                workflowTask.InputChannels.Add(newChannel);
+            {
+                if (inputChannelSpec is not null)
+                    throw new InvalidDataException("Multiple input channels are not supported.");
+
+                inputChannelSpec = newChannel;
+            }
             else if (channel.ChannelType is ManifestChannelType.Output)
-                workflowTask.OutputChannels.Add(newChannel);
+                outputChannelSpecs.Add(newChannel);
         }
+
+        if (inputChannelSpec is null)
+            throw new InvalidDataException("An input channel is required.");
+
+        var workflowTask = new TaskSchema
+        {
+            Name = manifest.Name,
+            Path = manifest.Path,
+            Version = manifest.Version,
+            InputChannelSpecification = inputChannelSpec!,
+            OutputChannelSpecifications = outputChannelSpecs
+        };
 
         _context.Add(workflowTask);
         await _context.SaveChangesAsync(cancellationToken);
