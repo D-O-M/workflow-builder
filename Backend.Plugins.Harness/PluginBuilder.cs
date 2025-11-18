@@ -11,8 +11,8 @@ public class PluginBuilder<TPlugin>
     where TPlugin : class, IPlugin
 {
     private readonly string _displayName;
-    private readonly Dictionary<string, Channel> _inputChannels = new();
-    private readonly Dictionary<string, Channel> _outputChannels = new();
+    private readonly Dictionary<string, PluginChannel> _inputChannels = new();
+    private readonly Dictionary<string, PluginChannel> _outputChannels = new();
     private readonly HostApplicationBuilder _hostAppBuilder = Host.CreateApplicationBuilder();
     private IHost? host = null;
 
@@ -23,9 +23,9 @@ public class PluginBuilder<TPlugin>
     public PluginBuilder(string displayName)
     {
         _hostAppBuilder.Logging.ClearProviders().AddSimpleConsole();
-        _hostAppBuilder.Services.AddSingleton<SignalsIntelligenceInbox>();
+        _hostAppBuilder.Services.AddSingleton<SignalInbox>();
         _hostAppBuilder.Services.AddSingleton<SignalClient>();
-        _hostAppBuilder.Services.AddHostedService<SignalsIntelligenceService>();
+        _hostAppBuilder.Services.AddHostedService<SignalMonitoringService>();
         _displayName = displayName;
     }
 
@@ -36,7 +36,7 @@ public class PluginBuilder<TPlugin>
         if (_inputChannels.ContainsKey(name))
             throw new InvalidOperationException($"Input channel '{name}' is already configured.");
 
-        _inputChannels.Add(name, new Channel<TPlugin, TChannelType>(name, getter));
+        _inputChannels.Add(name, new PluginChannel<TPlugin, TChannelType>(name, getter));
         return this;
     }
 
@@ -47,7 +47,7 @@ public class PluginBuilder<TPlugin>
         if (_outputChannels.ContainsKey(name))
             throw new InvalidOperationException($"Output channel '{name}' is already configured.");
 
-        _outputChannels.Add(name, new Channel<TPlugin, TChannelType>(name, getter));
+        _outputChannels.Add(name, new PluginChannel<TPlugin, TChannelType>(name, getter));
         return this;
     }
 

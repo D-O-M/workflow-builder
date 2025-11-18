@@ -2,15 +2,15 @@ using System.Threading.Channels;
 
 namespace Backend.Plugins.Harness;
 
-internal enum SignalsIntelligenceMessageKind
+internal enum SignalsMessageKind
 {
     InputChannelModel,
     OutputChannelModel,
     GlobalState
 }
 
-internal sealed record SignalsIntelligenceMessage(
-    SignalsIntelligenceMessageKind Kind,
+internal sealed record Signal(
+    SignalsMessageKind Kind,
     string Identifier,
     string ModelType,
     string ContentType,
@@ -20,9 +20,9 @@ internal sealed record SignalsIntelligenceMessage(
 /// Lightweight in-memory queue that buffers messages arriving from the engine
 /// until the rest of the harness is ready to process them.
 /// </summary>
-internal sealed class SignalsIntelligenceInbox
+internal sealed class SignalInbox
 {
-    private readonly Channel<SignalsIntelligenceMessage> _channel = Channel.CreateUnbounded<SignalsIntelligenceMessage>(
+    private readonly Channel<Signal> _channel = Channel.CreateUnbounded<Signal>(
         new UnboundedChannelOptions
         {
             AllowSynchronousContinuations = false,
@@ -30,6 +30,6 @@ internal sealed class SignalsIntelligenceInbox
             SingleWriter = true
         });
 
-    public ChannelWriter<SignalsIntelligenceMessage> Writer => _channel.Writer;
-    public ChannelReader<SignalsIntelligenceMessage> Reader => _channel.Reader;
+    public ChannelWriter<Signal> Writer => _channel.Writer;
+    public ChannelReader<Signal> Reader => _channel.Reader;
 }
