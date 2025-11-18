@@ -22,4 +22,8 @@
       <Folder Include="Migrations\" />
     </ItemGroup>
 
+    <ItemGroup>
+      <ProjectReference Include="..\Backend.Constants\Backend.Constants.csproj" />
+    </ItemGroup>
+
 </Project>

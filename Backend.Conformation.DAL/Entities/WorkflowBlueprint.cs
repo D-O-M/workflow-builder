@@ -1,6 +1,6 @@
-namespace Backend.Relational.DAL;
+namespace Backend.Database.Relational.Entities;
 
-public record Workflow
+public record WorkflowBlueprint
 {
     public int Id { get; init; }
     public string Name { get; init; } = null!;
