@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Collections.Generic;
 
 namespace Backend.Engine;
 
@@ -7,6 +6,7 @@ public class NanoServiceAgent
 {
     private readonly ILogger _logger;
     private readonly NanoServiceSignalsClient _signalsClient;
+    private readonly List<TaskContext> _tasks = new();
 
     public NanoServiceAgent(
         ILogger<NanoServiceAgent> logger,
@@ -74,5 +74,16 @@ public class NanoServiceAgent
         };
 
         return process;
+    }
+
+    public bool EnqueueTask(TaskContext taskContext)
+    {
+        _tasks.Add(taskContext);
+        return true;
+    }
+
+    private void CompleteTask(TaskContext taskContext)
+    {
+
     }
 }

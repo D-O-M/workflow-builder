@@ -8,9 +8,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.ServiceDefaults", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.API", "Backend.API\Backend.API.csproj", "{30C95E0D-A039-2B54-7539-E8F4FF187070}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.Relational.DAL", "Backend.Conformation.DAL\Backend.Relational.DAL.csproj", "{2715D768-A7CC-6218-4E51-BB433B12C893}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.Database.Relational", "Backend.Conformation.DAL\Backend.Database.Relational.csproj", "{2715D768-A7CC-6218-4E51-BB433B12C893}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.State.DAL", "Backend.State.DAL\Backend.State.DAL.csproj", "{A061AE9B-3C14-7876-71D3-741D22FB6D72}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.Database.State", "Backend.State.DAL\Backend.Database.State.csproj", "{A061AE9B-3C14-7876-71D3-741D22FB6D72}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.Repositories", "Backend.Repositories\Backend.Repositories.csproj", "{F76D225C-F238-435F-A695-139A3916A6AA}"
 EndProject
@@ -35,6 +35,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.Plugins.Communication", "Backend.Plugins.Communication\Backend.Plugins.Communication.csproj", "{1CD98386-62AC-45D4-86A2-7B24FA13DD75}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.Plugins.Harness", "Backend.Plugins.Harness\Backend.Plugins.Harness.csproj", "{5A125676-9D2C-3455-0838-48F9FF85B701}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.Constants", "Backend.Constants\Backend.Constants.csproj", "{6E769991-E950-4DA2-B24E-409A48E596BA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -106,6 +108,10 @@ Global
 		{5A125676-9D2C-3455-0838-48F9FF85B701}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5A125676-9D2C-3455-0838-48F9FF85B701}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5A125676-9D2C-3455-0838-48F9FF85B701}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6E769991-E950-4DA2-B24E-409A48E596BA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6E769991-E950-4DA2-B24E-409A48E596BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6E769991-E950-4DA2-B24E-409A48E596BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6E769991-E950-4DA2-B24E-409A48E596BA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

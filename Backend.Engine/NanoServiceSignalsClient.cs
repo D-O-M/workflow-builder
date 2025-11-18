@@ -63,7 +63,7 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
                 SignalActionClass.InputChannel,
                 channel.ChannelName,
                 channel.ModelType,
-                contentType: "application/json",
+                ContentType: "application/json",
                 Data: SerializeModel(channel.Model));
 
             await SendAsync(new SignalMessage(SignalCommand.Action, SignalActionSerializer.Serialize(action)), cancellationToken);
@@ -77,7 +77,7 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
             SignalActionClass.GlobalState,
             snapshot.StateType,
             Type: snapshot.StateType,
-            contentType: "application/json",
+            ContentType: "application/json",
             Data: SerializeModel(snapshot.State));
 
         await SendAsync(new SignalMessage(SignalCommand.Action, SignalActionSerializer.Serialize(action)), cancellationToken);
