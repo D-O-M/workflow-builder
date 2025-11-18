@@ -33,6 +33,11 @@ public enum SignalCommand : byte
     Action = 4,
 
     /// <summary>
+    /// Represents an invocation with a new set of data to execute on.
+    /// </summary>
+    Invocation = 5,
+
+    /// <summary>
     /// Structured fault information published by either party.
     /// </summary>
     Fault = 240,

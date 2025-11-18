@@ -57,7 +57,7 @@ public sealed class MemoryMappedRingBuffer : IDisposable
         Span<byte> header = stackalloc byte[MessageHeaderSize];
         header[0] = (byte)command;
         var payloadLength = payload.Length;
-        MemoryMarshal.Write(header[1..], ref payloadLength);
+        MemoryMarshal.Write(header[1..], in payloadLength);
 
         WriteToRing(writeIndex, header);
         writeIndex = Advance(writeIndex, header.Length);
