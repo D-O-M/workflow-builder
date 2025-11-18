@@ -1,14 +1,14 @@
 namespace Backend.Plugins.Harness;
 
-internal abstract class Channel
+internal abstract class PluginChannel
 {
     public abstract string Name { get; }
     public abstract Type MessageType { get; }
 }
 
-internal sealed class Channel<TPlugin, TChannelType> : Channel
+internal sealed class PluginChannel<TPlugin, TChannelType> : PluginChannel
 {
-    public Channel(string name, Func<TPlugin, TChannelType> getter)
+    public PluginChannel(string name, Func<TPlugin, TChannelType> getter)
     {
         Name = name;
         Getter = getter;

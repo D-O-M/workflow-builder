@@ -4,15 +4,15 @@ using Microsoft.Extensions.Logging;
 
 namespace Backend.Plugins.Harness;
 
-internal sealed class SignalsIntelligenceService : BackgroundService
+internal sealed class SignalMonitoringService : BackgroundService
 {
-    private readonly ILogger<SignalsIntelligenceService> _logger;
-    private readonly SignalsIntelligenceInbox _inbox;
+    private readonly ILogger<SignalMonitoringService> _logger;
+    private readonly SignalInbox _inbox;
     private readonly SignalClient _signalClient;
 
-    public SignalsIntelligenceService(
-        ILogger<SignalsIntelligenceService> logger,
-        SignalsIntelligenceInbox inbox,
+    public SignalMonitoringService(
+        ILogger<SignalMonitoringService> logger,
+        SignalInbox inbox,
         SignalClient signalClient)
     {
         _logger = logger;
@@ -69,19 +69,19 @@ internal sealed class SignalsIntelligenceService : BackgroundService
         {
             case SignalActionClass.InputChannel:
                 await PublishMessageAsync(
-                    SignalsIntelligenceMessageKind.InputChannelModel,
+                    SignalsMessageKind.InputChannelModel,
                     action,
                     cancellationToken);
                 break;
             case SignalActionClass.OutputChannel:
                 await PublishMessageAsync(
-                    SignalsIntelligenceMessageKind.OutputChannelModel,
+                    SignalsMessageKind.OutputChannelModel,
                     action,
                     cancellationToken);
                 break;
             case SignalActionClass.GlobalState:
                 await PublishMessageAsync(
-                    SignalsIntelligenceMessageKind.GlobalState,
+                    SignalsMessageKind.GlobalState,
                     action,
                     cancellationToken);
                 break;
@@ -92,11 +92,11 @@ internal sealed class SignalsIntelligenceService : BackgroundService
     }
 
     private async ValueTask PublishMessageAsync(
-        SignalsIntelligenceMessageKind kind,
+        SignalsMessageKind kind,
         SignalAction action,
         CancellationToken cancellationToken)
     {
-        var message = new SignalsIntelligenceMessage(
+        var message = new Signal(
             kind,
             action.Identifier,
             action.Type ?? string.Empty,
