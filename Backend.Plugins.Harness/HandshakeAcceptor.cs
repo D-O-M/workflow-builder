@@ -67,7 +67,7 @@ internal class HandshakeAcceptor : IHandshakeAcceptor
     {
         ArgumentNullException.ThrowIfNull(_configBytes, nameof(_configBytes));
 
-        var checksum = HandshakeUtilities.ComputeXorChecksum(_configBytes);
+        var checksum = _configBytes.ComputeXorChecksum();
         var envelope = new SignalWithPayloadEnvelope<HandshakeSignal>(
             HandshakeSignal.AcknowledgeWithReceipt, [checksum]);
 
@@ -91,7 +91,7 @@ internal class HandshakeAcceptor : IHandshakeAcceptor
             _mmfFileHandleBytes,
             nameof(_mmfFileHandleBytes));
 
-        var checksum = HandshakeUtilities.ComputeXorChecksum(_mmfFileHandleBytes);
+        var checksum = _mmfFileHandleBytes.ComputeXorChecksum();
         var envelope = new SignalWithPayloadEnvelope<HandshakeSignal>(
             HandshakeSignal.AcknowledgeWithReceipt, [checksum]);
 
@@ -165,14 +165,14 @@ internal class HandshakeAcceptor : IHandshakeAcceptor
     private async Task<SignalEnvelope<HandshakeSignal>> ReadSignalEnvelopeAsync()
     {
         var buffer = new byte[1];
-        await HandshakeUtilities.ReadExactAsync(_stdin, buffer, _cancellationToken);
+        await _stdin.ReadExactAsync(buffer, _cancellationToken);
         return SignalEnvelope.FromBytes<HandshakeSignal>(buffer);
     }
 
     private async Task<SignalWithPayloadEnvelope<HandshakeSignal>> ReadSignalWithPayloadEnvelopeAsync()
     {
         var header = new byte[5];
-        await HandshakeUtilities.ReadExactAsync(_stdin, header, _cancellationToken);
+        await _stdin.ReadExactAsync(header, _cancellationToken);
 
         var length = BitConverter.ToInt32(header, 1);
         if (length < 0)
@@ -183,7 +183,7 @@ internal class HandshakeAcceptor : IHandshakeAcceptor
         var payload = length == 0 ? Array.Empty<byte>() : new byte[length];
         if (length > 0)
         {
-            await HandshakeUtilities.ReadExactAsync(_stdin, payload, _cancellationToken);
+            await _stdin.ReadExactAsync(payload, _cancellationToken);
         }
 
         var buffer = new byte[header.Length + payload.Length];
@@ -195,8 +195,6 @@ internal class HandshakeAcceptor : IHandshakeAcceptor
 
         return SignalWithPayloadEnvelope.FromBytes<HandshakeSignal>(buffer);
     }
-
-    private static byte GetXorChecksum(byte[] data) => HandshakeUtilities.ComputeXorChecksum(data);
 
     public static ISignalChannel CreateChannel(
         EnhancedCommunicationConfiguration handshake)
