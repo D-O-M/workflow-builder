@@ -1,4 +1,4 @@
-namespace Backend.Plugins.Communication.Protocols.HandshakeProtocol;
+namespace Backend.Plugins.Communication.Protocols.Handshake;
 
 /// <summary>
 /// Static protocol definition: pure data, no concrete initiator/acceptor instances.
@@ -29,11 +29,13 @@ internal static class HandshakeProtocol
             .AddInitiatorStep(
                 HandshakeSignal.Data,
                 CommunicationMethod.StandardIO,
-                i => i.SendConfig())
+                i => i.SendConfig(),
+                a => a.ReceiveConfig())
             .AddAcceptorStep(
                 HandshakeSignal.AcknowledgeWithReceipt,
                 CommunicationMethod.StandardIO,
-                a => a.SendChecksumForConfig())
+                a => a.SendChecksumForConfig(),
+                i => i.ReceiveAndVerifyConfigChecksum())
             .AddInitiatorStep(
                 HandshakeSignal.UpgradeCommsMethod,
                 CommunicationMethod.StandardIO)
@@ -43,33 +45,39 @@ internal static class HandshakeProtocol
             .AddInitiatorStep(
                 HandshakeSignal.Data,
                 CommunicationMethod.StandardIO,
-                i => i.SendMmfFileHandles())
+                i => i.SendMmfFileHandles(),
+                a => a.ReceiveMmfFileHandles())
             .AddAcceptorStep(
                 HandshakeSignal.AcknowledgeWithReceipt,
                 CommunicationMethod.StandardIO,
-                a => a.SendMmfFileHandlesReceiptAcknowledgement())
+                a => a.SendMmfFileHandlesChecksum(),
+                i => i.ReceiveAndVerifyMmfFileHandlesChecksum())
             .AddInitiatorStep(
                 HandshakeSignal.ReadyForTest,
                 CommunicationMethod.StandardIO)
             .AddAcceptorStep(
                 HandshakeSignal.Test,
                 CommunicationMethod.RingBuffer,
-                a => a.SendTestViaRingBuffer())
+                a => a.SendTestViaRingBuffer(),
+                i => i.ReceiveTestViaRingBuffer())
             .AddInitiatorStep(
                 HandshakeSignal.AcknowledgeWithReceipt,
                 CommunicationMethod.RingBuffer,
-                i => i.SendTestReceiptIfSuccessful())
+                i => i.SendTestReceiptIfSuccessful(),
+                a => a.ReceiveAndVerifyTestReceipt())
             .AddAcceptorStep(
                 HandshakeSignal.ReadyForTest,
                 CommunicationMethod.RingBuffer)
             .AddInitiatorStep(
                 HandshakeSignal.Test,
                 CommunicationMethod.RingBuffer,
-                i => i.SendTestViaRingBuffer())
+                i => i.SendTestViaRingBuffer(),
+                a => a.ReceiveTestViaRingBuffer())
             .AddAcceptorStep(
                 HandshakeSignal.AcknowledgeWithReceipt,
                 CommunicationMethod.RingBuffer,
-                a => a.SendTestReceiptIfSuccessful())
+                a => a.SendTestReceiptIfSuccessful(),
+                i => i.ReceiveAndVerifyTestReceipt())
             .AddInitiatorStep(
                 HandshakeSignal.Ready,
                 CommunicationMethod.RingBuffer)

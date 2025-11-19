@@ -11,7 +11,9 @@ public sealed class MemoryMappedSignalChannel : ISignalChannel
     private readonly MemoryMappedRingBuffer _inbound;
     private bool _disposed;
 
-    public MemoryMappedSignalChannel(MemoryMappedRingBuffer outbound, MemoryMappedRingBuffer inbound)
+    public MemoryMappedSignalChannel(
+        MemoryMappedRingBuffer outbound,
+        MemoryMappedRingBuffer inbound)
     {
         _outbound = outbound;
         _inbound = inbound;

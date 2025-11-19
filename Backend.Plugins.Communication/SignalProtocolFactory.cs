@@ -19,7 +19,7 @@ public static class SignalProtocolFactory
     /// <param name="initiatorProcessId">Process id of the component that is emitting the handshake.</param>
     /// <param name="initiatorToResponderCapacity">Optional override for the initiator-to-responder buffer.</param>
     /// <param name="responderToInitiatorCapacity">Optional override for the responder-to-initiator buffer.</param>
-    public static SignalHandshake CreateHandshake(
+    public static EnhancedCommunicationConfiguration CreateHandshake(
         string connectionName,
         int initiatorProcessId,
         int? initiatorToResponderCapacity = null,
@@ -35,8 +35,8 @@ public static class SignalProtocolFactory
         var i2rCapacity = ValidateCapacity(initiatorToResponderCapacity);
         var r2iCapacity = ValidateCapacity(responderToInitiatorCapacity);
 
-        return new SignalHandshake(
-            SignalHandshake.CurrentProtocolVersion,
+        return new EnhancedCommunicationConfiguration(
+            EnhancedCommunicationConfiguration.CurrentProtocolVersion,
             sessionId,
             initiatorToResponderName,
             responderToInitiatorName,
@@ -52,29 +52,29 @@ public static class SignalProtocolFactory
     /// Creates a channel bound to the memory-mapped files described by the
     /// provided handshake from the perspective of the specified role.
     /// </summary>
-    public static ISignalChannel CreateChannel(SignalHandshake handshake, SignalEndpointRole role)
+    public static ISignalChannel CreateChannel(EnhancedCommunicationConfiguration handshake, SignalEndpointRole role)
     {
         ArgumentNullException.ThrowIfNull(handshake);
 
         var outbound = role == SignalEndpointRole.Initiator
             ? new MemoryMappedRingBuffer(
-                handshake.InitiatorToResponderMapName,
-                handshake.InitiatorToResponderMutexName,
-                handshake.InitiatorToResponderCapacity)
+                handshake.InitiatorToAcceptorMapName,
+                handshake.InitiatorToAcceptorMutexName,
+                handshake.InitiatorToAcceptorCapacity)
             : new MemoryMappedRingBuffer(
-                handshake.ResponderToInitiatorMapName,
-                handshake.ResponderToInitiatorMutexName,
-                handshake.ResponderToInitiatorCapacity);
+                handshake.AcceptorToInitiatorMapName,
+                handshake.AcceptorToInitiatorMutexName,
+                handshake.AcceptorToInitiatorCapacity);
 
         var inbound = role == SignalEndpointRole.Initiator
             ? new MemoryMappedRingBuffer(
-                handshake.ResponderToInitiatorMapName,
-                handshake.ResponderToInitiatorMutexName,
-                handshake.ResponderToInitiatorCapacity)
+                handshake.AcceptorToInitiatorMapName,
+                handshake.AcceptorToInitiatorMutexName,
+                handshake.AcceptorToInitiatorCapacity)
             : new MemoryMappedRingBuffer(
-                handshake.InitiatorToResponderMapName,
-                handshake.InitiatorToResponderMutexName,
-                handshake.InitiatorToResponderCapacity);
+                handshake.InitiatorToAcceptorMapName,
+                handshake.InitiatorToAcceptorMutexName,
+                handshake.InitiatorToAcceptorCapacity);
 
         return new MemoryMappedSignalChannel(outbound, inbound);
     }

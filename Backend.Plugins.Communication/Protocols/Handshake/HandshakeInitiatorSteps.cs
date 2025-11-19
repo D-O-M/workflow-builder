@@ -1,4 +1,4 @@
-namespace Backend.Plugins.Communication.Protocols.HandshakeProtocol;
+namespace Backend.Plugins.Communication.Protocols.Handshake;
 
 /// <summary>
 /// Executes the handshake from the initiator's perspective.
@@ -21,11 +21,11 @@ internal class HandshakeInitiatorSteps
         {
             switch (step)
             {
-                case ProtocolStep<HandshakeSignal, IHandshakeInitiator> initiatorStep:
+                case ProtocolStep<HandshakeSignal, IHandshakeInitiator, IHandshakeAcceptor> initiatorStep:
                     await ExecuteInitiatorStep(initiatorStep);
                     break;
 
-                case ProtocolStep<HandshakeSignal, IHandshakeAcceptor> acceptorStep:
+                case ProtocolStep<HandshakeSignal, IHandshakeAcceptor, IHandshakeInitiator> acceptorStep:
                     await AwaitAcceptorStep(acceptorStep);
                     break;
 
@@ -37,12 +37,12 @@ internal class HandshakeInitiatorSteps
     }
 
     private async Task ExecuteInitiatorStep(
-        ProtocolStep<HandshakeSignal, IHandshakeInitiator> step)
+        ProtocolStep<HandshakeSignal, IHandshakeInitiator, IHandshakeAcceptor> step)
     {
-        if (step.Operation is not null)
+        if (step.SendOperation is not null)
         {
             // Invoke the strongly-typed method on the initiator.
-            var op = step.Operation.Compile();
+            var op = step.SendOperation.Compile();
             await op(_initiator);
             return;
         }
@@ -64,19 +64,29 @@ internal class HandshakeInitiatorSteps
         }
     }
 
-    private Task AwaitAcceptorStep(
-        ProtocolStep<HandshakeSignal, IHandshakeAcceptor> step)
+    private async Task AwaitAcceptorStep(
+        ProtocolStep<HandshakeSignal, IHandshakeAcceptor, IHandshakeInitiator> step)
     {
+        if (step.ReceiveOperation is not null)
+        {
+            var op = step.ReceiveOperation.Compile();
+            await op.Invoke(_initiator);
+            return;
+        }
+
         // From the initiator's perspective, when it's the acceptor's turn,
         // we just wait for the response on the appropriate channel.
-        return step.CommunicationMethod switch
+        switch(step.CommunicationMethod)
         {
-            CommunicationMethod.StandardIO
-                => _initiator.AwaitResponseFromResponderViaStandardOut(),
-            CommunicationMethod.RingBuffer
-                => _initiator.AwaitResponseFromResponderViaRingBuffer(),
-            _ => throw new InvalidOperationException(
-                $"Unknown communication method: {step.CommunicationMethod}")
+            case CommunicationMethod.StandardIO:
+                await _initiator.AwaitResponseFromResponderViaStandardOut();
+                break;
+            case CommunicationMethod.RingBuffer:
+                await _initiator.AwaitResponseFromResponderViaRingBuffer();
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown communication method: {step.CommunicationMethod}");
         };
     }
 }

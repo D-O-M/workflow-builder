@@ -13,13 +13,15 @@ internal class ProtocolDefinition<TSignal, TInitiatorInterface, TAcceptorInterfa
         AddInitiatorStep(
         TSignal signal,
         CommunicationMethod communicationMethod,
-        Expression<Func<TInitiatorInterface, Task>>? operation = null)
+        Expression<Func<TInitiatorInterface, Task>>? sendOperation = null,
+        Expression<Func<TAcceptorInterface, Task>>? receiveOperation = null)
     {
-        _steps.Add(new ProtocolStep<TSignal, TInitiatorInterface>(
+        _steps.Add(new ProtocolStep<TSignal, TInitiatorInterface, TAcceptorInterface>(
             Negotiator.Initiator,
             signal,
             communicationMethod,
-            operation));
+            sendOperation,
+            receiveOperation));
 
         return this;
     }
@@ -27,13 +29,15 @@ internal class ProtocolDefinition<TSignal, TInitiatorInterface, TAcceptorInterfa
     public ProtocolDefinition<TSignal, TInitiatorInterface, TAcceptorInterface> AddAcceptorStep(
         TSignal signal,
         CommunicationMethod communicationMethod,
-        Expression<Func<TAcceptorInterface, Task>>? operation = null)
+        Expression<Func<TAcceptorInterface, Task>>? sendOperation = null,
+        Expression<Func<TInitiatorInterface, Task>>? receiveOperation = null)
     {
-        _steps.Add(new ProtocolStep<TSignal, TAcceptorInterface>(
+        _steps.Add(new ProtocolStep<TSignal, TAcceptorInterface, TInitiatorInterface>(
             Negotiator.Acceptor,
             signal,
             communicationMethod,
-            operation));
+            sendOperation,
+            receiveOperation));
 
         return this;
     }

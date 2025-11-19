@@ -6,7 +6,7 @@ namespace Backend.Plugins.Communication;
 /// Represents an active IPC connection between two signal endpoints. Disposing
 /// the connection tears down the underlying channel.
 /// </summary>
-public sealed record SignalConnection(SignalHandshake Handshake, ISignalChannel Channel)
+public sealed record SignalConnection(EnhancedCommunicationConfiguration Handshake, ISignalChannel Channel)
     : IAsyncDisposable
 {
     public ValueTask DisposeAsync()

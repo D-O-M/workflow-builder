@@ -1,4 +1,5 @@
 using Backend.Plugins.Communication;
+using Backend.Plugins.Communication.Protocols.Handshake;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -18,6 +19,19 @@ internal sealed class SignalMonitoringService : BackgroundService
         _logger = logger;
         _inbox = inbox;
         _signalClient = signalClient;
+    }
+
+    public override async Task StartAsync(CancellationToken cancellationToken)
+    {
+        using var stdin = Console.OpenStandardInput();
+        using var stdout = Console.OpenStandardOutput();
+
+        var handshake = new HandshakeAcceptorSteps(
+            new HandshakeAcceptor(stdin, stdout, cancellationToken));
+
+        await handshake.Perform();
+
+        await base.StartAsync(cancellationToken);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

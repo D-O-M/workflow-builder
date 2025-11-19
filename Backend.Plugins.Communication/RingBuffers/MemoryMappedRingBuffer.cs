@@ -4,6 +4,52 @@ using System.Runtime.InteropServices;
 
 namespace Backend.Plugins.Communication.RingBuffers;
 
+internal static class WaitHandleExtensions
+{
+    /// <summary>
+    /// Asynchronously waits for the specified wait handle to be signaled.
+    /// Uses ThreadPool.RegisterWaitForSingleObject under the hood.
+    /// </summary>
+    public static Task WaitOneAsync(
+        this WaitHandle handle,
+        CancellationToken cancellationToken = default)
+    {
+        if (handle == null) throw new ArgumentNullException(nameof(handle));
+
+        var tcs = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        RegisteredWaitHandle? registration = null;
+
+        registration = ThreadPool.RegisterWaitForSingleObject(
+            handle,
+            static (state, timedOut) =>
+            {
+                var (innerTcs, innerRegistration) =
+                    ((TaskCompletionSource<bool>, RegisteredWaitHandle?))state!;
+
+                innerRegistration?.Unregister(null);
+
+                // We don't actually care about timedOut here because we use infinite timeout.
+                innerTcs.TrySetResult(!timedOut);
+            },
+            (tcs, registration),
+            Timeout.Infinite,
+            executeOnlyOnce: true);
+
+        if (cancellationToken.CanBeCanceled)
+        {
+            cancellationToken.Register(() =>
+            {
+                registration?.Unregister(null);
+                tcs.TrySetCanceled(cancellationToken);
+            });
+        }
+
+        return tcs.Task;
+    }
+}
+
 /// <summary>
 /// Implements a single-producer/single-consumer ring buffer backed by a
 /// memory-mapped file. The structure is OS-independent and can be shared across
@@ -18,9 +64,23 @@ public sealed class MemoryMappedRingBuffer : IDisposable
     private readonly MemoryMappedFile _mmf;
     private readonly MemoryMappedViewAccessor _accessor;
     private readonly Mutex _mutex;
+    private readonly EventWaitHandle _dataAvailableEvent;
+
     private bool _disposed;
 
-    public MemoryMappedRingBuffer(string mapName, string mutexName, int capacity)
+    /// <summary>
+    /// Creates or opens a cross-process ring buffer backed by a memory-mapped file.
+    /// Uses a file-backed mapping in the system temp directory; mapName is used as the file name.
+    /// </summary>
+    /// <param name="mapName">Logical name for the mapping (and backing file name in the temp directory).</param>
+    /// <param name="mutexName">Named cross-process mutex to protect head/tail and buffer operations.</param>
+    /// <param name="dataAvailableEventName">Named event used to signal that data is available for reading.</param>
+    /// <param name="capacity">Ring buffer capacity in bytes (will be aligned up to 64-byte boundary).</param>
+    public MemoryMappedRingBuffer(
+        string mapName,
+        string mutexName,
+        string dataAvailableEventName,
+        int capacity)
     {
         if (capacity < 256)
         {
@@ -28,14 +88,50 @@ public sealed class MemoryMappedRingBuffer : IDisposable
         }
 
         _capacity = AlignCapacity(capacity);
-        _mmf = MemoryMappedFile.CreateOrOpen(mapName, HeaderSize + _capacity);
-        _accessor = _mmf.CreateViewAccessor(0, HeaderSize + _capacity, MemoryMappedFileAccess.ReadWrite);
+        var totalSize = HeaderSize + _capacity;
+
+        // Single cross-platform implementation: file-backed mapping in temp directory.
+        var backingFilePath = Path.Combine(Path.GetTempPath(), mapName);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(backingFilePath)!);
+
+        var fileStream = new FileStream(
+            backingFilePath,
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.ReadWrite);
+
+        if (fileStream.Length < totalSize)
+        {
+            fileStream.SetLength(totalSize);
+        }
+
+        _mmf = MemoryMappedFile.CreateFromFile(
+            fileStream,
+            mapName: null, // name not used cross-process for file-backed mapping
+            capacity: totalSize,
+            access: MemoryMappedFileAccess.ReadWrite,
+            inheritability: HandleInheritability.None,
+            leaveOpen: false);
+
+        _accessor = _mmf.CreateViewAccessor(0, totalSize, MemoryMappedFileAccess.ReadWrite);
         _mutex = new Mutex(false, mutexName);
+
+        // AutoReset ensures only one waiter is released per Set()
+        _dataAvailableEvent = new EventWaitHandle(
+            initialState: false,
+            mode: EventResetMode.AutoReset,
+            name: dataAvailableEventName);
     }
 
+    /// <summary>
+    /// Attempts to write a message into the ring buffer.
+    /// Returns false if there is not enough space; caller may retry later.
+    /// </summary>
     public bool TryWrite(SignalCommand command, ReadOnlySpan<byte> payload)
     {
         EnsureNotDisposed();
+
         var messageLength = payload.Length + MessageHeaderSize;
 
         if (messageLength >= _capacity)
@@ -62,14 +158,24 @@ public sealed class MemoryMappedRingBuffer : IDisposable
         WriteToRing(writeIndex, header);
         writeIndex = Advance(writeIndex, header.Length);
         WriteToRing(writeIndex, payload);
+
         head = Advance(head, messageLength);
         WriteHead(head);
+
+        // Signal that data is available for any waiting readers (in this or another process).
+        _dataAvailableEvent.Set();
+
         return true;
     }
 
+    /// <summary>
+    /// Attempts to read a single message from the ring buffer.
+    /// Returns false if the buffer is currently empty.
+    /// </summary>
     public bool TryRead(out SignalMessage message)
     {
         EnsureNotDisposed();
+
         using var releaser = new CrossProcessMutexGuard(_mutex);
         var head = ReadHead();
         var tail = ReadTail();
@@ -82,6 +188,7 @@ public sealed class MemoryMappedRingBuffer : IDisposable
 
         Span<byte> header = stackalloc byte[MessageHeaderSize];
         ReadFromRing(tail, header);
+
         var command = (SignalCommand)header[0];
         var payloadLength = MemoryMarshal.Read<int>(header[1..]);
         tail = Advance(tail, header.Length);
@@ -105,6 +212,28 @@ public sealed class MemoryMappedRingBuffer : IDisposable
 
         message = new SignalMessage(command, payload);
         return true;
+    }
+
+    /// <summary>
+    /// Asynchronously waits for and reads a single message from the ring buffer.
+    /// This will block (asynchronously) until data is available or cancellation is requested.
+    /// </summary>
+    public async Task<SignalMessage> ReadAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureNotDisposed();
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (TryRead(out var message))
+            {
+                return message;
+            }
+
+            // Wait to be signalled that data is available; loop will TryRead again.
+            await _dataAvailableEvent.WaitOneAsync(cancellationToken);
+        }
     }
 
     private static int AlignCapacity(int value)
@@ -157,6 +286,7 @@ public sealed class MemoryMappedRingBuffer : IDisposable
         while (remaining > 0)
         {
             var contiguous = Math.Min(remaining, _capacity - index);
+
             var chunk = ArrayPool<byte>.Shared.Rent(contiguous);
             try
             {
@@ -185,6 +315,7 @@ public sealed class MemoryMappedRingBuffer : IDisposable
         while (remaining > 0)
         {
             var contiguous = Math.Min(remaining, _capacity - index);
+
             var buffer = ArrayPool<byte>.Shared.Rent(contiguous);
             try
             {
@@ -214,6 +345,7 @@ public sealed class MemoryMappedRingBuffer : IDisposable
         _accessor.Dispose();
         _mmf.Dispose();
         _mutex.Dispose();
+        _dataAvailableEvent.Dispose();
     }
 
     private readonly struct CrossProcessMutexGuard : IDisposable
