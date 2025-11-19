@@ -24,7 +24,6 @@ public class PluginBuilder<TPlugin>
     {
         _hostAppBuilder.Logging.ClearProviders().AddSimpleConsole();
         _hostAppBuilder.Services.AddSingleton<SignalInbox>();
-        _hostAppBuilder.Services.AddSingleton<SignalClient>();
         _hostAppBuilder.Services.AddHostedService<SignalMonitoringService>();
         _displayName = displayName;
     }

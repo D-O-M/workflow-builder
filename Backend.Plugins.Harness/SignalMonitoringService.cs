@@ -1,4 +1,5 @@
 using Backend.Plugins.Communication;
+using Backend.Plugins.Communication.Protocols;
 using Backend.Plugins.Communication.Protocols.Handshake;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -9,16 +10,14 @@ internal sealed class SignalMonitoringService : BackgroundService
 {
     private readonly ILogger<SignalMonitoringService> _logger;
     private readonly SignalInbox _inbox;
-    private readonly SignalClient _signalClient;
+    private SignalConnection? _connection;
 
     public SignalMonitoringService(
         ILogger<SignalMonitoringService> logger,
-        SignalInbox inbox,
-        SignalClient signalClient)
+        SignalInbox inbox)
     {
         _logger = logger;
         _inbox = inbox;
-        _signalClient = signalClient;
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
@@ -26,10 +25,16 @@ internal sealed class SignalMonitoringService : BackgroundService
         using var stdin = Console.OpenStandardInput();
         using var stdout = Console.OpenStandardOutput();
 
-        var handshake = new HandshakeAcceptorSteps(
-            new HandshakeAcceptor(stdin, stdout, cancellationToken));
+        var acceptor = new HandshakeAcceptor(stdin, stdout, cancellationToken);
+        var handshake = new HandshakeAcceptorSteps(acceptor);
 
         await handshake.Perform();
+
+        _connection = acceptor.Connection;
+        if (_connection is null)
+        {
+            throw new InvalidOperationException("Handshake acceptor did not yield a signal connection.");
+        }
 
         await base.StartAsync(cancellationToken);
     }
@@ -38,7 +43,7 @@ internal sealed class SignalMonitoringService : BackgroundService
     {
         try
         {
-            await using var connection = await _signalClient.EstablishAsync(stoppingToken);
+            var connection = _connection ?? throw new InvalidOperationException("Signal channel not established.");
             _logger.LogInformation("Established session {SessionId}" , connection.Handshake.SessionId);
 
             await PumpMessagesAsync(connection.Channel, stoppingToken);
@@ -54,6 +59,17 @@ internal sealed class SignalMonitoringService : BackgroundService
         }
     }
 
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        if (_connection is not null)
+        {
+            await _connection.DisposeAsync();
+            _connection = null;
+        }
+
+        await base.StopAsync(cancellationToken);
+    }
+
     private async Task PumpMessagesAsync(ISignalChannel channel, CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -67,7 +83,16 @@ internal sealed class SignalMonitoringService : BackgroundService
             switch (message.Command)
             {
                 case SignalCommand.Action:
-                    await HandleActionAsync(message.Payload, stoppingToken);
+                    var envelope = SignalWithPayloadEnvelope
+                        .FromBytes<SignalCommand>(message.Payload.ToArray());
+
+                    if (envelope.Signal is not SignalCommand.Action)
+                    {
+                        throw new InvalidOperationException(
+                            $"Unexpected signal {envelope.Signal} received for Action command.");
+                    }
+
+                    await HandleActionAsync(envelope.Payload, stoppingToken);
                     break;
                 default:
                     _logger.LogDebug("Ignoring unsupported command {Command}", message.Command);
