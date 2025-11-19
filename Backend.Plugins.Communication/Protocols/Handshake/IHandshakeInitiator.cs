@@ -1,4 +1,4 @@
-namespace Backend.Plugins.Communication.Protocols.HandshakeProtocol;
+namespace Backend.Plugins.Communication.Protocols.Handshake;
 
 public interface IInitiator
 {
@@ -14,4 +14,8 @@ public interface IHandshakeInitiator : IInitiator
     Task SendMmfFileHandles();
     Task SendTestViaRingBuffer();
     Task SendTestReceiptIfSuccessful();
+    Task ReceiveAndVerifyConfigChecksum();
+    Task ReceiveAndVerifyMmfFileHandlesChecksum();
+    Task ReceiveTestViaRingBuffer();
+    Task ReceiveAndVerifyTestReceipt();
 }

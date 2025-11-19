@@ -1,6 +1,6 @@
-namespace Backend.Plugins.Communication.Protocols.HandshakeProtocol;
+namespace Backend.Plugins.Communication.Protocols.Handshake;
 
-public enum HandshakeSignal
+public enum HandshakeSignal : byte
 {
     Hello,
     Acknowledge,

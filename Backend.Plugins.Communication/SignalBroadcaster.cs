@@ -15,7 +15,7 @@ public sealed class SignalBroadcaster
         _handshakeReader = handshakeReader ?? throw new ArgumentNullException(nameof(handshakeReader));
     }
 
-    public async Task<SignalConnection> EstablishAsync(SignalHandshake handshake, CancellationToken cancellationToken)
+    public async Task<SignalConnection> EstablishAsync(EnhancedCommunicationConfiguration handshake, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(handshake);
 
