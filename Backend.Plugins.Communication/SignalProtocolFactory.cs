@@ -31,6 +31,8 @@ public static class SignalProtocolFactory
 
         var initiatorToResponderName = $"sig-{safeName}-{sessionId:N}-i2r";
         var responderToInitiatorName = $"sig-{safeName}-{sessionId:N}-r2i";
+        var initiatorToResponderEventName = initiatorToResponderName + "-evt";
+        var responderToInitiatorEventName = responderToInitiatorName + "-evt";
 
         var i2rCapacity = ValidateCapacity(initiatorToResponderCapacity);
         var r2iCapacity = ValidateCapacity(responderToInitiatorCapacity);
@@ -44,6 +46,8 @@ public static class SignalProtocolFactory
             r2iCapacity,
             initiatorToResponderName + "-mtx",
             responderToInitiatorName + "-mtx",
+            initiatorToResponderEventName,
+            responderToInitiatorEventName,
             initiatorProcessId,
             DateTimeOffset.UtcNow);
     }
@@ -60,20 +64,24 @@ public static class SignalProtocolFactory
             ? new MemoryMappedRingBuffer(
                 handshake.InitiatorToAcceptorMapName,
                 handshake.InitiatorToAcceptorMutexName,
+                handshake.InitiatorToAcceptorEventName,
                 handshake.InitiatorToAcceptorCapacity)
             : new MemoryMappedRingBuffer(
                 handshake.AcceptorToInitiatorMapName,
                 handshake.AcceptorToInitiatorMutexName,
+                handshake.AcceptorToInitiatorEventName,
                 handshake.AcceptorToInitiatorCapacity);
 
         var inbound = role == SignalEndpointRole.Initiator
             ? new MemoryMappedRingBuffer(
                 handshake.AcceptorToInitiatorMapName,
                 handshake.AcceptorToInitiatorMutexName,
+                handshake.AcceptorToInitiatorEventName,
                 handshake.AcceptorToInitiatorCapacity)
             : new MemoryMappedRingBuffer(
                 handshake.InitiatorToAcceptorMapName,
                 handshake.InitiatorToAcceptorMutexName,
+                handshake.InitiatorToAcceptorEventName,
                 handshake.InitiatorToAcceptorCapacity);
 
         return new MemoryMappedSignalChannel(outbound, inbound);

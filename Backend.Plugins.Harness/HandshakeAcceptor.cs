@@ -10,10 +10,13 @@ internal class HandshakeAcceptor : IHandshakeAcceptor
 {
     private byte[]? _configBytes = null;
     private byte[]? _mmfFileHandleBytes = null;
+    private EnhancedCommunicationConfiguration? _handshake;
     private ISignalChannel? _signalChannel = null;
     private readonly Stream _stdin;
     private readonly Stream _stdout;
     private readonly CancellationToken _cancellationToken;
+
+    public SignalConnection? Connection { get; private set; }
 
     public HandshakeAcceptor(
         Stream stdin,
@@ -27,16 +30,15 @@ internal class HandshakeAcceptor : IHandshakeAcceptor
 
     public async Task AwaitMessageFromInitiatorViaStandardIn(HandshakeSignal signal)
     {
-        var bytes = await ReadAllBytesFromStandardIn() ?? throw new Exception();
-        var envelope = SignalEnvelope.FromBytes<HandshakeSignal>(bytes);
+        var envelope = await ReadSignalEnvelopeAsync();
 
         if (envelope.Signal != signal)
             throw new ArgumentOutOfRangeException(nameof(envelope.Signal));
     }
 
-    public Task AwaitMessageFromInitiatorViaRingBuffer(HandshakeSignal signal)
+    public async Task AwaitMessageFromInitiatorViaRingBuffer(HandshakeSignal signal)
     {
-        throw new NotImplementedException();
+        await AwaitSignalViaRingBuffer(signal);
     }
 
     public async Task SendSignalViaStandardOut(HandshakeSignal signal)
@@ -46,16 +48,14 @@ internal class HandshakeAcceptor : IHandshakeAcceptor
         await _stdout.FlushAsync(_cancellationToken);
     }
 
-    public Task SendSignalViaRingBuffer(HandshakeSignal signal)
+    public async Task SendSignalViaRingBuffer(HandshakeSignal signal)
     {
-        throw new NotImplementedException();
+        await SendSignalOverRingBuffer(signal);
     }
 
     public async Task ReceiveConfig()
     {
-        var bytes = await ReadAllBytesFromStandardIn() ?? throw new Exception();
-        var envelope = SignalWithPayloadEnvelope
-            .FromBytes<HandshakeSignal>(bytes);
+        var envelope = await ReadSignalWithPayloadEnvelopeAsync();
 
         if (envelope.Signal is not HandshakeSignal.Data)
             throw new ArgumentOutOfRangeException(nameof(envelope.Signal));
@@ -67,7 +67,7 @@ internal class HandshakeAcceptor : IHandshakeAcceptor
     {
         ArgumentNullException.ThrowIfNull(_configBytes, nameof(_configBytes));
 
-        var checksum = GetXorChecksum(_configBytes);
+        var checksum = HandshakeUtilities.ComputeXorChecksum(_configBytes);
         var envelope = new SignalWithPayloadEnvelope<HandshakeSignal>(
             HandshakeSignal.AcknowledgeWithReceipt, [checksum]);
 
@@ -77,9 +77,7 @@ internal class HandshakeAcceptor : IHandshakeAcceptor
 
     public async Task ReceiveMmfFileHandles()
     {
-        var bytes = await ReadAllBytesFromStandardIn() ?? throw new Exception();
-        var envelope = SignalWithPayloadEnvelope
-            .FromBytes<HandshakeSignal>(bytes);
+        var envelope = await ReadSignalWithPayloadEnvelopeAsync();
 
         if (envelope.Signal is not HandshakeSignal.Data)
             throw new ArgumentOutOfRangeException(nameof(envelope.Signal));
@@ -93,55 +91,112 @@ internal class HandshakeAcceptor : IHandshakeAcceptor
             _mmfFileHandleBytes,
             nameof(_mmfFileHandleBytes));
 
-        var checksum = GetXorChecksum(_mmfFileHandleBytes);
+        var checksum = HandshakeUtilities.ComputeXorChecksum(_mmfFileHandleBytes);
         var envelope = new SignalWithPayloadEnvelope<HandshakeSignal>(
             HandshakeSignal.AcknowledgeWithReceipt, [checksum]);
 
         await _stdout.WriteAsync(envelope.ToBytes(), _cancellationToken);
         await _stdout.FlushAsync(_cancellationToken);
 
-        var commsConfig = await JsonSerializer
+        _handshake = await JsonSerializer
             .DeserializeAsync<EnhancedCommunicationConfiguration>(
                 new MemoryStream(_mmfFileHandleBytes));
 
-        _signalChannel = CreateChannel(commsConfig!);
+        _signalChannel = CreateChannel(_handshake!);
+        Connection = new SignalConnection(_handshake!, _signalChannel);
     }
 
-    public Task SendTestViaRingBuffer()
+    public Task SendTestViaRingBuffer() => SendSignalOverRingBuffer(HandshakeSignal.Test);
+
+    public Task SendTestReceiptIfSuccessful() => SendSignalOverRingBuffer(HandshakeSignal.AcknowledgeWithReceipt);
+
+    public Task ReceiveTestViaRingBuffer() => AwaitSignalViaRingBuffer(HandshakeSignal.Test);
+
+    public Task ReceiveAndVerifyTestReceipt() => AwaitSignalViaRingBuffer(HandshakeSignal.AcknowledgeWithReceipt);
+
+    private async Task SendSignalOverRingBuffer(HandshakeSignal signal)
     {
+        EnsureSignalChannel();
+        var envelope = new SignalEnvelope<HandshakeSignal>(signal).ToBytes();
+        var message = new SignalMessage(SignalCommand.Dispatch, envelope);
 
-        throw new NotImplementedException();
+        while (!_signalChannel!.TrySend(message))
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(5), _cancellationToken);
+        }
     }
 
-    public Task SendTestReceiptIfSuccessful()
+    private async Task AwaitSignalViaRingBuffer(HandshakeSignal expectedSignal)
     {
-        throw new NotImplementedException();
+        EnsureSignalChannel();
+
+        while (!_cancellationToken.IsCancellationRequested)
+        {
+            if (_signalChannel!.TryReceive(out var message))
+            {
+                if (message.Command is not SignalCommand.Dispatch)
+                {
+                    throw new InvalidOperationException($"Unexpected command {message.Command} encountered during handshake.");
+                }
+
+                var envelope = SignalEnvelope.FromBytes<HandshakeSignal>(message.Payload.ToArray());
+                if (envelope.Signal != expectedSignal)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(envelope.Signal));
+                }
+
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(5), _cancellationToken);
+        }
+
+        _cancellationToken.ThrowIfCancellationRequested();
     }
 
-    public Task ReceiveTestViaRingBuffer()
+    private void EnsureSignalChannel()
     {
-        throw new NotImplementedException();
+        if (_signalChannel is null)
+        {
+            throw new InvalidOperationException("Ring buffer channel is not available. Ensure MMF handles were received.");
+        }
     }
 
-    public Task ReceiveAndVerifyTestReceipt()
+    private async Task<SignalEnvelope<HandshakeSignal>> ReadSignalEnvelopeAsync()
     {
-        throw new NotImplementedException();
+        var buffer = new byte[1];
+        await HandshakeUtilities.ReadExactAsync(_stdin, buffer, _cancellationToken);
+        return SignalEnvelope.FromBytes<HandshakeSignal>(buffer);
     }
 
-    private async Task<byte[]> ReadAllBytesFromStandardIn()
+    private async Task<SignalWithPayloadEnvelope<HandshakeSignal>> ReadSignalWithPayloadEnvelopeAsync()
     {
-        using var ms = new MemoryStream();
-        await _stdin.CopyToAsync(ms, _cancellationToken);
-        return ms.ToArray();
+        var header = new byte[5];
+        await HandshakeUtilities.ReadExactAsync(_stdin, header, _cancellationToken);
+
+        var length = BitConverter.ToInt32(header, 1);
+        if (length < 0)
+        {
+            throw new InvalidOperationException("Negative payload length received over STDIN.");
+        }
+
+        var payload = length == 0 ? Array.Empty<byte>() : new byte[length];
+        if (length > 0)
+        {
+            await HandshakeUtilities.ReadExactAsync(_stdin, payload, _cancellationToken);
+        }
+
+        var buffer = new byte[header.Length + payload.Length];
+        Buffer.BlockCopy(header, 0, buffer, 0, header.Length);
+        if (payload.Length > 0)
+        {
+            Buffer.BlockCopy(payload, 0, buffer, header.Length, payload.Length);
+        }
+
+        return SignalWithPayloadEnvelope.FromBytes<HandshakeSignal>(buffer);
     }
 
-    private static byte GetXorChecksum(byte[] data)
-    {
-        byte sum = 0;
-        foreach (byte b in data)
-            sum ^= b;
-        return sum;
-    }
+    private static byte GetXorChecksum(byte[] data) => HandshakeUtilities.ComputeXorChecksum(data);
 
     public static ISignalChannel CreateChannel(
         EnhancedCommunicationConfiguration handshake)
