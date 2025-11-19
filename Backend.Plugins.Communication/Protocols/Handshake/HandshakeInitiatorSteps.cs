@@ -4,7 +4,7 @@ namespace Backend.Plugins.Communication.Protocols.Handshake;
 /// Executes the handshake from the initiator's perspective.
 /// Only depends on IHandshakeInitiator, but walks the shared protocol script.
 /// </summary>
-internal class HandshakeInitiatorSteps
+public class HandshakeInitiatorSteps
 {
     private readonly IHandshakeInitiator _initiator;
     private readonly IReadOnlyList<IProtocolStep<HandshakeSignal>> _steps;
@@ -79,10 +79,10 @@ internal class HandshakeInitiatorSteps
         switch(step.CommunicationMethod)
         {
             case CommunicationMethod.StandardIO:
-                await _initiator.AwaitResponseFromResponderViaStandardOut();
+                await _initiator.AwaitResponseFromResponderViaStandardOut(step.Signal);
                 break;
             case CommunicationMethod.RingBuffer:
-                await _initiator.AwaitResponseFromResponderViaRingBuffer();
+                await _initiator.AwaitResponseFromResponderViaRingBuffer(step.Signal);
                 break;
             default:
                 throw new InvalidOperationException(

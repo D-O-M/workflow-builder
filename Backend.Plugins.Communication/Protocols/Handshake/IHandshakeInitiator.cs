@@ -2,8 +2,8 @@ namespace Backend.Plugins.Communication.Protocols.Handshake;
 
 public interface IInitiator
 {
-    Task AwaitResponseFromResponderViaStandardOut();
-    Task AwaitResponseFromResponderViaRingBuffer();
+    Task AwaitResponseFromResponderViaStandardOut(HandshakeSignal signal);
+    Task AwaitResponseFromResponderViaRingBuffer(HandshakeSignal signal);
 }
 
 public interface IHandshakeInitiator : IInitiator
