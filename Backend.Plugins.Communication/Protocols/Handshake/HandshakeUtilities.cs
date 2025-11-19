@@ -5,9 +5,9 @@ using System.Threading.Tasks;
 
 namespace Backend.Plugins.Communication.Protocols.Handshake;
 
-internal static class HandshakeUtilities
+public static class HandshakeUtilities
 {
-    public static async Task ReadExactAsync(Stream stream, Memory<byte> buffer, CancellationToken cancellationToken)
+    public static async Task ReadExactAsync(this Stream stream, Memory<byte> buffer, CancellationToken cancellationToken)
     {
         var totalRead = 0;
         while (totalRead < buffer.Length)
@@ -22,7 +22,7 @@ internal static class HandshakeUtilities
         }
     }
 
-    public static byte ComputeXorChecksum(ReadOnlySpan<byte> data)
+    public static byte ComputeXorChecksum(this byte[] data)
     {
         byte sum = 0;
         foreach (var b in data)

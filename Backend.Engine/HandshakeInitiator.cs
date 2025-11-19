@@ -78,7 +78,7 @@ internal sealed class HandshakeInitiator : IHandshakeInitiator
             throw new ArgumentOutOfRangeException(nameof(envelope.Signal));
         }
 
-        var expectedChecksum = HandshakeUtilities.ComputeXorChecksum(_configurationBytes);
+        var expectedChecksum = _configurationBytes.ComputeXorChecksum();
         if (envelope.Payload is null || envelope.Payload.Length != 1 || envelope.Payload[0] != expectedChecksum)
         {
             throw new InvalidOperationException("Configuration checksum from acceptor did not match.");
@@ -94,7 +94,7 @@ internal sealed class HandshakeInitiator : IHandshakeInitiator
             throw new ArgumentOutOfRangeException(nameof(envelope.Signal));
         }
 
-        var expectedChecksum = HandshakeUtilities.ComputeXorChecksum(_mmfBytes);
+        var expectedChecksum = _mmfBytes.ComputeXorChecksum();
         if (envelope.Payload is null || envelope.Payload.Length != 1 || envelope.Payload[0] != expectedChecksum)
         {
             throw new InvalidOperationException("MMF handle checksum from acceptor did not match.");
@@ -158,14 +158,14 @@ internal sealed class HandshakeInitiator : IHandshakeInitiator
     private async Task<SignalEnvelope<HandshakeSignal>> ReadSignalEnvelopeAsync()
     {
         var buffer = new byte[1];
-        await HandshakeUtilities.ReadExactAsync(_stdout, buffer, _cancellationToken);
+        await _stdout.ReadExactAsync(buffer, _cancellationToken);
         return SignalEnvelope.FromBytes<HandshakeSignal>(buffer);
     }
 
     private async Task<SignalWithPayloadEnvelope<HandshakeSignal>> ReadSignalWithPayloadEnvelopeAsync()
     {
         var header = new byte[5];
-        await HandshakeUtilities.ReadExactAsync(_stdout, header, _cancellationToken);
+        await _stdout.ReadExactAsync(header, _cancellationToken);
 
         var length = BitConverter.ToInt32(header, 1);
         if (length < 0)
@@ -176,7 +176,7 @@ internal sealed class HandshakeInitiator : IHandshakeInitiator
         var payload = length == 0 ? Array.Empty<byte>() : new byte[length];
         if (length > 0)
         {
-            await HandshakeUtilities.ReadExactAsync(_stdout, payload, _cancellationToken);
+            await _stdout.ReadExactAsync(payload, _cancellationToken);
         }
 
         var buffer = new byte[header.Length + payload.Length];
