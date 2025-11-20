@@ -1,3 +1,5 @@
+using System.IO;
+using System.Linq;
 using Azure.Messaging.ServiceBus;
 using Backend.DTOs;
 using Backend.Engine.Messages;
@@ -20,8 +22,14 @@ public class TaskContext
     private WorkflowInstanceState? _workflowState;
 
     public Guid Guid { get; private set; }
+    public WorkflowTaskExecutionJob Job => _job;
+    public WorkflowBlueprint WorkflowBlueprint => _workflowBlueprint;
+    public Guid WorkflowInstanceId => _job.WorkflowInstanceId;
+    public Guid WorkflowTaskInstanceId => _job.WorkflowTaskInstanceId;
+    public int WorkflowBlueprintId => _job.WorkflowBlueprintId;
     public int SchemaId => _workflowTask.Value.SchemaId;
     public Task<Stream> InputChannelDataStream => GetInputChannelDataStream();
+    public string InputChannelName => _workflowTask.Value.InputChannel.Name;
 
     public WorkflowTask[] NextTasks => _workflowTask.Value
         .OutputChannels.Values.Select(v => v.Destination)
@@ -47,6 +55,8 @@ public class TaskContext
         _workflowBlueprint = workflowBlueprint;
         _workflowTask = new Lazy<WorkflowTask>(
             () => _workflowBlueprint.AllTasks.First(t => t.Id == _id));
+
+        Guid = job.WorkflowTaskInstanceId;
     }
 
     public async Task<bool> ExtendProcessingWindow()
@@ -76,6 +86,28 @@ public class TaskContext
 
             return false;
         }
+    }
+
+    public async Task CompleteMessageAsync(CancellationToken cancellationToken)
+    {
+        await _serviceBusReceiver.CompleteMessageAsync(_message, cancellationToken);
+    }
+
+    public async Task AbandonMessageAsync(CancellationToken cancellationToken)
+    {
+        await _serviceBusReceiver.AbandonMessageAsync(_message, cancellationToken: cancellationToken);
+    }
+
+    public async Task<WorkflowInstanceState> GetWorkflowStateAsync()
+    {
+        _workflowState ??= await _workflowStateRepository.GetWorkflowStateById(_job.WorkflowInstanceId);
+        return _workflowState;
+    }
+
+    public async Task<Stream?> GetGlobalStateDataStreamAsync()
+    {
+        _workflowState ??= await _workflowStateRepository.GetWorkflowStateById(_job.WorkflowInstanceId);
+        return _workflowState.GlobalStateDataStream;
     }
 
     private async Task<Stream> GetInputChannelDataStream()
