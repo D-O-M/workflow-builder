@@ -37,6 +37,7 @@ builder.Services.AddSingleton<IAgentManager, AgentManager>();
 builder.Services.AddHostedService<NanoServiceOrchestrator>();
 builder.Services.AddTransient<NanoServiceSignalsClient>();
 builder.Services.AddTransient<NanoServiceAgent>();
+builder.Services.AddTransient<TaskFinalizationService>();
 builder.Services.AddScoped<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
 builder.Services.AddScoped<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
 

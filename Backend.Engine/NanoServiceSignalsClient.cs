@@ -23,6 +23,8 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
     private readonly ILogger<NanoServiceSignalsClient> _logger;
     private SignalConnection? _connection;
 
+    public ISignalChannel? Channel => _connection?.Channel;
+
     public NanoServiceSignalsClient(ILogger<NanoServiceSignalsClient> logger)
     {
         _logger = logger;
