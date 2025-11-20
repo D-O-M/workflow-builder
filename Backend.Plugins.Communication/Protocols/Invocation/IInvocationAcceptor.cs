@@ -3,6 +3,16 @@ namespace Backend.Plugins.Communication.Protocols.Invocation;
 public interface IInvocationAcceptor
 {
     /// <summary>
+    /// Waits for the initiator to send a bare invocation signal over the ring buffer.
+    /// </summary>
+    Task AwaitMessageFromInitiatorViaRingBuffer(InvocationSignal signal);
+
+    /// <summary>
+    /// Sends a bare invocation signal over the ring buffer to the initiator.
+    /// </summary>
+    Task SendSignalViaRingBuffer(InvocationSignal signal);
+
+    /// <summary>
     /// Receives the global state snapshot from the initiator.
     /// </summary>
     Task ReceiveGlobalState();
