@@ -3,6 +3,16 @@ namespace Backend.Plugins.Communication.Protocols.JobCompletion;
 public interface IJobCompletionInitiator
 {
     /// <summary>
+    /// Sends a bare job completion signal over the ring buffer.
+    /// </summary>
+    Task SendSignalViaRingBuffer(JobCompletionSignal signal);
+
+    /// <summary>
+    /// Awaits a bare signal response from the acceptor over the ring buffer.
+    /// </summary>
+    Task AwaitResponseFromResponderViaRingBuffer(JobCompletionSignal signal);
+
+    /// <summary>
     /// Announces job completion to the acceptor.
     /// </summary>
     Task SendJobCompleted();
