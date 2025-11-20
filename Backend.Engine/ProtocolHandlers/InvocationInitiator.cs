@@ -1,7 +1,7 @@
 using Backend.Plugins.Communication;
 using Backend.Plugins.Communication.Protocols.Invocation;
 
-namespace Backend.Engine;
+namespace Backend.Engine.ProtocolHandlers;
 
 internal sealed class InvocationInitiator : IInvocationInitiator
 {

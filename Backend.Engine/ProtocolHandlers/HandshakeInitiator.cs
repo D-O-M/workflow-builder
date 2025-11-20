@@ -3,7 +3,7 @@ using Backend.Plugins.Communication;
 using Backend.Plugins.Communication.Protocols;
 using Backend.Plugins.Communication.Protocols.Handshake;
 
-namespace Backend.Engine;
+namespace Backend.Engine.ProtocolHandlers;
 
 internal sealed class HandshakeInitiator : IHandshakeInitiator
 {

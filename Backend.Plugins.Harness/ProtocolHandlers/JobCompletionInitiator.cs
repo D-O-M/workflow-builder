@@ -1,7 +1,7 @@
 using Backend.Plugins.Communication;
 using Backend.Plugins.Communication.Protocols.JobCompletion;
 
-namespace Backend.Plugins.Harness;
+namespace Backend.Plugins.Harness.ProtocolHandlers;
 
 internal sealed class JobCompletionInitiator : IJobCompletionInitiator
 {
