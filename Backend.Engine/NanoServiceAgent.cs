@@ -1,4 +1,12 @@
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using Backend.Engine.ProtocolHandlers;
+using Backend.Plugins.Communication;
+using Backend.Plugins.Communication.Protocols.Invocation;
+using Backend.Plugins.Communication.Protocols.JobCompletion;
 
 namespace Backend.Engine;
 
@@ -6,14 +14,18 @@ public class NanoServiceAgent
 {
     private readonly ILogger _logger;
     private readonly NanoServiceSignalsClient _signalsClient;
-    private readonly List<TaskContext> _tasks = new();
+    private readonly TaskFinalizationService _taskFinalizationService;
+    private readonly Queue<TaskContext> _tasks = new();
+    private readonly SemaphoreSlim _taskProcessingLock = new(1, 1);
 
     public NanoServiceAgent(
         ILogger<NanoServiceAgent> logger,
-        NanoServiceSignalsClient signalsClient)
+        NanoServiceSignalsClient signalsClient,
+        TaskFinalizationService taskFinalizationService)
     {
         _logger = logger;
         _signalsClient = signalsClient;
+        _taskFinalizationService = taskFinalizationService;
     }
 
     public async Task<bool> InitialiseAsync(
@@ -78,12 +90,123 @@ public class NanoServiceAgent
 
     public bool EnqueueTask(TaskContext taskContext)
     {
-        _tasks.Add(taskContext);
+        _tasks.Enqueue(taskContext);
+        _ = ProcessTasksAsync(CancellationToken.None);
         return true;
     }
 
-    private void CompleteTask(TaskContext taskContext)
+    private async Task ProcessTasksAsync(CancellationToken cancellationToken)
     {
+        if (!await _taskProcessingLock.WaitAsync(TimeSpan.Zero, cancellationToken))
+        {
+            return;
+        }
 
+        try
+        {
+            while (_tasks.Count > 0 && !cancellationToken.IsCancellationRequested)
+            {
+                var taskContext = _tasks.Dequeue();
+                await ProcessTaskAsync(taskContext, cancellationToken);
+            }
+        }
+        finally
+        {
+            _taskProcessingLock.Release();
+        }
+    }
+
+    private async Task ProcessTaskAsync(TaskContext taskContext, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await taskContext.ExtendProcessingWindow();
+            var channel = _signalsClient.Channel ?? throw new InvalidOperationException("Nano service channel is not ready.");
+
+            var inputBytes = await ReadAllBytesAsync(await taskContext.InputChannelDataStream, cancellationToken);
+            var globalStateStream = await taskContext.GetGlobalStateDataStreamAsync();
+            var globalStateBytes = globalStateStream is null
+                ? Array.Empty<byte>()
+                : await ReadAllBytesAsync(globalStateStream, cancellationToken);
+
+            var globalStateAction = new SignalAction(
+                SignalActionClass.GlobalState,
+                "global-state",
+                null,
+                "application/octet-stream",
+                globalStateBytes);
+
+            var invocationInputAction = new SignalAction(
+                SignalActionClass.InputChannel,
+                taskContext.InputChannelName,
+                null,
+                "application/octet-stream",
+                inputBytes);
+
+            var invocationInitiator = new InvocationInitiator(
+                channel,
+                globalStateAction,
+                invocationInputAction,
+                cancellationToken);
+
+            _logger.LogInformation(
+                "Starting invocation protocol for workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
+                taskContext.WorkflowInstanceId,
+                taskContext.WorkflowTaskInstanceId);
+
+            var invocationSteps = new InvocationInitiatorSteps(invocationInitiator);
+            await invocationSteps.Perform();
+
+            _logger.LogInformation(
+                "Invocation protocol completed for workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
+                taskContext.WorkflowInstanceId,
+                taskContext.WorkflowTaskInstanceId);
+
+            await taskContext.ExtendProcessingWindow();
+
+            var jobCompletionAcceptor = new JobCompletionAcceptor(channel, cancellationToken);
+            var jobCompletionSteps = new JobCompletionAcceptorSteps(jobCompletionAcceptor);
+
+            await jobCompletionSteps.Perform();
+
+            _logger.LogInformation(
+                "Received {OutputCount} outputs for workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
+                jobCompletionAcceptor.ReceivedOutputs.Count,
+                taskContext.WorkflowInstanceId,
+                taskContext.WorkflowTaskInstanceId);
+
+            await _taskFinalizationService.FinalizeSuccessAsync(
+                taskContext,
+                jobCompletionAcceptor.ReceivedOutputs,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Error while processing workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
+                taskContext.WorkflowInstanceId,
+                taskContext.WorkflowTaskInstanceId);
+
+            try
+            {
+                await _taskFinalizationService.FinalizeFailureAsync(taskContext, cancellationToken);
+            }
+            catch (Exception finalizeEx)
+            {
+                _logger.LogError(
+                    finalizeEx,
+                    "Failed to finalize workflow instance {WorkflowInstanceId} task {TaskInstanceId} after error",
+                    taskContext.WorkflowInstanceId,
+                    taskContext.WorkflowTaskInstanceId);
+            }
+        }
+    }
+
+    private static async Task<byte[]> ReadAllBytesAsync(Stream source, CancellationToken cancellationToken)
+    {
+        using var memoryStream = new MemoryStream();
+        await source.CopyToAsync(memoryStream, cancellationToken);
+        return memoryStream.ToArray();
     }
 }
