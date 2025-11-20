@@ -1,9 +1,11 @@
+using Azure.Messaging.ServiceBus;
 using Azure.Storage.Blobs;
 using Backend.Engine;
 using Backend.Interfaces.Utilities;
 using Backend.Relational.DAL;
 using Backend.Repositories;
 using Backend.Utilities;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -40,6 +42,21 @@ builder.Services.AddTransient<NanoServiceAgent>();
 builder.Services.AddTransient<TaskFinalizationService>();
 builder.Services.AddScoped<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
 builder.Services.AddScoped<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
+
+var serviceBusConnectionString = builder.Configuration.GetConnectionString("ServiceBus")
+    ?? throw new InvalidOperationException("ServiceBus connection string is not configured.");
+
+var workflowTaskQueueName = builder.Configuration["AzureServiceBus:Queues:WorkflowTaskQueue"]
+    ?? throw new InvalidOperationException("Workflow task queue name is not configured.");
+
+builder.Services.AddSingleton(_ => new ServiceBusClient(serviceBusConnectionString));
+builder.Services.AddSingleton(provider =>
+{
+    var client = provider.GetRequiredService<ServiceBusClient>();
+    return client.CreateReceiver(workflowTaskQueueName);
+});
+
+builder.Services.AddHostedService<QueueConsumer>();
 
 var app = builder.Build();
 

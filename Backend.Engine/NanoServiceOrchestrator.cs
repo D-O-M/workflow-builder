@@ -13,22 +13,25 @@ public class NanoServiceOrchestrator : BackgroundService
     private readonly IPluginWorkspaceFactoryUtility _workspaceFactory;
     private readonly IServiceProvider _serviceProvider;
     private readonly IWorkflowTaskRepository _workflowTaskRepository;
+    private readonly IAgentManager _agentManager;
 
-    private List<(FileInfo fileInfo, WorkflowTaskInfo taskInfo)> _plugins = new();
-    private Dictionary<string, NanoServiceAgent> _agents = new();
+    private readonly List<(FileInfo fileInfo, WorkflowTaskInfo taskInfo)> _plugins = new();
+    private readonly Dictionary<int, NanoServiceAgent> _agents = new();
 
     public NanoServiceOrchestrator(
         BlobContainerClient blobContainerClient,
         IPluginArchiveExtractionUtility archiveExtractor,
         IPluginWorkspaceFactoryUtility workspaceFactory,
         IServiceProvider serviceProvider,
-        IWorkflowTaskRepository workflowTaskRepository)
+        IWorkflowTaskRepository workflowTaskRepository,
+        IAgentManager agentManager)
     {
         _blobContainerClient = blobContainerClient;
         _archiveExtractor = archiveExtractor;
         _serviceProvider = serviceProvider;
         _workspaceFactory = workspaceFactory;
         _workflowTaskRepository = workflowTaskRepository;
+        _agentManager = agentManager;
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
@@ -40,7 +43,7 @@ public class NanoServiceOrchestrator : BackgroundService
             _plugins.Add((await DownloadPlugin(
                 task.Name,
                 task.Version,
-                "TestPlugin",
+                task.Path,
                 cancellationToken), task));
         }
 
@@ -57,19 +60,22 @@ public class NanoServiceOrchestrator : BackgroundService
                 Array.Empty<NanoServiceInputChannelModel>(),
                 globalState: null,
                 stoppingToken);
-            _agents.Add(fileInfo.Name, newAgent);
+            _agents.Add(taskInfo.Id, newAgent);
+            _agentManager.RegisterAgent(taskInfo.Id, newAgent);
         }
 
         while (!stoppingToken.IsCancellationRequested)
         {
             await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
         }
+
+        await StopAgentsAsync(stoppingToken);
     }
 
     private async Task<FileInfo> DownloadPlugin(
         string pluginName,
         Version pluginVersion,
-        string executableName,
+        string entryPoint,
         CancellationToken cancellationToken)
     {
         var blobKey = $"{pluginName}_{pluginVersion.ToString()}.zip";
@@ -83,6 +89,22 @@ public class NanoServiceOrchestrator : BackgroundService
             workspaceDirectory,
             cancellationToken);
 
-        return new FileInfo(Path.Combine(workspaceDirectory, executableName));
+        return new FileInfo(Path.Combine(workspaceDirectory, entryPoint));
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await StopAgentsAsync(cancellationToken);
+        await base.StopAsync(cancellationToken);
+    }
+
+    private async Task StopAgentsAsync(CancellationToken cancellationToken)
+    {
+        foreach (var agent in _agents.Values)
+        {
+            await agent.StopAsync(cancellationToken);
+        }
+
+        _agents.Clear();
     }
 }
