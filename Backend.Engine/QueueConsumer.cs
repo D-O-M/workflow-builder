@@ -2,6 +2,8 @@ using System.Text.Json;
 using Azure.Messaging.ServiceBus;
 using Backend.Engine.Messages;
 using Backend.Interfaces.Repositories;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Backend.Engine;
 
@@ -11,15 +13,20 @@ public class QueueConsumer : BackgroundService
     private readonly ServiceBusReceiver _serviceBusReceiver;
     private readonly IServiceProvider _serviceProvider;
     private readonly IWorkflowBlueprintRepository _workflowBlueprintRepository;
+    private readonly ILogger<QueueConsumer> _logger;
 
     public QueueConsumer(
         IAgentManager agentManager,
         ServiceBusReceiver serviceBusReceiver,
-        IWorkflowBlueprintRepository workflowBlueprintRepository)
+        IWorkflowBlueprintRepository workflowBlueprintRepository,
+        IServiceProvider serviceProvider,
+        ILogger<QueueConsumer> logger)
     {
         _agentManager = agentManager;
         _serviceBusReceiver = serviceBusReceiver;
         _workflowBlueprintRepository = workflowBlueprintRepository;
+        _serviceProvider = serviceProvider;
+        _logger = logger;
     }
 
     protected async override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -35,11 +42,17 @@ public class QueueConsumer : BackgroundService
                 continue;
             }
 
-            var job = JsonSerializer.Deserialize<WorkflowTaskExecutionJob>(message.Body);
-            if (job is not null)
+            try
             {
-                // Process the job
-                Console.WriteLine($"Processing job: {job.WorkflowTaskInstanceId}");
+                var job = JsonSerializer.Deserialize<WorkflowTaskExecutionJob>(message.Body);
+
+                if (job is null)
+                {
+                    await _serviceBusReceiver.AbandonMessageAsync(
+                        message,
+                        cancellationToken: stoppingToken);
+                    continue;
+                }
 
                 var blueprint = await _workflowBlueprintRepository
                     .GetFullBlueprintById(job.WorkflowBlueprintId, stoppingToken);
@@ -48,7 +61,12 @@ public class QueueConsumer : BackgroundService
                     .FirstOrDefault(t => t.Id == job.WorkflowTaskId);
 
                 if (task is null)
-                    throw new Exception();
+                {
+                    await _serviceBusReceiver.AbandonMessageAsync(
+                        message,
+                        cancellationToken: stoppingToken);
+                    continue;
+                }
 
                 if (!_agentManager.AgentExists(task.SchemaId))
                 {
@@ -61,7 +79,31 @@ public class QueueConsumer : BackgroundService
                     _serviceProvider,
                     job,
                     message,
+                    _serviceBusReceiver,
                     blueprint);
+
+                var agent = _agentManager.GetAgent(task.SchemaId);
+                var enqueued = agent.EnqueueTask(context);
+
+                if (enqueued)
+                {
+                    await _serviceBusReceiver.CompleteMessageAsync(
+                        message,
+                        cancellationToken: stoppingToken);
+                }
+                else
+                {
+                    await _serviceBusReceiver.AbandonMessageAsync(
+                        message,
+                        cancellationToken: stoppingToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to process workflow task message {MessageId}", message.MessageId);
+                await _serviceBusReceiver.AbandonMessageAsync(
+                    message,
+                    cancellationToken: stoppingToken);
             }
         }
     }
