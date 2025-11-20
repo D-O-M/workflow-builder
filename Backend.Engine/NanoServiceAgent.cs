@@ -7,6 +7,7 @@ public class NanoServiceAgent
     private readonly ILogger _logger;
     private readonly NanoServiceSignalsClient _signalsClient;
     private readonly List<TaskContext> _tasks = new();
+    private Process? _process;
 
     public NanoServiceAgent(
         ILogger<NanoServiceAgent> logger,
@@ -22,16 +23,16 @@ public class NanoServiceAgent
         NanoServiceGlobalStateSnapshot? globalState,
         CancellationToken cancellationToken)
     {
-        var process = CreateProcess(fileInfo);
-        if (!process.Start())
+        _process = CreateProcess(fileInfo);
+        if (!_process.Start())
         {
             return false;
         }
 
-        await _signalsClient.EstablishAsync(process, fileInfo.Name, inputChannels, globalState, cancellationToken);
+        await _signalsClient.EstablishAsync(_process, fileInfo.Name, inputChannels, globalState, cancellationToken);
 
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+        _process.BeginOutputReadLine();
+        _process.BeginErrorReadLine();
         return true;
     }
 
@@ -39,7 +40,7 @@ public class NanoServiceAgent
     {
         var psi = new ProcessStartInfo
         {
-            FileName = executableFileInfo.Name,
+            FileName = executableFileInfo.FullName,
             Arguments = "",
             WorkingDirectory = executableFileInfo.Directory!.FullName,
             UseShellExecute = false,
@@ -85,5 +86,34 @@ public class NanoServiceAgent
     private void CompleteTask(TaskContext taskContext)
     {
 
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        if (_process is not null)
+        {
+            try
+            {
+                if (!_process.HasExited)
+                {
+                    _process.CloseMainWindow();
+                    if (!_process.WaitForExit((int)TimeSpan.FromSeconds(5).TotalMilliseconds))
+                    {
+                        _process.Kill(true);
+                    }
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // Swallow exceptions from querying an exited or disposed process.
+            }
+            finally
+            {
+                _process.Dispose();
+                _process = null;
+            }
+        }
+
+        await _signalsClient.DisposeAsync();
     }
 }
