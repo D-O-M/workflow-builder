@@ -4,7 +4,7 @@ using Backend.Plugins.Communication.Protocols;
 using Backend.Plugins.Communication.Protocols.Handshake;
 using Backend.Plugins.Communication.RingBuffers;
 
-namespace Backend.Plugins.Harness;
+namespace Backend.Plugins.Harness.ProtocolHandlers;
 
 internal class HandshakeAcceptor : IHandshakeAcceptor
 {

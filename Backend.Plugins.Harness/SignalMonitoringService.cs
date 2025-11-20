@@ -1,6 +1,7 @@
 using Backend.Plugins.Communication;
 using Backend.Plugins.Communication.Protocols;
 using Backend.Plugins.Communication.Protocols.Handshake;
+using Backend.Plugins.Harness.ProtocolHandlers;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
