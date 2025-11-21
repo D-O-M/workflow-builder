@@ -1,6 +1,7 @@
 using Azure.Messaging.ServiceBus;
 using Azure.Storage.Blobs;
 using Backend.Engine;
+using Backend.Engine.Debugging;
 using Backend.Interfaces.Utilities;
 using Backend.Relational.DAL;
 using Backend.Repositories;
@@ -15,6 +16,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+
+builder.Services.Configure<DebuggerAutoAttachOptions>(
+    builder.Configuration.GetSection("DebuggerAutoAttach"));
 
 var sqlConnectionString = builder.Configuration.GetConnectionString("TasksDB");
 builder.Services.AddDbContextPool<WorkflowDbContext>(options =>
@@ -37,6 +41,11 @@ builder.Services.AddSingleton(_ =>
 builder.Services.AddSingleton<EngineInstanceInfo>();
 builder.Services.AddSingleton<IAgentManager, AgentManager>();
 builder.Services.AddHostedService<NanoServiceOrchestrator>();
+builder.Services.AddSingleton<IAsyncDelay, DefaultAsyncDelay>();
+builder.Services.AddSingleton<IDebuggerAttachmentGuard, DebuggerAttachmentGuard>();
+builder.Services.AddSingleton<IOperatingSystemInformation, OperatingSystemInformation>();
+builder.Services.AddSingleton<IVisualStudioInstanceProvider, RotVisualStudioInstanceProvider>();
+builder.Services.AddSingleton<VisualStudioDebuggerAttacher>();
 builder.Services.AddTransient<NanoServiceSignalsClient>();
 builder.Services.AddTransient<NanoServiceAgent>();
 builder.Services.AddTransient<TaskFinalizationService>();

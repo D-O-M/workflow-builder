@@ -1,4 +1,5 @@
 using Backend.Plugins.Communication;
+using Backend.Plugins.Communication.Protocols;
 using Backend.Plugins.Communication.Protocols.Invocation;
 
 namespace Backend.Engine.ProtocolHandlers;
