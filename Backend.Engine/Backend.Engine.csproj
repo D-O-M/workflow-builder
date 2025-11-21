@@ -9,6 +9,8 @@
   <ItemGroup>
     <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.20.1" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.24.1" />
+    <PackageReference Include="EnvDTE" Version="17.9.37622" />
+    <PackageReference Include="EnvDTE80" Version="17.9.37622" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.10" />
   </ItemGroup>
 

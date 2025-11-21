@@ -8,6 +8,11 @@ public interface IJobCompletionAcceptor
     Task ReceiveSignalFromInitiatorViaRingBuffer(JobCompletionSignal signal);
 
     /// <summary>
+    /// Waits for the initiator to send a protocol step over the ring buffer.
+    /// </summary>
+    Task AwaitMessageFromInitiatorViaRingBuffer(JobCompletionSignal signal);
+
+    /// <summary>
     /// Sends a bare job completion signal over the ring buffer back to the initiator.
     /// </summary>
     Task SendSignalViaRingBuffer(JobCompletionSignal signal);
