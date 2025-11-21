@@ -24,6 +24,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.Mappers", "Backend.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.PluginLoader.Tests", "Backend.PluginLoader.Tests\Backend.PluginLoader.Tests.csproj", "{A52D2A59-A401-4CF2-AF06-003EB7003239}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.Engine.Tests", "Backend.Engine.Tests\Backend.Engine.Tests.csproj", "{B28250E4-FFCA-4C2B-90E5-AB08144DFAF0}"
+EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backend.Engine", "Backend.Engine\Backend.Engine.csproj", "{067E0D4B-42DC-49BE-8FFA-F2FC7A03734C}"
@@ -112,12 +114,17 @@ Global
 		{6E769991-E950-4DA2-B24E-409A48E596BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6E769991-E950-4DA2-B24E-409A48E596BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6E769991-E950-4DA2-B24E-409A48E596BA}.Release|Any CPU.Build.0 = Release|Any CPU
+				{B28250E4-FFCA-4C2B-90E5-AB08144DFAF0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+				{B28250E4-FFCA-4C2B-90E5-AB08144DFAF0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+				{B28250E4-FFCA-4C2B-90E5-AB08144DFAF0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+				{B28250E4-FFCA-4C2B-90E5-AB08144DFAF0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{A52D2A59-A401-4CF2-AF06-003EB7003239} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{B28250E4-FFCA-4C2B-90E5-AB08144DFAF0} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {50F0AB42-6952-49F7-8A4E-E4DE30F69CD9}
