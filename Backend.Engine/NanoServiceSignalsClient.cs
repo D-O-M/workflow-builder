@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text.Json;
+using Backend.Engine.ProtocolHandlers;
 using Backend.Plugins.Communication;
 using Backend.Plugins.Communication.Protocols;
 using Backend.Plugins.Communication.Protocols.Handshake;

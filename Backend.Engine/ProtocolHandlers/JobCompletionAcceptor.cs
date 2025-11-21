@@ -1,4 +1,5 @@
 using Backend.Plugins.Communication;
+using Backend.Plugins.Communication.Protocols;
 using Backend.Plugins.Communication.Protocols.JobCompletion;
 
 namespace Backend.Engine.ProtocolHandlers;
@@ -20,6 +21,9 @@ internal sealed class JobCompletionAcceptor : IJobCompletionAcceptor
 
     public Task ReceiveSignalFromInitiatorViaRingBuffer(JobCompletionSignal signal)
         => AwaitSignalAsync(signal);
+
+    public Task AwaitMessageFromInitiatorViaRingBuffer(JobCompletionSignal signal)
+        => ReceiveSignalFromInitiatorViaRingBuffer(signal);
 
     public Task SendSignalViaRingBuffer(JobCompletionSignal signal)
         => SendSignalAsync(signal);

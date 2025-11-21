@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Backend.Engine.Debugging;
 using Backend.Engine.ProtocolHandlers;
 using Backend.Plugins.Communication;
 using Backend.Plugins.Communication.Protocols.Invocation;
@@ -15,6 +16,7 @@ public class NanoServiceAgent
     private readonly ILogger _logger;
     private readonly NanoServiceSignalsClient _signalsClient;
     private readonly TaskFinalizationService _taskFinalizationService;
+    private readonly VisualStudioDebuggerAttacher _debuggerAttacher;
     private readonly Queue<TaskContext> _tasks = new();
     private readonly SemaphoreSlim _taskProcessingLock = new(1, 1);
     private Process? _process;
@@ -22,11 +24,13 @@ public class NanoServiceAgent
     public NanoServiceAgent(
         ILogger<NanoServiceAgent> logger,
         NanoServiceSignalsClient signalsClient,
-        TaskFinalizationService taskFinalizationService)
+        TaskFinalizationService taskFinalizationService,
+        VisualStudioDebuggerAttacher debuggerAttacher)
     {
         _logger = logger;
         _signalsClient = signalsClient;
         _taskFinalizationService = taskFinalizationService;
+        _debuggerAttacher = debuggerAttacher;
     }
 
     public async Task<bool> InitialiseAsync(
@@ -40,6 +44,8 @@ public class NanoServiceAgent
         {
             return false;
         }
+
+        await _debuggerAttacher.TryAttachAsync(_process, cancellationToken);
 
         await _signalsClient.EstablishAsync(_process, fileInfo.Name, inputChannels, globalState, cancellationToken);
 
