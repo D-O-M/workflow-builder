@@ -14,8 +14,8 @@ public enum SignalActionClass
 }
 
 /// <summary>
-/// Metadata envelope that accompanies the raw bytes written through the
-/// ring buffers.
+/// Metadata envelope that accompanies opaque payloads exchanged through the
+/// signal channel.
 /// </summary>
 /// <param name="Class">Logical class of data being transported.</param>
 /// <param name="Identifier">Caller-defined identifier (channel name, state key, etc.).</param>

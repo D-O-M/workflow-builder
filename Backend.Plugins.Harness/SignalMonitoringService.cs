@@ -89,6 +89,9 @@ internal sealed class SignalMonitoringService : BackgroundService
                 case SignalCommand.Action:
                     await HandleActionAsync(message.Payload, stoppingToken);
                     break;
+                case SignalCommand.Invocation:
+                    await HandleInvocationAsync(message.Payload, stoppingToken);
+                    break;
                 default:
                     _logger.LogDebug("Ignoring unsupported command {Command}", message.Command);
                     break;
@@ -123,6 +126,20 @@ internal sealed class SignalMonitoringService : BackgroundService
                 _logger.LogDebug("Ignoring unsupported action class {Class}", action.Class);
                 break;
         }
+    }
+
+    private async ValueTask HandleInvocationAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+    {
+        var envelope = InvocationEnvelopeSerializer.Deserialize(payload.Span);
+        var message = new Signal(
+            SignalsMessageKind.Invocation,
+            envelope.WorkflowTaskInstanceId.ToString(),
+            ModelType: string.Empty,
+            ContentType: "application/json",
+            Payload: InvocationEnvelopeSerializer.Serialize(envelope).ToArray(),
+            Invocation: envelope);
+
+        await _inbox.Writer.WriteAsync(message, cancellationToken);
     }
 
     private async ValueTask PublishMessageAsync(

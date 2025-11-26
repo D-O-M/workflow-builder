@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Backend.Plugins.Communication;
 
 namespace Backend.Plugins.Harness;
 
@@ -6,7 +7,8 @@ internal enum SignalsMessageKind
 {
     InputChannelModel,
     OutputChannelModel,
-    GlobalState
+    GlobalState,
+    Invocation
 }
 
 internal sealed record Signal(
@@ -14,7 +16,8 @@ internal sealed record Signal(
     string Identifier,
     string ModelType,
     string ContentType,
-    byte[] Payload);
+    byte[] Payload,
+    InvocationEnvelope? Invocation = null);
 
 /// <summary>
 /// Lightweight in-memory queue that buffers messages arriving from the engine
