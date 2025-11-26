@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Backend.Engine.Debugging;
 using Backend.Plugins.Communication;
+using CliWrap;
 
 namespace Backend.Engine;
 
@@ -14,6 +15,8 @@ public class NanoServiceAgent
     private readonly Queue<TaskContext> _tasks = new();
     private readonly SemaphoreSlim _taskProcessingLock = new(1, 1);
     private Process? _process;
+    private CommandTask<CommandResult>? _processTask;
+    private CancellationTokenSource? _processCancellation;
     private string _engineOutputPipe;
     private string _nanoServiceInputPipe;
 
@@ -47,11 +50,16 @@ public class NanoServiceAgent
             _nanoServiceInputPipe,
             PipeConnectionRole.EngineServer);
 
-        _process = CreateProcess(fileInfo, channelOptions);
-        if (!_process.Start())
+        _processCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        _processTask = BuildCommand(fileInfo, channelOptions).ExecuteAsync(_processCancellation.Token);
+
+        if (_processTask.ProcessId <= 0)
         {
             return false;
         }
+
+        _process = Process.GetProcessById(_processTask.ProcessId);
 
         await _debuggerAttacher.TryAttachAsync(_process, cancellationToken);
 
@@ -63,60 +71,29 @@ public class NanoServiceAgent
             channelOptions,
             cancellationToken);
 
-        _process.BeginOutputReadLine();
-        _process.BeginErrorReadLine();
         return true;
     }
 
-    private Process CreateProcess(FileInfo executableFileInfo, NamedPipeChannelOptions channelOptions)
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = executableFileInfo.FullName,
-            Arguments =
-                $"--Signals:OutboundPipe={channelOptions.OutboundPipeName} " +
-                $"--Signals:InboundPipe={channelOptions.InboundPipeName} " +
-                $"--Signals:SessionId={channelOptions.SessionId} " +
-                $"--Signals:Role={channelOptions.Role}",
-            WorkingDirectory = executableFileInfo.Directory!.FullName,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = true,
-            CreateNoWindow = true
-        };
-
-        psi.Environment["Signals__OutboundPipe"] = channelOptions.OutboundPipeName;
-        psi.Environment["Signals__InboundPipe"] = channelOptions.InboundPipeName;
-        psi.Environment["Signals__SessionId"] = channelOptions.SessionId.ToString();
-        psi.Environment["Signals__Role"] = channelOptions.Role.ToString();
-
-        var process = new Process { StartInfo = psi };
-
-        process.OutputDataReceived += (s, e) =>
-        {
-            if (!string.IsNullOrEmpty(e.Data))
+    private Command BuildCommand(FileInfo executableFileInfo, NamedPipeChannelOptions channelOptions)
+        => Cli.Wrap(executableFileInfo.FullName)
+            .WithArguments(args => args
+                .Add($"--Signals:OutboundPipe={channelOptions.OutboundPipeName}")
+                .Add($"--Signals:InboundPipe={channelOptions.InboundPipeName}")
+                .Add($"--Signals:SessionId={channelOptions.SessionId}")
+                .Add($"--Signals:Role={channelOptions.Role}"))
+            .WithWorkingDirectory(executableFileInfo.Directory!.FullName)
+            .WithEnvironmentVariables(env =>
             {
-                _logger.LogInformation(
-                    "[{NanoServiceName}] {Line}",
-                    executableFileInfo.Name,
-                    e.Data);
-            }
-        };
-
-        process.ErrorDataReceived += (s, e) =>
-        {
-            if (!string.IsNullOrEmpty(e.Data))
-            {
-                _logger.LogInformation(
-                    "[{NanoServiceName}] {Line}",
-                    executableFileInfo.Name,
-                    e.Data);
-            }
-        };
-
-        return process;
-    }
+                env.Set("Signals__OutboundPipe", channelOptions.OutboundPipeName);
+                env.Set("Signals__InboundPipe", channelOptions.InboundPipeName);
+                env.Set("Signals__SessionId", channelOptions.SessionId.ToString());
+                env.Set("Signals__Role", channelOptions.Role.ToString());
+            })
+            .WithStandardOutputPipe(PipeTarget.ToDelegate(
+                line => _logger.LogInformation("[{NanoServiceName}] {Line}", executableFileInfo.Name, line.TrimEnd())))
+            .WithStandardErrorPipe(PipeTarget.ToDelegate(
+                line => _logger.LogInformation("[{NanoServiceName}] {Line}", executableFileInfo.Name, line.TrimEnd())))
+            .WithValidation(CommandResultValidation.None);
 
     public bool EnqueueTask(TaskContext taskContext)
     {
@@ -208,6 +185,31 @@ public class NanoServiceAgent
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        if (_processCancellation is not null)
+        {
+            _processCancellation.Cancel();
+            _processCancellation.Dispose();
+            _processCancellation = null;
+        }
+
+        if (_processTask is not null)
+        {
+            try
+            {
+                await _processTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // Ignored - process was cancelled intentionally.
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error while waiting for nano service process to exit.");
+            }
+
+            _processTask = null;
+        }
+
         if (_process is not null)
         {
             try
