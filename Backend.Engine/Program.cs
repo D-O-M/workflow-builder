@@ -38,7 +38,7 @@ builder.Services.AddSingleton(_ =>
     return blobContainerClient;
 });
 
-builder.Services.AddSingleton<EngineInstanceInfo>();
+builder.Services.AddSingleton<EngineInstanceInfo>(_ => new());
 builder.Services.AddSingleton<IAgentManager, AgentManager>();
 builder.Services.AddHostedService<NanoServiceOrchestrator>();
 builder.Services.AddSingleton<IAsyncDelay, DefaultAsyncDelay>();

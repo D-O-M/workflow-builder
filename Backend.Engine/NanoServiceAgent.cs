@@ -1,7 +1,4 @@
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
 using Backend.Engine.Debugging;
 using Backend.Plugins.Communication;
 
@@ -9,6 +6,7 @@ namespace Backend.Engine;
 
 public class NanoServiceAgent
 {
+    private readonly EngineInstanceInfo _engineInstanceInfo;
     private readonly ILogger _logger;
     private readonly NanoServiceSignalsClient _signalsClient;
     private readonly TaskFinalizationService _taskFinalizationService;
@@ -16,13 +14,17 @@ public class NanoServiceAgent
     private readonly Queue<TaskContext> _tasks = new();
     private readonly SemaphoreSlim _taskProcessingLock = new(1, 1);
     private Process? _process;
+    private string _engineOutputPipe;
+    private string _nanoServiceInputPipe;
 
     public NanoServiceAgent(
+        EngineInstanceInfo engineInstanceInfo,
         ILogger<NanoServiceAgent> logger,
         NanoServiceSignalsClient signalsClient,
         TaskFinalizationService taskFinalizationService,
         VisualStudioDebuggerAttacher debuggerAttacher)
     {
+        _engineInstanceInfo = engineInstanceInfo;
         _logger = logger;
         _signalsClient = signalsClient;
         _taskFinalizationService = taskFinalizationService;
@@ -35,11 +37,14 @@ public class NanoServiceAgent
         NanoServiceGlobalStateSnapshot? globalState,
         CancellationToken cancellationToken)
     {
+        _engineOutputPipe = $"engine-{_engineInstanceInfo.InstanceId}-to-{fileInfo.Name}-pipe";
+        _nanoServiceInputPipe = $"{fileInfo.Name}-to-engine-{_engineInstanceInfo.InstanceId}-pipe";
+
         var sessionId = Guid.NewGuid();
         var channelOptions = new NamedPipeChannelOptions(
             sessionId,
-            $"signals-{sessionId:N}-out",
-            $"signals-{sessionId:N}-in",
+            _engineOutputPipe,
+            _nanoServiceInputPipe,
             PipeConnectionRole.EngineServer);
 
         _process = CreateProcess(fileInfo, channelOptions);
