@@ -23,9 +23,10 @@ public class PluginBuilder<TPlugin>
     public PluginBuilder(string displayName)
     {
         _hostAppBuilder = Host.CreateApplicationBuilder(Environment.GetCommandLineArgs());
-        _hostAppBuilder.Services.Configure<NamedPipeChannelOptions>(
-            _hostAppBuilder.Configuration.GetSection("Signals"));
-        _hostAppBuilder.Logging.ClearProviders().AddSimpleConsole();
+        _hostAppBuilder.Logging.ClearProviders().AddSimpleConsole(options =>
+        {
+            options.LogToStandardErrorThreshold = LogLevel.Trace;
+        });
         _hostAppBuilder.Services.AddSingleton<SignalInbox>();
         _hostAppBuilder.Services.AddHostedService<SignalMonitoringService>();
         _displayName = displayName;
