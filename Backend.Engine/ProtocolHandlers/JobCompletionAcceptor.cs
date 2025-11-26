@@ -141,4 +141,9 @@ internal sealed class JobCompletionAcceptor : IJobCompletionAcceptor
 
         _cancellationToken.ThrowIfCancellationRequested();
     }
+
+    public Task AwaitMessageFromInitiatorViaRingBuffer(JobCompletionSignal signal)
+    {
+        throw new NotImplementedException();
+    }
 }
