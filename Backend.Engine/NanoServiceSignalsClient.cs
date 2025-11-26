@@ -40,6 +40,14 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(process);
         ArgumentException.ThrowIfNullOrEmpty(nanoServiceName);
 
+        _logger.LogInformation(
+            "Establishing signal pipes for {NanoService} with session {SessionId} (out: {OutboundPipe}, in: {InboundPipe}, role: {Role})",
+            nanoServiceName,
+            channelOptions.SessionId,
+            channelOptions.OutboundPipeName,
+            channelOptions.InboundPipeName,
+            channelOptions.Role);
+
         _connection = new SignalConnection(
             channelOptions,
             await NamedPipeSignalChannel.CreateServerAsync(
