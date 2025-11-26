@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Backend.Engine.Debugging;
@@ -140,40 +139,20 @@ public class NanoServiceAgent
         try
         {
             await taskContext.ExtendProcessingWindow();
-            var inputBytes = await ReadAllBytesAsync(await taskContext.InputChannelDataStream, cancellationToken);
-            var globalStateStream = await taskContext.GetGlobalStateDataStreamAsync();
-            var globalStateBytes = globalStateStream is null
-                ? Array.Empty<byte>()
-                : await ReadAllBytesAsync(globalStateStream, cancellationToken);
-
-            var globalStateAction = new SignalAction(
-                SignalActionClass.GlobalState,
-                "global-state",
-                null,
-                "application/octet-stream",
-                globalStateBytes);
-
-            var invocationInputAction = new SignalAction(
-                SignalActionClass.InputChannel,
-                taskContext.InputChannelName,
-                null,
-                "application/octet-stream",
-                inputBytes);
+            var envelope = new InvocationEnvelope(
+                taskContext.WorkflowInstanceId,
+                taskContext.WorkflowTaskInstanceId,
+                taskContext.InputChannelName);
 
             _logger.LogInformation(
-                "Sending invocation for workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
+                "Sending invocation envelope for workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
                 taskContext.WorkflowInstanceId,
                 taskContext.WorkflowTaskInstanceId);
 
-            if (globalStateStream is not null)
-            {
-                await _signalsClient.SendActionAsync(globalStateAction, cancellationToken);
-            }
-
-            await _signalsClient.SendActionAsync(invocationInputAction, cancellationToken);
+            await _signalsClient.SendInvocationAsync(envelope, cancellationToken);
 
             _logger.LogInformation(
-                "Invocation dispatched for workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
+                "Invocation envelope dispatched for workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
                 taskContext.WorkflowInstanceId,
                 taskContext.WorkflowTaskInstanceId);
 
@@ -213,13 +192,6 @@ public class NanoServiceAgent
                     taskContext.WorkflowTaskInstanceId);
             }
         }
-    }
-
-    private static async Task<byte[]> ReadAllBytesAsync(Stream source, CancellationToken cancellationToken)
-    {
-        using var memoryStream = new MemoryStream();
-        await source.CopyToAsync(memoryStream, cancellationToken);
-        return memoryStream.ToArray();
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)

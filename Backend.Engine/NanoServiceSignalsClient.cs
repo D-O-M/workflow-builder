@@ -98,6 +98,9 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
     public Task SendActionAsync(SignalAction action, CancellationToken cancellationToken)
         => SendAsync(SignalCommand.Action, SignalActionSerializer.Serialize(action), cancellationToken);
 
+    public Task SendInvocationAsync(InvocationEnvelope invocation, CancellationToken cancellationToken)
+        => SendAsync(SignalCommand.Invocation, InvocationEnvelopeSerializer.Serialize(invocation), cancellationToken);
+
     private async Task SendAsync(SignalCommand command, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
         var channel = _connection?.Channel ?? throw new InvalidOperationException("Nano service channel is not ready yet.");
