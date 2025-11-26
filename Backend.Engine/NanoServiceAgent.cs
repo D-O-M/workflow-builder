@@ -40,7 +40,8 @@ public class NanoServiceAgent
         var channelOptions = new NamedPipeChannelOptions(
             sessionId,
             $"signals-{sessionId:N}-out",
-            $"signals-{sessionId:N}-in");
+            $"signals-{sessionId:N}-in",
+            PipeConnectionRole.EngineServer);
 
         _process = CreateProcess(fileInfo, channelOptions);
         if (!_process.Start())
@@ -71,7 +72,8 @@ public class NanoServiceAgent
             Arguments =
                 $"--Signals:OutboundPipe={channelOptions.OutboundPipeName} " +
                 $"--Signals:InboundPipe={channelOptions.InboundPipeName} " +
-                $"--Signals:SessionId={channelOptions.SessionId}",
+                $"--Signals:SessionId={channelOptions.SessionId} " +
+                $"--Signals:Role={channelOptions.Role}",
             WorkingDirectory = executableFileInfo.Directory!.FullName,
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -79,6 +81,11 @@ public class NanoServiceAgent
             RedirectStandardInput = true,
             CreateNoWindow = true
         };
+
+        psi.Environment["Signals__OutboundPipe"] = channelOptions.OutboundPipeName;
+        psi.Environment["Signals__InboundPipe"] = channelOptions.InboundPipeName;
+        psi.Environment["Signals__SessionId"] = channelOptions.SessionId.ToString();
+        psi.Environment["Signals__Role"] = channelOptions.Role.ToString();
 
         var process = new Process { StartInfo = psi };
 

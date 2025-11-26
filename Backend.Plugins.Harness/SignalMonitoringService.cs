@@ -33,10 +33,18 @@ internal sealed class SignalMonitoringService : BackgroundService
             throw new InvalidOperationException("Pipe names were not provided. Ensure Signals:OutboundPipe and Signals:InboundPipe are configured.");
         }
 
-        var channel = await NamedPipeSignalChannel.CreateClientAsync(
-            _channelOptions.OutboundPipeName,
-            _channelOptions.InboundPipeName,
-            cancellationToken);
+        var channel = _channelOptions.Role switch
+        {
+            PipeConnectionRole.EngineServer => await NamedPipeSignalChannel.CreateClientAsync(
+                _channelOptions.OutboundPipeName,
+                _channelOptions.InboundPipeName,
+                cancellationToken),
+            PipeConnectionRole.PluginServer => await NamedPipeSignalChannel.CreateServerAsync(
+                _channelOptions.OutboundPipeName,
+                _channelOptions.InboundPipeName,
+                cancellationToken),
+            _ => throw new InvalidOperationException($"Unsupported pipe connection role '{_channelOptions.Role}'.")
+        };
 
         _connection = new SignalConnection(_channelOptions, channel);
 
@@ -48,7 +56,10 @@ internal sealed class SignalMonitoringService : BackgroundService
         try
         {
             var connection = _connection ?? throw new InvalidOperationException("Signal channel not established.");
-            _logger.LogInformation("Established session {SessionId}", connection.ChannelOptions.SessionId);
+            _logger.LogInformation(
+                "Established session {SessionId} using role {Role}",
+                connection.ChannelOptions.SessionId,
+                connection.ChannelOptions.Role);
 
             await PumpMessagesAsync(connection.Channel, stoppingToken);
         }
