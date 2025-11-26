@@ -1,18 +1,14 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text.Json;
-using Backend.Engine.ProtocolHandlers;
+using System.Threading;
+using System.Threading.Tasks;
 using Backend.Plugins.Communication;
-using Backend.Plugins.Communication.Protocols;
-using Backend.Plugins.Communication.Protocols.Handshake;
 using Microsoft.Extensions.Logging;
 
 namespace Backend.Engine;
 
-/// <summary>
-/// Encapsulates the STDIO handshake and memory-mapped protocol used by each
-/// nano service instance.
-/// </summary>
 public sealed class NanoServiceSignalsClient : IAsyncDisposable
 {
     private static readonly JsonSerializerOptions ModelSerializerOptions = new(JsonSerializerDefaults.Web)
@@ -20,6 +16,8 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = false
     };
+
+    private static readonly TimeSpan OutputIdleTimeout = TimeSpan.FromSeconds(1);
 
     private readonly ILogger<NanoServiceSignalsClient> _logger;
     private SignalConnection? _connection;
@@ -36,35 +34,18 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
         string nanoServiceName,
         IEnumerable<NanoServiceInputChannelModel> inputChannels,
         NanoServiceGlobalStateSnapshot? globalState,
+        NamedPipeChannelOptions channelOptions,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(process);
         ArgumentException.ThrowIfNullOrEmpty(nanoServiceName);
 
-        var stdin = process.StandardInput;
-        var stdout = process.StandardOutput;
-
-        if (stdin is null || stdout is null)
-        {
-            throw new InvalidOperationException("Nano service process was started without redirected STDIO streams.");
-        }
-
-        var handshake = SignalProtocolFactory.CreateHandshake(nanoServiceName, Environment.ProcessId);
-        var handshakeConfig = JsonSerializer.SerializeToUtf8Bytes(
-            new NanoServiceHandshakeConfiguration(nanoServiceName, Environment.ProcessId),
-            ModelSerializerOptions);
-
-        var initiator = new HandshakeInitiator(
-            handshake,
-            handshakeConfig,
-            stdin.BaseStream,
-            stdout.BaseStream,
-            cancellationToken);
-
-        var steps = new HandshakeInitiatorSteps(initiator);
-        await steps.Perform();
-
-        _connection = initiator.Connection ?? throw new InvalidOperationException("Handshake did not produce a channel.");
+        _connection = new SignalConnection(
+            channelOptions,
+            await NamedPipeSignalChannel.CreateServerAsync(
+                channelOptions.OutboundPipeName,
+                channelOptions.InboundPipeName,
+                cancellationToken));
 
         await SendInputChannelsAsync(inputChannels, cancellationToken);
         if (globalState is not null)
@@ -73,7 +54,9 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
         }
     }
 
-    private async Task SendInputChannelsAsync(IEnumerable<NanoServiceInputChannelModel> channels, CancellationToken cancellationToken)
+    private async Task SendInputChannelsAsync(
+        IEnumerable<NanoServiceInputChannelModel> channels,
+        CancellationToken cancellationToken)
     {
         foreach (var channel in channels)
         {
@@ -112,19 +95,14 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
         return JsonSerializer.SerializeToUtf8Bytes(model, model.GetType(), ModelSerializerOptions);
     }
 
-    private async Task SendAsync(
-        SignalCommand command,
-        ReadOnlyMemory<byte> payload,
-        CancellationToken cancellationToken)
-    {
-        var channel = _connection?.Channel;
-        if (channel is null)
-        {
-            throw new InvalidOperationException("Nano service channel is not ready yet.");
-        }
+    public Task SendActionAsync(SignalAction action, CancellationToken cancellationToken)
+        => SendAsync(SignalCommand.Action, SignalActionSerializer.Serialize(action), cancellationToken);
 
-        var envelope = new SignalWithPayloadEnvelope<SignalCommand>(command, payload.ToArray()).ToBytes();
-        var message = new SignalMessage(command, envelope);
+    private async Task SendAsync(SignalCommand command, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
+    {
+        var channel = _connection?.Channel ?? throw new InvalidOperationException("Nano service channel is not ready yet.");
+
+        var message = new SignalMessage(command, payload);
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -139,6 +117,39 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
         cancellationToken.ThrowIfCancellationRequested();
     }
 
+    public async Task<IReadOnlyCollection<SignalAction>> ReceiveOutputsAsync(CancellationToken cancellationToken)
+    {
+        var channel = _connection?.Channel ?? throw new InvalidOperationException("Nano service channel is not ready yet.");
+
+        var outputs = new List<SignalAction>();
+        var idle = Stopwatch.StartNew();
+
+        while (!cancellationToken.IsCancellationRequested && idle.Elapsed < OutputIdleTimeout)
+        {
+            if (!channel.TryReceive(out var message))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+                continue;
+            }
+
+            idle.Restart();
+
+            if (message.Command != SignalCommand.Action)
+            {
+                _logger.LogDebug("Ignoring non-action command {Command} while awaiting outputs", message.Command);
+                continue;
+            }
+
+            var action = SignalActionSerializer.Deserialize(message.Payload.Span);
+            if (action.Class == SignalActionClass.OutputChannel)
+            {
+                outputs.Add(action);
+            }
+        }
+
+        return outputs;
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_connection is not null)
@@ -147,6 +158,4 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
             _connection = null;
         }
     }
-
-    private sealed record NanoServiceHandshakeConfiguration(string NanoServiceName, int ProcessId);
 }

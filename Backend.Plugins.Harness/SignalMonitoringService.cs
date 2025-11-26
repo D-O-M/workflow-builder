@@ -1,9 +1,10 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Backend.Plugins.Communication;
-using Backend.Plugins.Communication.Protocols;
-using Backend.Plugins.Communication.Protocols.Handshake;
-using Backend.Plugins.Harness.ProtocolHandlers;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Backend.Plugins.Harness;
 
@@ -11,31 +12,33 @@ internal sealed class SignalMonitoringService : BackgroundService
 {
     private readonly ILogger<SignalMonitoringService> _logger;
     private readonly SignalInbox _inbox;
+    private readonly NamedPipeChannelOptions _channelOptions;
     private SignalConnection? _connection;
 
     public SignalMonitoringService(
         ILogger<SignalMonitoringService> logger,
-        SignalInbox inbox)
+        SignalInbox inbox,
+        IOptions<NamedPipeChannelOptions> options)
     {
         _logger = logger;
         _inbox = inbox;
+        _channelOptions = options.Value;
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        using var stdin = Console.OpenStandardInput();
-        using var stdout = Console.OpenStandardOutput();
-
-        var acceptor = new HandshakeAcceptor(stdin, stdout, cancellationToken);
-        var handshake = new HandshakeAcceptorSteps(acceptor);
-
-        await handshake.Perform();
-
-        _connection = acceptor.Connection;
-        if (_connection is null)
+        if (string.IsNullOrWhiteSpace(_channelOptions.OutboundPipeName) ||
+            string.IsNullOrWhiteSpace(_channelOptions.InboundPipeName))
         {
-            throw new InvalidOperationException("Handshake acceptor did not yield a signal connection.");
+            throw new InvalidOperationException("Pipe names were not provided. Ensure Signals:OutboundPipe and Signals:InboundPipe are configured.");
         }
+
+        var channel = await NamedPipeSignalChannel.CreateClientAsync(
+            _channelOptions.OutboundPipeName,
+            _channelOptions.InboundPipeName,
+            cancellationToken);
+
+        _connection = new SignalConnection(_channelOptions, channel);
 
         await base.StartAsync(cancellationToken);
     }
@@ -45,7 +48,7 @@ internal sealed class SignalMonitoringService : BackgroundService
         try
         {
             var connection = _connection ?? throw new InvalidOperationException("Signal channel not established.");
-            _logger.LogInformation("Established session {SessionId}" , connection.Handshake.SessionId);
+            _logger.LogInformation("Established session {SessionId}", connection.ChannelOptions.SessionId);
 
             await PumpMessagesAsync(connection.Channel, stoppingToken);
         }
@@ -84,16 +87,7 @@ internal sealed class SignalMonitoringService : BackgroundService
             switch (message.Command)
             {
                 case SignalCommand.Action:
-                    var envelope = SignalWithPayloadEnvelope
-                        .FromBytes<SignalCommand>(message.Payload.ToArray());
-
-                    if (envelope.Signal is not SignalCommand.Action)
-                    {
-                        throw new InvalidOperationException(
-                            $"Unexpected signal {envelope.Signal} received for Action command.");
-                    }
-
-                    await HandleActionAsync(envelope.Payload, stoppingToken);
+                    await HandleActionAsync(message.Payload, stoppingToken);
                     break;
                 default:
                     _logger.LogDebug("Ignoring unsupported command {Command}", message.Command);

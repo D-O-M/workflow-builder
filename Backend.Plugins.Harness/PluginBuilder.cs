@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Reflection;
+using Backend.Plugins.Communication;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -12,7 +13,7 @@ public class PluginBuilder<TPlugin>
     private readonly string _displayName;
     private readonly Dictionary<string, PluginChannel> _inputChannels = new();
     private readonly Dictionary<string, PluginChannel> _outputChannels = new();
-    private readonly HostApplicationBuilder _hostAppBuilder = Host.CreateApplicationBuilder();
+    private readonly HostApplicationBuilder _hostAppBuilder;
     private IHost? host = null;
 
     private Type? _globalStateType;
@@ -21,6 +22,9 @@ public class PluginBuilder<TPlugin>
 
     public PluginBuilder(string displayName)
     {
+        _hostAppBuilder = Host.CreateApplicationBuilder(Environment.GetCommandLineArgs());
+        _hostAppBuilder.Services.Configure<NamedPipeChannelOptions>(
+            _hostAppBuilder.Configuration.GetSection("Signals"));
         _hostAppBuilder.Logging.ClearProviders().AddSimpleConsole();
         _hostAppBuilder.Services.AddSingleton<SignalInbox>();
         _hostAppBuilder.Services.AddHostedService<SignalMonitoringService>();
