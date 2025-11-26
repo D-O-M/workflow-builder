@@ -4,10 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Backend.Engine.Debugging;
-using Backend.Engine.ProtocolHandlers;
 using Backend.Plugins.Communication;
-using Backend.Plugins.Communication.Protocols.Invocation;
-using Backend.Plugins.Communication.Protocols.JobCompletion;
 
 namespace Backend.Engine;
 
@@ -39,7 +36,13 @@ public class NanoServiceAgent
         NanoServiceGlobalStateSnapshot? globalState,
         CancellationToken cancellationToken)
     {
-        _process = CreateProcess(fileInfo);
+        var sessionId = Guid.NewGuid();
+        var channelOptions = new NamedPipeChannelOptions(
+            sessionId,
+            $"signals-{sessionId:N}-out",
+            $"signals-{sessionId:N}-in");
+
+        _process = CreateProcess(fileInfo, channelOptions);
         if (!_process.Start())
         {
             return false;
@@ -47,19 +50,28 @@ public class NanoServiceAgent
 
         await _debuggerAttacher.TryAttachAsync(_process, cancellationToken);
 
-        await _signalsClient.EstablishAsync(_process, fileInfo.Name, inputChannels, globalState, cancellationToken);
+        await _signalsClient.EstablishAsync(
+            _process,
+            fileInfo.Name,
+            inputChannels,
+            globalState,
+            channelOptions,
+            cancellationToken);
 
         _process.BeginOutputReadLine();
         _process.BeginErrorReadLine();
         return true;
     }
 
-    private Process CreateProcess(FileInfo executableFileInfo)
+    private Process CreateProcess(FileInfo executableFileInfo, NamedPipeChannelOptions channelOptions)
     {
         var psi = new ProcessStartInfo
         {
             FileName = executableFileInfo.FullName,
-            Arguments = "",
+            Arguments =
+                $"--Signals:OutboundPipe={channelOptions.OutboundPipeName} " +
+                $"--Signals:InboundPipe={channelOptions.InboundPipeName} " +
+                $"--Signals:SessionId={channelOptions.SessionId}",
             WorkingDirectory = executableFileInfo.Directory!.FullName,
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -128,8 +140,6 @@ public class NanoServiceAgent
         try
         {
             await taskContext.ExtendProcessingWindow();
-            var channel = _signalsClient.Channel ?? throw new InvalidOperationException("Nano service channel is not ready.");
-
             var inputBytes = await ReadAllBytesAsync(await taskContext.InputChannelDataStream, cancellationToken);
             var globalStateStream = await taskContext.GetGlobalStateDataStreamAsync();
             var globalStateBytes = globalStateStream is null
@@ -150,41 +160,36 @@ public class NanoServiceAgent
                 "application/octet-stream",
                 inputBytes);
 
-            var invocationInitiator = new InvocationInitiator(
-                channel,
-                globalStateAction,
-                invocationInputAction,
-                cancellationToken);
-
             _logger.LogInformation(
-                "Starting invocation protocol for workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
+                "Sending invocation for workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
                 taskContext.WorkflowInstanceId,
                 taskContext.WorkflowTaskInstanceId);
 
-            var invocationSteps = new InvocationInitiatorSteps(invocationInitiator);
-            await invocationSteps.Perform();
+            if (globalStateStream is not null)
+            {
+                await _signalsClient.SendActionAsync(globalStateAction, cancellationToken);
+            }
+
+            await _signalsClient.SendActionAsync(invocationInputAction, cancellationToken);
 
             _logger.LogInformation(
-                "Invocation protocol completed for workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
+                "Invocation dispatched for workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
                 taskContext.WorkflowInstanceId,
                 taskContext.WorkflowTaskInstanceId);
 
             await taskContext.ExtendProcessingWindow();
 
-            var jobCompletionAcceptor = new JobCompletionAcceptor(channel, cancellationToken);
-            var jobCompletionSteps = new JobCompletionAcceptorSteps(jobCompletionAcceptor);
-
-            await jobCompletionSteps.Perform();
+            var outputs = await _signalsClient.ReceiveOutputsAsync(cancellationToken);
 
             _logger.LogInformation(
                 "Received {OutputCount} outputs for workflow instance {WorkflowInstanceId} task {TaskInstanceId}",
-                jobCompletionAcceptor.ReceivedOutputs.Count,
+                outputs.Count,
                 taskContext.WorkflowInstanceId,
                 taskContext.WorkflowTaskInstanceId);
 
             await _taskFinalizationService.FinalizeSuccessAsync(
                 taskContext,
-                jobCompletionAcceptor.ReceivedOutputs,
+                outputs,
                 cancellationToken);
         }
         catch (Exception ex)
