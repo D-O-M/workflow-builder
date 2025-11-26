@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <TargetFramework>net9.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <Nullable>enable</Nullable>
@@ -8,9 +9,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Moq" Version="4.20.72" />
-    <PackageReference Include="Shouldly" Version="4.2.1" />
-    <PackageReference Include="TUnit" Version="1.1.0" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="TUnit" />
   </ItemGroup>
 
   <ItemGroup>
