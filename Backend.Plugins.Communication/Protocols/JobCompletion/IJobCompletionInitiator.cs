@@ -10,7 +10,7 @@ public interface IJobCompletionInitiator
     /// <summary>
     /// Awaits a bare signal response from the acceptor over the ring buffer.
     /// </summary>
-    Task AwaitResponseFromResponderViaRingBuffer(JobCompletionSignal signal);
+    Task AwaitResponseFromAcceptorViaRingBuffer(JobCompletionSignal signal);
 
     /// <summary>
     /// Announces job completion to the acceptor.

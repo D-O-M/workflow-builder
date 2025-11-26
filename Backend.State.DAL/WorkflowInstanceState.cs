@@ -15,7 +15,7 @@ public class WorkflowInstanceState
 public class WorkflowTaskInstanceState
 {
     public required Guid WorkflowTaskInstanceId { get; init; }
-    public required TaskExecutionResult Result { get; set; }
+    public TaskExecutionResult? Result { get; set; }
     public required DateTimeOffset StartedAt { get; init; }
     public DateTimeOffset? CompletedAt { get; set; }
     public required Stream InputChannelStateDataStream { get; init; }

@@ -71,6 +71,6 @@ public class JobCompletionInitiatorSteps
                 $"Job completion protocol must use ring buffer, got: {step.CommunicationMethod}");
         }
 
-        await _initiator.AwaitResponseFromResponderViaRingBuffer(step.Signal);
+        await _initiator.AwaitResponseFromAcceptorViaRingBuffer(step.Signal);
     }
 }
