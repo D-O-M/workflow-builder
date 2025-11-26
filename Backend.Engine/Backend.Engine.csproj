@@ -10,6 +10,7 @@
   <ItemGroup>
     <PackageReference Include="Azure.Messaging.ServiceBus" />
     <PackageReference Include="Azure.Storage.Blobs" />
+    <PackageReference Include="CliWrap" />
     <PackageReference Include="EnvDTE" />
     <PackageReference Include="EnvDTE80" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
