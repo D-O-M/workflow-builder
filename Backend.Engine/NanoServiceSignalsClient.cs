@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Text.Json;
 using Backend.Plugins.Communication;
 
@@ -15,9 +16,8 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
     private static readonly TimeSpan OutputIdleTimeout = TimeSpan.FromSeconds(1);
 
     private readonly ILogger<NanoServiceSignalsClient> _logger;
-    private SignalConnection? _connection;
-
-    public ISignalChannel? Channel => _connection?.Channel;
+    private Stream? _outboundStream;
+    private Stream? _inboundStream;
 
     public NanoServiceSignalsClient(ILogger<NanoServiceSignalsClient> logger)
     {
@@ -27,28 +27,21 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
     public async Task EstablishAsync(
         Process process,
         string nanoServiceName,
+        Stream outboundStream,
+        Stream inboundStream,
         IEnumerable<NanoServiceInputChannelModel> inputChannels,
         NanoServiceGlobalStateSnapshot? globalState,
-        NamedPipeChannelOptions channelOptions,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(process);
         ArgumentException.ThrowIfNullOrEmpty(nanoServiceName);
+        ArgumentNullException.ThrowIfNull(outboundStream);
+        ArgumentNullException.ThrowIfNull(inboundStream);
 
-        _logger.LogInformation(
-            "Establishing signal pipes for {NanoService} with session {SessionId} (out: {OutboundPipe}, in: {InboundPipe}, role: {Role})",
-            nanoServiceName,
-            channelOptions.SessionId,
-            channelOptions.OutboundPipeName,
-            channelOptions.InboundPipeName,
-            channelOptions.Role);
+        _logger.LogInformation("Establishing standard stream signals for {NanoService}", nanoServiceName);
 
-        _connection = new SignalConnection(
-            channelOptions,
-            await NamedPipeSignalChannel.CreateServerAsync(
-                channelOptions.OutboundPipeName,
-                channelOptions.InboundPipeName,
-                cancellationToken));
+        _outboundStream = outboundStream;
+        _inboundStream = inboundStream;
 
         await SendInputChannelsAsync(inputChannels, cancellationToken);
         if (globalState is not null)
@@ -106,47 +99,34 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
 
     private async Task SendAsync(SignalCommand command, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
-        var channel = _connection?.Channel ?? throw new InvalidOperationException("Nano service channel is not ready yet.");
-
-        var message = new SignalMessage(command, payload);
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            if (channel.TrySend(message))
-            {
-                return;
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(5), cancellationToken);
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
+        var outbound = _outboundStream ?? throw new InvalidOperationException("Nano service channel is not ready yet.");
+        await SignalEnvelopeStream.WriteAsync(outbound, new SignalMessage(command, payload), cancellationToken);
     }
 
     public async Task<IReadOnlyCollection<SignalAction>> ReceiveOutputsAsync(CancellationToken cancellationToken)
     {
-        var channel = _connection?.Channel ?? throw new InvalidOperationException("Nano service channel is not ready yet.");
+        var inbound = _inboundStream ?? throw new InvalidOperationException("Nano service channel is not ready yet.");
 
         var outputs = new List<SignalAction>();
         var idle = Stopwatch.StartNew();
 
         while (!cancellationToken.IsCancellationRequested && idle.Elapsed < OutputIdleTimeout)
         {
-            if (!channel.TryReceive(out var message))
+            var message = await SignalEnvelopeStream.ReadAsync(inbound, cancellationToken);
+            if (message is null)
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
-                continue;
+                break;
             }
 
             idle.Restart();
 
-            if (message.Command != SignalCommand.Action)
+            if (message.Value.Command != SignalCommand.Action)
             {
-                _logger.LogDebug("Ignoring non-action command {Command} while awaiting outputs", message.Command);
+                _logger.LogDebug("Ignoring non-action command {Command} while awaiting outputs", message.Value.Command);
                 continue;
             }
 
-            var action = SignalActionSerializer.Deserialize(message.Payload.Span);
+            var action = SignalActionSerializer.Deserialize(message.Value.Payload.Span);
             if (action.Class == SignalActionClass.OutputChannel)
             {
                 outputs.Add(action);
@@ -158,10 +138,7 @@ public sealed class NanoServiceSignalsClient : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_connection is not null)
-        {
-            await _connection.DisposeAsync();
-            _connection = null;
-        }
+        _outboundStream = null;
+        _inboundStream = null;
     }
 }

@@ -1,10 +1,10 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Backend.Plugins.Communication;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace Backend.Plugins.Harness;
 
@@ -12,41 +12,21 @@ internal sealed class SignalMonitoringService : BackgroundService
 {
     private readonly ILogger<SignalMonitoringService> _logger;
     private readonly SignalInbox _inbox;
-    private readonly NamedPipeChannelOptions _channelOptions;
-    private SignalConnection? _connection;
+    private Stream? _outbound;
+    private Stream? _inbound;
 
     public SignalMonitoringService(
         ILogger<SignalMonitoringService> logger,
-        SignalInbox inbox,
-        IOptions<NamedPipeChannelOptions> options)
+        SignalInbox inbox)
     {
         _logger = logger;
         _inbox = inbox;
-        _channelOptions = options.Value;
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_channelOptions.OutboundPipeName) ||
-            string.IsNullOrWhiteSpace(_channelOptions.InboundPipeName))
-        {
-            throw new InvalidOperationException("Pipe names were not provided. Ensure Signals:OutboundPipe and Signals:InboundPipe are configured.");
-        }
-
-        var channel = _channelOptions.Role switch
-        {
-            PipeConnectionRole.EngineServer => await NamedPipeSignalChannel.CreateClientAsync(
-                _channelOptions.OutboundPipeName,
-                _channelOptions.InboundPipeName,
-                cancellationToken),
-            PipeConnectionRole.PluginServer => await NamedPipeSignalChannel.CreateServerAsync(
-                _channelOptions.OutboundPipeName,
-                _channelOptions.InboundPipeName,
-                cancellationToken),
-            _ => throw new InvalidOperationException($"Unsupported pipe connection role '{_channelOptions.Role}'.")
-        };
-
-        _connection = new SignalConnection(_channelOptions, channel);
+        _outbound = Console.OpenStandardOutput();
+        _inbound = Console.OpenStandardInput();
 
         await base.StartAsync(cancellationToken);
     }
@@ -55,13 +35,10 @@ internal sealed class SignalMonitoringService : BackgroundService
     {
         try
         {
-            var connection = _connection ?? throw new InvalidOperationException("Signal channel not established.");
-            _logger.LogInformation(
-                "Established session {SessionId} using role {Role}",
-                connection.ChannelOptions.SessionId,
-                connection.ChannelOptions.Role);
+            var inbound = _inbound ?? throw new InvalidOperationException("Signal channel not established.");
+            _logger.LogInformation("Listening for signals on standard streams");
 
-            await PumpMessagesAsync(connection.Channel, stoppingToken);
+            await PumpMessagesAsync(inbound, stoppingToken);
         }
         catch (OperationCanceledException)
         {
@@ -76,35 +53,34 @@ internal sealed class SignalMonitoringService : BackgroundService
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        if (_connection is not null)
-        {
-            await _connection.DisposeAsync();
-            _connection = null;
-        }
+        _outbound?.Dispose();
+        _inbound?.Dispose();
+        _outbound = null;
+        _inbound = null;
 
         await base.StopAsync(cancellationToken);
     }
 
-    private async Task PumpMessagesAsync(ISignalChannel channel, CancellationToken stoppingToken)
+    private async Task PumpMessagesAsync(Stream inbound, CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            if (!channel.TryReceive(out var message))
+            var message = await SignalEnvelopeStream.ReadAsync(inbound, stoppingToken);
+            if (message is null)
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(10), stoppingToken);
-                continue;
+                break;
             }
 
-            switch (message.Command)
+            switch (message.Value.Command)
             {
                 case SignalCommand.Action:
-                    await HandleActionAsync(message.Payload, stoppingToken);
+                    await HandleActionAsync(message.Value.Payload, stoppingToken);
                     break;
                 case SignalCommand.Invocation:
-                    await HandleInvocationAsync(message.Payload, stoppingToken);
+                    await HandleInvocationAsync(message.Value.Payload, stoppingToken);
                     break;
                 default:
-                    _logger.LogDebug("Ignoring unsupported command {Command}", message.Command);
+                    _logger.LogDebug("Ignoring unsupported command {Command}", message.Value.Command);
                     break;
             }
         }
