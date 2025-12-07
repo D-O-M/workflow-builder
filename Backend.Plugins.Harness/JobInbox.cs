@@ -23,7 +23,7 @@ internal sealed record Signal(
 /// Lightweight in-memory queue that buffers messages arriving from the engine
 /// until the rest of the harness is ready to process them.
 /// </summary>
-internal sealed class SignalInbox
+internal sealed class JobInbox
 {
     private readonly Channel<Signal> _channel = Channel.CreateUnbounded<Signal>(
         new UnboundedChannelOptions
