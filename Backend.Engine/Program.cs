@@ -46,9 +46,8 @@ builder.Services.AddSingleton<IDebuggerAttachmentGuard, DebuggerAttachmentGuard>
 builder.Services.AddSingleton<IOperatingSystemInformation, OperatingSystemInformation>();
 builder.Services.AddSingleton<IVisualStudioInstanceProvider, RotVisualStudioInstanceProvider>();
 builder.Services.AddSingleton<VisualStudioDebuggerAttacher>();
-builder.Services.AddTransient<NanoServiceSignalsClient>();
 builder.Services.AddTransient<NanoServiceAgent>();
-builder.Services.AddTransient<TaskFinalizationService>();
+builder.Services.AddTransient<JobFinalizationService>();
 builder.Services.AddScoped<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
 builder.Services.AddScoped<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
 

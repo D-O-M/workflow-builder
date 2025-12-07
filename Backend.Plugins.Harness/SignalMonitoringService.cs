@@ -11,13 +11,13 @@ namespace Backend.Plugins.Harness;
 internal sealed class SignalMonitoringService : BackgroundService
 {
     private readonly ILogger<SignalMonitoringService> _logger;
-    private readonly SignalInbox _inbox;
+    private readonly JobInbox _inbox;
     private Stream? _outbound;
     private Stream? _inbound;
 
     public SignalMonitoringService(
         ILogger<SignalMonitoringService> logger,
-        SignalInbox inbox)
+        JobInbox inbox)
     {
         _logger = logger;
         _inbox = inbox;

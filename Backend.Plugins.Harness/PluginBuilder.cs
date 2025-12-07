@@ -27,7 +27,7 @@ public class PluginBuilder<TPlugin>
         {
             options.LogToStandardErrorThreshold = LogLevel.Trace;
         });
-        _hostAppBuilder.Services.AddSingleton<SignalInbox>();
+        _hostAppBuilder.Services.AddSingleton<JobInbox>();
         _hostAppBuilder.Services.AddHostedService<SignalMonitoringService>();
         _displayName = displayName;
     }

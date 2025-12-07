@@ -2,14 +2,13 @@ using System.Text.Json;
 using Azure.Messaging.ServiceBus;
 using Backend.Engine.Messages;
 using Backend.Interfaces.Repositories;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace Backend.Engine;
 
 public class QueueConsumer : BackgroundService
 {
     private readonly IAgentManager _agentManager;
+    private readonly JobManager _jobManager;
     private readonly ServiceBusReceiver _serviceBusReceiver;
     private readonly IServiceProvider _serviceProvider;
     private readonly IWorkflowBlueprintRepository _workflowBlueprintRepository;
@@ -17,12 +16,14 @@ public class QueueConsumer : BackgroundService
 
     public QueueConsumer(
         IAgentManager agentManager,
+        JobManager jobManager,
         ServiceBusReceiver serviceBusReceiver,
         IWorkflowBlueprintRepository workflowBlueprintRepository,
         IServiceProvider serviceProvider,
         ILogger<QueueConsumer> logger)
     {
         _agentManager = agentManager;
+        _jobManager = jobManager;
         _serviceBusReceiver = serviceBusReceiver;
         _workflowBlueprintRepository = workflowBlueprintRepository;
         _serviceProvider = serviceProvider;
@@ -44,7 +45,7 @@ public class QueueConsumer : BackgroundService
 
             try
             {
-                var job = JsonSerializer.Deserialize<WorkflowTaskExecutionJob>(message.Body);
+                var job = JsonSerializer.Deserialize<WorkflowTaskInitialisationMessage>(message.Body);
 
                 if (job is null)
                 {
@@ -60,7 +61,7 @@ public class QueueConsumer : BackgroundService
                 var task = blueprint.AllTasks
                     .FirstOrDefault(t => t.Id == job.WorkflowTaskId);
 
-                if (task is null)
+                if (task is null || !_agentManager.AgentExists(task.SchemaId))
                 {
                     await _serviceBusReceiver.AbandonMessageAsync(
                         message,
@@ -68,30 +69,16 @@ public class QueueConsumer : BackgroundService
                     continue;
                 }
 
-                if (!_agentManager.AgentExists(task.SchemaId))
-                {
-                    await _serviceBusReceiver
-                        .AbandonMessageAsync(message, cancellationToken: stoppingToken);
-                    continue;
-                }
-
-                var context = ActivatorUtilities.CreateInstance<TaskContext>(
+                var context = ActivatorUtilities.CreateInstance<JobContext>(
                     _serviceProvider,
                     job,
                     message,
                     _serviceBusReceiver,
                     blueprint);
 
-                var agent = _agentManager.GetAgent(task.SchemaId);
-                var enqueued = agent.EnqueueTask(context);
+                var started = await _jobManager.StartJob(context, stoppingToken);
 
-                if (enqueued)
-                {
-                    await _serviceBusReceiver.CompleteMessageAsync(
-                        message,
-                        cancellationToken: stoppingToken);
-                }
-                else
+                if (!started)
                 {
                     await _serviceBusReceiver.AbandonMessageAsync(
                         message,
