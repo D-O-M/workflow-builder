@@ -47,7 +47,6 @@ builder.Services.AddSingleton<IOperatingSystemInformation, OperatingSystemInform
 builder.Services.AddSingleton<IVisualStudioInstanceProvider, RotVisualStudioInstanceProvider>();
 builder.Services.AddSingleton<VisualStudioDebuggerAttacher>();
 builder.Services.AddTransient<NanoServiceAgent>();
-builder.Services.AddTransient<JobFinalizationService>();
 builder.Services.AddScoped<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
 builder.Services.AddScoped<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
 
@@ -63,6 +62,14 @@ builder.Services.AddSingleton(provider =>
     var client = provider.GetRequiredService<ServiceBusClient>();
     return client.CreateReceiver(workflowTaskQueueName);
 });
+builder.Services.AddSingleton(provider =>
+{
+    var client = provider.GetRequiredService<ServiceBusClient>();
+    return client.CreateSender(workflowTaskQueueName);
+});
+
+builder.Services.AddTransient<JobFinalizationService>();
+builder.Services.AddSingleton<JobManager>();
 
 builder.Services.AddHostedService<QueueConsumer>();
 
