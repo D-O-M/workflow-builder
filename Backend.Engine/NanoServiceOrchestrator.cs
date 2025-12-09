@@ -52,21 +52,30 @@ public class NanoServiceOrchestrator : BackgroundService
 
     protected async override Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var initialisationTasks = new List<Task>();
+
         foreach (var (fileInfo, taskInfo) in _plugins)
         {
             var newAgent = _serviceProvider.GetRequiredService<NanoServiceAgent>();
-            await newAgent.InitialiseAsync(
+            initialisationTasks.Add(newAgent.InitialiseAsync(
                 fileInfo,
-                Array.Empty<NanoServiceInputChannelModel>(),
-                globalState: null,
-                stoppingToken);
+                stoppingToken));
             _agents.Add(taskInfo.Id, newAgent);
             _agentManager.RegisterAgent(taskInfo.Id, newAgent);
         }
 
-        while (!stoppingToken.IsCancellationRequested)
+        await Task.WhenAll(initialisationTasks);
+
+        try
         {
-            await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the host is shutting down.
         }
 
         await StopAgentsAsync(stoppingToken);
