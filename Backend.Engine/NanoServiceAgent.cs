@@ -30,6 +30,22 @@ public class NanoServiceAgent
         _debuggerAttacher = debuggerAttacher;
     }
 
+    public Task InitialiseAsync(
+        FileInfo entryPoint,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(entryPoint);
+
+        if (_processTask is not null)
+        {
+            throw new InvalidOperationException("Nano-service process already initialised.");
+        }
+
+        _processTask = Run(entryPoint, token);
+
+        return Task.CompletedTask;
+    }
+
     public async Task Run(
         FileInfo fileInfo,
         CancellationToken cancellationToken)
