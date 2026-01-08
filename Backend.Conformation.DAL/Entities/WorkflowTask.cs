@@ -7,5 +7,6 @@ public record WorkflowTask
     public TaskSchema? Schema { get; init; }
     public int BlueprintId { get; init; }
     public WorkflowBlueprint? Blueprint { get; init; }
-    public List<WorkflowTaskChannel> Channels { get; init; } = [];
+    public WorkflowTaskChannel InputChannel { get; init; } = null!;
+    public List<WorkflowTaskChannel> OutputChannels { get; init; } = [];
 }

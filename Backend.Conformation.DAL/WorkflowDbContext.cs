@@ -65,13 +65,17 @@ public class WorkflowDbContext : DbContext
                 .HasMaxLength(EntityMaxLengths.MaxTaskSchemaVersionLength);
 
             entity.HasOne(e => e.InputChannelSpecification)
-                .WithOne(ics => ics.TaskSchema)
+                .WithOne()
                 .HasForeignKey<TaskSchema>(e => e.InputChannelSpecificationId)
                 .OnDelete(DeleteBehavior.NoAction);
 
-            entity.HasMany(e => e.OutputChannelSpecifications)
-                .WithOne(ocs => ocs.TaskSchema)
-                .HasForeignKey(ocs => ocs.TaskSchemaId)
+            entity.HasIndex(t => t.InputChannelSpecificationId)
+                .IsUnique();
+
+            entity.HasMany(t => t.OutputChannelSpecifications)
+                .WithOne(c => c.TaskSchema)
+                .HasForeignKey(c => c.TaskSchemaId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -105,6 +109,16 @@ public class WorkflowDbContext : DbContext
                 .WithMany(wb => wb.Tasks)
                 .HasForeignKey(e => e.BlueprintId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.InputChannel)
+                .WithOne(c => c.DestinationNode)
+                .HasForeignKey<WorkflowTaskChannel>(wtc => wtc.DestinationNodeId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasMany(e => e.OutputChannels)
+                .WithOne(c => c.SourceNode)
+                .HasForeignKey(e => e.SourceNodeId)
+                .OnDelete(DeleteBehavior.NoAction);
         });
 
         modelBuilder.Entity<WorkflowTaskChannel>(entity =>
@@ -115,16 +129,6 @@ public class WorkflowDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.SchemaId)
                 .OnDelete(DeleteBehavior.Restrict);
-
-            entity.HasOne(e => e.SourceNode)
-                .WithMany(wt => wt.Channels)
-                .HasForeignKey(e => e.SourceNodeId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(e => e.DestinationNode)
-                .WithMany(wt => wt.Channels)
-                .HasForeignKey(e => e.DestinationNodeId)
-                .OnDelete(DeleteBehavior.SetNull);
         });
 
         // Optional: Apply configurations via Fluent API

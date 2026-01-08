@@ -8,6 +8,7 @@ using Backend.Repositories;
 using Backend.Utilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
+using Backend.Interfaces.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -49,11 +50,14 @@ builder.Services.AddSingleton<VisualStudioDebuggerAttacher>();
 builder.Services.AddTransient<NanoServiceAgent>();
 builder.Services.AddScoped<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
 builder.Services.AddScoped<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
+builder.Services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
+builder.Services.AddScoped<IWorkflowBlueprintRepository, WorkflowBlueprintRepository>();
 
-var serviceBusConnectionString = builder.Configuration.GetConnectionString("ServiceBus")
+var serviceBusConnectionString = builder.Configuration.GetConnectionString(
+    builder.Configuration["AzureServiceBus:Queues:WorkflowTaskQueue:ResourceName"]!)
     ?? throw new InvalidOperationException("ServiceBus connection string is not configured.");
 
-var workflowTaskQueueName = builder.Configuration["AzureServiceBus:Queues:WorkflowTaskQueue"]
+var workflowTaskQueueName = builder.Configuration["AzureServiceBus:Queues:WorkflowTaskQueue:Name"]
     ?? throw new InvalidOperationException("Workflow task queue name is not configured.");
 
 builder.Services.AddSingleton(_ => new ServiceBusClient(serviceBusConnectionString));
@@ -62,6 +66,7 @@ builder.Services.AddSingleton(provider =>
     var client = provider.GetRequiredService<ServiceBusClient>();
     return client.CreateReceiver(workflowTaskQueueName);
 });
+
 builder.Services.AddSingleton(provider =>
 {
     var client = provider.GetRequiredService<ServiceBusClient>();

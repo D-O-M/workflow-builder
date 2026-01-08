@@ -8,35 +8,28 @@ namespace Backend.Engine;
 
 public class NanoServiceOrchestrator : BackgroundService
 {
-    private readonly BlobContainerClient _blobContainerClient;
-    private readonly IPluginArchiveExtractionUtility _archiveExtractor;
-    private readonly IPluginWorkspaceFactoryUtility _workspaceFactory;
-    private readonly IServiceProvider _serviceProvider;
-    private readonly IWorkflowTaskRepository _workflowTaskRepository;
     private readonly IAgentManager _agentManager;
+    private readonly BlobContainerClient _blobContainerClient;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
 
     private readonly List<(FileInfo fileInfo, WorkflowTaskInfo taskInfo)> _plugins = new();
     private readonly Dictionary<int, NanoServiceAgent> _agents = new();
 
     public NanoServiceOrchestrator(
+        IAgentManager agentManager,
         BlobContainerClient blobContainerClient,
-        IPluginArchiveExtractionUtility archiveExtractor,
-        IPluginWorkspaceFactoryUtility workspaceFactory,
-        IServiceProvider serviceProvider,
-        IWorkflowTaskRepository workflowTaskRepository,
-        IAgentManager agentManager)
+        IServiceScopeFactory serviceScopeFactory)
     {
-        _blobContainerClient = blobContainerClient;
-        _archiveExtractor = archiveExtractor;
-        _serviceProvider = serviceProvider;
-        _workspaceFactory = workspaceFactory;
-        _workflowTaskRepository = workflowTaskRepository;
         _agentManager = agentManager;
+        _blobContainerClient = blobContainerClient;
+        _serviceScopeFactory = serviceScopeFactory;
     }
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        var tasks = await _workflowTaskRepository.GetAll(cancellationToken);
+        await using var scope = _serviceScopeFactory.CreateAsyncScope();
+        var workflowTaskRepository = scope.ServiceProvider.GetRequiredService<IWorkflowTaskRepository>();
+        var tasks = await workflowTaskRepository.GetAll(cancellationToken);
 
         foreach (var task in tasks)
         {
@@ -44,6 +37,7 @@ public class NanoServiceOrchestrator : BackgroundService
                 task.Name,
                 task.Version,
                 task.Path,
+                scope,
                 cancellationToken), task));
         }
 
@@ -52,11 +46,12 @@ public class NanoServiceOrchestrator : BackgroundService
 
     protected async override Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await using var scope = _serviceScopeFactory.CreateAsyncScope();
         var initialisationTasks = new List<Task>();
 
         foreach (var (fileInfo, taskInfo) in _plugins)
         {
-            var newAgent = _serviceProvider.GetRequiredService<NanoServiceAgent>();
+            var newAgent = scope.ServiceProvider.GetRequiredService<NanoServiceAgent>();
             initialisationTasks.Add(newAgent.InitialiseAsync(
                 fileInfo,
                 stoppingToken));
@@ -85,15 +80,20 @@ public class NanoServiceOrchestrator : BackgroundService
         string pluginName,
         Version pluginVersion,
         string entryPoint,
+        IServiceScope serviceScope,
         CancellationToken cancellationToken)
     {
         var blobKey = $"{pluginName}_{pluginVersion.ToString()}.zip";
         var blobClient = _blobContainerClient.GetBlobClient(blobKey);
 
-        var workspaceDirectory = await _workspaceFactory.CreateWorkspaceAsync(
+        var workspaceFactory = serviceScope.ServiceProvider
+            .GetRequiredService<IPluginWorkspaceFactoryUtility>();
+        var workspaceDirectory = await workspaceFactory.CreateWorkspaceAsync(
             pluginName, pluginVersion, cancellationToken);
 
-        await _archiveExtractor.ExtractAsync(
+        var archiveExtractor = serviceScope.ServiceProvider
+            .GetRequiredService<IPluginArchiveExtractionUtility>();
+        await archiveExtractor.ExtractAsync(
             blobClient,
             workspaceDirectory,
             cancellationToken);

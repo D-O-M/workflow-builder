@@ -14,7 +14,6 @@ public class NanoServiceAgent
     private readonly JobManager _jobManager;
     private readonly VisualStudioDebuggerAttacher _debuggerAttacher;
     private Process? _process;
-    private CommandTask<CommandResult>? _processTask;
     private CancellationTokenSource? _processCancellation;
     private Pipe _commsStream = new();
 
@@ -30,20 +29,18 @@ public class NanoServiceAgent
         _debuggerAttacher = debuggerAttacher;
     }
 
-    public Task InitialiseAsync(
+    public async Task InitialiseAsync(
         FileInfo entryPoint,
         CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(entryPoint);
 
-        if (_processTask is not null)
+        if (_process is not null)
         {
             throw new InvalidOperationException("Nano-service process already initialised.");
         }
 
-        _processTask = Run(entryPoint, token);
-
-        return Task.CompletedTask;
+        await Run(entryPoint, token);
     }
 
     public async Task Run(
@@ -115,24 +112,6 @@ public class NanoServiceAgent
             _processCancellation.Cancel();
             _processCancellation.Dispose();
             _processCancellation = null;
-        }
-
-        if (_processTask is not null)
-        {
-            try
-            {
-                await _processTask;
-            }
-            catch (OperationCanceledException)
-            {
-                // Ignored - process was cancelled intentionally.
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error while waiting for nano service process to exit.");
-            }
-
-            _processTask = null;
         }
 
         if (_process is not null)

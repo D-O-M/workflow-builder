@@ -20,11 +20,11 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Folder Include="Migrations\" />
+      <ProjectReference Include="..\Backend.Constants\Backend.Constants.csproj" />
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Backend.Constants\Backend.Constants.csproj" />
+      <Folder Include="Migrations\" />
     </ItemGroup>
 
 </Project>

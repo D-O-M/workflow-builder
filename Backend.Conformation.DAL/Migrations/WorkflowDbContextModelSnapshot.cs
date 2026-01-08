@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
 
-namespace Backend.Relational.DAL.Migrations
+namespace Backend.Database.Relational.Migrations
 {
     [DbContext(typeof(WorkflowDbContext))]
     partial class WorkflowDbContextModelSnapshot : ModelSnapshot
@@ -21,7 +21,7 @@ namespace Backend.Relational.DAL.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("Backend.Relational.DAL.ChannelParameterSchema", b =>
+            modelBuilder.Entity("Backend.Database.Relational.Entities.ChannelPropertyCriterion", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -49,7 +49,7 @@ namespace Backend.Relational.DAL.Migrations
                     b.ToTable("ChannelParameterSchemas");
                 });
 
-            modelBuilder.Entity("Backend.Relational.DAL.ChannelSchema", b =>
+            modelBuilder.Entity("Backend.Database.Relational.Entities.ChannelSpecification", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -62,28 +62,26 @@ namespace Backend.Relational.DAL.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<int?>("TaskSchemaId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("TaskSchemaId1")
+                    b.Property<int>("TaskSchemaId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
                     b.HasIndex("TaskSchemaId");
 
-                    b.HasIndex("TaskSchemaId1");
-
                     b.ToTable("ChannelSchemas");
                 });
 
-            modelBuilder.Entity("Backend.Relational.DAL.TaskSchema", b =>
+            modelBuilder.Entity("Backend.Database.Relational.Entities.TaskSchema", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("InputChannelSpecificationId")
+                        .HasColumnType("int");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -96,43 +94,188 @@ namespace Backend.Relational.DAL.Migrations
 
                     b.Property<string>("Version")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(11)
+                        .HasColumnType("nvarchar(11)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("InputChannelSpecificationId")
+                        .IsUnique();
 
                     b.ToTable("TaskSchemas");
                 });
 
-            modelBuilder.Entity("Backend.Relational.DAL.ChannelParameterSchema", b =>
+            modelBuilder.Entity("Backend.Database.Relational.Entities.WorkflowBlueprint", b =>
                 {
-                    b.HasOne("Backend.Relational.DAL.ChannelSchema", "Channel")
-                        .WithMany("Parameters")
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("StartingTaskId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("WorkflowBlueprints");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.WorkflowTask", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BlueprintId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SchemaId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BlueprintId");
+
+                    b.HasIndex("SchemaId");
+
+                    b.ToTable("WorkflowTasks");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.WorkflowTaskChannel", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("DestinationNodeId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SchemaId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SourceNodeId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DestinationNodeId")
+                        .IsUnique()
+                        .HasFilter("[DestinationNodeId] IS NOT NULL");
+
+                    b.HasIndex("SchemaId");
+
+                    b.HasIndex("SourceNodeId");
+
+                    b.ToTable("WorkflowTaskChannels");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.ChannelPropertyCriterion", b =>
+                {
+                    b.HasOne("Backend.Database.Relational.Entities.ChannelSpecification", null)
+                        .WithMany("Properties")
                         .HasForeignKey("ChannelId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("Channel");
                 });
 
-            modelBuilder.Entity("Backend.Relational.DAL.ChannelSchema", b =>
+            modelBuilder.Entity("Backend.Database.Relational.Entities.ChannelSpecification", b =>
                 {
-                    b.HasOne("Backend.Relational.DAL.TaskSchema", null)
-                        .WithMany("InputChannels")
-                        .HasForeignKey("TaskSchemaId");
+                    b.HasOne("Backend.Database.Relational.Entities.TaskSchema", "TaskSchema")
+                        .WithMany("OutputChannelSpecifications")
+                        .HasForeignKey("TaskSchemaId")
+                        .OnDelete(DeleteBehavior.Cascade);
 
-                    b.HasOne("Backend.Relational.DAL.TaskSchema", null)
+                    b.Navigation("TaskSchema");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.TaskSchema", b =>
+                {
+                    b.HasOne("Backend.Database.Relational.Entities.ChannelSpecification", "InputChannelSpecification")
+                        .WithOne()
+                        .HasForeignKey("Backend.Database.Relational.Entities.TaskSchema", "InputChannelSpecificationId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("InputChannelSpecification");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.WorkflowTask", b =>
+                {
+                    b.HasOne("Backend.Database.Relational.Entities.WorkflowBlueprint", "Blueprint")
+                        .WithMany("Tasks")
+                        .HasForeignKey("BlueprintId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Database.Relational.Entities.TaskSchema", "Schema")
+                        .WithMany()
+                        .HasForeignKey("SchemaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Blueprint");
+
+                    b.Navigation("Schema");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.WorkflowTaskChannel", b =>
+                {
+                    b.HasOne("Backend.Database.Relational.Entities.WorkflowTask", "DestinationNode")
+                        .WithOne("InputChannel")
+                        .HasForeignKey("Backend.Database.Relational.Entities.WorkflowTaskChannel", "DestinationNodeId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Backend.Database.Relational.Entities.ChannelSpecification", "Schema")
+                        .WithMany()
+                        .HasForeignKey("SchemaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Database.Relational.Entities.WorkflowTask", "SourceNode")
                         .WithMany("OutputChannels")
-                        .HasForeignKey("TaskSchemaId1");
+                        .HasForeignKey("SourceNodeId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("DestinationNode");
+
+                    b.Navigation("Schema");
+
+                    b.Navigation("SourceNode");
                 });
 
-            modelBuilder.Entity("Backend.Relational.DAL.ChannelSchema", b =>
+            modelBuilder.Entity("Backend.Database.Relational.Entities.ChannelSpecification", b =>
                 {
-                    b.Navigation("Parameters");
+                    b.Navigation("Properties");
                 });
 
-            modelBuilder.Entity("Backend.Relational.DAL.TaskSchema", b =>
+            modelBuilder.Entity("Backend.Database.Relational.Entities.TaskSchema", b =>
                 {
-                    b.Navigation("InputChannels");
+                    b.Navigation("OutputChannelSpecifications");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.WorkflowBlueprint", b =>
+                {
+                    b.Navigation("Tasks");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.WorkflowTask", b =>
+                {
+                    b.Navigation("InputChannel")
+                        .IsRequired();
 
                     b.Navigation("OutputChannels");
                 });
