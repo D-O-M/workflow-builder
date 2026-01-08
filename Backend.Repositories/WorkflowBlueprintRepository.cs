@@ -19,10 +19,10 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
     {
         var blueprintEntity = await _context.WorkflowBlueprints
             .Include(wbp => wbp.Tasks)
-                .ThenInclude(t => t.Schema!.InputChannelSpecification.Properties)
+                .ThenInclude(t => t.InputChannel.Schema!.Properties)
             .Include(wbp => wbp.Tasks)
-                .ThenInclude(t => t.Schema!.OutputChannelSpecifications)
-                .ThenInclude(ocs => ocs.Properties)
+                .ThenInclude(t => t.OutputChannels)
+                .ThenInclude(oc => oc.Schema!.Properties)
             .AsNoTracking()
             .AsSplitQuery()
             .FirstOrDefaultAsync(wbp => wbp.Id == id,
@@ -35,9 +35,20 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
 
         foreach (var taskEntity in blueprintEntity.Tasks)
         {
-            var channelEntitiesBySpecId = new Dictionary<int, WorkflowTaskChannel>();
+            var channelEntitiesBySpecId = new Dictionary<int, WorkflowTaskChannel>
+            {
+                {
+                    taskEntity.InputChannel.Schema!.Id,
+                    new WorkflowTaskChannel
+                    {
+                        Id = taskEntity.InputChannel.Id,
+                        Name = taskEntity.InputChannel.Schema!.Name,
+                        Criterion = taskEntity.InputChannel.Schema!.Properties.ToDictionary(p => p.Name, p => p.Type)
+                    }
+                }
+            };
 
-            foreach (var channelEntity in taskEntity.Channels)
+            foreach (var channelEntity in taskEntity.OutputChannels)
             {
                 channelEntitiesBySpecId.Add(channelEntity.Schema!.Id, new WorkflowTaskChannel
                 {
@@ -66,10 +77,9 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
 
             foreach (var channel in taskDto.OutputChannels.Values)
             {
-                channel.Source = taskDtos.First(t => t.Id ==
-                    taskEntity.Channels.First(c => c.Id == channel.Id).SourceNodeId);
+                channel.Source = taskDtos.First(t => t.Id == taskEntity.InputChannel.SourceNodeId);
                 channel.Destination = taskDtos.First(t => t.Id ==
-                    taskEntity.Channels.First(c => c.Id == channel.Id).DestinationNodeId);
+                    taskEntity.OutputChannels.First(c => c.Id == channel.Id).DestinationNodeId);
             }
         }
 

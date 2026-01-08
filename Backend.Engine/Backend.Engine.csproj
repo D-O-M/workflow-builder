@@ -5,6 +5,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>WorkflowBuilder</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

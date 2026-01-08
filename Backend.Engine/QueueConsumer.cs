@@ -10,23 +10,20 @@ public class QueueConsumer : BackgroundService
     private readonly IAgentManager _agentManager;
     private readonly JobManager _jobManager;
     private readonly ServiceBusReceiver _serviceBusReceiver;
-    private readonly IServiceProvider _serviceProvider;
-    private readonly IWorkflowBlueprintRepository _workflowBlueprintRepository;
-    private readonly ILogger<QueueConsumer> _logger;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly ILogger _logger;
 
     public QueueConsumer(
         IAgentManager agentManager,
         JobManager jobManager,
         ServiceBusReceiver serviceBusReceiver,
-        IWorkflowBlueprintRepository workflowBlueprintRepository,
-        IServiceProvider serviceProvider,
+        IServiceScopeFactory serviceScopeFactory,
         ILogger<QueueConsumer> logger)
     {
         _agentManager = agentManager;
         _jobManager = jobManager;
         _serviceBusReceiver = serviceBusReceiver;
-        _workflowBlueprintRepository = workflowBlueprintRepository;
-        _serviceProvider = serviceProvider;
+        _serviceScopeFactory = serviceScopeFactory;
         _logger = logger;
     }
 
@@ -34,6 +31,8 @@ public class QueueConsumer : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            await using var scope = _serviceScopeFactory.CreateAsyncScope();
+
             var message = await _serviceBusReceiver.ReceiveMessageAsync(
                 maxWaitTime: null,
                 cancellationToken: stoppingToken);
@@ -55,7 +54,10 @@ public class QueueConsumer : BackgroundService
                     continue;
                 }
 
-                var blueprint = await _workflowBlueprintRepository
+                var workflowBlueprintRepository = scope.ServiceProvider
+                    .GetRequiredService<IWorkflowBlueprintRepository>();
+
+                var blueprint = await workflowBlueprintRepository
                     .GetFullBlueprintById(job.WorkflowBlueprintId, stoppingToken);
 
                 var task = blueprint.AllTasks
@@ -70,7 +72,7 @@ public class QueueConsumer : BackgroundService
                 }
 
                 var context = ActivatorUtilities.CreateInstance<JobContext>(
-                    _serviceProvider,
+                    scope.ServiceProvider,
                     job,
                     message,
                     _serviceBusReceiver,

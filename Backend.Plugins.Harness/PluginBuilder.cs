@@ -25,7 +25,6 @@ public class PluginBuilder<TPlugin>
         _hostAppBuilder = Host.CreateApplicationBuilder(Environment.GetCommandLineArgs());
         _hostAppBuilder.Logging.ClearProviders().AddSimpleConsole(options =>
         {
-            options.LogToStandardErrorThreshold = LogLevel.Trace;
         });
         _hostAppBuilder.Services.AddSingleton<JobInbox>();
         _hostAppBuilder.Services.AddHostedService<SignalMonitoringService>();

@@ -1,4 +1,4 @@
-using Aspire.Hosting;
+using Aspire.Hosting.Azure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
@@ -8,7 +8,51 @@ internal class Program
     {
         var builder = DistributedApplication.CreateBuilder(args);
 
-        var cosmos = builder.AddContainer("cosmosdb", "mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator", "vnext-preview")
+        var cosmos = AddCosmos(builder);
+
+        var password = builder.AddParameter("SqlServerPassword", secret: true);
+
+        var sql = AddSqlServer(builder, password);
+        var sqlDb = sql.AddDatabase("TasksDB");
+
+        var (storage, blobs, blobContainer) = AddStorage(builder);
+        var (serviceBus, workflowTaskQueue) = AddServiceBus(builder);
+
+        var api = builder.AddProject<Projects.Backend_API>("backend-api")
+            .WithReference(blobs)
+            .WaitFor(blobContainer)
+            .WithReference(workflowTaskQueue)
+            .WaitFor(serviceBus)
+            .WithReference(sqlDb)
+            .WaitFor(sqlDb);
+
+        var engine = builder.AddProject<Projects.Backend_Engine>("backend-engine")
+            .WithReference(blobs)
+            .WaitFor(blobContainer)
+            .WithReference(workflowTaskQueue)
+            .WaitFor(serviceBus)
+            .WithReference(sqlDb)
+            .WaitFor(sqlDb);
+
+        /*builder.AddProject<Projects.Backend_PluginLoader>("plugin-loader")
+            .WithReference(blobs)
+            .WaitFor(blobContainer)
+            .WithReference(workflowTaskQueue)
+            .WaitFor(serviceBus)
+            .WithReference(sqlDb)
+            .WaitFor(sqlDb);*/
+
+        builder.AddAzureFunctionsProject<Projects.Backend_Functions_PluginDetector>("plugin-detector")
+            .WithHostStorage(storage)
+            .WithReference(blobs);
+
+        AddFrontend(builder, api);
+
+        builder.Build().Run();
+    }
+
+    static IResourceBuilder<ContainerResource> AddCosmos(IDistributedApplicationBuilder builder) =>
+        builder.AddContainer("cosmosdb", "mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator", "vnext-preview")
             //.WithEndpoint("https", 8081, scheme: "https") // Cosmos uses HTTPS
             .WithEnvironment("AZURE_COSMOS_EMULATOR_PARTITION_COUNT", "3")
             .WithEnvironment("AZURE_COSMOS_EMULATOR_ENABLE_DATA_PERSISTENCE", "true")
@@ -17,28 +61,21 @@ internal class Program
             .WithHttpEndpoint(8080, name: "cosmos-ui-http", targetPort: 1234)
             .WithHttpsEndpoint(8081, name: "cosmos-ui-https", targetPort: 2345);
 
-        var password = builder.AddParameter("SqlServerPassword", secret: true);
-
-        var sql = builder.AddSqlServer("sqlserver", password)
+    static IResourceBuilder<SqlServerServerResource> AddSqlServer(
+        IDistributedApplicationBuilder builder,
+        IResourceBuilder<ParameterResource> password) =>
+        builder.AddSqlServer("sqlserver", password)
             .WithLifetime(ContainerLifetime.Persistent)
             .WithEnvironment("ACCEPT_EULA", "Y")
             .WithEnvironment("MSSQL_SA_PASSWORD", password);
-            //.WithEndpoint(port: 1433, name: "sqlserver-tcp", targetPort: 1433);
+    //.WithEndpoint(port: 1433, name: "sqlserver-tcp", targetPort: 1433);
 
-        var sqlDb = sql.AddDatabase("TasksDB");
-        //.WithEnvironment("SA_PASSWORD", password)
-        //.WithVolume("sqldata", "/var/opt/mssql/data");
-
-        var uiDirectoryPath = Path.Combine(Directory.GetParent(Environment.CurrentDirectory)!.FullName, "UI");
-
-        var frontend = builder.AddDockerfile("frontend", uiDirectoryPath)
-            .WithHttpEndpoint(4200, name: "frontend-http", targetPort: 4200);
-
-        //var azurite = builder.AddContainer("azurite", "mcr.microsoft.com/azure-storage/azurite")
-        //    .WithImageTag("latest")
-        //    .WithEndpoint(port: 10000, targetPort: 10000)
-        //    .WithVolume("blob-data, /blob-data");
-
+    static (
+        IResourceBuilder<AzureStorageResource> storage,
+        IResourceBuilder<AzureBlobStorageResource> blobStorage,
+        IResourceBuilder<AzureBlobStorageContainerResource> blobContainer)
+        AddStorage(IDistributedApplicationBuilder builder)
+    {
         var azureStorage = builder.AddAzureStorage(
             builder.Configuration.GetValue<string>("AzureStorage:ResourceName")!);
 
@@ -48,50 +85,56 @@ internal class Program
         }
 
         var blobs = azureStorage.AddBlobs("BlobConnection");
-        var queues = azureStorage.AddQueues("QueueConnection");
 
         var pluginsBlobResourceName = builder.Configuration.GetValue<string>(
             "AzureStorage:BlobContainers:Plugins:ResourceName")!;
         var pluginsBlobContainerName = builder.Configuration.GetValue<string>(
             "AzureStorage:BlobContainers:Plugins:ContainerName")!;
+
         var blobContainer = azureStorage.AddBlobContainer(
             pluginsBlobResourceName,
             pluginsBlobContainerName);
 
+        return (azureStorage, blobs, blobContainer);
+    }
+
+    static (IResourceBuilder<AzureServiceBusResource> serviceBus,
+        IResourceBuilder<AzureServiceBusQueueResource> workflowTaskQueue)
+        AddServiceBus(IDistributedApplicationBuilder builder)
+    {
+        var serviceBus = builder.AddAzureServiceBus(
+            builder.Configuration.GetValue<string>("AzureServiceBus:ResourceName")!);
+
+        if (builder.Environment.IsDevelopment())
+        {
+            serviceBus.RunAsEmulator();
+        }
+
+        var serviceBusResourceName = builder.Configuration.GetValue<string>(
+            "AzureServiceBus:ResourceName");
+
+        var workflowTaskQueueResourceName = builder.Configuration.GetValue<string>(
+            "AzureServiceBus:Queues:WorkflowTaskQueue:ResourceName")!;
+        var workflowTaskQueueName = builder.Configuration.GetValue<string>(
+            "AzureServiceBus:Queues:WorkflowTaskQueue:Name")!;
+
+        var workflowTaskQueue = serviceBus.AddServiceBusQueue(
+            workflowTaskQueueResourceName, workflowTaskQueueName);
+
+        return (serviceBus, workflowTaskQueue);
+    }
+
+    static void AddFrontend(IDistributedApplicationBuilder builder, IResourceBuilder<ProjectResource> api)
+    {
+        var uiDirectoryPath = Path.Combine(Directory.GetParent(Environment.CurrentDirectory)!.FullName, "UI");
+
+        var frontend = builder.AddDockerfile("frontend", uiDirectoryPath)
+            .WithHttpEndpoint(4200, name: "frontend-http", targetPort: 4200);
+
         MountUiRootFilesAndTopDirs(frontend, uiDirectoryPath, "/app");
-
-        var api = builder.AddProject<Projects.Backend_API>("backend-api")
-            .WithReference(blobContainer)
-            .WaitFor(blobContainer)
-            .WithReference(queues)
-            .WaitFor(queues)
-            .WithReference(sqlDb)
-            .WaitFor(sqlDb);
-
-        var engine = builder.AddProject<Projects.Backend_Engine>("backend-engine")
-            .WithReference(blobContainer)
-            .WaitFor(blobContainer)
-            .WithReference(queues)
-            .WaitFor(queues)
-            .WithReference(sqlDb)
-            .WaitFor(sqlDb);
-
-        builder.AddProject<Projects.Backend_PluginLoader>("plugin-loader")
-            .WithReference(blobs)
-            .WaitFor(blobs)
-            .WithReference(blobContainer)
-            .WaitFor(blobContainer)
-            .WithReference(queues)
-            .WaitFor(queues)
-            .WithReference(sqlDb)
-            .WaitFor(sqlDb)
-            .WithEnvironment("AzureStorage__BlobContainers__Plugins__ResourceName", pluginsBlobResourceName)
-            .WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName);
 
         frontend.WithReference(api)
             .WaitFor(api);
-
-        builder.Build().Run();
     }
 
     static void MountUiRootFilesAndTopDirs(
