@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 [assembly: InternalsVisibleTo("DynamicProxyGenAssembly2")]
 namespace Backend.Services;
 
-internal sealed class PluginBundleProcessingService : IPluginBundleProcessingService
+public sealed class PluginBundleProcessingService : IPluginBundleProcessingService
 {
     private readonly BlobContainerClient _blobContainerClient;
     private readonly IPluginWorkspaceFactoryUtility _workspaceFactory;
