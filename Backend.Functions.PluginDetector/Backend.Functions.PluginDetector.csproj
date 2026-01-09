@@ -17,6 +17,14 @@
     <PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Backend.Conformation.DAL\Backend.Database.Relational.csproj" />
+    <ProjectReference Include="..\Backend.DTOs\Backend.DTOs.csproj" />
+    <ProjectReference Include="..\Backend.Interfaces\Backend.Interfaces.csproj" />
+    <ProjectReference Include="..\Backend.Repositories\Backend.Repositories.csproj" />
+    <ProjectReference Include="..\Backend.Services\Backend.Services.csproj" />
+    <ProjectReference Include="..\Backend.Utilities\Backend.Utilities.csproj" />
+  </ItemGroup>
+  <ItemGroup>
     <None Update="host.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
