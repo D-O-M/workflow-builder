@@ -27,7 +27,7 @@ public class PluginBlobDetectorFunction
 
     [Function(nameof(PluginBlobDetectorFunction))]
     public async Task Run(
-        [BlobTrigger("plugins/{name}", Connection = "plugin-blob")] Stream stream,
+        [BlobTrigger("pluginblob/{name}", Connection = "pluginblob")] Stream stream,
         string name,
         CancellationToken cancellationToken)
     {
