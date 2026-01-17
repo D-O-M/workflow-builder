@@ -36,9 +36,8 @@ public sealed class PluginDiscoveryService : IPluginDiscoveryService
         var pendingPlugins = new List<PluginBlobInfo>();
 
         await foreach (var blob in _blobContainerClient.GetBlobsAsync(
-                           traits: BlobTraits.None,
-                           states: BlobStates.None,
-                           cancellationToken: cancellationToken))
+            new () { States = BlobStates.None, Traits = BlobTraits.None },
+            cancellationToken: cancellationToken))
         {
             try
             {

@@ -30,7 +30,8 @@ var host = new HostBuilder()
 
         services.AddSingleton(_ =>
         {
-            var blobConnectionString = context.Configuration.GetConnectionString("BlobConnection");
+            var blobConnectionString = context.Configuration["Aspire:Azure:Storage:Blobs:pluginblob:ConnectionString"];
+            //context.Configuration.GetConnectionString("BlobConnection");
             var containerName = context.Configuration["AzureStorage:BlobContainers:Plugins:ContainerName"]!;
 
             return new BlobContainerClient(blobConnectionString, containerName);
@@ -46,4 +47,4 @@ var host = new HostBuilder()
     })
     .Build();
 
-await host.RunAsync();
+host.Run();

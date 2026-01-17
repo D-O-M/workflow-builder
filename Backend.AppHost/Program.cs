@@ -1,3 +1,4 @@
+using Aspire.Hosting;
 using Aspire.Hosting.Azure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
@@ -15,7 +16,16 @@ internal class Program
         var sql = AddSqlServer(builder, password);
         var sqlDb = sql.AddDatabase("TasksDB");
 
-        var (storage, blobs, blobContainer) = AddStorage(builder);
+        var pluginsBlobResourceName = builder.Configuration.GetValue<string>(
+            "AzureStorage:BlobContainers:Plugins:ResourceName")!;
+
+        var pluginsBlobContainerName = builder.Configuration.GetValue<string>(
+            "AzureStorage:BlobContainers:Plugins:ContainerName")!;
+
+        var (storage, blobs, blobContainer) = AddStorage(builder,
+            pluginsBlobResourceName,
+            pluginsBlobContainerName);
+
         var (serviceBus, workflowTaskQueue) = AddServiceBus(builder);
 
         var api = builder.AddProject<Projects.Backend_API>("backend-api")
@@ -44,7 +54,9 @@ internal class Program
 
         builder.AddAzureFunctionsProject<Projects.Backend_Functions_PluginDetector>("plugin-detector")
             .WithHostStorage(storage)
-            .WithReference(blobs);
+            .WithReference(blobs, connectionName: pluginsBlobContainerName)
+            .WithReference(sqlDb)
+            .WaitFor(sqlDb);
 
         AddFrontend(builder, api);
 
@@ -74,7 +86,9 @@ internal class Program
         IResourceBuilder<AzureStorageResource> storage,
         IResourceBuilder<AzureBlobStorageResource> blobStorage,
         IResourceBuilder<AzureBlobStorageContainerResource> blobContainer)
-        AddStorage(IDistributedApplicationBuilder builder)
+        AddStorage(IDistributedApplicationBuilder builder,
+            string pluginsBlobResourceName,
+            string pluginsBlobContainerName)
     {
         var azureStorage = builder.AddAzureStorage(
             builder.Configuration.GetValue<string>("AzureStorage:ResourceName")!);
@@ -85,11 +99,6 @@ internal class Program
         }
 
         var blobs = azureStorage.AddBlobs("BlobConnection");
-
-        var pluginsBlobResourceName = builder.Configuration.GetValue<string>(
-            "AzureStorage:BlobContainers:Plugins:ResourceName")!;
-        var pluginsBlobContainerName = builder.Configuration.GetValue<string>(
-            "AzureStorage:BlobContainers:Plugins:ContainerName")!;
 
         var blobContainer = azureStorage.AddBlobContainer(
             pluginsBlobResourceName,
