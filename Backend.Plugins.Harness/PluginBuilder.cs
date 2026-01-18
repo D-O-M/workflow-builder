@@ -1,6 +1,5 @@
 using System.Linq.Expressions;
 using System.Reflection;
-using Backend.Plugins.Communication;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -23,11 +22,10 @@ public class PluginBuilder<TPlugin>
     public PluginBuilder(string displayName)
     {
         _hostAppBuilder = Host.CreateApplicationBuilder(Environment.GetCommandLineArgs());
+        _hostAppBuilder.Services.AddHostedService<EventHandler<TPlugin>>();
         _hostAppBuilder.Logging.ClearProviders().AddSimpleConsole(options =>
         {
         });
-        _hostAppBuilder.Services.AddSingleton<JobInbox>();
-        _hostAppBuilder.Services.AddHostedService<SignalMonitoringService>();
         _displayName = displayName;
     }
 
@@ -114,8 +112,8 @@ public class PluginBuilder<TPlugin>
 
     internal async Task RunAsync()
     {
-        var plugin = ActivatorUtilities.CreateInstance<TPlugin>(host!.Services);
-        await plugin.Execute();
+        //var plugin = ActivatorUtilities.CreateInstance<TPlugin>(host!.Services);
+        //await plugin.Execute();
         await host!.RunAsync();
     }
 
