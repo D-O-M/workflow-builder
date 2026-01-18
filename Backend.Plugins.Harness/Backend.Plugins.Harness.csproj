@@ -15,6 +15,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Backend.Plugins.Communication\Backend.Plugins.Communication.csproj" />
+      <ProjectReference Include="..\Backend.Interfaces\Backend.Interfaces.csproj" />
     </ItemGroup>
 
 </Project>
