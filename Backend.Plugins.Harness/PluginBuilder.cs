@@ -13,6 +13,7 @@ public class PluginBuilder<TPlugin>
     private readonly Dictionary<string, PluginChannel> _inputChannels = new();
     private readonly Dictionary<string, PluginChannel> _outputChannels = new();
     private readonly HostApplicationBuilder _hostAppBuilder;
+    private readonly PluginStateConfiguration<TPlugin> _stateConfiguration = new();
     private IHost? host = null;
 
     private Type? _globalStateType;
@@ -23,6 +24,7 @@ public class PluginBuilder<TPlugin>
     {
         _hostAppBuilder = Host.CreateApplicationBuilder(Environment.GetCommandLineArgs());
         _hostAppBuilder.Services.AddHostedService<EventHandler<TPlugin>>();
+        _hostAppBuilder.Services.AddSingleton(_stateConfiguration);
         _hostAppBuilder.Logging.ClearProviders().AddSimpleConsole(options =>
         {
         });
@@ -32,18 +34,24 @@ public class PluginBuilder<TPlugin>
     public PluginBuilder<TPlugin> ConfigureInputChannel<TChannelType>(
     Expression<Func<TPlugin, TChannelType>> propertySelector)
     {
-        var (name, getter) = GetNameAndGetter(propertySelector);
+        var property = GetPropertyInfo(propertySelector);
+        var name = property.Name;
+        var getter = propertySelector.Compile();
+        var setter = CreateSetter<TChannelType>(property);
         if (_inputChannels.ContainsKey(name))
             throw new InvalidOperationException($"Input channel '{name}' is already configured.");
 
         _inputChannels.Add(name, new PluginChannel<TPlugin, TChannelType>(name, getter));
+        _stateConfiguration.AddInputChannel(name, setter);
         return this;
     }
 
     public PluginBuilder<TPlugin> ConfigureOutputChannel<TChannelType>(
         Expression<Func<TPlugin, TChannelType>> propertySelector)
     {
-        var (name, getter) = GetNameAndGetter(propertySelector);
+        var property = GetPropertyInfo(propertySelector);
+        var name = property.Name;
+        var getter = propertySelector.Compile();
         if (_outputChannels.ContainsKey(name))
             throw new InvalidOperationException($"Output channel '{name}' is already configured.");
 
@@ -55,7 +63,10 @@ public class PluginBuilder<TPlugin>
         Expression<Func<TPlugin, TGlobalState>> propertySelector)
         where TGlobalState : class, IGlobalState
     {
+        var property = GetPropertyInfo(propertySelector);
+        var setter = CreateSetter<TGlobalState>(property);
         _globalStateType = typeof(TGlobalState);
+        _stateConfiguration.SetGlobalState(setter);
         return this;
     }
 
@@ -124,12 +135,31 @@ public class PluginBuilder<TPlugin>
         if (_globalStateType is not null) yield return _globalStateType;
     }
 
-    private static (string name, Func<TPlugin, TChannelType> getter) GetNameAndGetter<TChannelType>(
+    private static PropertyInfo GetPropertyInfo<TChannelType>(
         Expression<Func<TPlugin, TChannelType>> expr)
     {
         if (expr.Body is not MemberExpression m || m.Member is not PropertyInfo pi)
             throw new ArgumentException("Selector must be p => p.Property");
-        return (pi.Name, expr.Compile());
+        return pi;
+    }
+
+    private static Action<TPlugin, TChannelType> CreateSetter<TChannelType>(PropertyInfo property)
+    {
+        if (property.SetMethod is null)
+            throw new InvalidOperationException($"Property '{property.Name}' must be settable.");
+
+        var pluginParam = Expression.Parameter(typeof(TPlugin), "plugin");
+        var valueParam = Expression.Parameter(typeof(TChannelType), "value");
+
+        try
+        {
+            var assign = Expression.Assign(Expression.Property(pluginParam, property), valueParam);
+            return Expression.Lambda<Action<TPlugin, TChannelType>>(assign, pluginParam, valueParam).Compile();
+        }
+        catch (ArgumentException)
+        {
+            return (plugin, value) => property.SetValue(plugin, value);
+        }
     }
 
     private static string? TryFindProjectDirectory(string startDir)
