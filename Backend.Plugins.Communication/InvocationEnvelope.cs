@@ -2,6 +2,10 @@ using System.Text.Json;
 
 namespace Backend.Plugins.Communication;
 
+public sealed record PreviousTaskDetails(
+    Guid PreviousTaskInstanceId,
+    string LinkedOutputChannelName);
+
 /// <summary>
 /// Minimal invocation envelope exchanged between the engine and nano-service.
 /// The envelope omits payload data and instead conveys the identifiers needed
@@ -11,9 +15,10 @@ namespace Backend.Plugins.Communication;
 /// <param name="WorkflowTaskInstanceId">Identifier of the task instance within the workflow.</param>
 /// <param name="InputChannelName">Name of the input channel to hydrate locally.</param>
 public sealed record InvocationEnvelope(
+    Guid WorkflowBlueprintId,
     Guid WorkflowInstanceId,
     Guid WorkflowTaskInstanceId,
-    string InputChannelName);
+    PreviousTaskDetails PreviousTaskDetails);
 
 /// <summary>
 /// Helper responsible for serialising <see cref="InvocationEnvelope"/> payloads.

@@ -4,6 +4,10 @@
     {
       "Name": "PlayerInput",
       "Type": "TestPlugin.PlayerInput"
+    },
+    {
+      "Name": "State",
+      "Type": "TestPlugin.State"
     }
   ],
   "OutputChannels": [

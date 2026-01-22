@@ -8,14 +8,20 @@
       <LangVersion>preview</LangVersion>
   </PropertyGroup>
 
+    <PropertyGroup>
+        <AzureCosmosDisableNewtonsoftJsonCheck>true</AzureCosmosDisableNewtonsoftJsonCheck>
+    </PropertyGroup>
+
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.Hosting" />
+        <PackageReference Include="Newtonsoft.Json" />
         <PackageReference Include="System.Reactive" />
+        <PackageReference Include="Microsoft.Azure.Cosmos" />
     </ItemGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\Backend.Plugins.Communication\Backend.Plugins.Communication.csproj" />
-      <ProjectReference Include="..\Backend.Interfaces\Backend.Interfaces.csproj" />
+      <ProjectReference Include="..\Backend.Repositories\Backend.Repositories.csproj" />
     </ItemGroup>
 
 </Project>

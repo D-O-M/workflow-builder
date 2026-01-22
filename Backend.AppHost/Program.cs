@@ -1,7 +1,9 @@
 using Aspire.Hosting;
 using Aspire.Hosting.Azure;
+using Aspire.Hosting.Azure.CosmosDB;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
+using static Azure.Core.HttpHeader;
 
 internal class Program
 {
@@ -63,15 +65,27 @@ internal class Program
         builder.Build().Run();
     }
 
-    static IResourceBuilder<ContainerResource> AddCosmos(IDistributedApplicationBuilder builder) =>
-        builder.AddContainer("cosmosdb", "mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator", "vnext-preview")
-            //.WithEndpoint("https", 8081, scheme: "https") // Cosmos uses HTTPS
-            .WithEnvironment("AZURE_COSMOS_EMULATOR_PARTITION_COUNT", "3")
-            .WithEnvironment("AZURE_COSMOS_EMULATOR_ENABLE_DATA_PERSISTENCE", "true")
-            .WithEnvironment("AZURE_COSMOS_EMULATOR_IP_ADDRESS_OVERRIDE", "127.0.0.1")
-            .WithVolume("cosmos-data", "/cosmos-data")
-            .WithHttpEndpoint(8080, name: "cosmos-ui-http", targetPort: 1234)
-            .WithHttpsEndpoint(8081, name: "cosmos-ui-https", targetPort: 2345);
+    static IResourceBuilder<AzureCosmosDBResource> AddCosmos(IDistributedApplicationBuilder builder)
+    {
+#pragma warning disable ASPIRECOSMOSDB001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+        var cosmos = builder.AddAzureCosmosDB("cosmos-db")
+            .RunAsPreviewEmulator(emulator =>
+            {
+                emulator.WithDataExplorer(1234);
+                emulator.WithDataVolume();
+                // Optional: map emulator’s 8081 to a fixed host port (otherwise it is dynamic)
+                emulator.WithGatewayPort(8081);
+                //emulator.WithEnvironment("PROTOCOL", "https");
+                emulator.WithLifetime(ContainerLifetime.Persistent);
+            });
+#pragma warning restore ASPIRECOSMOSDB001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+
+        var db = cosmos.AddCosmosDatabase("enginedb");
+        db.AddContainer("workflows", "/blueprintId");
+        db.AddContainer("tasks", "/workflowId");
+
+        return cosmos;
+    }
 
     static IResourceBuilder<SqlServerServerResource> AddSqlServer(
         IDistributedApplicationBuilder builder,

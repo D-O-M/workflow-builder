@@ -23,4 +23,9 @@ public class EntityNotFoundException<TEntity> : EntityNotFoundException
             innerException)
     {
     }
+
+    public EntityNotFoundException(string id)
+        : base($"Entity of type '{typeof(TEntity).Name}' with ID '{id}' could not be found.")
+    {
+    }
 }
