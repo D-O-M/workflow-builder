@@ -13,8 +13,4 @@
     <PackageReference Include="Shouldly" />
     <PackageReference Include="TUnit" />
   </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\Backend.PluginLoader\Backend.PluginLoader.csproj" />
-  </ItemGroup>
 </Project>
