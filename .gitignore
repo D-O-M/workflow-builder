@@ -490,3 +490,4 @@ FodyWeavers.xsd
 
 
 Backend.Plugins/_bundles/*
+/Backend.Plugins/_bundles/TestPlugin_0.0.1.zip
