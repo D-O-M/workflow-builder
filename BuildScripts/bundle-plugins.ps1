@@ -8,7 +8,7 @@
     1) Runs `dotnet publish` with your chosen settings
     2) Gathers manifest.json + schemas (schemas.json preferred, or schemas\*.json)
     3) Creates a readable, portable bundle ZIP:
-         <OutputDir>\<ProjectName>.plugin.zip
+         <OutputDir>\<ProjectName>.<rid-or-portable>.plugin.zip
          ├─ manifest.json
          ├─ schemas.json  OR  schemas\*.json
          └─ app\  (contents of dotnet publish)
@@ -27,7 +27,8 @@
   Build/publish configuration. Default: Release
 
 .PARAMETER RuntimeIdentifier
-  RID when publishing (e.g., win-x64, linux-x64, osx-arm64). If omitted, framework-dependent publish.
+  RID when publishing (e.g., win-x64, linux-x64, linux-musl-x64, osx-arm64).
+  If omitted, framework-dependent publish.
 
 .PARAMETER SelfContained
   Switch: publish self-contained (requires -RuntimeIdentifier). Default: false
@@ -39,7 +40,7 @@
   Switch: publish ReadyToRun. Default: false
 
 .PARAMETER CompositeR2R
-  Switch: composite ReadyToRun (only relevant if ReadyToRun is true). Default: false
+  Switch: composite ReadyToRun (requires ReadyToRun). Default: false
 
 .PARAMETER Minify
   Switch: minify manifest/schemas JSON in bundle. Default: false
@@ -186,6 +187,14 @@ function Bundle-OneProject([string] $csprojPath) {
     return
   }
 
+  # Guardrails
+  if (($SelfContained -or $SingleFile -or $ReadyToRun -or $CompositeR2R) -and [string]::IsNullOrWhiteSpace($RuntimeIdentifier)) {
+    throw "RuntimeIdentifier is required when using -SelfContained, -SingleFile, -ReadyToRun, or -CompositeR2R."
+  }
+  if ($CompositeR2R -and -not $ReadyToRun) {
+    throw "-CompositeR2R requires -ReadyToRun."
+  }
+
   # Publish args
   $args = @("publish", "`"$csprojPath`"", "-c", $Configuration)
   if ($RuntimeIdentifier) { $args += @("-r", $RuntimeIdentifier) }
@@ -193,6 +202,7 @@ function Bundle-OneProject([string] $csprojPath) {
   if ($SingleFile)        { $args += @("-p:PublishSingleFile=true") }
   if ($ReadyToRun)        { $args += @("-p:PublishReadyToRun=true") }
   if ($CompositeR2R)      { $args += @("-p:PublishReadyToRunComposite=true") }
+
   # Reasonable default: drop pdb/xml on publish
   $args += @("-p:DebugType=none")
 
@@ -215,7 +225,7 @@ function Bundle-OneProject([string] $csprojPath) {
   $stageApp  = Join-Path $stageRoot "app"
   New-Item -ItemType Directory -Force -Path $stageApp | Out-Null
 
-  # Copy app files (all publish output) - use -Path (supports wildcards)
+  # Copy app files (all publish output)
   Get-ChildItem -Path $publishDir -Force | Copy-Item -Destination $stageApp -Recurse -Force -ErrorAction Stop
 
   # Find manifest/schemas: prefer publish dir, fall back to project dir
@@ -246,6 +256,22 @@ function Bundle-OneProject([string] $csprojPath) {
   # Write schemas to stage
   Copy-Schemas -schemasJson $schemasJson -schemasDir $schemasDir -stageRoot $stageRoot -Minify:$Minify
 
+  # Determine entrypoint-ish artifact for metadata (cross-platform)
+  $entryCandidates = @()
+  if ($RuntimeIdentifier) {
+    # Self-contained typically yields a native host named <ProjectName> (no extension on linux)
+    $entryCandidates += @(
+      (Join-Path $stageApp $info.ProjectName),
+      (Join-Path $stageApp ($info.ProjectName + ".exe"))
+    )
+  } else {
+    # Framework-dependent usually yields <ProjectName>.dll
+    $entryCandidates += @(
+      (Join-Path $stageApp ($info.ProjectName + ".dll"))
+    )
+  }
+  $hasEntrypoint = ($entryCandidates | Where-Object { Test-Path -LiteralPath $_ } | Measure-Object).Count -gt 0
+
   # bundle.meta.json (for traceability)
   $schemasValue = "schemas/"
   if (Test-Path -LiteralPath (Join-Path $stageRoot "schemas.json")) { $schemasValue = "schemas.json" }
@@ -254,7 +280,7 @@ function Bundle-OneProject([string] $csprojPath) {
     name          = $info.ProjectName
     createdUtc    = (Get-Date).ToUniversalTime().ToString("o")
     publishDir    = $publishDir
-    hasExe        = ((Get-ChildItem -LiteralPath $stageApp -Filter *.exe -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0)
+    hasExe        = $hasEntrypoint
     rid           = $RuntimeIdentifier
     selfContained = [bool]$SelfContained
     configuration = $Configuration
@@ -269,7 +295,9 @@ function Bundle-OneProject([string] $csprojPath) {
   # Zip
   if (-not $OutputDir) { $OutputDir = Join-Path $RootDir "_bundles" }
   New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-  $outZip = Join-Path $OutputDir ("{0}.plugin.zip" -f $info.ProjectName)
+
+  $ridSuffix = if ($RuntimeIdentifier) { $RuntimeIdentifier } else { "portable" }
+  $outZip = Join-Path $OutputDir ("{0}.{1}.plugin.zip" -f $info.ProjectName, $ridSuffix)
 
   if ((Test-Path -LiteralPath $outZip) -and (-not $Overwrite)) {
     throw "Output already exists: $outZip (use -Overwrite to replace)"
