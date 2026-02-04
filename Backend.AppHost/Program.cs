@@ -1,9 +1,6 @@
-using Aspire.Hosting;
 using Aspire.Hosting.Azure;
-using Aspire.Hosting.Azure.CosmosDB;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
-using static Azure.Core.HttpHeader;
 
 internal class Program
 {
@@ -91,6 +88,7 @@ internal class Program
         IDistributedApplicationBuilder builder,
         IResourceBuilder<ParameterResource> password) =>
         builder.AddSqlServer("sqlserver", password)
+            .WithHostPort(12345)
             .WithLifetime(ContainerLifetime.Persistent)
             .WithEnvironment("ACCEPT_EULA", "Y")
             .WithEnvironment("MSSQL_SA_PASSWORD", password);
@@ -109,7 +107,8 @@ internal class Program
 
         if (builder.Environment.IsDevelopment())
         {
-            azureStorage.RunAsEmulator();
+            azureStorage.RunAsEmulator(config =>
+                config.WithLifetime(ContainerLifetime.Persistent));
         }
 
         var blobs = azureStorage.AddBlobs("BlobConnection");
