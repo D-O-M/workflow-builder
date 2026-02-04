@@ -487,3 +487,6 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+
+*/_bundles/*
