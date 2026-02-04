@@ -21,7 +21,7 @@ public sealed class PluginWorkspaceFactoryUtility : IPluginWorkspaceFactoryUtili
         {
             if (Directory.Exists(workDir))
             {
-                Directory.Delete(workDir, recursive: true);
+                Task.FromResult(workDir);
             }
 
             Directory.CreateDirectory(workDir);
