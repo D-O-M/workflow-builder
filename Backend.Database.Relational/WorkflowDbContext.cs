@@ -2,7 +2,7 @@ using Backend.Constants;
 using Backend.Database.Relational.Entities;
 using Microsoft.EntityFrameworkCore;
 
-namespace Backend.Relational.DAL;
+namespace Backend.Database.Relational;
 
 public class WorkflowDbContext : DbContext
 {

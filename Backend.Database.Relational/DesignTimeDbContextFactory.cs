@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Design;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.UserSecrets;
 
-namespace Backend.Relational.DAL; // Adjust to your namespace
+namespace Backend.Database.Relational; // Adjust to your namespace
 
 public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<WorkflowDbContext>
 {
