@@ -1,8 +1,7 @@
 using Backend.Database.Relational.Entities;
 using Backend.DTOs;
 using Backend.Interfaces.Repositories;
-using Backend.Mappers;
-using Backend.Relational.DAL;
+using Backend.Database.Relational;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Repositories;
@@ -18,7 +17,7 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
 
     public async Task<List<WorkflowTaskInfo>> GetAll(CancellationToken cancellationToken) =>
         await _context.TaskSchemas
-            .ProjectToWorkflowTaskInfoDto()
+            .Select(ts => new WorkflowTaskInfo(ts.Id, ts.Name, ts.Path, ts.Version))
             .ToListAsync(cancellationToken);
 
     public async Task CreateTaskSchema(Manifest manifest, CancellationToken cancellationToken)
@@ -66,6 +65,21 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
         };
 
         _context.Add(workflowTask);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task CreateBasicTask(string name, string version,
+        string entryPath, CancellationToken cancellationToken)
+    {
+        var taskSchema = new TaskSchema
+        {
+            Name = name,
+            Path = entryPath,
+            Version = new Version(version),
+            OutputChannelSpecifications = []
+        };
+
+        _context.Add(taskSchema);
         await _context.SaveChangesAsync(cancellationToken);
     }
 }
