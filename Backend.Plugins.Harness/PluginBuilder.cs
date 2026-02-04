@@ -4,9 +4,15 @@ using System.Text.Json;
 using Backend.Database.State.Objects;
 using Backend.Plugins.Communication;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 namespace Backend.Plugins.Harness;
 
@@ -32,7 +38,26 @@ public class PluginBuilder<TPlugin>
         // Register the event loop
         _hostAppBuilder.Services.AddHostedService<EventHandler<TPlugin>>();
 
-        _hostAppBuilder.Logging.ClearProviders().AddSimpleConsole(_ => { });
+        _hostAppBuilder.Logging.ClearProviders();
+
+        _hostAppBuilder.Configuration.AddEnvironmentVariables();
+
+        _hostAppBuilder.Services.AddOpenTelemetry()
+            .ConfigureResource(builder => builder.AddService(displayName))
+            .WithMetrics(metrics =>
+            {
+                metrics.AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation()
+                    .AddRuntimeInstrumentation();
+            })
+            .WithTracing(tracing =>
+            {
+                tracing.AddSource(displayName)
+                    .AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation();
+            })
+            .WithLogging()
+            .UseOtlpExporter();
 
         _displayName = displayName;
     }

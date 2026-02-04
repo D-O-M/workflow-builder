@@ -27,6 +27,13 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
         _logger = logger;
     }
 
+    public override Task StartAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Starting plugin event handler for {PluginType}.", typeof(TPlugin).FullName);
+        Console.Out.WriteLine("Ready");
+        return base.StartAsync(cancellationToken);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _ = Task.Run(() => ReadStdinLoop(stoppingToken), stoppingToken);
