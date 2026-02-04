@@ -489,4 +489,4 @@ FodyWeavers.xsd
 *.msp
 
 
-*/_bundles/*
+Backend.Plugins/_bundles/*
