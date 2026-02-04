@@ -18,7 +18,7 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Backend.Conformation.DAL\Backend.Database.Relational.csproj" />
+    <ProjectReference Include="..\Backend.Database.Relational\Backend.Database.Relational.csproj" />
     <ProjectReference Include="..\Backend.DTOs\Backend.DTOs.csproj" />
     <ProjectReference Include="..\Backend.Interfaces\Backend.Interfaces.csproj" />
     <ProjectReference Include="..\Backend.Repositories\Backend.Repositories.csproj" />

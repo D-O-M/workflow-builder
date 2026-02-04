@@ -1,4 +1,4 @@
-using Backend.Relational.DAL;
+using Backend.Database.Relational;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.API;

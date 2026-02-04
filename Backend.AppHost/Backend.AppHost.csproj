@@ -22,6 +22,5 @@
     <ProjectReference Include="..\Backend.API\Backend.API.csproj" />
     <ProjectReference Include="..\Backend.Engine\Backend.Engine.csproj" />
     <ProjectReference Include="..\Backend.Functions.PluginDetector\Backend.Functions.PluginDetector.csproj" />
-    <ProjectReference Include="..\Backend.PluginLoader\Backend.PluginLoader.csproj" />
   </ItemGroup>
 </Project>

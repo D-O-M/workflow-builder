@@ -1,6 +1,6 @@
 using Backend.DTOs;
 using Backend.Interfaces.Repositories;
-using Backend.Relational.DAL;
+using Backend.Database.Relational;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Repositories;
@@ -64,7 +64,7 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
                 Name = taskEntity.Schema!.Name,
                 Version = taskEntity.Schema!.Version,
                 SchemaId = taskEntity.Schema!.Id,
-                InputChannel = channelEntitiesBySpecId[taskEntity.Schema.InputChannelSpecificationId]!,
+                InputChannel = channelEntitiesBySpecId[taskEntity.Schema.InputChannelSpecificationId!.Value]!,
                 OutputChannels = taskEntity.Schema.OutputChannelSpecifications
                     .ToDictionary(ocs => ocs.Name, ocs => channelEntitiesBySpecId[ocs.Id])
             });
@@ -75,12 +75,12 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
             var taskEntity = blueprintEntity.Tasks
                 .First(t => t.Id == taskDto.Id);
 
-            foreach (var channel in taskDto.OutputChannels.Values)
+            /*foreach (var channel in taskDto.OutputChannels.Values)
             {
                 channel.Source = taskDtos.First(t => t.Id == taskEntity.InputChannel.SourceNodeId);
                 channel.Destination = taskDtos.First(t => t.Id ==
                     taskEntity.OutputChannels.First(c => c.Id == channel.Id).DestinationNodeId);
-            }
+            }*/
         }
 
         var workflowBlueprintDto = new WorkflowBlueprint

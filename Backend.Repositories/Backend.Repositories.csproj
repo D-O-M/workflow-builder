@@ -8,9 +8,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Backend.Conformation.DAL\Backend.Database.Relational.csproj" />
+    <ProjectReference Include="..\Backend.Database.Relational\Backend.Database.Relational.csproj" />
     <ProjectReference Include="..\Backend.Interfaces\Backend.Interfaces.csproj" />
-    <ProjectReference Include="..\Backend.Mappers\Backend.Mappers.csproj" />
     <ProjectReference Include="..\Backend.State.DAL\Backend.Database.State.csproj" />
   </ItemGroup>
 

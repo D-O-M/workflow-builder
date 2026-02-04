@@ -1,8 +1,7 @@
 using Azure.Storage.Blobs;
 using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
-using Backend.PluginLoader.Services;
-using Backend.Relational.DAL;
+using Backend.Database.Relational;
 using Backend.Repositories;
 using Backend.Services;
 using Backend.Utilities;
@@ -11,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Backend.PluginLoader.Services;
 
 var host = new HostBuilder()
     .ConfigureFunctionsWorkerDefaults()
