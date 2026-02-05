@@ -1,0 +1,210 @@
+{
+  "version": "1.0.0",
+  "darkMode": true,
+  "gridEnabling": false,
+  "detailLevel": "All",
+  "tablePositions": [
+    {
+      "name": "BlueprintDefinitions",
+      "schemaName": "public",
+      "x": 0,
+      "y": 591.763171144653
+    },
+    {
+      "name": "BlueprintVersions",
+      "schemaName": "public",
+      "x": 252.68505859375,
+      "y": 591.763171144653
+    },
+    {
+      "name": "TaskInstances",
+      "schemaName": "public",
+      "x": 386.1071590607293,
+      "y": -55.96758255134566
+    },
+    {
+      "name": "TaskConnections",
+      "schemaName": "public",
+      "x": 838.9482228222379,
+      "y": -49.38316107471675
+    },
+    {
+      "name": "TaskDefinitions",
+      "schemaName": "public",
+      "x": 764.5294517970963,
+      "y": 545.6722208082506
+    },
+    {
+      "name": "TaskVersions",
+      "schemaName": "public",
+      "x": 691.2550086867029,
+      "y": 285.5875724814093
+    },
+    {
+      "name": "Channels",
+      "schemaName": "public",
+      "x": 266.6690698034702,
+      "y": 198.1233677850566
+    },
+    {
+      "name": "ChannelProperties",
+      "schemaName": "public",
+      "x": 0,
+      "y": 217.15263422893054
+    }
+  ],
+  "tableGroupCollapseStates": [],
+  "stickyNoteLayouts": [],
+  "referencePaths": [
+    {
+      "firstFieldNames": [
+        "Id"
+      ],
+      "firstTableName": "BlueprintDefinitions",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "BlueprintDefinitionId"
+      ],
+      "secondTableName": "BlueprintVersions",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "Id"
+      ],
+      "firstTableName": "TaskInstances",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "StartingTaskInstanceId"
+      ],
+      "secondTableName": "BlueprintVersions",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "Id"
+      ],
+      "firstTableName": "BlueprintVersions",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "BlueprintVersionId"
+      ],
+      "secondTableName": "TaskInstances",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "Id"
+      ],
+      "firstTableName": "TaskVersions",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "TaskVersionId"
+      ],
+      "secondTableName": "TaskInstances",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "Id"
+      ],
+      "firstTableName": "TaskInstances",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "SourceTaskInstanceId"
+      ],
+      "secondTableName": "TaskConnections",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "Id"
+      ],
+      "firstTableName": "TaskInstances",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "DestinationTaskInstanceId"
+      ],
+      "secondTableName": "TaskConnections",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "Id"
+      ],
+      "firstTableName": "Channels",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "ChannelId"
+      ],
+      "secondTableName": "TaskConnections",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "Id"
+      ],
+      "firstTableName": "TaskDefinitions",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "TaskDefinitionId"
+      ],
+      "secondTableName": "TaskVersions",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "Id"
+      ],
+      "firstTableName": "TaskVersions",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "TaskVersionId"
+      ],
+      "secondTableName": "Channels",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "Id"
+      ],
+      "firstTableName": "Channels",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "ChannelId"
+      ],
+      "secondTableName": "ChannelProperties",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    }
+  ]
+}

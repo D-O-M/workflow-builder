@@ -1,0 +1,52 @@
+table Blueprints as BP {
+    Id int [primary key]
+    Name string
+    Version int
+    StartingTaskInstanceId guid [ref: > TI.Id]
+}
+
+table TaskInstances as TI {
+    Id guid [primary key]
+    BlueprintId int [ref: > BP.Id]
+    TaskId int [ref: > T.Id]
+}
+
+table TaskConnections as TC {
+    Id guid [primary key]
+    SourceTaskInstanceId guid [ref: > TI.Id, null]
+    DestinationTaskInstanceId guid [ref: > TI.Id, null]
+    ChannelId int [ref: > C.Id]
+}
+
+table Tasks as T {
+    Id int [primary key]
+    Name string
+    Version int
+    Path string
+}
+
+enum ChannelDiscriminator {
+    Input
+    Output
+}
+
+table Channels as C {
+    Id int [primary key]
+    Name string
+    Discriminator ChannelDiscriminator
+    TaskId int [ref: > T.Id]
+}
+
+enum PrimitiveTypes {
+    integer
+    string
+    guid
+    boolean
+}
+
+table ChannelProperties as CP {
+    Id int [primary key]
+    Name string
+    Type PrimitiveTypes
+    ChannelId int [ref: > C.Id]
+}
