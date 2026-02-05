@@ -31,8 +31,6 @@ public class QueueConsumer : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            await using var scope = _serviceScopeFactory.CreateAsyncScope();
-
             var message = await _serviceBusReceiver.ReceiveMessageAsync(
                 maxWaitTime: null,
                 cancellationToken: stoppingToken);
@@ -53,6 +51,8 @@ public class QueueConsumer : BackgroundService
                         cancellationToken: stoppingToken);
                     continue;
                 }
+
+                await using var scope = _serviceScopeFactory.CreateAsyncScope();
 
                 var workflowBlueprintRepository = scope.ServiceProvider
                     .GetRequiredService<IWorkflowBlueprintRepository>();

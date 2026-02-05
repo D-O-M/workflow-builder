@@ -9,6 +9,7 @@ namespace Backend.Engine;
 
 public class NanoServiceAgent
 {
+    private readonly IConfiguration _configuration;
     private readonly EngineInstanceInfo _engineInstanceInfo;
     private readonly ILogger _logger;
     private readonly JobManager _jobManager;
@@ -16,13 +17,19 @@ public class NanoServiceAgent
     private Process? _process;
     private CancellationTokenSource? _processCancellation;
     private Pipe _commsStream = new();
+    private bool ready = false;
+
+    private string _name;
+    public string Name => _name;
 
     public NanoServiceAgent(
+        IConfiguration configuration,
         EngineInstanceInfo engineInstanceInfo,
         ILogger<NanoServiceAgent> logger,
         JobManager jobManager,
         VisualStudioDebuggerAttacher debuggerAttacher)
     {
+        _configuration = configuration;
         _engineInstanceInfo = engineInstanceInfo;
         _logger = logger;
         _jobManager = jobManager;
@@ -31,9 +38,11 @@ public class NanoServiceAgent
 
     public async Task InitialiseAsync(
         FileInfo entryPoint,
+        string name,
         CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(entryPoint);
+        _name = name;
 
         if (_process is not null)
         {
@@ -49,9 +58,26 @@ public class NanoServiceAgent
     {
         _processCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-        await using var stdinStream = _commsStream.Reader.AsStream();
+        await using var stdinStream = _commsStream.Reader.AsStream(leaveOpen: true);
 
         var cmd = Cli.Wrap(fileInfo.FullName)
+            .WithEnvironmentVariables(
+                new Dictionary<string, string?>
+                {
+                    {
+                        "OTEL_EXPORTER_OTLP_ENDPOINT",
+                        _configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
+                    },
+                    {
+                        "OTEL_EXPORTER_OTLP_PROTOCOL",
+                        _configuration["OTEL_EXPORTER_OTLP_PROTOCOL"]
+                    },
+                    {
+                        "OTEL_EXPORTER_OTLP_HEADERS",
+                        _configuration["OTEL_EXPORTER_OTLP_HEADERS"]
+                    }
+                }
+            )
             .WithWorkingDirectory(fileInfo.Directory!.FullName)
             .WithValidation(CommandResultValidation.None)
             .WithStandardInputPipe(PipeSource.FromStream(stdinStream));
@@ -62,16 +88,17 @@ public class NanoServiceAgent
             {
                 case StartedCommandEvent started:
                     _process = Process.GetProcessById(started.ProcessId);
-                    _logger.LogInformation("Process started; ID: {ProcessId}", started.ProcessId);
+                    _logger.LogInformation("{PluginName} Process started; ID: {ProcessId}", Name, started.ProcessId);
                     break;
                 case StandardOutputCommandEvent stdOut:
                     await OnOutput(stdOut.Text);
                     break;
                 case StandardErrorCommandEvent stdErr:
-                    _logger.LogError("Error: {ErrorText}", stdErr.Text);
+                    _logger.LogError("{PluginName} Error: {ErrorText}", Name, stdErr.Text);
                     break;
                 case ExitedCommandEvent exited:
-                    _logger.LogCritical("Process exited; Code: {ExitCode}", exited.ExitCode);
+                    _logger.LogCritical("{PluginName} Process exited; Code: {ExitCode}", Name, exited.ExitCode);
+                    _processCancellation.Cancel();
                     break;
             }
         }
@@ -79,6 +106,12 @@ public class NanoServiceAgent
 
     private async Task OnOutput(string output)
     {
+        if (!ready)
+        {
+            if (output == "Ready") ready = true;
+            return;
+        }
+
         var jobCompletionEvent = JsonSerializer.Deserialize<JobCompletionEvent>(output);
         await _jobManager.CompleteJob(jobCompletionEvent!, CancellationToken.None);
     }
@@ -120,11 +153,7 @@ public class NanoServiceAgent
             {
                 if (!_process.HasExited)
                 {
-                    _process.CloseMainWindow();
-                    if (!_process.WaitForExit((int)TimeSpan.FromSeconds(5).TotalMilliseconds))
-                    {
-                        _process.Kill(true);
-                    }
+                    _process.Kill(true);
                 }
             }
             catch (InvalidOperationException)

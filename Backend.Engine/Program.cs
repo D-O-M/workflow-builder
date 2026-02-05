@@ -3,16 +3,14 @@ using Azure.Storage.Blobs;
 using Backend.Engine;
 using Backend.Engine.Debugging;
 using Backend.Interfaces.Utilities;
-using Backend.Relational.DAL;
+using Backend.Database.Relational;
 using Backend.Repositories;
 using Backend.Utilities;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using Backend.Interfaces.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// Add services to the container.
+builder.AddServiceDefaults();
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
