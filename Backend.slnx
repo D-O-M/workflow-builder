@@ -1,0 +1,24 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Packages.props" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Backend.Engine.Tests/Backend.Engine.Tests.csproj" />
+    <Project Path="Backend.PluginLoader.Tests/Backend.PluginLoader.Tests.csproj" />
+  </Folder>
+  <Project Path="Backend.API/Backend.API.csproj" />
+  <Project Path="Backend.AppHost/Backend.AppHost.csproj" />
+  <Project Path="Backend.Database.Relational/Backend.Database.Relational.csproj" />
+  <Project Path="Backend.Constants/Backend.Constants.csproj" />
+  <Project Path="Backend.DTOs/Backend.DTOs.csproj" />
+  <Project Path="Backend.Engine/Backend.Engine.csproj" />
+  <Project Path="Backend.Functions.PluginDetector/Backend.Functions.PluginDetector.csproj" />
+  <Project Path="Backend.Interfaces/Backend.Interfaces.csproj" />
+  <Project Path="Backend.Plugins.Communication/Backend.Plugins.Communication.csproj" />
+  <Project Path="Backend.Plugins.Harness/Backend.Plugins.Harness.csproj" />
+  <Project Path="Backend.Repositories/Backend.Repositories.csproj" />
+  <Project Path="Backend.ServiceDefaults/Backend.ServiceDefaults.csproj" />
+  <Project Path="Backend.Services/Backend.Services.csproj" />
+  <Project Path="Backend.State.DAL/Backend.Database.State.csproj" />
+  <Project Path="Backend.Utilities/Backend.Utilities.csproj" />
+</Solution>
