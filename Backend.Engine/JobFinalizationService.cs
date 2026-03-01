@@ -44,7 +44,7 @@ public class JobFinalizationService
                 WorkflowInstanceId = context.WorkflowInstanceId,
                 WorkflowBlueprintId = context.WorkflowBlueprintId,
                 WorkflowTaskInstanceId = Guid.NewGuid(),
-                WorkflowTaskId = task.Id
+                WorkflowTaskId = 0 // TODO: task.Id
             };
 
             var message = new ServiceBusMessage(BinaryData.FromBytes(JsonSerializer.SerializeToUtf8Bytes(job)))

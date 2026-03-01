@@ -1,4 +1,3 @@
-using Backend.Constants;
 using Backend.Database.Relational.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,129 +8,197 @@ public class WorkflowDbContext : DbContext
     public WorkflowDbContext(DbContextOptions<WorkflowDbContext> options)
         : base(options)
     {
-        base.Database.Migrate();
+        //base.Database.Migrate();
     }
 
-    public DbSet<ChannelSpecification> ChannelSchemas { get; set; }
-    public DbSet<ChannelPropertyCriterion> ChannelParameterSchemas { get; set; }
-    public DbSet<TaskSchema> TaskSchemas { get; set; }
-    public DbSet<WorkflowBlueprint> WorkflowBlueprints { get; set; }
-    public DbSet<WorkflowTask> WorkflowTasks { get; set; }
-    public DbSet<WorkflowTaskChannel> WorkflowTaskChannels { get; set; }
+    public DbSet<BlueprintDefinition> BlueprintDefinitions => Set<BlueprintDefinition>();
+    public DbSet<BlueprintVersion> BlueprintVersions => Set<BlueprintVersion>();
+
+    public DbSet<TaskDefinition> TaskDefinitions => Set<TaskDefinition>();
+    public DbSet<TaskVersion> TaskVersions => Set<TaskVersion>();
+
+    public DbSet<TaskInstance> TaskInstances => Set<TaskInstance>();
+    public DbSet<TaskConnection> TaskConnections => Set<TaskConnection>();
+
+    // TPH base DbSet is enough; derived are still queryable
+    public DbSet<Channel> Channels => Set<Channel>();
+    public DbSet<ChannelProperty> ChannelProperties => Set<ChannelProperty>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        base.OnModelCreating(modelBuilder);
-
-        modelBuilder.Entity<ChannelSpecification>(entity =>
+        // -----------------------------
+        // BlueprintDefinitions (BD)
+        // -----------------------------
+        modelBuilder.Entity<BlueprintDefinition>(entity =>
         {
+            entity.ToTable("BlueprintDefinitions");
             entity.HasKey(e => e.Id);
 
-            entity.Property(e => e.Name)
-                .IsRequired()
-                .HasMaxLength(EntityMaxLengths.MaxChannelNameLength);
+            entity.Property(e => e.Key).IsRequired();
+            entity.HasIndex(e => e.Key).IsUnique();
 
-            entity.HasMany(e => e.Properties)
-                .WithOne()
-                .HasForeignKey(p => p.ChannelId)
-                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(e => e.Versions)
+                  .WithOne(v => v.BlueprintDefinition)
+                  .HasForeignKey(v => v.BlueprintDefinitionId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<ChannelPropertyCriterion>(entity =>
+        // -----------------------------
+        // BlueprintVersions (BV)
+        // -----------------------------
+        modelBuilder.Entity<BlueprintVersion>(entity =>
         {
+            entity.ToTable("BlueprintVersions");
             entity.HasKey(e => e.Id);
 
-            entity.Property(e => e.Name)
-                .IsRequired()
-                .HasMaxLength(EntityMaxLengths.MaxChannelParameterNameLength);
+            entity.Property(e => e.Name).IsRequired();
+            entity.Property(e => e.Version).IsRequired();
 
-            entity.Property(e => e.Type)
-                .IsRequired()
-                .HasMaxLength(EntityMaxLengths.MaxChannelParameterTypeLength);
+            entity.HasIndex(e => new { e.BlueprintDefinitionId, e.Version })
+                  .IsUnique();
+
+            // BV.StartingTaskInstanceId -> TI.Id
+            // Restrict avoids cascade cycles (BV -> TI and TI -> BV)
+            entity.HasOne(e => e.StartingTaskInstance)
+                  .WithMany()
+                  .HasForeignKey(e => e.StartingTaskInstanceId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            // BV 1 -> many TI
+            entity.HasMany(e => e.TaskInstances)
+                  .WithOne(ti => ti.BlueprintVersion)
+                  .HasForeignKey(ti => ti.BlueprintVersionId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<TaskSchema>(entity =>
+        // -----------------------------
+        // TaskDefinitions (TD)
+        // -----------------------------
+        modelBuilder.Entity<TaskDefinition>(entity =>
         {
+            entity.ToTable("TaskDefinitions");
             entity.HasKey(e => e.Id);
 
-            entity.Property(e => e.Name)
-                .IsRequired()
-                .HasMaxLength(EntityMaxLengths.MaxTaskSchemaNameLength);
+            entity.Property(e => e.Name).IsRequired();
+            entity.HasIndex(e => e.Name).IsUnique();
 
+            entity.HasMany(e => e.Versions)
+                  .WithOne(v => v.TaskDefinition)
+                  .HasForeignKey(v => v.TaskDefinitionId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // -----------------------------
+        // TaskVersions (TV)
+        // -----------------------------
+        modelBuilder.Entity<TaskVersion>(entity =>
+        {
+            entity.ToTable("TaskVersions");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Path).IsRequired();
             entity.Property(e => e.Version)
                 .HasConversion(
                     inValue => inValue.ToString(),
                     outValue => Version.Parse(outValue))
-                .HasMaxLength(EntityMaxLengths.MaxTaskSchemaVersionLength);
+                .IsRequired();
 
-            /*entity.HasOne(e => e.InputChannelSpecification)
-                .WithOne()
-                .HasForeignKey<TaskSchema>(e => e.InputChannelSpecificationId)
-                .OnDelete(DeleteBehavior.NoAction);
+            entity.HasIndex(e => new { e.TaskDefinitionId, e.Version })
+                  .IsUnique();
 
-            entity.HasIndex(t => t.InputChannelSpecificationId)
-                .IsUnique();
+            // TV 1 -> many TI
+            // Restrict is typically safest if you don't want deleting a task version to delete runtime instances
+            entity.HasMany(e => e.TaskInstances)
+                  .WithOne(ti => ti.TaskVersion)
+                  .HasForeignKey(ti => ti.TaskVersionId)
+                  .OnDelete(DeleteBehavior.Restrict);
 
-            entity.HasMany(t => t.OutputChannelSpecifications)
-                .WithOne(c => c.TaskSchema)
-                .HasForeignKey(c => c.TaskSchemaId)
-                .IsRequired(false)
-                .OnDelete(DeleteBehavior.Cascade);*/
+            // TV 1 -> many Channels (TPH)
+            entity.HasMany(e => e.Channels)
+                  .WithOne(c => c.TaskVersion)
+                  .HasForeignKey(c => c.TaskVersionId)
+                  .OnDelete(DeleteBehavior.NoAction);
+
         });
 
-        modelBuilder.Entity<WorkflowBlueprint>(entity =>
+        // -----------------------------
+        // TaskInstances (TI)
+        // -----------------------------
+        modelBuilder.Entity<TaskInstance>(entity =>
         {
+            entity.ToTable("TaskInstances");
             entity.HasKey(e => e.Id);
 
-            entity.Property(e => e.Name)
-                .IsRequired()
-                .HasMaxLength(EntityMaxLengths.MaxWorkflowBlueprintNameLength);
+            entity.HasMany(e => e.OutgoingConnections)
+              .WithOne(tc => tc.SourceTaskInstance)
+              .HasForeignKey(tc => tc.SourceTaskInstanceId)
+              .OnDelete(DeleteBehavior.NoAction);
 
-            entity.Property(e => e.Description)
-                .HasMaxLength(EntityMaxLengths.MaxWorkflowBlueprintDescriptionLength);
-
-            entity.HasMany(e => e.Tasks)
-                .WithOne(t => t.Blueprint)
-                .HasForeignKey(t => t.BlueprintId)
-                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(e => e.IncomingConnections)
+                  .WithOne(tc => tc.DestinationTaskInstance)
+                  .HasForeignKey(tc => tc.DestinationTaskInstanceId)
+                  .OnDelete(DeleteBehavior.NoAction);
         });
 
-        modelBuilder.Entity<WorkflowTask>(entity =>
+        // -----------------------------
+        // TaskConnections (TC)
+        // -----------------------------
+        modelBuilder.Entity<TaskConnection>(entity =>
         {
+            entity.ToTable("TaskConnections");
             entity.HasKey(e => e.Id);
 
-            entity.HasOne(e => e.Schema)
-                .WithMany()
-                .HasForeignKey(e => e.SchemaId)
-                .OnDelete(DeleteBehavior.Restrict);
+            // Nullable FKs
+            entity.Property(e => e.SourceTaskInstanceId).IsRequired(false);
+            entity.Property(e => e.DestinationTaskInstanceId).IsRequired(false);
 
-            entity.HasOne(e => e.Blueprint)
-                .WithMany(wb => wb.Tasks)
-                .HasForeignKey(e => e.BlueprintId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(e => e.InputChannel)
-                .WithOne(c => c.DestinationNode)
-                .HasForeignKey<WorkflowTaskChannel>(wtc => wtc.DestinationNodeId)
-                .OnDelete(DeleteBehavior.NoAction);
-
-            entity.HasMany(e => e.OutputChannels)
-                .WithOne(c => c.SourceNode)
-                .HasForeignKey(e => e.SourceNodeId)
-                .OnDelete(DeleteBehavior.NoAction);
+            // TC -> Channel (many-to-one)
+            // Restrict avoids unintended deletes of connections if a channel is removed.
+            entity.HasOne(e => e.Channel)
+                  .WithMany()
+                  .HasForeignKey(e => e.ChannelId)
+                  .OnDelete(DeleteBehavior.Restrict);
         });
 
-        modelBuilder.Entity<WorkflowTaskChannel>(entity =>
+        // -----------------------------
+        // Channels (C) - TPH via Discriminator
+        // -----------------------------
+        modelBuilder.Entity<Channel>(entity =>
         {
+            entity.ToTable("Channels");
             entity.HasKey(e => e.Id);
 
-            entity.HasOne(e => e.Schema)
-                .WithMany()
-                .HasForeignKey(e => e.SchemaId)
-                .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(e => e.Name).IsRequired();
+
+            // Channel 1 -> many ChannelProperties
+            entity.HasMany(e => e.Properties)
+                  .WithOne(cp => cp.Channel)
+                  .HasForeignKey(cp => cp.ChannelId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GlobalStateDefinition>(entity =>
+        {
+            entity.HasIndex(e => e.TaskVersionId)
+                  .IsUnique()
+                  .HasDatabaseName("UX_Channels_TaskVersionId_GlobalState")
+                  .HasFilter("[Discriminator] = 'GlobalStateDefinition'");
+        });
+
+        // -----------------------------
+        // ChannelProperties (CP)
+        // -----------------------------
+        modelBuilder.Entity<ChannelProperty>(entity =>
+        {
+            entity.ToTable("ChannelProperties");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Name).IsRequired();
+            entity.Property(e => e.Type).IsRequired();
         });
 
         // Optional: Apply configurations via Fluent API
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(WorkflowDbContext).Assembly);
     }
+
 }

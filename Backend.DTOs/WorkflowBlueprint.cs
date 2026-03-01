@@ -11,7 +11,7 @@ public record WorkflowBlueprint
 
 public record WorkflowTask
 {
-    public int Id { get; set; }
+    public Guid Id { get; set; }
     public required string Name { get; set; }
     public required Version Version { get; set; }
     public int SchemaId { get; set; }

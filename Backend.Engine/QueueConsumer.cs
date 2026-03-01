@@ -60,8 +60,9 @@ public class QueueConsumer : BackgroundService
                 var blueprint = await workflowBlueprintRepository
                     .GetFullBlueprintById(job.WorkflowBlueprintId, stoppingToken);
 
+                // TODO: FIX!
                 var task = blueprint.AllTasks
-                    .FirstOrDefault(t => t.Id == job.WorkflowTaskId);
+                    .FirstOrDefault(t => t.SchemaId == job.WorkflowTaskId);
 
                 if (task is null || !_agentManager.AgentExists(task.SchemaId))
                 {

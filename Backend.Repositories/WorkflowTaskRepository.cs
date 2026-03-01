@@ -3,6 +3,7 @@ using Backend.DTOs;
 using Backend.Interfaces.Repositories;
 using Backend.Database.Relational;
 using Microsoft.EntityFrameworkCore;
+using Backend.DTOs.DomainModels;
 
 namespace Backend.Repositories;
 
@@ -16,18 +17,109 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
     }
 
     public async Task<List<WorkflowTaskInfo>> GetAll(CancellationToken cancellationToken) =>
-        await _context.TaskSchemas
-            .Select(ts => new WorkflowTaskInfo(ts.Id, ts.Name, ts.Path, ts.Version))
+        await _context.TaskVersions
+            .Select(ts => new WorkflowTaskInfo(ts.Id, ts.TaskDefinition!.Name, ts.Path, ts.Version))
             .ToListAsync(cancellationToken);
 
-    public async Task CreateTaskSchema(Manifest manifest, CancellationToken cancellationToken)
+    public async Task CreateVersion(TaskVersionDTO version, CancellationToken cancellationToken)
     {
-        ChannelSpecification? inputChannelSpec = null;
-        var outputChannelSpecs = new List<ChannelSpecification>();
+        var taskDefinitionEntity = await _context.TaskDefinitions.FirstOrDefaultAsync(
+            td => td.Name == version.Name, cancellationToken);
+
+        if (taskDefinitionEntity is null)
+        {
+            taskDefinitionEntity = new TaskDefinition
+            {
+                Name = version.Name,
+                Versions = []
+            };
+
+            _context.Add(taskDefinitionEntity);
+        }
+
+        var versionEntity = new TaskVersion
+        {
+            Description = version.Description,
+            Path = version.WorkspaceEntryPointPath,
+            Version = version.Version
+        };
+
+        if (version.RequiredGlobalState is not null)
+        {
+            versionEntity.GlobalState = new GlobalStateDefinition
+            {
+                Name = "GlobalState",
+                Properties = version.RequiredGlobalState.Select(p => new ChannelProperty
+                {
+                    Name = p.Name,
+                    Type = p.TypeName switch
+                    {
+                        "string" => PrimitiveTypes.String,
+                        "integer" or "number" => PrimitiveTypes.Number,
+                        "boolean" => PrimitiveTypes.Boolean,
+                        "guid" => PrimitiveTypes.Guid,
+                        _ => throw new InvalidDataException($"Unsupported property type: {p.TypeName}")
+                    }
+                }).ToList()
+            };
+        }
+
+        if (version.InputChannelDefinition is not null)
+        {
+            versionEntity.Channels.Add(new InputChannelDefinition
+            {
+                Name = version.InputChannelDefinition.Name,
+                Properties = version.InputChannelDefinition.Properties.Select(p => new ChannelProperty
+                {
+                    Name = p.Name,
+                    Type = p.TypeName switch
+                    {
+                        "string" => PrimitiveTypes.String,
+                        "integer" or "number" => PrimitiveTypes.Number,
+                        "boolean" => PrimitiveTypes.Boolean,
+                        "guid" => PrimitiveTypes.Guid,
+                        _ => throw new InvalidDataException($"Unsupported property type: {p.TypeName}")
+                    }
+                }).ToList()
+            });
+        }
+
+        if (version.OutputChannelDefinitions.Count > 0)
+        {
+            foreach (var outputChannel in version.OutputChannelDefinitions)
+            {
+                versionEntity.Channels.Add(new OutputChannelDefinition
+                {
+                    Name = outputChannel.Name,
+                    Properties = outputChannel.Properties.Select(p => new ChannelProperty
+                    {
+                        Name = p.Name,
+                        Type = p.TypeName switch
+                        {
+                            "string" => PrimitiveTypes.String,
+                            "integer" or "number" => PrimitiveTypes.Number,
+                            "boolean" => PrimitiveTypes.Boolean,
+                            "guid" => PrimitiveTypes.Guid,
+                            _ => throw new InvalidDataException($"Unsupported property type: {p.TypeName}")
+                        }
+                    }).ToList()
+                });
+            }
+        }
+
+        taskDefinitionEntity.Versions.Add(versionEntity);
+
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async System.Threading.Tasks.Task CreateTaskSchema(Manifest manifest, CancellationToken cancellationToken)
+    {
+        /*Channel? inputChannelSpec = null;
+        var outputChannelSpecs = new List<Channel>();
 
         foreach (var channel in manifest.Channels)
         {
-            var newChannel = new ChannelSpecification
+            var newChannel = new Channel
             {
                 Name = channel.Name
             };
@@ -65,21 +157,30 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
         };
 
         _context.Add(workflowTask);
-        await _context.SaveChangesAsync(cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);*/
+        throw new NotImplementedException();
     }
 
-    public async Task CreateBasicTask(string name, string version,
+    public async System.Threading.Tasks.Task CreateBasicTask(string name, string version,
         string entryPath, CancellationToken cancellationToken)
     {
-        var taskSchema = new TaskSchema
+        var taskDefinition = await _context.TaskDefinitions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(td => td.Name.Equals(name, StringComparison.InvariantCultureIgnoreCase));
+
+        taskDefinition ??= new TaskDefinition
         {
             Name = name,
-            Path = entryPath,
-            Version = new Version(version),
-            OutputChannelSpecifications = []
+            Versions = []
         };
 
-        _context.Add(taskSchema);
+        taskDefinition.Versions.Add(new TaskVersion
+        {
+            Path = entryPath,
+            Version = new Version(version)
+        });
+
+        _context.Add(taskDefinition);
         await _context.SaveChangesAsync(cancellationToken);
     }
 }

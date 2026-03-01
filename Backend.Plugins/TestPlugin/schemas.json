@@ -18,6 +18,20 @@
           }
         }
       },
+      "TestPlugin.PlayerOutput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Health": {
+            "type": "integer"
+          },
+          "Alive": {
+            "type": "boolean"
+          }
+        }
+      },
       "TestPlugin.State": {
         "type": [
           "object",

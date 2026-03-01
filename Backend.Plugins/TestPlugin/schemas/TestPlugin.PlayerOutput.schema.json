@@ -1,0 +1,14 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "Health": {
+      "type": "integer"
+    },
+    "Alive": {
+      "type": "boolean"
+    }
+  }
+}

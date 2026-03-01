@@ -1,6 +1,7 @@
 using Azure.Messaging.ServiceBus;
 using Backend.DTOs;
 using Backend.Engine.Messages;
+using Task = System.Threading.Tasks.Task;
 
 namespace Backend.Engine;
 
@@ -49,7 +50,7 @@ public class JobContext
         _serviceBusReceiver = serviceBusReceiver;
         _workflowBlueprint = workflowBlueprint;
         _workflowTask = new Lazy<WorkflowTask>(
-            () => _workflowBlueprint.AllTasks.First(t => t.Id == _id));
+            () => _workflowBlueprint.AllTasks.First(t => t.SchemaId == _id));
 
         Guid = job.WorkflowTaskInstanceId;
     }

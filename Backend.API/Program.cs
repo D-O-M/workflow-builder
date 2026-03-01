@@ -1,5 +1,6 @@
 using Backend.Database.Relational;
 using Microsoft.EntityFrameworkCore;
+using Scalar.AspNetCore;
 
 namespace Backend.API;
 
@@ -11,7 +12,8 @@ public class Program
         builder.AddServiceDefaults();
 
         // Add services to the container.
-        builder.Services.AddDbContextPool<WorkflowDbContext>(options =>
+
+        builder.Services.AddDbContextPool<WorkflowDbContext>((sp, options) =>
         {
             options.UseSqlServer(builder.Configuration.GetConnectionString("SqlServer"));
         });
@@ -39,6 +41,9 @@ public class Program
         if (app.Environment.IsDevelopment())
         {
             app.MapOpenApi();
+
+            // Map the Scalar UI (default route is typically /scalar/v1)
+            app.MapScalarApiReference();
         }
 
         app.UseAuthorization();

@@ -1,6 +1,7 @@
 using Backend.DTOs;
 using Backend.Interfaces.Repositories;
 using Backend.Database.Relational;
+using Backend.Database.Relational.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Repositories;
@@ -14,82 +15,116 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
         _context = context;
     }
 
+    /// <summary>
+    /// Loads a single Blueprint *version* (BV) by id, including:
+    /// - TaskInstances (TI) (nodes)
+    /// - TaskVersion (TV) + its Input/Output Channels + ChannelProperties
+    /// - TaskConnections (TC) + their Channel + ChannelProperties
+    /// </summary>
     public async Task<WorkflowBlueprint> GetFullBlueprintById(
         int id, CancellationToken cancellationToken)
     {
-        var blueprintEntity = await _context.WorkflowBlueprints
-            .Include(wbp => wbp.Tasks)
-                .ThenInclude(t => t.InputChannel.Schema!.Properties)
-            .Include(wbp => wbp.Tasks)
-                .ThenInclude(t => t.OutputChannels)
-                .ThenInclude(oc => oc.Schema!.Properties)
+        // id == BlueprintVersion.Id (BV.Id)
+        var blueprintVersionEntity = await _context.BlueprintVersions
+            .Include(bv => bv.TaskInstances)
+                .ThenInclude(ti => ti.TaskVersion.TaskDefinition)
+            .Include(bv => bv.TaskInstances)
+                .ThenInclude(ti => ti.TaskVersion)
+                    .ThenInclude(tv => tv.Channels)
+                        .ThenInclude(c => c.Properties)
+            .Include(bv => bv.TaskInstances)
+                .ThenInclude(ti => ti.OutgoingConnections)
+                    .ThenInclude(tc => tc.Channel.Properties)
+            // If you later want to traverse destinations in-memory without extra queries:
+            .Include(bv => bv.TaskInstances)
+                .ThenInclude(ti => ti.OutgoingConnections)
+                    .ThenInclude(tc => tc.DestinationTaskInstance)
             .AsNoTracking()
             .AsSplitQuery()
-            .FirstOrDefaultAsync(wbp => wbp.Id == id,
-                cancellationToken);
+            .FirstOrDefaultAsync(bv => bv.Id == id, cancellationToken);
 
-        if (blueprintEntity is null)
+        if (blueprintVersionEntity is null)
             throw new EntityNotFoundException<WorkflowBlueprint>(id);
 
-        var taskDtos = new List<WorkflowTask>();
+        // Build DTOs for each node (TaskInstance)
+        var taskDtosById = new Dictionary<Guid, WorkflowTask>(capacity: blueprintVersionEntity.TaskInstances.Count);
 
-        foreach (var taskEntity in blueprintEntity.Tasks)
+        foreach (var nodeEntity in blueprintVersionEntity.TaskInstances)
         {
-            var channelEntitiesBySpecId = new Dictionary<int, WorkflowTaskChannel>
+            var taskVersion = nodeEntity.TaskVersion;
+
+            // Your new schema supports multiple input channels; if your domain expects exactly one,
+            // keep Single(). If it can be 0/1+, adjust the DTO accordingly.
+            var inputChannelEntity = taskVersion.InputChannels.Single();
+
+            // Build input channel DTO
+            var inputChannelDto = new WorkflowTaskChannel
             {
-                {
-                    taskEntity.InputChannel.Schema!.Id,
-                    new WorkflowTaskChannel
-                    {
-                        Id = taskEntity.InputChannel.Id,
-                        Name = taskEntity.InputChannel.Schema!.Name,
-                        Criterion = taskEntity.InputChannel.Schema!.Properties.ToDictionary(p => p.Name, p => p.Type)
-                    }
-                }
+                Id = inputChannelEntity.Id,
+                Name = inputChannelEntity.Name,
+                Criterion = inputChannelEntity.Properties.ToDictionary(p => p.Name, p => p.Type.ToString())
             };
 
-            foreach (var channelEntity in taskEntity.OutputChannels)
-            {
-                channelEntitiesBySpecId.Add(channelEntity.Schema!.Id, new WorkflowTaskChannel
+            // Build output channel DTOs keyed by channel name (matches your old style)
+            var outputChannelDtos = taskVersion.OutputChannels.ToDictionary(
+                oc => oc.Name,
+                oc => new WorkflowTaskChannel
                 {
-                    Id = channelEntity.Id,
-                    Name = channelEntity.Schema!.Name,
-                    Criterion = channelEntity.Schema!.Properties.ToDictionary(p => p.Name, p => p.Type)
+                    Id = oc.Id,
+                    Name = oc.Name,
+                    Criterion = oc.Properties.ToDictionary(p => p.Name, p => p.Type.ToString())
                 });
-            }
 
-            taskDtos.Add(new WorkflowTask
+            // Node DTO (WorkflowTask) – Id becomes TaskInstance.Id (Guid)
+            var taskDto = new WorkflowTask
             {
-                Id = taskEntity.Id,
-                Name = taskEntity.Schema!.Name,
-                Version = taskEntity.Schema!.Version,
-                SchemaId = taskEntity.Schema!.Id,
-                InputChannel = channelEntitiesBySpecId[taskEntity.Schema.InputChannelSpecificationId!.Value]!,
-                OutputChannels = taskEntity.Schema.OutputChannelSpecifications
-                    .ToDictionary(ocs => ocs.Name, ocs => channelEntitiesBySpecId[ocs.Id])
-            });
+                Id = nodeEntity.Id,
+                Name = taskVersion.TaskDefinition!.Name,
+                Version = taskVersion.Version,
+
+                // if your DTO still expects a schema id, TV.Id is the concrete version row
+                SchemaId = taskVersion.Id,
+
+                InputChannel = inputChannelDto,
+                OutputChannels = outputChannelDtos
+            };
+
+            taskDtosById.Add(taskDto.Id, taskDto);
         }
 
-        foreach (var taskDto in taskDtos)
-        {
-            var taskEntity = blueprintEntity.Tasks
-                .First(t => t.Id == taskDto.Id);
+        // OPTIONAL: If WorkflowTaskChannel has Source/Destination navigation in DTO-land,
+        // you can wire it here using TaskConnections. This was commented out in your old code;
+        // leaving it out keeps parity.
+        //
+        // foreach (var nodeEntity in blueprintVersionEntity.TaskInstances)
+        // {
+        //     var sourceTaskDto = taskDtosById[nodeEntity.Id];
+        //
+        //     foreach (var conn in nodeEntity.OutgoingConnections)
+        //     {
+        //         if (conn.DestinationTaskInstanceId is null) continue;
+        //
+        //         // Map connection.ChannelId -> the output channel DTO on the source task
+        //         // (You currently key output channels by name; you could also build an id->dto lookup.)
+        //     }
+        // }
 
-            /*foreach (var channel in taskDto.OutputChannels.Values)
-            {
-                channel.Source = taskDtos.First(t => t.Id == taskEntity.InputChannel.SourceNodeId);
-                channel.Destination = taskDtos.First(t => t.Id ==
-                    taskEntity.OutputChannels.First(c => c.Id == channel.Id).DestinationNodeId);
-            }*/
-        }
+        var allTasks = taskDtosById.Values.ToList();
 
         var workflowBlueprintDto = new WorkflowBlueprint
         {
-            Id = blueprintEntity.Id,
-            Name = blueprintEntity.Name,
-            Description = blueprintEntity.Description,
-            InitialTask = taskDtos.First(t => t.Id == blueprintEntity.StartingTaskId),
-            AllTasks = taskDtos
+            // Since you asked for “singular version of a blueprint”, this is BV.Id.
+            Id = blueprintVersionEntity.Id,
+
+            Name = blueprintVersionEntity.Name,
+
+            // Old code referenced Description; your DBML no longer has it.
+            // If DTO requires it, populate empty/placeholder or pull from BlueprintDefinition if you add it.
+            Description = string.Empty,
+
+            InitialTask = taskDtosById[blueprintVersionEntity.StartingTaskInstanceId],
+
+            AllTasks = allTasks
         };
 
         return workflowBlueprintDto;

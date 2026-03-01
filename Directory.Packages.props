@@ -4,12 +4,11 @@
     <AzureCosmosDisableNewtonsoftJsonCheck>true</AzureCosmosDisableNewtonsoftJsonCheck>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.1.0" />
-    <PackageVersion Include="Aspire.Hosting.Azure.CosmosDB" Version="13.1.0" />
-    <PackageVersion Include="Aspire.Hosting.Azure.Functions" Version="13.1.0" />
-    <PackageVersion Include="Aspire.Hosting.Azure.ServiceBus" Version="13.1.0" />
-    <PackageVersion Include="Aspire.Hosting.Azure.Storage" Version="13.1.0" />
-    <PackageVersion Include="Aspire.Hosting.SqlServer" Version="13.1.0" />
+    <PackageVersion Include="Aspire.Hosting.Azure.CosmosDB" Version="13.1.1" />
+    <PackageVersion Include="Aspire.Hosting.Azure.Functions" Version="13.1.1" />
+    <PackageVersion Include="Aspire.Hosting.Azure.ServiceBus" Version="13.1.1" />
+    <PackageVersion Include="Aspire.Hosting.Azure.Storage" Version="13.1.1" />
+    <PackageVersion Include="Aspire.Hosting.SqlServer" Version="13.1.1" />
     <PackageVersion Include="Azure.Messaging.ServiceBus" Version="7.20.1" />
     <PackageVersion Include="Azure.Storage.Blobs" Version="12.27.0" />
     <PackageVersion Include="CliWrap" Version="3.10.0" />
@@ -42,6 +41,7 @@
     <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.14.0" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.14.0" />
     <PackageVersion Include="Riok.Mapperly" Version="4.3.1" />
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.12.34" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="System.Reactive" Version="6.1.0" />
     <PackageVersion Include="TUnit" Version="1.9.42" />

@@ -7,11 +7,16 @@ public class MyPlugin : IPlugin
     public required State State { get; set; }
     public required PlayerInput PlayerInput { get; init; }
 
-    public bool Success { get; set; }
+    public PlayerOutput? Success { get; set; } = null;
 
     public Task Execute()
     {
-        Success = true;
+        Success = new PlayerOutput
+        {
+            Health = PlayerInput.Score * 2,
+            Alive = PlayerInput.Speed > 5.0f
+        };
+
         return Task.CompletedTask;
     }
 }

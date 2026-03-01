@@ -1,19 +1,13 @@
 {
   "DisplayName": "A Test Plugin",
-  "InputChannels": [
-    {
-      "Name": "PlayerInput",
-      "Type": "TestPlugin.PlayerInput"
-    },
-    {
-      "Name": "State",
-      "Type": "TestPlugin.State"
-    }
-  ],
+  "InputChannel": {
+    "Name": "PlayerInput",
+    "Type": "TestPlugin.PlayerInput"
+  },
   "OutputChannels": [
     {
       "Name": "Success",
-      "Type": "System.Boolean"
+      "Type": "TestPlugin.PlayerOutput"
     }
   ],
   "GlobalState": "TestPlugin.State"

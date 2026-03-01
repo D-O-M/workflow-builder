@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Azure.Storage.Blobs;
 using Backend.DTOs;
+using Backend.DTOs.DomainModels;
 using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
 using Microsoft.Extensions.DependencyInjection;
@@ -55,16 +56,40 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
 
         var schemas = await _schemaAggregator.LoadAsync(workspaceDirectory, cancellationToken);
         LogProcessingSummary(pluginInfo, manifest, schemas);
+
+        if (schemas is null) throw new Exception();
+
         var entryPoint = FindEntryPoint(workspaceDirectory, pluginInfo.PluginName);
 
         using var serviceScope = _scopeFactory.CreateScope();
         var workflowTaskRepository = serviceScope.ServiceProvider.GetRequiredService<IWorkflowTaskRepository>();
 
-        await workflowTaskRepository.CreateBasicTask(
+        var version = new TaskVersionDTO
+        {
+            Name = pluginInfo.PluginName,
+            Version = pluginInfo.Version,
+            WorkspaceEntryPointPath = entryPoint,
+            RequiredGlobalState = GetGlobalStateRequirements(pluginInfo, manifest, schemas),
+            InputChannelDefinition = GetInputChannelDefinition(pluginInfo, manifest, schemas),
+            OutputChannelDefinitions = GetOutputChannelDefinitions(pluginInfo, manifest, schemas)
+        };
+
+        try
+        {
+            await workflowTaskRepository.CreateVersion(version, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Failed to create workflow task version for plugin {Plugin} ({Version}).",
+                pluginInfo.PluginName, pluginInfo.Version);
+        }
+
+        /*await workflowTaskRepository.CreateBasicTask(
             pluginInfo.PluginName,
             pluginInfo.Version.ToString(),
-            entryPoint,
-            cancellationToken);
+            entryPoint.ToString(),
+            cancellationToken);*/
     }
 
     private void LogProcessingSummary(PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult? schemas)
@@ -73,7 +98,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             "Manifest parsed for plugin {Plugin} ({Version}). Inputs: {InputCount}, Outputs: {OutputCount}.",
             pluginInfo.PluginName,
             pluginInfo.Version,
-            manifest.InputChannels?.Count ?? 0,
+            manifest.InputChannel is not null ? 1 : 0,
             manifest.OutputChannels?.Count ?? 0);
 
         if (schemas is null)
@@ -87,6 +112,110 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             schemas.DefinitionCount,
             pluginInfo.PluginName,
             pluginInfo.Version);
+    }
+
+    private ChannelDefinitionDTO? GetInputChannelDefinition(
+        PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult schemas)
+    {
+        var inputChannelType = manifest.InputChannel.Type;
+        var inputChannelSchema = schemas.TypedSchemas!.Components.Schemas[inputChannelType];
+
+        var propDefs = new HashSet<PropertyDefinitionDTO>();
+
+        foreach (var property in inputChannelSchema.Properties)
+        {
+            var propDef = new PropertyDefinitionDTO
+            {
+                Name = property.Key,
+                TypeName = property.Value.Type
+            };
+
+            if (propDefs.Contains(propDef))
+            {
+                _logger.LogWarning("Encountered more than one property named {PropertyName} while parsing " +
+                    "the Input Channel definition for version {PluginVersion} of plugin {PluginName}.",
+                    property.Key, pluginInfo.Version.ToString(), pluginInfo.PluginName);
+            }
+            else propDefs.Add(propDef);
+        }
+
+        return new ChannelDefinitionDTO
+        {
+            Name = pluginInfo.PluginName,
+            ModelTypeName = inputChannelType,
+            Properties = propDefs
+        };
+    }
+
+    private HashSet<ChannelDefinitionDTO> GetOutputChannelDefinitions(
+        PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult schemas)
+    {
+        var channelDefs = new HashSet<ChannelDefinitionDTO>();
+
+        foreach (var channel in manifest.OutputChannels)
+        {
+            var channelType = channel.Type;
+            var channelSchema = schemas.TypedSchemas!.Components.Schemas[channelType];
+
+            var propDefs = new HashSet<PropertyDefinitionDTO>();
+
+            foreach (var property in channelSchema.Properties)
+            {
+                var propDef = new PropertyDefinitionDTO
+                {
+                    Name = property.Key,
+                    TypeName = property.Value.Type
+                };
+
+                if (!propDefs.Add(propDef))
+                {
+                    _logger.LogWarning("Encountered more than one identical property named {PropertyName} while parsing " +
+                        "the Output Channel definition for channel {ChannelName} of version {PluginVersion} of plugin {PluginName}.",
+                        channel.Name, property.Key, pluginInfo.Version.ToString(), pluginInfo.PluginName);
+                }
+            }
+
+            if (!channelDefs.Add(new ChannelDefinitionDTO
+            {
+                Name = pluginInfo.PluginName,
+                ModelTypeName = channelType,
+                Properties = propDefs
+            }))
+            {
+                _logger.LogWarning("Encountered more than one identical channel named {ChannelName} while parsing " +
+                    "the Output Channel definitions of version {PluginVersion} of plugin {PluginName}.",
+                    channel.Name, pluginInfo.Version.ToString(), pluginInfo.PluginName);
+            }
+        }
+
+        return channelDefs;
+    }
+
+    private HashSet<PropertyDefinitionDTO> GetGlobalStateRequirements(
+        PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult schemas)
+    {
+        var globalStateType = manifest.GlobalState;
+        var globalStateSchema = schemas.TypedSchemas!.Components.Schemas[globalStateType];
+
+        var propDefs = new HashSet<PropertyDefinitionDTO>();
+
+        foreach (var property in globalStateSchema.Properties)
+        {
+            var propDef = new PropertyDefinitionDTO
+            {
+                Name = property.Key,
+                TypeName = property.Value.Type
+            };
+
+            if (!propDefs.Add(propDef))
+            {
+                _logger.LogWarning("Encountered more than one property named {PropertyName} while parsing " +
+                    "the Global State definition for version {PluginVersion} of plugin {PluginName}.",
+                    property.Key, pluginInfo.Version.ToString(), pluginInfo.PluginName);
+            }
+        }
+
+        return propDefs;
     }
 
     private string FindEntryPoint(string workspaceDirectory, string pluginName)
