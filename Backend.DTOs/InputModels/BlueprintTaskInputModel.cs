@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
-using Backend.DTOs.ViewModels;
+using Backend.Models.ViewModels;
 
-namespace Backend.DTOs.InputModels;
+namespace Backend.Models.InputModels;
 
 public sealed class BlueprintTaskInputModel
 {

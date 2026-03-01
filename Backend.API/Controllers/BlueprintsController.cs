@@ -1,6 +1,6 @@
-using Backend.DTOs.DomainModels;
-using Backend.DTOs.InputModels;
-using Backend.DTOs.ViewModels;
+using Backend.Models.DomainModels;
+using Backend.Models.InputModels;
+using Backend.Models.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Backend.API.Controllers;

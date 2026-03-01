@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Backend.DTOs;
+namespace Backend.Models;
 
 public sealed class Blueprint
 {

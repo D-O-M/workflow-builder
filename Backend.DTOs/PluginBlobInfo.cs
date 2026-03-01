@@ -1,4 +1,4 @@
-namespace Backend.DTOs;
+namespace Backend.Models;
 
 public readonly record struct PluginBlobInfo(
     string BlobName,

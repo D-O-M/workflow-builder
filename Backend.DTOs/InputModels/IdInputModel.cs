@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace Backend.DTOs.InputModels;
+namespace Backend.Models.InputModels;
 
 public class IdInputModel
 {

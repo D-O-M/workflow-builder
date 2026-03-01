@@ -10,7 +10,7 @@
   <Project Path="Backend.AppHost/Backend.AppHost.csproj" />
   <Project Path="Backend.Database.Relational/Backend.Database.Relational.csproj" />
   <Project Path="Backend.Constants/Backend.Constants.csproj" />
-  <Project Path="Backend.DTOs/Backend.DTOs.csproj" />
+  <Project Path="Backend.DTOs/Backend.Models.csproj" />
   <Project Path="Backend.Engine/Backend.Engine.csproj" />
   <Project Path="Backend.Functions.PluginDetector/Backend.Functions.PluginDetector.csproj" />
   <Project Path="Backend.Interfaces/Backend.Interfaces.csproj" />

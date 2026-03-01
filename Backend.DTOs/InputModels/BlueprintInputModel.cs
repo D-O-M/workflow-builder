@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Text;
 
-namespace Backend.DTOs.InputModels;
+namespace Backend.Models.InputModels;
 
 public sealed class BlueprintInputModel
 {

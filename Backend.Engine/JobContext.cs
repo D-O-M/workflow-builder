@@ -1,5 +1,5 @@
 using Azure.Messaging.ServiceBus;
-using Backend.DTOs;
+using Backend.Models;
 using Backend.Engine.Messages;
 using Task = System.Threading.Tasks.Task;
 

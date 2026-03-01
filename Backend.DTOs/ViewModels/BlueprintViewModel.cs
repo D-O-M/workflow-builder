@@ -1,4 +1,4 @@
-namespace Backend.DTOs.ViewModels;
+namespace Backend.Models.ViewModels;
 
 public class BlueprintViewModel
 {

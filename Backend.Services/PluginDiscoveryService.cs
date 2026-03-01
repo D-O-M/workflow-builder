@@ -1,6 +1,6 @@
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
-using Backend.DTOs;
+using Backend.Models;
 using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Services;
 using Backend.Interfaces.Utilities;

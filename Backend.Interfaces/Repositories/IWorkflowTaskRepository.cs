@@ -1,5 +1,5 @@
-using Backend.DTOs;
-using Backend.DTOs.DomainModels;
+using Backend.Models;
+using Backend.Models.DomainModels;
 
 namespace Backend.Interfaces.Repositories;
 

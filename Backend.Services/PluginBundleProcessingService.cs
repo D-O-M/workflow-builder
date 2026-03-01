@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using Azure.Storage.Blobs;
-using Backend.DTOs;
-using Backend.DTOs.DomainModels;
+using Backend.Models;
+using Backend.Models.DomainModels;
 using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
 using Microsoft.Extensions.DependencyInjection;

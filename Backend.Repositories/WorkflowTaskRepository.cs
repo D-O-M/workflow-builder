@@ -1,9 +1,9 @@
 using Backend.Database.Relational.Entities;
-using Backend.DTOs;
+using Backend.Models;
 using Backend.Interfaces.Repositories;
 using Backend.Database.Relational;
 using Microsoft.EntityFrameworkCore;
-using Backend.DTOs.DomainModels;
+using Backend.Models.DomainModels;
 
 namespace Backend.Repositories;
 

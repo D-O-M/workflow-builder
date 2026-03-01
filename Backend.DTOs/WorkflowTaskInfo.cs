@@ -1,4 +1,4 @@
-namespace Backend.DTOs;
+namespace Backend.Models;
 
 public record WorkflowTaskInfo(
     int Id,

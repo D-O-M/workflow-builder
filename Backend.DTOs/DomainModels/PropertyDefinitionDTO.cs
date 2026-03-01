@@ -1,4 +1,4 @@
-namespace Backend.DTOs.DomainModels;
+namespace Backend.Models.DomainModels;
 
 public class PropertyDefinitionDTO
 {
