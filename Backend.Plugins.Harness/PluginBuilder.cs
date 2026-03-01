@@ -125,6 +125,7 @@ public class PluginBuilder<TPlugin>
 
     public PluginBuilder<TPlugin> ConfigureOutputChannel<TChannelType>(
         Expression<Func<TPlugin, TChannelType>> propertySelector)
+        where TChannelType : class
     {
         var property = GetPropertyInfo(propertySelector);
         var name = property.Name;
@@ -205,7 +206,7 @@ public class PluginBuilder<TPlugin>
 
             var manifest = ManifestGenerator.CreateManifest(
                 displayName: _displayName,
-                inputChannels: _inputChannels.Values.Select(c => new KeyValuePair<string, Type>(c.Name, c.MessageType)),
+                inputChannel: _inputChannels.Values.Select(c => new KeyValuePair<string, Type>(c.Name, c.MessageType)).FirstOrDefault(),
                 outputChannels: _outputChannels.Values.Select(c => new KeyValuePair<string, Type>(c.Name, c.MessageType)),
                 globalStateType: _globalStateType);
 

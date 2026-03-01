@@ -20,16 +20,18 @@ public static class ManifestGenerator
     /// </summary>
     public static PluginManifest CreateManifest(
         string displayName,
-        IEnumerable<KeyValuePair<string, Type>> inputChannels,
+        KeyValuePair<string, Type> inputChannel,
         IEnumerable<KeyValuePair<string, Type>> outputChannels,
         Type? globalStateType)
     {
         return new PluginManifest
         {
             DisplayName = displayName,
-            InputChannels = inputChannels
-                .Select(kv => new ChannelManifest { Name = kv.Key, Type = kv.Value.FullName ?? kv.Value.Name })
-                .ToList(),
+            InputChannel = new ChannelManifest
+            {
+                Name = inputChannel.Key,
+                Type = inputChannel.Value.FullName ?? inputChannel.Value.Name
+            },
             OutputChannels = outputChannels
                 .Select(kv => new ChannelManifest { Name = kv.Key, Type = kv.Value.FullName ?? kv.Value.Name })
                 .ToList(),

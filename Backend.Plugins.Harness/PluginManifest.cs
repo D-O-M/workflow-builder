@@ -3,7 +3,7 @@ namespace Backend.Plugins.Harness;
 public sealed class PluginManifest
 {
     public required string DisplayName { get; set; }
-    public List<ChannelManifest> InputChannels { get; set; } = new();
+    public ChannelManifest? InputChannel { get; set; }
     public List<ChannelManifest> OutputChannels { get; set; } = new();
     public string? GlobalState { get; set; }
 }
