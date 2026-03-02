@@ -83,8 +83,8 @@ namespace Backend.Database.Relational.Migrations
 
                     b.Property<string>("Discriminator")
                         .IsRequired()
-                        .HasMaxLength(21)
-                        .HasColumnType("nvarchar(21)");
+                        .HasMaxLength(34)
+                        .HasColumnType("nvarchar(34)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -234,6 +234,20 @@ namespace Backend.Database.Relational.Migrations
                     b.HasBaseType("Backend.Database.Relational.Entities.Channel");
 
                     b.HasDiscriminator().HasValue("GlobalStateDefinition");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.InputChannelDefinition", b =>
+                {
+                    b.HasBaseType("Backend.Database.Relational.Entities.Channel");
+
+                    b.HasDiscriminator().HasValue("InputChannelDefinition");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.OutputChannelDefinition", b =>
+                {
+                    b.HasBaseType("Backend.Database.Relational.Entities.Channel");
+
+                    b.HasDiscriminator().HasValue("OutputChannelDefinition");
                 });
 
             modelBuilder.Entity("Backend.Database.Relational.Entities.BlueprintVersion", b =>

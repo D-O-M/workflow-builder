@@ -4,12 +4,15 @@ using Backend.Interfaces.Repositories;
 using Backend.Database.Relational;
 using Microsoft.EntityFrameworkCore;
 using Backend.Models.DomainModels;
+using Backend.Models.ViewModels;
+using Backend.Models.Mappers;
 
 namespace Backend.Repositories;
 
 public class WorkflowTaskRepository : IWorkflowTaskRepository
 {
     private readonly WorkflowDbContext _context;
+    private readonly TaskViewModelMapper _mapper = new();
 
     public WorkflowTaskRepository(WorkflowDbContext context)
     {
@@ -21,7 +24,16 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
             .Select(ts => new WorkflowTaskInfo(ts.Id, ts.TaskDefinition!.Name, ts.Path, ts.Version))
             .ToListAsync(cancellationToken);
 
-    public async Task CreateVersion(TaskVersionDTO version, CancellationToken cancellationToken)
+    public async Task<List<TaskDefinitionViewModel>> GetAllTaskDefinitionViewModels(CancellationToken cancellationToken) =>
+        [..(await _context.TaskDefinitions
+            .Include(td => td.Versions)
+                .ThenInclude(tv => tv.Channels)
+                    .ThenInclude(c => c.Properties)
+            .AsNoTracking()
+            .ToListAsync())
+            .Select(_mapper.MapViewModel)];
+
+    public async Task CreateVersion(TaskVersionDomainModel version, CancellationToken cancellationToken)
     {
         var taskDefinitionEntity = await _context.TaskDefinitions.FirstOrDefaultAsync(
             td => td.Name == version.Name, cancellationToken);

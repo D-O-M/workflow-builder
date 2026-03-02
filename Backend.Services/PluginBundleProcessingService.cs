@@ -64,7 +64,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         using var serviceScope = _scopeFactory.CreateScope();
         var workflowTaskRepository = serviceScope.ServiceProvider.GetRequiredService<IWorkflowTaskRepository>();
 
-        var version = new TaskVersionDTO
+        var version = new TaskVersionDomainModel
         {
             Name = pluginInfo.PluginName,
             Version = pluginInfo.Version,
@@ -114,17 +114,17 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             pluginInfo.Version);
     }
 
-    private ChannelDefinitionDTO? GetInputChannelDefinition(
+    private ChannelDefinitionDomainModel? GetInputChannelDefinition(
         PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult schemas)
     {
         var inputChannelType = manifest.InputChannel.Type;
         var inputChannelSchema = schemas.TypedSchemas!.Components.Schemas[inputChannelType];
 
-        var propDefs = new HashSet<PropertyDefinitionDTO>();
+        var propDefs = new HashSet<PropertyDefinitionDomainModel>();
 
         foreach (var property in inputChannelSchema.Properties)
         {
-            var propDef = new PropertyDefinitionDTO
+            var propDef = new PropertyDefinitionDomainModel
             {
                 Name = property.Key,
                 TypeName = property.Value.Type
@@ -139,7 +139,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             else propDefs.Add(propDef);
         }
 
-        return new ChannelDefinitionDTO
+        return new ChannelDefinitionDomainModel
         {
             Name = pluginInfo.PluginName,
             ModelTypeName = inputChannelType,
@@ -147,21 +147,21 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         };
     }
 
-    private HashSet<ChannelDefinitionDTO> GetOutputChannelDefinitions(
+    private HashSet<ChannelDefinitionDomainModel> GetOutputChannelDefinitions(
         PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult schemas)
     {
-        var channelDefs = new HashSet<ChannelDefinitionDTO>();
+        var channelDefs = new HashSet<ChannelDefinitionDomainModel>();
 
         foreach (var channel in manifest.OutputChannels)
         {
             var channelType = channel.Type;
             var channelSchema = schemas.TypedSchemas!.Components.Schemas[channelType];
 
-            var propDefs = new HashSet<PropertyDefinitionDTO>();
+            var propDefs = new HashSet<PropertyDefinitionDomainModel>();
 
             foreach (var property in channelSchema.Properties)
             {
-                var propDef = new PropertyDefinitionDTO
+                var propDef = new PropertyDefinitionDomainModel
                 {
                     Name = property.Key,
                     TypeName = property.Value.Type
@@ -175,7 +175,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                 }
             }
 
-            if (!channelDefs.Add(new ChannelDefinitionDTO
+            if (!channelDefs.Add(new ChannelDefinitionDomainModel
             {
                 Name = pluginInfo.PluginName,
                 ModelTypeName = channelType,
@@ -191,17 +191,17 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         return channelDefs;
     }
 
-    private HashSet<PropertyDefinitionDTO> GetGlobalStateRequirements(
+    private HashSet<PropertyDefinitionDomainModel> GetGlobalStateRequirements(
         PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult schemas)
     {
         var globalStateType = manifest.GlobalState;
         var globalStateSchema = schemas.TypedSchemas!.Components.Schemas[globalStateType];
 
-        var propDefs = new HashSet<PropertyDefinitionDTO>();
+        var propDefs = new HashSet<PropertyDefinitionDomainModel>();
 
         foreach (var property in globalStateSchema.Properties)
         {
-            var propDef = new PropertyDefinitionDTO
+            var propDef = new PropertyDefinitionDomainModel
             {
                 Name = property.Key,
                 TypeName = property.Value.Type

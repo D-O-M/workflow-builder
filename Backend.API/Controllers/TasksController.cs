@@ -1,3 +1,5 @@
+using Backend.Interfaces.Repositories;
+using Backend.Models.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Backend.API.Controllers;
@@ -6,6 +8,13 @@ namespace Backend.API.Controllers;
 [Route("[controller]")]
 public class TasksController : ControllerBase
 {
+    private readonly IWorkflowTaskRepository _workflowTaskRepository;
+
+    public TasksController(IWorkflowTaskRepository workflowTaskRepository)
+    {
+        _workflowTaskRepository = workflowTaskRepository;
+    }
+
     private static readonly WorkflowTask[] Tasks = new[]
     {
         new WorkflowTask { Name = "Data Ingestion", Channels = 2, Description = "Import data from external APIs." },
@@ -21,5 +30,6 @@ public class TasksController : ControllerBase
     };
 
     [HttpGet]
-    public IEnumerable<WorkflowTask> Get() => Tasks;
+    public async Task<ActionResult<List<TaskDefinitionViewModel>>> Get(CancellationToken cancellationToken) =>
+        await _workflowTaskRepository.GetAllTaskDefinitionViewModels(cancellationToken);
 }

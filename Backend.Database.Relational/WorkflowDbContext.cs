@@ -170,6 +170,12 @@ public class WorkflowDbContext : DbContext
 
             entity.Property(e => e.Name).IsRequired();
 
+            entity.HasDiscriminator<string>("Discriminator")
+                  .HasValue<Channel>("Channel")
+                  .HasValue<InputChannelDefinition>("InputChannelDefinition")
+                  .HasValue<OutputChannelDefinition>("OutputChannelDefinition")
+                  .HasValue<GlobalStateDefinition>("GlobalStateDefinition");
+
             // Channel 1 -> many ChannelProperties
             entity.HasMany(e => e.Properties)
                   .WithOne(cp => cp.Channel)
