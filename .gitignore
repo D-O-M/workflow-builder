@@ -1,10 +1,10 @@
 # Angular specific
-/dist/
-/out-tsc/
-/tmp/
-/coverage/
-/e2e/test-output/
-/.angular/
+UI/dist/
+UI/out-tsc/
+UI/tmp/
+UI/coverage/
+UI/e2e/test-output/
+UI/.angular/
 .angular/
 
 # Node modules and dependency files
