@@ -2,10 +2,12 @@ import {
     AfterViewInit,
     ChangeDetectionStrategy,
     Component,
+    computed,
     effect,
     ElementRef,
     inject,
     Injector,
+    OnDestroy,
     runInInjectionContext,
     Signal,
     signal,
@@ -13,11 +15,18 @@ import {
 } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { MatToolbarModule } from '@angular/material/toolbar';
+import { MatButtonModule } from '@angular/material/button';
+import { MatSidenavModule } from '@angular/material/sidenav';
+import { MatListModule } from '@angular/material/list';
+import { MatIconModule } from '@angular/material/icon';
 import { CanvasWrapper } from './domain/canvas-wrapper';
 import { ConnectionModel } from './domain/connection-model';
 import { NodeModel, Point, Side } from './domain/node-model';
 import { Task } from './domain/task';
 import { GlobalSignals } from './domain/global-signals';
+import { ITaskDefinition } from './interfaces/ITaskDefinition';
+import { BlueprintEditorService } from './domain/blueprint-editor.service';
 
 interface DragNode {
     id: number;
@@ -27,12 +36,19 @@ interface DragNode {
 
 @Component({
     selector: 'app-root',
-    imports: [ReactiveFormsModule],
+    imports: [
+        ReactiveFormsModule,
+        MatToolbarModule,
+        MatButtonModule,
+        MatSidenavModule,
+        MatListModule,
+        MatIconModule,
+    ],
     templateUrl: './app.html',
     styleUrl: './app.css',
     changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class App implements AfterViewInit {
+export class App implements AfterViewInit, OnDestroy {
     protected readonly title = signal('workflow-builder');
     protected readonly Math = Math;
     private readonly injector = inject(Injector);
@@ -47,8 +63,16 @@ export class App implements AfterViewInit {
         return this.canvasRef().nativeElement;
     }
 
+    ngOnDestroy(): void {
+        this.resizeObserver?.disconnect();
+        if (this.zoomRedrawTimeoutId !== null) {
+            window.clearTimeout(this.zoomRedrawTimeoutId);
+            this.zoomRedrawTimeoutId = null;
+        }
+    }
+
     get zoom(): Signal<number> {
-        return this.canvasWrapper?.zoomLevel ?? signal(1);
+        return computed(() => this.canvasWrapper?.zoomLevel() ?? 1);
     }
 
     private canvasWrapper?: CanvasWrapper;
@@ -58,6 +82,7 @@ export class App implements AfterViewInit {
     protected readonly dragOffset = signal<Point | null>(null);
     protected readonly dragNode = signal<DragNode | null>(null);
     private animationId: number | null = null;
+    private zoomRedrawTimeoutId: number | null = null;
 
     protected readonly hoveredNodeId = signal<number | null>(null);
     protected readonly hoveredAnchor = signal<number | null>(null);
@@ -73,27 +98,67 @@ export class App implements AfterViewInit {
     protected readonly showModal = signal(false);
     private readonly newNodePos = signal<{ x: number; y: number } | null>(null);
 
-    protected readonly tasks = signal<Task[]>([]);
+    protected readonly tasks = signal<ITaskDefinition[]>([]);
     protected readonly selectedTask = new FormControl('', { nonNullable: true });
     private readonly http = inject(HttpClient);
+    private readonly editor = inject(BlueprintEditorService);
+
+    private resizeObserver?: ResizeObserver;
+
+    private readonly onResize = () => {
+        this.syncCanvasBackingSize();
+        this.draw();
+    };
+
+    private syncCanvasBackingSize(): void {
+        const el = this.canvasRef().nativeElement;
+
+        // Keep the backing buffer in sync with the canvas' rendered size to avoid warping.
+        // This does not change world coordinates; it only adjusts pixel density.
+        const dpr = window.devicePixelRatio || 1;
+        const cssWidth = Math.max(1, Math.floor(el.clientWidth));
+        const cssHeight = Math.max(1, Math.floor(el.clientHeight));
+        const width = Math.max(1, Math.floor(cssWidth * dpr));
+        const height = Math.max(1, Math.floor(cssHeight * dpr));
+
+        if (el.width !== width) el.width = width;
+        if (el.height !== height) el.height = height;
+
+        // Map 1 canvas unit == 1 CSS pixel, so our existing drawing math stays correct.
+        const ctx = this.canvasWrapper?.ctx;
+        if (ctx) {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.scale(dpr, dpr);
+        }
+    }
 
     ngAfterViewInit(): void {
         const c = this.canvasRef();
         if (!c) return;
         const ctx = c.nativeElement.getContext('2d')!;
         this.canvasWrapper = new CanvasWrapper(ctx, this.gridSize);
-        c.nativeElement.width = c.nativeElement.clientWidth;
-        c.nativeElement.height = c.nativeElement.clientHeight;
+        this.syncCanvasBackingSize();
 
-        this.http.get<Task[]>('tasks').subscribe((t) => {
+        this.resizeObserver = new ResizeObserver(() => this.onResize());
+        this.resizeObserver.observe(c.nativeElement);
+
+        this.http.get<ITaskDefinition[]>('tasks').subscribe((t) => {
             this.tasks.set(t);
             if (t.length > 0) {
                 this.selectedTask.setValue(t[0].name);
             }
         });
-
         runInInjectionContext(this.injector, () => {
             effect(() => {
+                // Track blueprint/editor + interaction signals so the canvas redraws
+                // when nodes/connections or hover/drag state changes.
+                this.editor.nodes();
+                this.editor.connections();
+                this.hoveredNodeId();
+                this.hoveredAnchor();
+                this.dragConnection();
+                this.dragNode();
+                this.dragOffset();
                 this.draw();
             });
         });
@@ -126,7 +191,7 @@ export class App implements AfterViewInit {
             this.showModal.set(false);
             return;
         }
-        this.canvasWrapper!.createNode(name, coordinates);
+        this.editor.createNode(name, coordinates, (v) => this.canvasWrapper!.snap(v));
         this.showModal.set(false);
     }
 
@@ -158,7 +223,7 @@ export class App implements AfterViewInit {
         const { x: worldX, y: worldY } = world;
         if (this.dragConnection()) {
             const drag = this.dragConnection()!;
-            const from = wrapper.getNodeById(drag.from);
+            const from = this.editor.getNodeById(drag.from);
             const side = this.anchorSide(drag.anchor);
             // switch anchor if dragged beyond opposite side
             if (
@@ -173,9 +238,9 @@ export class App implements AfterViewInit {
                 );
             }
 
-            const target = wrapper.getNodeByCoordinates(
+            const target = this.editor.getNodeByCoordinates(
                 { x: worldX, y: worldY },
-                ...wrapper.getNodesConnectedTo(wrapper.getNodeById(drag.from)),
+                ...this.editor.getNodesConnectedTo(this.editor.getNodeById(drag.from)),
             );
 
             if (target) {
@@ -196,10 +261,10 @@ export class App implements AfterViewInit {
         if (this.dragNode()) {
             const drag = this.dragNode()!;
 
-            wrapper.updateNodeCoordinates(drag.id, {
+            this.editor.updateNodeCoordinates(drag.id, {
                 x: worldX - drag.dx,
                 y: worldY - drag.dy,
-            });
+            }, (v) => wrapper.snap(v));
 
             return;
         }
@@ -212,7 +277,7 @@ export class App implements AfterViewInit {
             this.dragOffset.set({ x, y });
             return;
         }
-        const node = wrapper.getNodeByCoordinates({ x: worldX, y: worldY });
+        const node = this.editor.getNodeByCoordinates({ x: worldX, y: worldY });
         this.hoveredNodeId.set(node ? node.id : null);
 
         if (node) {
@@ -229,7 +294,7 @@ export class App implements AfterViewInit {
         const { x, y } = canvas;
         const { x: worldX, y: worldY } = world;
 
-        const hovered = wrapper.getNodeByCoordinates({ x: worldX, y: worldY });
+        const hovered = this.editor.getNodeByCoordinates({ x: worldX, y: worldY });
 
         if (hovered) {
             const anchor = this.inAnchorCircle(worldX, worldY, hovered);
@@ -265,20 +330,21 @@ export class App implements AfterViewInit {
 
         const drag = this.dragConnection();
         if (drag) {
-            const target = wrapper.getNodeByCoordinates(
+            const target = this.editor.getNodeByCoordinates(
                 { x: worldX, y: worldY },
-                ...wrapper.getNodesConnectedTo(wrapper.getNodeById(drag.from)),
+                ...this.editor.getNodesConnectedTo(this.editor.getNodeById(drag.from)),
             );
 
             if (target) {
                 const dir = this.sideFromPoint(worldX, worldY, target);
                 const snap = this.snapPointFixedSide(worldX, worldY, target, dir);
-                wrapper.createConnection(
+                this.editor.createConnection(
                     drag.from,
                     target.id,
                     drag.anchor,
                     dir,
                     snap.pos,
+                    (v) => wrapper.snap(v),
                 );
             }
             this.dragConnection.set(null);
@@ -309,11 +375,21 @@ export class App implements AfterViewInit {
     protected onWheel(event: WheelEvent): void {
         event.preventDefault();
         const delta = Math.sign(event.deltaY);
-        this.canvasWrapper!.zoomLevel.update((z) => {
-            let nz = z - delta * 0.05;
+        const z = this.canvasWrapper!.zoomLevel();
+        let nz = z - delta * 0.05;
             nz = Math.min(3, Math.max(0.05, nz));
-            return parseFloat(nz.toFixed(2));
-        });
+        this.canvasWrapper!.zoomLevel.set(parseFloat(nz.toFixed(2)));
+
+        this.startAnimation();
+        if (this.zoomRedrawTimeoutId !== null) {
+            window.clearTimeout(this.zoomRedrawTimeoutId);
+        }
+        this.zoomRedrawTimeoutId = window.setTimeout(() => {
+            this.zoomRedrawTimeoutId = null;
+            if (!this.dragNode() && !this.dragConnection() && !this.dragOffset()) {
+                this.stopAnimation();
+            }
+        }, 120);
     }
 
     protected resetView(): void {
@@ -404,6 +480,9 @@ export class App implements AfterViewInit {
         if (!wrapper || !canvas) return;
         const ctx = wrapper.ctx;
 
+        const nodes = this.editor.nodes();
+        const connections = this.editor.connections();
+
         wrapper.clear(canvas.width, canvas.height);
 
         ctx.save();
@@ -412,20 +491,20 @@ export class App implements AfterViewInit {
         const offset = this.canvasWrapper!.viewportOffset();
         ctx.translate(offset.x, offset.y);
 
-        this.canvasWrapper!.drawConnections();
+        this.canvasWrapper!.drawConnections(connections, nodes);
 
         const hovered = this.hoveredNodeId();
         const drag = this.dragConnection();
 
-        this.canvasWrapper?.drawNodes(drag, hovered, this.hoveredAnchor());
+        this.canvasWrapper?.drawNodes(nodes, connections, drag, hovered, this.hoveredAnchor());
 
         if (drag) {
-            const from = this.canvasWrapper!.getNodeById(drag.from);
-            if (!from.contains(drag.x, drag.y)) {
-                const start = this.anchorPositions(from)[drag.anchor];
+            const fromNode = this.editor.getNodeById(drag.from);
+            if (!fromNode.contains(drag.x, drag.y)) {
+                const start = this.anchorPositions(fromNode)[drag.anchor];
                 const hoveredNode =
                     hovered && hovered !== drag.from
-                        ? this.canvasWrapper!.getNodeById(hovered)
+                        ? this.editor.getNodeById(hovered)
                         : undefined;
                 /*if (hoveredNode && drag.side) {
                   const position = this.snapPointFixedSide(
@@ -445,7 +524,7 @@ export class App implements AfterViewInit {
                     position,
                   ).draw(wrapper, obstacles);
                 } else {*/
-                const obstacles = this.canvasWrapper!.getNodes(from.id, hoveredNode?.id);
+                const obstacles = this.editor.getNodes(fromNode.id, hoveredNode?.id);
 
                 this.drawOrthogonalLine(
                     start.x,
@@ -456,7 +535,7 @@ export class App implements AfterViewInit {
                     drag.side ?? this.anchorSide(drag.anchor),
                     hoveredNode,
                     this.anchorSide(drag.anchor),
-                    from,
+                    fromNode,
                 );
                 /*}*/
             }

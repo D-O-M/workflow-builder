@@ -1,18 +1,60 @@
-<div class="canvas-container">
-  <canvas
-    #myCanvas
-    (dblclick)="openModal($event)"
-    (mousemove)="onMouseMove($event)"
-    (mousedown)="onMouseDown($event)"
-    (mouseup)="onMouseUp($event)"
-    (mouseleave)="onMouseLeave()"
-    (wheel)="onWheel($event)"
-  ></canvas>
+<div class="app-shell">
+  <mat-toolbar color="primary" class="app-toolbar">
+    <span class="app-title">Workflow Builder</span>
+    <span class="spacer"></span>
+    <button mat-button type="button" aria-current="page">Blueprints</button>
+  </mat-toolbar>
 
-  <div class="zoom-display" aria-live="polite">
-    <span class="zoom-value">{{ Math.round(zoom() * 100) }}%</span>
-    <button type="button" (click)="resetView()">Reset</button>
-  </div>
+  <mat-sidenav-container class="workspace">
+    <mat-sidenav mode="side" opened class="sidebar">
+      <mat-nav-list>
+        <a mat-list-item aria-current="page">
+          <mat-icon aria-hidden="true">account_tree</mat-icon>
+          <span>Blueprints</span>
+        </a>
+      </mat-nav-list>
+
+      <div class="sidebar-actions">
+        <button mat-raised-button color="primary" type="button">
+          New blueprint
+        </button>
+      </div>
+
+      <div class="sidebar-list" aria-label="Blueprint list">
+        <mat-nav-list>
+          <!-- Placeholder items; wire to API when available -->
+          <a mat-list-item>Example Blueprint 1</a>
+          <a mat-list-item>Example Blueprint 2</a>
+          <a mat-list-item>Example Blueprint 3</a>
+          <a mat-list-item>Example Blueprint 4</a>
+          <a mat-list-item>Example Blueprint 5</a>
+          <a mat-list-item>Example Blueprint 6</a>
+          <a mat-list-item>Example Blueprint 7</a>
+          <a mat-list-item>Example Blueprint 8</a>
+          <a mat-list-item>Example Blueprint 9</a>
+        </mat-nav-list>
+      </div>
+    </mat-sidenav>
+
+    <mat-sidenav-content class="content">
+      <div class="canvas-container">
+        <canvas
+          #myCanvas
+          (dblclick)="openModal($event)"
+          (mousemove)="onMouseMove($event)"
+          (mousedown)="onMouseDown($event)"
+          (mouseup)="onMouseUp($event)"
+          (mouseleave)="onMouseLeave()"
+          (wheel)="onWheel($event)"
+        ></canvas>
+
+        <div class="zoom-display" aria-live="polite">
+          <span class="zoom-value">{{ Math.round(zoom() * 100) }}%</span>
+          <button type="button" (click)="resetView()">Reset</button>
+        </div>
+      </div>
+    </mat-sidenav-content>
+  </mat-sidenav-container>
 </div>
 
 @if (showModal()) {

@@ -1,12 +1,10 @@
-import { signal } from '@angular/core';
 import { NodeModel, Point, Side } from './node-model';
 import { PathfinderOptions, orthogonalSegments } from './pathfinder';
 import { ConnectionModel } from './connection-model';
+import { signal } from '@angular/core';
 
 export class CanvasWrapper {
 
-    readonly nodes = signal<NodeModel[]>([]);
-    readonly connections = signal<ConnectionModel[]>([]);
     readonly viewportOffset = signal<Point>({ x: 0, y: 0 });
     readonly zoomLevel = signal(1);
 
@@ -23,83 +21,33 @@ export class CanvasWrapper {
         this.ctx.lineWidth = 2;
     }
 
-    createNode(name: string, coordinates: Point): void {
-        const nodes = [...this.nodes()];
-        nodes.push(
-            new NodeModel(
-                Date.now(),
-                name,
-                this.snap(coordinates.x),
-                this.snap(coordinates.y),
-                240,
-                160,
-            ),
-        );
-        this.nodes.set(nodes);
-    }
-
-    createConnection(sourceNodeId: number, destinationNodeId: number, anchor: number, side: Side, position: number): void {
-        const connections = [...this.connections()];
-        const sourceNode = this.getNodeById(sourceNodeId);
-        const destinationNode = this.getNodeById(destinationNodeId);
-        const snappedPosition = this.snap(position);
-        connections.push(
-            new ConnectionModel(sourceNode, destinationNode, anchor, side, snappedPosition),
-        );
-        this.connections.set(connections);
-    }
-
-    getNodeById(id: number): NodeModel {
-        return this.nodes().find((n) => n.id === id)!;
-    }
-
-    getNodes(...except: Array<number | undefined>): NodeModel[] {
-        return this.nodes().filter(node => !except.includes(node.id));
-    }
-
-    getNodeByCoordinates(coordinates: Point, ...except: NodeModel[]): NodeModel | undefined {
-        return this.nodes().find(node => {
-            if (except.includes(node) ||
-                except.some(n => n.contains(coordinates.x, coordinates.y))) {
-                return false;
-            }
-
-            return node.contains(coordinates.x, coordinates.y);
-        });
-    }
-
-    getNodesConnectedTo(node: NodeModel): NodeModel[] {
-        return [...new Set(this.connections().filter(c => c.from === node || c.to === node)
-            .map(c => [c.from, c.to])
-            .flat()
-            .filter(n => !!n))];
-    }
-
-    drawConnections(): void {
-      for (const conn of this.connections()) {
-            const obstacles = this.nodes().filter(
-                (n) => n.id !== conn.from.id && n.id !== conn.to.id,
-            );
+    drawConnections(connections: ConnectionModel[], nodes: NodeModel[]): void {
+        for (const conn of connections) {
+            const obstacles = nodes.filter((n) => n.id !== conn.from.id && n.id !== conn.to.id);
             conn.draw(this, obstacles);
         }
     }
 
-    drawNodes(drag: {
-          from: number;
-          anchor: number;
-          x: number;
-          y: number;
-          side?: Side;
-      } | null,
-      hovered: number | null,
-      hoveredAnchor: number | null) {
-      for (const node of this.nodes()) {
+    drawNodes(
+        nodes: NodeModel[],
+        connections: ConnectionModel[],
+        drag: {
+            from: number;
+            anchor: number;
+            x: number;
+            y: number;
+            side?: Side;
+        } | null,
+        hovered: number | null,
+        hoveredAnchor: number | null,
+    ) {
+        for (const node of nodes) {
             const isHoveredDest =
                 drag && node.id !== drag.from && hovered === node.id;
             const eligible =
                 drag &&
                 node.id !== drag.from &&
-                !this.connections().some(
+                !connections.some(
                     (c) =>
                         (c.from.id === drag.from && c.to.id === node.id) ||
                         (c.to.id === drag.from && c.from.id === node.id),
@@ -153,12 +101,6 @@ export class CanvasWrapper {
                 }
             }
         }
-    }
-
-    updateNodeCoordinates(nodeId: number, newCoordinates: Point): void {
-        const node = this.getNodeById(nodeId);
-        node.x = this.snap(newCoordinates.x);
-        node.y = this.snap(newCoordinates.y);
     }
 
     snap(value: number): number {

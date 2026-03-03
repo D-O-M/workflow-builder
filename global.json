@@ -1,0 +1,10 @@
+{
+    "sdk": {
+        "allowPrerelease": true,
+        "rollForward": "latestMajor",
+        "dotnet": "new"
+    },
+    "test": {
+        "runner": "Microsoft.Testing.Platform"
+    }
+}
