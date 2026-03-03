@@ -2,6 +2,7 @@ using Backend.Models.DomainModels;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
 using Microsoft.AspNetCore.Mvc;
+using Backend.API.Validation.Blueprints;
 
 namespace Backend.API.Controllers;
 
@@ -9,6 +10,11 @@ namespace Backend.API.Controllers;
 [ApiController]
 public class BlueprintsController : ControllerBase
 {
+    private readonly IBlueprintVersionValidator _blueprintVersionValidator;
+
+    public BlueprintsController(IBlueprintVersionValidator blueprintVersionValidator)
+        => _blueprintVersionValidator = blueprintVersionValidator;
+
     [HttpGet]
     public async Task<ActionResult<List<BlueprintViewModel>>> GetAllBlueprints()
     {
@@ -50,6 +56,15 @@ public class BlueprintsController : ControllerBase
                 taskModelsByInstanceId[model.StartingTaskInstanceId],
                 taskModelsByInstanceId)
         };
+
+        var validation = await _blueprintVersionValidator.ValidateAsync(model, HttpContext.RequestAborted);
+        if (!validation.IsValid)
+            return ValidationProblem(new ValidationProblemDetails
+            {
+                Title = "Blueprint version validation failed.",
+                Status = StatusCodes.Status400BadRequest,
+                Extensions = { ["errors"] = validation.Errors }
+            });
 
         throw new NotImplementedException();
     }
