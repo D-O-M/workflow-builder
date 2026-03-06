@@ -10,8 +10,8 @@ public class BlueprintVersion
     public int Version { get; set; }
     public string Name { get; set; } = null!;
 
-    public Guid StartingTaskInstanceId { get; set; }
-    public TaskInstance StartingTaskInstance { get; set; } = null!;
+    public Guid? StartingTaskInstanceId { get; set; }
+    public TaskInstance? StartingTaskInstance { get; set; }
 
     public List<TaskInstance> TaskInstances { get; set; } = new();
 }

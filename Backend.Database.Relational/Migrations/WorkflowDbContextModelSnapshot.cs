@@ -57,7 +57,7 @@ namespace Backend.Database.Relational.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<Guid>("StartingTaskInstanceId")
+                    b.Property<Guid?>("StartingTaskInstanceId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Version")
@@ -261,8 +261,7 @@ namespace Backend.Database.Relational.Migrations
                     b.HasOne("Backend.Database.Relational.Entities.TaskInstance", "StartingTaskInstance")
                         .WithMany()
                         .HasForeignKey("StartingTaskInstanceId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("BlueprintDefinition");
 

@@ -59,6 +59,7 @@ public class WorkflowDbContext : DbContext
 
             // BV.StartingTaskInstanceId -> TI.Id
             // Restrict avoids cascade cycles (BV -> TI and TI -> BV)
+            entity.Property(e => e.StartingTaskInstanceId).IsRequired(false);
             entity.HasOne(e => e.StartingTaskInstance)
                   .WithMany()
                   .HasForeignKey(e => e.StartingTaskInstanceId)
