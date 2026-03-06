@@ -43,6 +43,7 @@ export class NodeModel {
 
     constructor(
         public id: number,
+        public taskVersionId: number,
         public name: string,
         public x: number,
         public y: number,

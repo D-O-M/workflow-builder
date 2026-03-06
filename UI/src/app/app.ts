@@ -98,6 +98,8 @@ export class App implements AfterViewInit, OnDestroy {
     protected readonly showModal = signal(false);
     private readonly newNodePos = signal<{ x: number; y: number } | null>(null);
 
+    protected readonly saving = signal(false);
+
     protected readonly tasks = signal<ITaskDefinition[]>([]);
     protected readonly selectedTask = new FormControl('', { nonNullable: true });
     private readonly http = inject(HttpClient);
@@ -191,8 +193,32 @@ export class App implements AfterViewInit, OnDestroy {
             this.showModal.set(false);
             return;
         }
-        this.editor.createNode(name, coordinates, (v) => this.canvasWrapper!.snap(v));
+
+        const taskDefinition = this.tasks().find((t) => t.name === name);
+        const taskVersionId = taskDefinition?.versions[0]?.id;
+        if (!taskVersionId) {
+            this.showModal.set(false);
+            return;
+        }
+
+        this.editor.createNode(name, taskVersionId, coordinates, (v) => this.canvasWrapper!.snap(v));
         this.showModal.set(false);
+    }
+
+    protected async save(): Promise<void> {
+        const nodes = this.editor.nodes();
+        if (nodes.length === 0) return;
+
+        // Temporary: use first node as starting task until the UI supports choosing the starting node.
+        const startingNodeId = nodes[0].id;
+        const blueprintName = `Blueprint ${new Date().toISOString()}`;
+
+        this.saving.set(true);
+        try {
+            await this.editor.saveBlueprint(blueprintName, startingNodeId, this.tasks());
+        } finally {
+            this.saving.set(false);
+        }
     }
 
     private getMousePos(event: MouseEvent): { x: number; y: number } {

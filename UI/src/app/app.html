@@ -38,6 +38,18 @@
 
     <mat-sidenav-content class="content">
       <div class="canvas-container">
+        <div class="canvas-actions">
+          <button
+            mat-raised-button
+            color="primary"
+            type="button"
+            (click)="save()"
+            [disabled]="saving()"
+          >
+            Save
+          </button>
+        </div>
+
         <canvas
           #myCanvas
           (dblclick)="openModal($event)"
