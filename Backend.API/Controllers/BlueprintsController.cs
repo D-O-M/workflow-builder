@@ -3,6 +3,8 @@ using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 using Backend.API.Validation.Blueprints;
+using Backend.Interfaces.Repositories;
+using Backend.Repositories;
 
 namespace Backend.API.Controllers;
 
@@ -11,28 +13,54 @@ namespace Backend.API.Controllers;
 public class BlueprintsController : ControllerBase
 {
     private readonly IBlueprintVersionValidator _blueprintVersionValidator;
+    private readonly IWorkflowBlueprintRepository _workflowBlueprintRepository;
 
-    public BlueprintsController(IBlueprintVersionValidator blueprintVersionValidator)
-        => _blueprintVersionValidator = blueprintVersionValidator;
+    public BlueprintsController(
+        IBlueprintVersionValidator blueprintVersionValidator,
+        IWorkflowBlueprintRepository workflowBlueprintRepository)
+    {
+        _blueprintVersionValidator = blueprintVersionValidator;
+        _workflowBlueprintRepository = workflowBlueprintRepository;
+    }
 
     [HttpGet]
     public async Task<ActionResult<List<BlueprintViewModel>>> GetAllBlueprints()
     {
-        throw new NotImplementedException();
+        var items = await _workflowBlueprintRepository.GetAllBlueprints(HttpContext.RequestAborted);
+        return Ok(items);
     }
 
     [HttpGet("{Id:int}")]
     public async Task<ActionResult<BlueprintViewModel>> GetBlueprintById(
         [FromRoute] IdInputModel model)
     {
-        throw new NotImplementedException();
+        try
+        {
+            var blueprint = await _workflowBlueprintRepository.GetBlueprintById(model.Id, HttpContext.RequestAborted);
+            return Ok(blueprint);
+        }
+        catch (EntityNotFoundException<BlueprintViewModel>)
+        {
+            return NotFound();
+        }
     }
 
     [HttpPost]
     public async Task<ActionResult<BlueprintViewModel>> CreateBlueprint(
         [FromBody] BlueprintInputModel model)
     {
-        throw new NotImplementedException();
+        if (model.Tasks.Count == 0)
+            return BadRequest();
+
+        try
+        {
+            var created = await _workflowBlueprintRepository.CreateBlueprint(model, HttpContext.RequestAborted);
+            return CreatedAtAction(nameof(GetBlueprintById), new { Id = created.Id }, created);
+        }
+        catch (InvalidDataException)
+        {
+            return BadRequest();
+        }
     }
 
     [HttpPost, Route("{Id:int}/versions")]
@@ -66,7 +94,15 @@ public class BlueprintsController : ControllerBase
                 Extensions = { ["errors"] = validation.Errors }
             });
 
-        throw new NotImplementedException();
+        try
+        {
+            var created = await _workflowBlueprintRepository.CreateVersion(dto, HttpContext.RequestAborted);
+            return Ok(created);
+        }
+        catch (EntityNotFoundException<BlueprintViewModel>)
+        {
+            return NotFound();
+        }
     }
 
     private BlueprintTaskTree BuildTaskTree(

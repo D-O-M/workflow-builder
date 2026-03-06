@@ -14,9 +14,9 @@ public sealed class BlueprintInputModel
     /// <summary>The description of the blueprint.</summary>
     public string? Description { get; init; }
 
-    /// <summary>The Task Instance ID of the starting task within this payload (entry point).</summary>
-    [Required, Range(1, int.MaxValue)]
-    public int StartingTaskInstanceId { get; init; }
+    /// <summary>The task instance ID of the starting task within this payload (entry point).</summary>
+    [Required]
+    public Guid StartingTaskInstanceId { get; init; }
 
     /// <summary>
     /// The blueprint tasks for this immutable version.

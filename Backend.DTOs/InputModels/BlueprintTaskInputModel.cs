@@ -13,7 +13,7 @@ public sealed class BlueprintTaskInputModel
 
     /// <summary>
     /// The TaskVersions.Id this task instance uses.
-    /// Also serves as the intra-payload reference id for connections; must be unique in tasks[] (validate in service layer).
+    /// This identifies the referenced task version only; task identity within the graph is carried by `InstanceId`.
     /// </summary>
     [Required]
     [Range(1, int.MaxValue)]

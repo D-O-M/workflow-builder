@@ -1,4 +1,7 @@
 using Backend.Models;
+using Backend.Models.DomainModels;
+using Backend.Models.InputModels;
+using Backend.Models.ViewModels;
 using Backend.Interfaces.Repositories;
 using Backend.Database.Relational;
 using Backend.Database.Relational.Entities;
@@ -122,11 +125,247 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
             // If DTO requires it, populate empty/placeholder or pull from BlueprintDefinition if you add it.
             Description = string.Empty,
 
-            InitialTask = taskDtosById[blueprintVersionEntity.StartingTaskInstanceId],
+            InitialTask = taskDtosById[blueprintVersionEntity.StartingTaskInstanceId!.Value],
 
             AllTasks = allTasks
         };
 
         return workflowBlueprintDto;
+    }
+
+    public async Task<List<BlueprintViewModel>> GetAllBlueprints(CancellationToken cancellationToken)
+    {
+        var items = await _context.BlueprintDefinitions
+            .Include(d => d.Versions)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .OrderBy(d => d.Id)
+            .ToListAsync(cancellationToken);
+
+        return items.Select(MapBlueprintDefinition).ToList();
+    }
+
+    public async Task<BlueprintViewModel> GetBlueprintById(int id, CancellationToken cancellationToken)
+    {
+        var entity = await _context.BlueprintDefinitions
+            .Include(d => d.Versions)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
+
+        if (entity is null)
+            throw new EntityNotFoundException<BlueprintViewModel>(id);
+
+        return MapBlueprintDefinition(entity);
+    }
+
+    public async Task<BlueprintViewModel> CreateBlueprint(BlueprintInputModel model, CancellationToken cancellationToken)
+    {
+        // Definition "Key" is currently required and unique; use a deterministic key.
+        // If you later add a dedicated "Name" column, change this mapping.
+        var definition = new BlueprintDefinition
+        {
+            Key = model.Name,
+        };
+
+        var blueprintVersion = await AddVersionEntities(
+            definition,
+            versionNumber: 1,
+            name: model.Name,
+            startingTaskInstanceId: model.StartingTaskInstanceId,
+            tasks: model.Tasks,
+            cancellationToken);
+
+        _context.BlueprintDefinitions.Add(definition);
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+
+        await _context.SaveChangesAsync(cancellationToken);
+        blueprintVersion.StartingTaskInstanceId = model.StartingTaskInstanceId;
+        await _context.SaveChangesAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
+        // Reload for a consistent view model (including generated ids)
+        return await GetBlueprintById(definition.Id, cancellationToken);
+    }
+
+    public async Task<BlueprintVersionViewModel> CreateVersion(FullBlueprintVersion model, CancellationToken cancellationToken)
+    {
+        var definition = await _context.BlueprintDefinitions
+            .Include(d => d.Versions)
+            .FirstOrDefaultAsync(d => d.Id == model.DefinitionId, cancellationToken);
+
+        if (definition is null)
+            throw new EntityNotFoundException<BlueprintViewModel>(model.DefinitionId);
+
+        var nextVersion = definition.Versions.Count == 0 ? 1 : definition.Versions.Max(v => v.Version) + 1;
+
+        var tasks = model.TasksByInstanceId.Values
+            .Select(t => new BlueprintTaskInputModel
+            {
+                InstanceId = t.InstanceId,
+                VersionId = t.VersionId,
+                Position = new CoordinatesViewModel { X = t.Position.X, Y = t.Position.Y },
+                OutgoingConnections = t.OutgoingConnections.Select(c => new BlueprintTaskConnectionInputModel
+                {
+                    ChannelId = c.ChannelDetails.ChannelId,
+                    ChannelName = c.ChannelDetails.ChannelName,
+                    ConnectedTaskInstanceId = c.Task?.InstanceId ?? Guid.Empty
+                }).Where(c => c.ConnectedTaskInstanceId != Guid.Empty).ToList()
+            })
+            .ToList();
+
+        var createdVersion = await AddVersionEntities(
+            definition,
+            nextVersion,
+            model.Name,
+            model.TaskTree.InstanceId,
+            tasks,
+            cancellationToken);
+
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+
+        await _context.SaveChangesAsync(cancellationToken);
+        createdVersion.StartingTaskInstanceId = model.TaskTree.InstanceId;
+        await _context.SaveChangesAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
+
+        return await GetBlueprintVersionViewModel(createdVersion.Id, cancellationToken);
+    }
+
+    private async Task<BlueprintVersion> AddVersionEntities(
+        BlueprintDefinition definition,
+        int versionNumber,
+        string name,
+        Guid startingTaskInstanceId,
+        List<BlueprintTaskInputModel> tasks,
+        CancellationToken cancellationToken)
+    {
+        var blueprintVersion = new BlueprintVersion
+        {
+            BlueprintDefinition = definition,
+            Version = versionNumber,
+            Name = name,
+        };
+
+        // TaskInstances
+        var instancesById = new Dictionary<Guid, TaskInstance>(tasks.Count);
+        foreach (var t in tasks)
+        {
+            var instanceId = t.InstanceId == Guid.Empty ? Guid.NewGuid() : t.InstanceId;
+            var entity = new TaskInstance
+            {
+                Id = instanceId,
+                BlueprintVersion = blueprintVersion,
+                TaskVersionId = t.VersionId,
+            };
+
+            blueprintVersion.TaskInstances.Add(entity);
+            instancesById[entity.Id] = entity;
+        }
+
+        if (!instancesById.ContainsKey(startingTaskInstanceId))
+            throw new InvalidDataException("StartingTaskInstanceId must reference a task in tasks[].");
+
+        // Connections
+        foreach (var t in tasks)
+        {
+            var sourceId = t.InstanceId;
+            if (sourceId == Guid.Empty) continue;
+
+            if (!instancesById.TryGetValue(sourceId, out var sourceEntity))
+                continue;
+
+            foreach (var conn in t.OutgoingConnections)
+            {
+                if (!instancesById.TryGetValue(conn.ConnectedTaskInstanceId, out var destEntity))
+                    continue;
+
+                var channelId = conn.ChannelId;
+                if (channelId is null)
+                {
+                    // If only the channel name is supplied, resolve it against the source task version.
+                    if (string.IsNullOrWhiteSpace(conn.ChannelName))
+                        continue;
+
+                    channelId = await _context.Channels
+                        .Where(c => c.TaskVersionId == sourceEntity.TaskVersionId && c.Name == conn.ChannelName)
+                        .Select(c => (int?)c.Id)
+                        .FirstOrDefaultAsync(cancellationToken);
+                }
+
+                if (channelId is null)
+                    continue;
+
+                sourceEntity.OutgoingConnections.Add(new Backend.Database.Relational.Entities.TaskConnection
+                {
+                    Id = Guid.NewGuid(),
+                    SourceTaskInstance = sourceEntity,
+                    DestinationTaskInstance = destEntity,
+                    ChannelId = channelId.Value
+                });
+            }
+        }
+
+        definition.Versions.Add(blueprintVersion);
+        return blueprintVersion;
+    }
+
+    private static BlueprintViewModel MapBlueprintDefinition(BlueprintDefinition entity)
+        => new BlueprintViewModel
+        {
+            Id = entity.Id,
+            Name = entity.Key,
+            Description = string.Empty,
+            Versions = entity.Versions
+                .OrderByDescending(v => v.Version)
+                .Select(v => new BlueprintVersionViewModel
+                {
+                    BlueprintVersionId = v.Id,
+                    BlueprintDefinitionId = v.BlueprintDefinitionId,
+                    Name = v.Name,
+                    Description = null,
+                    Version = v.Version,
+                    StartingTaskInstanceId = 0,
+                    Tasks = new()
+                })
+                .ToList()
+        };
+
+    private async Task<BlueprintVersionViewModel> GetBlueprintVersionViewModel(int blueprintVersionId, CancellationToken cancellationToken)
+    {
+        var bv = await _context.BlueprintVersions
+            .Include(v => v.TaskInstances)
+                .ThenInclude(ti => ti.OutgoingConnections)
+                    .ThenInclude(tc => tc.Channel)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(v => v.Id == blueprintVersionId, cancellationToken);
+
+        if (bv is null)
+            throw new EntityNotFoundException<BlueprintVersionViewModel>(blueprintVersionId);
+
+        return new BlueprintVersionViewModel
+        {
+            BlueprintVersionId = bv.Id,
+            BlueprintDefinitionId = bv.BlueprintDefinitionId,
+            Name = bv.Name,
+            Description = null,
+            Version = bv.Version,
+            StartingTaskInstanceId = 0,
+            Tasks = bv.TaskInstances.Select(ti => new BlueprintTaskViewModel
+            {
+                InstanceId = ti.Id,
+                VersionId = ti.TaskVersionId,
+                Position = new CoordinatesViewModel { X = 0, Y = 0 },
+                OutgoingConnections = ti.OutgoingConnections.Select(tc => new BlueprintTaskConnectionViewModel
+                {
+                    ChannelId = tc.ChannelId,
+                    ChannelName = tc.Channel?.Name,
+                    TaskInstanceId = tc.DestinationTaskInstanceId ?? Guid.Empty
+                }).Where(c => c.TaskInstanceId != Guid.Empty).ToList()
+            }).ToList()
+        };
     }
 }

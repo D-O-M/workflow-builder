@@ -20,15 +20,9 @@ public class Program
         });
 
         builder.Services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
+        builder.Services.AddScoped<IWorkflowBlueprintRepository, WorkflowBlueprintRepository>();
 
         builder.Services.AddControllers();
-
-builder.Services.AddScoped<Backend.API.Validation.Blueprints.IBlueprintVersionValidator>(_ =>
-    new Backend.API.Validation.Blueprints.BlueprintVersionValidatorPipeline(
-        new Backend.API.Validation.Blueprints.IBlueprintVersionValidator[]
-        {
-            new Backend.API.Validation.Blueprints.BlueprintVersionGraphValidator()
-        }));
 
 builder.Services.AddScoped<Backend.API.Validation.Blueprints.IBlueprintVersionValidator>(sp =>
     new Backend.API.Validation.Blueprints.BlueprintVersionValidatorPipeline(

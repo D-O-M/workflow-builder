@@ -29,7 +29,7 @@ public sealed class BlueprintVersionInputModel
 
     /// <summary>
     /// The blueprint tasks for this immutable version.
-    /// NOTE: VersionId values must be unique within this array (enforce in service layer).
+    /// Each task instance has its own `InstanceId`; multiple task instances may reference the same `VersionId`.
     /// </summary>
     [Required, MinLength(1)]
     public List<BlueprintTaskInputModel> Tasks { get; init; } = new();

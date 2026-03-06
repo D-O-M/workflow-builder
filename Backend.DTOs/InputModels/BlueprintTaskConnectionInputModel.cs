@@ -11,7 +11,7 @@ public sealed class BlueprintTaskConnectionInputModel : IValidatableObject
     public string? ChannelName { get; init; }
 
     /// <summary>
-    /// The TaskVersions.Id of the destination task within this payload (references another task's VersionId).
+    /// The task instance ID of the destination task within this payload.
     /// </summary>
     [Required]
     public Guid ConnectedTaskInstanceId { get; init; }

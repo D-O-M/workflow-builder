@@ -6,7 +6,7 @@ public sealed class BlueprintTaskViewModel
     public Guid InstanceId { get; init; }
 
     /// <summary>
-    /// The TaskVersions.Id used by this task instance (and the reference id used in connections).
+    /// The TaskVersions.Id used by this task instance.
     /// </summary>
     public int VersionId { get; init; }
 
