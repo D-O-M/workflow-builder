@@ -195,13 +195,18 @@ public class VisualStudioDebuggerAttacherTests
 
     private sealed class OperatingSystemStub : IOperatingSystemInformation
     {
-        public OperatingSystemStub(bool isWindows)
+        public OperatingSystemStub(bool isWindows, bool isLinux = false)
         {
             IsWindowsResult = isWindows;
+            IsLinuxResult = isLinux;
         }
 
         public bool IsWindowsResult { get; }
 
+        public bool IsLinuxResult { get; }
+
         public bool IsWindows() => IsWindowsResult;
+
+        public bool IsLinux() => IsLinuxResult;
     }
 }

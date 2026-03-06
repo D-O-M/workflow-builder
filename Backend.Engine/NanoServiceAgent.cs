@@ -9,11 +9,15 @@ namespace Backend.Engine;
 
 public class NanoServiceAgent
 {
+    private const string LinuxProcessWrapperScript = "parent_pid=\"$1\"; shift; \"$@\" & child_pid=$!; trap 'kill -TERM \"$child_pid\" 2>/dev/null; wait \"$child_pid\" 2>/dev/null' EXIT INT TERM; while kill -0 \"$parent_pid\" 2>/dev/null && kill -0 \"$child_pid\" 2>/dev/null; do sleep 1; done; kill -TERM \"$child_pid\" 2>/dev/null; wait \"$child_pid\"";
+
     private readonly IConfiguration _configuration;
     private readonly EngineInstanceInfo _engineInstanceInfo;
     private readonly ILogger _logger;
     private readonly JobManager _jobManager;
     private readonly VisualStudioDebuggerAttacher _debuggerAttacher;
+    private readonly IChildProcessTracker _childProcessTracker;
+    private readonly IOperatingSystemInformation _operatingSystemInformation;
     private Process? _process;
     private CancellationTokenSource? _processCancellation;
     private Pipe _commsStream = new();
@@ -27,13 +31,17 @@ public class NanoServiceAgent
         EngineInstanceInfo engineInstanceInfo,
         ILogger<NanoServiceAgent> logger,
         JobManager jobManager,
-        VisualStudioDebuggerAttacher debuggerAttacher)
+        VisualStudioDebuggerAttacher debuggerAttacher,
+        IChildProcessTracker childProcessTracker,
+        IOperatingSystemInformation operatingSystemInformation)
     {
         _configuration = configuration;
         _engineInstanceInfo = engineInstanceInfo;
         _logger = logger;
         _jobManager = jobManager;
         _debuggerAttacher = debuggerAttacher;
+        _childProcessTracker = childProcessTracker;
+        _operatingSystemInformation = operatingSystemInformation;
     }
 
     public async Task InitialiseAsync(
@@ -60,7 +68,7 @@ public class NanoServiceAgent
 
         await using var stdinStream = _commsStream.Reader.AsStream(leaveOpen: true);
 
-        var cmd = Cli.Wrap(fileInfo.FullName)
+        var cmd = CreateCommand(fileInfo)
             .WithEnvironmentVariables(
                 new Dictionary<string, string?>
                 {
@@ -88,6 +96,10 @@ public class NanoServiceAgent
             {
                 case StartedCommandEvent started:
                     _process = Process.GetProcessById(started.ProcessId);
+                    if (_operatingSystemInformation.IsWindows())
+                    {
+                        _childProcessTracker.Track(_process);
+                    }
                     _logger.LogInformation("{PluginName} Process started; ID: {ProcessId}", Name, started.ProcessId);
                     break;
                 case StandardOutputCommandEvent stdOut:
@@ -102,6 +114,22 @@ public class NanoServiceAgent
                     break;
             }
         }
+    }
+
+    private Command CreateCommand(FileInfo fileInfo)
+    {
+        if (_operatingSystemInformation.IsLinux())
+        {
+            return Cli.Wrap("/bin/bash")
+                .WithArguments(args => args
+                    .Add("-c")
+                    .Add(LinuxProcessWrapperScript)
+                    .Add("bash")
+                    .Add(Environment.ProcessId.ToString())
+                    .Add(fileInfo.FullName));
+        }
+
+        return Cli.Wrap(fileInfo.FullName);
     }
 
     private async Task OnOutput(string output)

@@ -214,6 +214,8 @@ public interface IAsyncDelay
 public interface IOperatingSystemInformation
 {
     bool IsWindows();
+
+    bool IsLinux();
 }
 
 internal sealed class DefaultAsyncDelay : IAsyncDelay
@@ -224,6 +226,8 @@ internal sealed class DefaultAsyncDelay : IAsyncDelay
 internal sealed class OperatingSystemInformation : IOperatingSystemInformation
 {
     public bool IsWindows() => OperatingSystem.IsWindows();
+
+    public bool IsLinux() => OperatingSystem.IsLinux();
 }
 
 internal sealed class DebuggerAttachmentGuard : IDebuggerAttachmentGuard

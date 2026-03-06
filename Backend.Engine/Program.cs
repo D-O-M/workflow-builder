@@ -39,6 +39,7 @@ builder.Services.AddSingleton(_ =>
 
 builder.Services.AddSingleton<EngineInstanceInfo>(_ => new());
 builder.Services.AddSingleton<IAgentManager, AgentManager>();
+builder.Services.AddSingleton<IChildProcessTracker, ChildProcessTracker>();
 builder.Services.AddHostedService<NanoServiceOrchestrator>();
 builder.Services.AddSingleton<IAsyncDelay, DefaultAsyncDelay>();
 builder.Services.AddSingleton<IDebuggerAttachmentGuard, DebuggerAttachmentGuard>();
