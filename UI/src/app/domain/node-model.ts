@@ -5,23 +5,33 @@ export interface Point {
 
 export type Side = 'left' | 'right' | 'top' | 'bottom';
 
+export interface NodeAnchor {
+    index: number;
+    kind: 'input' | 'output';
+    label: string;
+    side: Side;
+    x: number;
+    y: number;
+}
+
 export class NodeModel {
     static buffer = 20;
-
-    static anchorSide(idx: number): Side {
-        if (idx < 3) return 'top';
-        if (idx < 6) return 'right';
-        if (idx < 9) return 'bottom';
-        return 'left';
-    }
-
-    static oppositeAnchor(idx: number): number {
-        return [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5][idx];
-    }
 
     static clamp(v: number, min: number, max: number): number {
         return Math.min(Math.max(v, min), max);
     }
+
+    constructor(
+        public id: number,
+        public taskVersionId: number,
+        public name: string,
+        public x: number,
+        public y: number,
+        public width: number,
+        public height: number,
+        public inputChannelName: string | null = null,
+        public outputChannelNames: string[] = [],
+    ) {}
 
     contains(x: number, y: number): boolean {
         return (
@@ -41,16 +51,6 @@ export class NodeModel {
         );
     }
 
-    constructor(
-        public id: number,
-        public taskVersionId: number,
-        public name: string,
-        public x: number,
-        public y: number,
-        public width: number,
-        public height: number,
-    ) {}
-
     draw(ctx: CanvasRenderingContext2D, drawText: (
       ctx: CanvasRenderingContext2D,
       text: string,
@@ -62,32 +62,101 @@ export class NodeModel {
     }
 
     anchorPositions(): Point[] {
-        const anchors: Point[] = [];
-        const offs = [0.25, 0.5, 0.75];
-        for (const o of offs) {
-            anchors.push({ x: this.x + this.width * o, y: this.y });
+        return this.anchorDefinitions().map(({ x, y }) => ({ x, y }));
+    }
+
+    anchorDefinitions(): NodeAnchor[] {
+        const anchors: NodeAnchor[] = [];
+        let index = 0;
+
+        if (this.inputChannelName) {
+            anchors.push({
+                index,
+                kind: 'input',
+                label: this.inputChannelName,
+                side: 'left',
+                x: this.x,
+                y: this.y + 62,
+            });
+            index += 1;
         }
-        for (const o of offs) {
-            anchors.push({ x: this.x + this.width, y: this.y + this.height * o });
-        }
-        for (const o of offs) {
-            anchors.push({ x: this.x + this.width * o, y: this.y + this.height });
-        }
-        for (const o of offs) {
-            anchors.push({ x: this.x, y: this.y + this.height * o });
-        }
+
+        const startY = this.y + 140;
+        const rowGap = 34;
+
+        this.outputChannelNames.forEach((label, outputIndex) => {
+            anchors.push({
+                index: index + outputIndex,
+                kind: 'output',
+                label,
+                side: 'right',
+                x: this.x + this.width,
+                y: startY + outputIndex * rowGap,
+            });
+        });
+
         return anchors;
     }
 
+    inputAnchorIndex(): number | null {
+        const inputAnchor = this.anchorDefinitions().find((anchor) => anchor.kind === 'input');
+        return inputAnchor?.index ?? null;
+    }
+
+    outputAnchors(): NodeAnchor[] {
+        return this.anchorDefinitions().filter((anchor) => anchor.kind === 'output');
+    }
+
+    anchorDefinition(idx: number): NodeAnchor | null {
+        return this.anchorDefinitions().find((anchor) => anchor.index === idx) ?? null;
+    }
+
+    anchorSide(idx: number): Side {
+        return this.anchorDefinition(idx)?.side ?? 'right';
+    }
+
     anchorRadius(idx: number): number {
-        return [1, 4, 7, 10].includes(idx) ? 12 : 10;
+        return this.anchorDefinition(idx)?.kind === 'input' ? 8 : 7;
+    }
+
+    isInputAnchor(idx: number): boolean {
+        return this.anchorDefinition(idx)?.kind === 'input';
+    }
+
+    isOutputAnchor(idx: number): boolean {
+        return this.anchorDefinition(idx)?.kind === 'output';
+    }
+
+    outputChannelNameForAnchor(idx: number): string | null {
+        const anchor = this.anchorDefinition(idx);
+        return anchor?.kind === 'output' ? anchor.label : null;
+    }
+
+    inputAnchorSnap(): { x: number; y: number; side: Side; pos: number } | null {
+        const idx = this.inputAnchorIndex();
+        if (idx === null) {
+            return null;
+        }
+
+        const anchor = this.anchorDefinition(idx);
+        if (!anchor) {
+            return null;
+        }
+
+        return {
+            x: anchor.x,
+            y: anchor.y,
+            side: 'left',
+            pos: anchor.y - this.y,
+        };
     }
 
     inAnchorCircle(x: number, y: number): number | null {
-        const anchors = this.anchorPositions();
-        for (let i = 0; i < anchors.length; i++) {
-            if (Math.hypot(x - anchors[i].x, y - anchors[i].y) <= this.anchorRadius(i)) {
-                return i;
+        const anchors = this.anchorDefinitions();
+        for (const anchor of anchors) {
+            const hitRadius = this.anchorRadius(anchor.index) + 5;
+            if (Math.hypot(x - anchor.x, y - anchor.y) <= hitRadius) {
+                return anchor.index;
             }
         }
         return null;

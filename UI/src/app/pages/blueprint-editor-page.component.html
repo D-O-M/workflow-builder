@@ -1,0 +1,205 @@
+<div class="editor-shell">
+  <header class="topbar">
+    <div class="topbar__brand">
+      <a class="brand-link" [routerLink]="['/blueprints']" aria-label="Workflow Builder home">
+        <img class="brand-logo" src="flo-logo.svg" alt="flo" />
+        <span class="brand-name">Blueprint</span>
+      </a>
+
+      <nav class="topbar__nav" aria-label="Primary">
+        @for (item of appNavItems; track item.label) {
+          @if (item.route) {
+            <a
+              class="topbar__nav-link"
+              [routerLink]="[item.route]"
+              routerLinkActive="is-active"
+              [routerLinkActiveOptions]="{ exact: item.exact ?? false }"
+            >
+              {{ item.label }}
+            </a>
+          } @else {
+            <span class="topbar__nav-link is-muted">{{ item.label }}</span>
+          }
+        }
+      </nav>
+    </div>
+
+    <div class="topbar__actions">
+      <button class="shell-button shell-button--ghost" type="button" (click)="resetView()">
+        Save Draft
+      </button>
+      <button class="shell-button shell-button--primary" type="button" (click)="save()" [disabled]="saving()">
+        {{ saving() ? 'Saving...' : 'Deploy' }}
+      </button>
+
+      <div class="topbar__divider" aria-hidden="true"></div>
+
+      <button class="icon-button" type="button" aria-label="Notifications">
+        <mat-icon>notifications</mat-icon>
+      </button>
+      <button class="icon-button" type="button" aria-label="Settings">
+        <mat-icon>settings</mat-icon>
+      </button>
+      <button class="profile-chip" type="button" aria-label="Profile">
+        <span>{{ projectInitial() }}</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="workspace-grid" [class.is-drawer-collapsed]="drawerCollapsed()">
+    <aside class="left-rail">
+      <section class="project-card">
+        <div class="project-card__avatar">{{ projectInitial() }}</div>
+        <div class="project-card__body">
+          <h1>{{ selectedBlueprintName() }}</h1>
+          <p>V2.4.0-STABLE</p>
+        </div>
+      </section>
+
+      <button class="new-workflow-button" type="button" (click)="newBlueprint()">
+        <mat-icon>add</mat-icon>
+        <span>New Workflow</span>
+      </button>
+
+      <section class="rail-section">
+        <div class="rail-section__header">
+          <span>Blueprints</span>
+        </div>
+
+        <label class="search-field">
+          <span class="sr-only">Search blueprints</span>
+          <mat-icon>search</mat-icon>
+          <input type="search" [formControl]="blueprintSearch" placeholder="Search workflows" />
+        </label>
+
+        <div class="blueprint-list" aria-label="Blueprint list">
+          @if (filteredBlueprints().length === 0) {
+            <p class="empty-message">No blueprints found.</p>
+          } @else {
+            @for (blueprint of filteredBlueprints(); track blueprint.id) {
+              <button
+                class="blueprint-item"
+                type="button"
+                (click)="openBlueprint(blueprint.id)"
+                [class.is-selected]="selectedBlueprintId() === blueprint.id"
+              >
+                <mat-icon>{{ selectedBlueprintId() === blueprint.id ? 'folder' : 'share' }}</mat-icon>
+                <span>{{ blueprint.name }}</span>
+              </button>
+            }
+          }
+        </div>
+      </section>
+
+      <section class="rail-section rail-section--links">
+        @for (item of blueprintShortcuts; track item.label) {
+          <button class="link-row" type="button">
+            <mat-icon>{{ item.icon }}</mat-icon>
+            <span>{{ item.label }}</span>
+          </button>
+        }
+      </section>
+
+      <section class="rail-section rail-section--support">
+        @for (item of supportLinks; track item.label) {
+          <button class="link-row link-row--muted" type="button">
+            <mat-icon>{{ item.icon }}</mat-icon>
+            <span>{{ item.label }}</span>
+          </button>
+        }
+      </section>
+    </aside>
+
+    <section class="canvas-stage">
+      <div class="canvas-stage__toolbar">
+        @for (action of canvasActions; track action.label) {
+          <button class="canvas-tool" type="button" [class.is-active]="action.active" [attr.aria-label]="action.label">
+            <mat-icon>{{ action.icon }}</mat-icon>
+          </button>
+        }
+      </div>
+
+      <div class="canvas-stage__panel canvas-grid">
+        <div class="canvas-stage__hud">
+          <div class="stage-badge">
+            <span class="stage-badge__label">Canvas Zoom</span>
+            <span class="stage-badge__value">{{ Math.round(zoom() * 100) }}%</span>
+          </div>
+
+          <div class="stage-actions">
+            <button class="shell-button shell-button--ghost" type="button" (click)="resetView()">
+              Reset View
+            </button>
+            <button class="shell-button shell-button--primary" type="button" (click)="save()" [disabled]="saving()">
+              {{ saving() ? 'Saving...' : 'Save Changes' }}
+            </button>
+          </div>
+        </div>
+
+        <canvas
+          #myCanvas
+          (mousemove)="onMouseMove($event)"
+          (mousedown)="onMouseDown($event)"
+          (mouseup)="onMouseUp($event)"
+          (mouseleave)="onMouseLeave()"
+          (wheel)="onWheel($event)"
+        ></canvas>
+
+        <div class="canvas-stage__hint">
+          <span>Use plugin drawer to add task nodes</span>
+          <span>Drag nodes to rewire flow</span>
+        </div>
+      </div>
+    </section>
+
+    <aside class="right-rail" [class.is-collapsed]="drawerCollapsed()">
+      <button
+        class="drawer-toggle"
+        type="button"
+        (click)="toggleDrawer()"
+        [attr.aria-expanded]="!drawerCollapsed()"
+        aria-controls="plugin-drawer-content"
+      >
+        <mat-icon class="drawer-toggle__icon">{{ drawerCollapsed() ? 'left_panel_open' : 'right_panel_close' }}</mat-icon>
+        <span class="drawer-toggle__label">{{ drawerCollapsed() ? 'Plugins' : 'Close' }}</span>
+      </button>
+
+      <div class="drawer-content" id="plugin-drawer-content">
+        <div class="library-header">
+          <h2>Plugin Library</h2>
+          <p>Click plugin to add it to canvas center</p>
+        </div>
+
+        <div class="library-groups">
+          @for (section of taskLibrarySections(); track section.title) {
+            <section class="library-group">
+              <div class="library-group__label">{{ section.title }}</div>
+              <div class="library-list">
+                @for (item of section.items; track item.task.id) {
+                  <button class="library-list-item" type="button" (click)="addTaskFromDrawer(item.task)">
+                    <span class="library-list-item__icon">
+                      <mat-icon>{{ item.icon }}</mat-icon>
+                    </span>
+                    <span class="library-list-item__body">
+                      <span class="library-list-item__title">{{ item.task.name }}</span>
+                      <span class="library-list-item__copy">{{ item.description }}</span>
+                    </span>
+                  </button>
+                }
+              </div>
+            </section>
+          }
+        </div>
+
+        <section class="stats-card">
+          <p class="stats-card__eyebrow">Canvas Stats</p>
+          <div class="stats-card__metrics">
+            <span>Nodes: {{ activeNodeCount() }} Active</span>
+            <span>Channels: {{ activeChannelCount() }} Live</span>
+            <span>Avail: {{ availableChannelCount() }}</span>
+          </div>
+        </section>
+      </div>
+    </aside>
+  </main>
+</div>

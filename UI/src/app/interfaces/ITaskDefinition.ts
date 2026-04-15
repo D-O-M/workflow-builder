@@ -16,5 +16,5 @@ export interface ITaskVersion {
 export interface ITaskChannel {
     id: number;
     name: string;
-    properties: Record<string, "Number" | "String" | "Boolean" | "Guid">[];
+    properties: Record<string, "Number" | "String" | "Boolean" | "Guid">;
 }

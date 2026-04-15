@@ -3,6 +3,11 @@ import { CanvasWrapper } from './canvas-wrapper';
 import { PathfinderOptions, orthogonalSegments } from './pathfinder';
 
 export class ConnectionModel {
+  private static readonly theme = {
+    connection: '#2d4bdd',
+    connectionSoft: 'rgba(45, 75, 221, 0.78)',
+  } as const;
+
   constructor(
     public from: NodeModel,
     public to: NodeModel,
@@ -43,12 +48,17 @@ export class ConnectionModel {
       obstacles,
       this.side,
       this.to,
-      NodeModel.anchorSide(this.anchor),
+      this.from.anchorSide(this.anchor),
       this.from,
     );
   }
 
   draw(wrapper: CanvasWrapper, obstacles: NodeModel[] = []): void {
+    wrapper.ctx.save();
+    wrapper.ctx.strokeStyle = ConnectionModel.theme.connectionSoft;
+    wrapper.ctx.fillStyle = ConnectionModel.theme.connection;
+    wrapper.ctx.lineWidth = 2.5;
+
     const start = this.from.anchorPositions()[this.anchor];
     let end: Point;
     switch (this.side) {
@@ -80,10 +90,12 @@ export class ConnectionModel {
       obstacles,
       this.side,
       this.to,
-      NodeModel.anchorSide(this.anchor),
+      this.from.anchorSide(this.anchor),
       this.from,
     );
 
     wrapper.drawArrowHead(tipX, tipY, this.side);
+
+    wrapper.ctx.restore();
   }
 }

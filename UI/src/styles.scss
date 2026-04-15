@@ -1,0 +1,172 @@
+/* Global styles + Angular Material theme setup */
+
+@use '@angular/material' as mat;
+
+html {
+  @include mat.core();
+}
+
+$datatype-font: 'Datatype, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+
+$datatype-typography-config: (
+  plain-family: $datatype-font,
+  brand-family: $datatype-font,
+);
+
+$theme: mat.define-theme((
+  color: (
+    theme-type: light,
+    primary: mat.$azure-palette,
+    tertiary: mat.$azure-palette,
+  ),
+  typography: $datatype-typography-config,
+  density: (
+    scale: 0,
+  ),
+));
+
+@include mat.all-component-themes($theme);
+@include mat.typography-hierarchy($theme);
+
+/* You can add global styles to this file, and also import other style files */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+:root {
+  --flo-0: #f7f9ff;
+  --flo-1: #eef3ff;
+  --flo-2: #e5ecff;
+  --flo-3: #d7e2ff;
+  --flo-4: #c5d4ff;
+  --flo-5: #b4c7ff;
+  --flo-6: #96b1ff;
+
+  --flo-surface: #ffffff;
+  --flo-surface-2: #f4f7ff;
+  --flo-surface-3: #edf2ff;
+  --flo-app-bg: linear-gradient(180deg, #f7f9ff 0%, #eef3ff 100%);
+
+  --flo-text: #0f172a;
+  --flo-text-soft: #3f4f72;
+  --flo-text-subtle: rgba(76, 96, 142, 0.78);
+  --flo-text-muted: rgba(15, 23, 42, 0.7);
+  --flo-border: rgba(70, 98, 170, 0.12);
+  --flo-border-soft: rgba(70, 98, 170, 0.08);
+  --flo-line: rgba(102, 129, 208, 0.16);
+
+  --flo-primary: #2d4bdd;
+  --flo-primary-contrast: #ffffff;
+  --flo-focus: rgba(59, 92, 204, 0.24);
+  --flo-ghost: rgba(226, 234, 255, 0.92);
+
+  --flo-radius: 18px;
+  --flo-shadow: 0 18px 40px rgba(56, 79, 147, 0.12);
+
+  --flo-font: 'Datatype', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+body {
+  background:
+    radial-gradient(900px 500px at 10% 0%, rgba(198, 212, 255, 0.55), transparent 60%),
+    radial-gradient(900px 500px at 90% 0%, rgba(224, 232, 255, 0.75), transparent 55%),
+    linear-gradient(180deg, #f7f9ff, #eef3ff);
+  color: var(--flo-text);
+  font-family: var(--flo-font);
+}
+
+html {
+  font-family: var(--flo-font);
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--flo-focus);
+  outline-offset: 2px;
+}
+
+.mat-icon {
+  font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+}
+
+.shell-button {
+  border: 1px solid transparent;
+  border-radius: 0.9rem;
+  min-height: 3rem;
+  padding: 0 1.25rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.shell-button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.shell-button--ghost {
+  background: var(--flo-ghost);
+  border-color: rgba(87, 121, 222, 0.14);
+  color: var(--flo-text-soft);
+}
+
+.shell-button--primary {
+  background: linear-gradient(180deg, #4264f3, #2d4bdd);
+  box-shadow: 0 12px 24px rgba(45, 75, 221, 0.22);
+  color: #fff;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border: 0;
+  border-radius: 0.85rem;
+  background: transparent;
+  color: var(--flo-text-soft);
+  cursor: pointer;
+}
+
+.profile-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.85rem;
+  height: 2.85rem;
+  border: 0;
+  border-radius: 0.95rem;
+  background: rgba(255, 236, 225, 0.92);
+  color: #f08c5b;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
