@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Holiday demand adjuster",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "WeekendHolidayDemand.HolidayDemandInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Demand",
+      "Type": "WeekendHolidayDemand.HolidayDemandResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

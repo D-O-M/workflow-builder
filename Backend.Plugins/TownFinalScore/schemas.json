@@ -1,0 +1,83 @@
+{
+  "components": {
+    "schemas": {
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TownFinalScore.FinalScoreInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Town": {
+            "type": "string"
+          },
+          "WeekendStart": {
+            "type": "string",
+            "format": "date"
+          },
+          "WeekendEnd": {
+            "type": "string",
+            "format": "date"
+          },
+          "WeatherSuitabilityScore": {
+            "type": "integer"
+          },
+          "Summary": {
+            "type": "string"
+          },
+          "CountryCode": {
+            "type": "string"
+          },
+          "HolidayNearby": {
+            "type": "boolean"
+          },
+          "HolidayName": {
+            "type": "string"
+          },
+          "DemandAdjustment": {
+            "type": "number"
+          }
+        }
+      },
+      "TownFinalScore.FinalTownScore": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Town": {
+            "type": "string"
+          },
+          "WeatherScore": {
+            "type": "integer"
+          },
+          "DemandAdjustment": {
+            "type": "number"
+          },
+          "FinalScore": {
+            "type": "integer"
+          },
+          "Explanation": {
+            "type": "string"
+          },
+          "ForecastSummary": {
+            "type": "string"
+          },
+          "HolidaySummary": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

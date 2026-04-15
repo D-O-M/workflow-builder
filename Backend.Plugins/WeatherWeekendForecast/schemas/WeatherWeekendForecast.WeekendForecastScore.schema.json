@@ -1,0 +1,43 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "Town": {
+      "type": "string"
+    },
+    "Latitude": {
+      "type": "number"
+    },
+    "Longitude": {
+      "type": "number"
+    },
+    "WeekendStart": {
+      "type": "string",
+      "format": "date"
+    },
+    "WeekendEnd": {
+      "type": "string",
+      "format": "date"
+    },
+    "AvgTemperatureC": {
+      "type": "number"
+    },
+    "MaxWindSpeedMps": {
+      "type": "number"
+    },
+    "TotalPrecipMm": {
+      "type": "number"
+    },
+    "RainRisk01": {
+      "type": "number"
+    },
+    "WeatherSuitabilityScore": {
+      "type": "integer"
+    },
+    "Summary": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Weekend forecast scorer",
+  "InputChannel": {
+    "Name": "Location",
+    "Type": "WeatherWeekendForecast.GeoLocation"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Forecast",
+      "Type": "WeatherWeekendForecast.WeekendForecastScore"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Town final score",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "TownFinalScore.FinalScoreInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Result",
+      "Type": "TownFinalScore.FinalTownScore"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

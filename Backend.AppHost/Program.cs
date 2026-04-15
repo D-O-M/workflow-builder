@@ -57,7 +57,7 @@ internal class Program
             .WithReference(sqlDb)
             .WaitFor(sqlDb);
 
-        AddFrontend(builder, api);
+        //AddFrontend(builder, api);
 
         builder.Build().Run();
     }

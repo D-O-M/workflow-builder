@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Town score emailer",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "TownScoreEmailer.EmailSendInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Sent",
+      "Type": "TownScoreEmailer.EmailSendResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

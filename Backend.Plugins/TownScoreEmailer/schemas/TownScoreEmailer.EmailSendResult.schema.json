@@ -1,0 +1,17 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "Success": {
+      "type": "boolean"
+    },
+    "StatusCode": {
+      "type": "integer"
+    },
+    "ProviderMessage": {
+      "type": "string"
+    }
+  }
+}

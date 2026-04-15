@@ -1,0 +1,41 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "Town": {
+      "type": "string"
+    },
+    "WeatherScore": {
+      "type": "integer"
+    },
+    "DemandAdjustment": {
+      "type": "number"
+    },
+    "FinalScore": {
+      "type": "integer"
+    },
+    "Explanation": {
+      "type": "string"
+    },
+    "ForecastSummary": {
+      "type": "string"
+    },
+    "HolidaySummary": {
+      "type": "string"
+    },
+    "RecipientEmail": {
+      "type": "string"
+    },
+    "FromEmail": {
+      "type": "string"
+    },
+    "FromName": {
+      "type": "string"
+    },
+    "SendGridApiKeyEnv": {
+      "type": "string"
+    }
+  }
+}

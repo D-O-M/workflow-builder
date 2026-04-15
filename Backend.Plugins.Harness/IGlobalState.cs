@@ -1,11 +1,8 @@
 namespace Backend.Plugins.Harness;
 
-public static class GlobalStateStub
+public class GlobalStateStub : IGlobalState
 {
-    public static IGlobalState Instance {
-        get => throw new InvalidOperationException();
-        set => throw new InvalidOperationException();
-    }
+    public bool Empty { get; set; } = true;
 }
 
 public interface IGlobalState

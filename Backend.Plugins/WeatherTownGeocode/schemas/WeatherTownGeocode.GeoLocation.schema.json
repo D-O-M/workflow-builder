@@ -1,0 +1,23 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "Town": {
+      "type": "string"
+    },
+    "Latitude": {
+      "type": "number"
+    },
+    "Longitude": {
+      "type": "number"
+    },
+    "DisplayName": {
+      "type": "string"
+    },
+    "CountryCode": {
+      "type": "string"
+    }
+  }
+}

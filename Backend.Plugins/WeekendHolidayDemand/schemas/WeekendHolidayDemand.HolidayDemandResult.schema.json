@@ -1,0 +1,34 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "Town": {
+      "type": "string"
+    },
+    "CountryCode": {
+      "type": "string"
+    },
+    "WeekendStart": {
+      "type": "string",
+      "format": "date"
+    },
+    "WeekendEnd": {
+      "type": "string",
+      "format": "date"
+    },
+    "HolidayNearby": {
+      "type": "boolean"
+    },
+    "HolidayName": {
+      "type": "string"
+    },
+    "DemandAdjustment": {
+      "type": "number"
+    },
+    "Summary": {
+      "type": "string"
+    }
+  }
+}

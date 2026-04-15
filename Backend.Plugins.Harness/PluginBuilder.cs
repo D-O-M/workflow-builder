@@ -199,6 +199,11 @@ public class PluginBuilder<TPlugin>
         int schemaCount = 0;
         Exception? pendingError = null;
 
+        if (_globalStateType is null)
+        {
+            WithGlobalState(p => p.GlobalState);
+        }
+
 #if DEBUG
         try
         {

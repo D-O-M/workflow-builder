@@ -1,0 +1,51 @@
+{
+  "components": {
+    "schemas": {
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      },
+      "WeatherTownGeocode.GeoLocation": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Town": {
+            "type": "string"
+          },
+          "Latitude": {
+            "type": "number"
+          },
+          "Longitude": {
+            "type": "number"
+          },
+          "DisplayName": {
+            "type": "string"
+          },
+          "CountryCode": {
+            "type": "string"
+          }
+        }
+      },
+      "WeatherTownGeocode.TownInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Town": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

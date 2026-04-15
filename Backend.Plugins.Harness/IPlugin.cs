@@ -2,9 +2,9 @@ namespace Backend.Plugins.Harness;
 
 public interface IPlugin
 {
-    IGlobalState GlobalState {
-        get => GlobalStateStub.Instance;
-        set => GlobalStateStub.Instance = value;
+    public GlobalStateStub GlobalState {
+        get => new GlobalStateStub();
+        set => GlobalState = value;
     }
 
     Task Execute();

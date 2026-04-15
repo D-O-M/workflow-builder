@@ -1,0 +1,75 @@
+{
+  "components": {
+    "schemas": {
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TownScoreEmailer.EmailSendInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Town": {
+            "type": "string"
+          },
+          "WeatherScore": {
+            "type": "integer"
+          },
+          "DemandAdjustment": {
+            "type": "number"
+          },
+          "FinalScore": {
+            "type": "integer"
+          },
+          "Explanation": {
+            "type": "string"
+          },
+          "ForecastSummary": {
+            "type": "string"
+          },
+          "HolidaySummary": {
+            "type": "string"
+          },
+          "RecipientEmail": {
+            "type": "string"
+          },
+          "FromEmail": {
+            "type": "string"
+          },
+          "FromName": {
+            "type": "string"
+          },
+          "SendGridApiKeyEnv": {
+            "type": "string"
+          }
+        }
+      },
+      "TownScoreEmailer.EmailSendResult": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Success": {
+            "type": "boolean"
+          },
+          "StatusCode": {
+            "type": "integer"
+          },
+          "ProviderMessage": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

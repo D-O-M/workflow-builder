@@ -1,0 +1,80 @@
+{
+  "components": {
+    "schemas": {
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      },
+      "WeatherWeekendForecast.GeoLocation": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Town": {
+            "type": "string"
+          },
+          "Latitude": {
+            "type": "number"
+          },
+          "Longitude": {
+            "type": "number"
+          },
+          "CountryCode": {
+            "type": "string"
+          }
+        }
+      },
+      "WeatherWeekendForecast.WeekendForecastScore": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Town": {
+            "type": "string"
+          },
+          "Latitude": {
+            "type": "number"
+          },
+          "Longitude": {
+            "type": "number"
+          },
+          "WeekendStart": {
+            "type": "string",
+            "format": "date"
+          },
+          "WeekendEnd": {
+            "type": "string",
+            "format": "date"
+          },
+          "AvgTemperatureC": {
+            "type": "number"
+          },
+          "MaxWindSpeedMps": {
+            "type": "number"
+          },
+          "TotalPrecipMm": {
+            "type": "number"
+          },
+          "RainRisk01": {
+            "type": "number"
+          },
+          "WeatherSuitabilityScore": {
+            "type": "integer"
+          },
+          "Summary": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "components": {
+    "schemas": {
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      },
+      "WeekendHolidayDemand.HolidayDemandInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Town": {
+            "type": "string"
+          },
+          "CountryCode": {
+            "type": "string"
+          },
+          "Year": {
+            "type": "integer"
+          },
+          "WeekendStart": {
+            "type": "string",
+            "format": "date"
+          },
+          "WeekendEnd": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "WeekendHolidayDemand.HolidayDemandResult": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Town": {
+            "type": "string"
+          },
+          "CountryCode": {
+            "type": "string"
+          },
+          "WeekendStart": {
+            "type": "string",
+            "format": "date"
+          },
+          "WeekendEnd": {
+            "type": "string",
+            "format": "date"
+          },
+          "HolidayNearby": {
+            "type": "boolean"
+          },
+          "HolidayName": {
+            "type": "string"
+          },
+          "DemandAdjustment": {
+            "type": "number"
+          },
+          "Summary": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

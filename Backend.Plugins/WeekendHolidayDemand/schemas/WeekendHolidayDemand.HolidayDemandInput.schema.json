@@ -1,0 +1,25 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "Town": {
+      "type": "string"
+    },
+    "CountryCode": {
+      "type": "string"
+    },
+    "Year": {
+      "type": "integer"
+    },
+    "WeekendStart": {
+      "type": "string",
+      "format": "date"
+    },
+    "WeekendEnd": {
+      "type": "string",
+      "format": "date"
+    }
+  }
+}
