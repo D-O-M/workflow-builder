@@ -130,6 +130,9 @@ public class WorkflowDbContext : DbContext
             entity.ToTable("TaskInstances");
             entity.HasKey(e => e.Id);
 
+            entity.Property(e => e.PositionX).IsRequired();
+            entity.Property(e => e.PositionY).IsRequired();
+
             entity.HasMany(e => e.OutgoingConnections)
               .WithOne(tc => tc.SourceTaskInstance)
               .HasForeignKey(tc => tc.SourceTaskInstanceId)
@@ -152,6 +155,7 @@ public class WorkflowDbContext : DbContext
             // Nullable FKs
             entity.Property(e => e.SourceTaskInstanceId).IsRequired(false);
             entity.Property(e => e.DestinationTaskInstanceId).IsRequired(false);
+            entity.Property(e => e.Side).IsRequired();
 
             // TC -> Channel (many-to-one)
             // Restrict avoids unintended deletes of connections if a channel is removed.

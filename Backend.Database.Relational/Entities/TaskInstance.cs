@@ -10,6 +10,9 @@ public class TaskInstance
     public int TaskVersionId { get; set; }
     public TaskVersion TaskVersion { get; set; } = null!;
 
+    public int PositionX { get; set; }
+    public int PositionY { get; set; }
+
     public List<TaskConnection> OutgoingConnections { get; set; } = new();
     public List<TaskConnection> IncomingConnections { get; set; } = new();
 }

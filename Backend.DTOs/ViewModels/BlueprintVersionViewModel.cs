@@ -15,8 +15,8 @@ public sealed class BlueprintVersionViewModel
     /// <summary>Monotonic version number for the blueprint definition (BlueprintVersions.Version).</summary>
     public int Version { get; init; }
 
-    /// <summary>The TaskVersions.Id of the starting task within this payload (entry point).</summary>
-    public int StartingTaskInstanceId { get; init; }
+    /// <summary>The task instance ID of the starting task within this payload (entry point).</summary>
+    public Guid StartingTaskInstanceId { get; init; }
 
     public List<BlueprintTaskViewModel> Tasks { get; init; } = new();
 }

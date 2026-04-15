@@ -12,6 +12,10 @@ public class TaskConnection
     public Guid? DestinationTaskInstanceId { get; set; }
     public TaskInstance? DestinationTaskInstance { get; set; }
 
+    public int Anchor { get; set; }
+    public string Side { get; set; } = null!;
+    public int Position { get; set; }
+
     public int ChannelId { get; set; }
     public Channel Channel { get; set; } = null!;
 }

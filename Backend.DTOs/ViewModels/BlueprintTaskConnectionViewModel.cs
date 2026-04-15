@@ -9,4 +9,10 @@ public sealed class BlueprintTaskConnectionViewModel
     public string? ChannelName { get; init; }
 
     public Guid TaskInstanceId { get; init; }
+
+    public int Anchor { get; init; }
+
+    public string Side { get; init; } = null!;
+
+    public int Position { get; init; }
 }

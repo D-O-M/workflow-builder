@@ -16,6 +16,15 @@ public sealed class BlueprintTaskConnectionInputModel : IValidatableObject
     [Required]
     public Guid ConnectedTaskInstanceId { get; init; }
 
+    [Range(0, 11)]
+    public int Anchor { get; init; }
+
+    [Required]
+    public string Side { get; init; } = null!;
+
+    [Range(0, int.MaxValue)]
+    public int Position { get; init; }
+
     /// <summary>
     /// Enforces: at least one of ChannelId / ChannelName must be supplied.
     /// (JSON Schema "anyOf" equivalent.)

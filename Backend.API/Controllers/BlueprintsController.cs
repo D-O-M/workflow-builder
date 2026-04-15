@@ -105,6 +105,30 @@ public class BlueprintsController : ControllerBase
         }
     }
 
+    [HttpPost("{Id:int}/execute")]
+    public async Task<ActionResult<object>> ExecuteBlueprint(
+        [FromRoute] IdInputModel model,
+        [FromBody] BlueprintExecutionInputModel executionModel)
+    {
+        try
+        {
+            await _workflowBlueprintRepository.GetBlueprintById(model.Id, HttpContext.RequestAborted);
+        }
+        catch (EntityNotFoundException<BlueprintViewModel>)
+        {
+            return NotFound();
+        }
+
+        return Accepted(new
+        {
+            WorkflowInstanceId = Guid.NewGuid(),
+            BlueprintId = model.Id,
+            AcceptedAt = DateTimeOffset.UtcNow,
+            GlobalState = executionModel.GlobalState,
+            InitialTaskInput = executionModel.InitialTaskInput,
+        });
+    }
+
     private BlueprintTaskTree BuildTaskTree(
         BlueprintTaskInputModel model,
         Dictionary<Guid, BlueprintTaskInputModel> taskModelsByInstanceId)
@@ -127,6 +151,9 @@ public class BlueprintsController : ControllerBase
                             ChannelId = connection.ChannelId,
                             ChannelName = connection.ChannelName
                         },
+                        Anchor = connection.Anchor,
+                        Side = connection.Side,
+                        Position = connection.Position,
                         Task = BuildTaskTree(
                             taskModelsByInstanceId[connection.ConnectedTaskInstanceId],
                             taskModelsByInstanceId)

@@ -142,7 +142,7 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
             .OrderBy(d => d.Id)
             .ToListAsync(cancellationToken);
 
-        return items.Select(MapBlueprintDefinition).ToList();
+        return items.Select(item => MapBlueprintDefinition(item)).ToList();
     }
 
     public async Task<BlueprintViewModel> GetBlueprintById(int id, CancellationToken cancellationToken)
@@ -156,7 +156,19 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
         if (entity is null)
             throw new EntityNotFoundException<BlueprintViewModel>(id);
 
-        return MapBlueprintDefinition(entity);
+        var versions = new List<BlueprintVersionViewModel>(entity.Versions.Count);
+        foreach (var versionId in entity.Versions.OrderByDescending(v => v.Version).Select(v => v.Id))
+        {
+            versions.Add(await GetBlueprintVersionViewModel(versionId, cancellationToken));
+        }
+
+        return new BlueprintViewModel
+        {
+            Id = entity.Id,
+            Name = entity.Key,
+            Description = string.Empty,
+            Versions = versions
+        };
     }
 
     public async Task<BlueprintViewModel> CreateBlueprint(BlueprintInputModel model, CancellationToken cancellationToken)
@@ -210,7 +222,10 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
                 {
                     ChannelId = c.ChannelDetails.ChannelId,
                     ChannelName = c.ChannelDetails.ChannelName,
-                    ConnectedTaskInstanceId = c.Task?.InstanceId ?? Guid.Empty
+                    ConnectedTaskInstanceId = c.Task?.InstanceId ?? Guid.Empty,
+                    Anchor = c.Anchor,
+                    Side = c.Side,
+                    Position = c.Position
                 }).Where(c => c.ConnectedTaskInstanceId != Guid.Empty).ToList()
             })
             .ToList();
@@ -259,6 +274,8 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
                 Id = instanceId,
                 BlueprintVersion = blueprintVersion,
                 TaskVersionId = t.VersionId,
+                PositionX = t.Position.X,
+                PositionY = t.Position.Y,
             };
 
             blueprintVersion.TaskInstances.Add(entity);
@@ -303,6 +320,9 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
                     Id = Guid.NewGuid(),
                     SourceTaskInstance = sourceEntity,
                     DestinationTaskInstance = destEntity,
+                    Anchor = conn.Anchor,
+                    Side = conn.Side,
+                    Position = conn.Position,
                     ChannelId = channelId.Value
                 });
             }
@@ -312,7 +332,7 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
         return blueprintVersion;
     }
 
-    private static BlueprintViewModel MapBlueprintDefinition(BlueprintDefinition entity)
+    private static BlueprintViewModel MapBlueprintDefinition(BlueprintDefinition entity, bool includeTaskDetails = false)
         => new BlueprintViewModel
         {
             Id = entity.Id,
@@ -320,52 +340,60 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
             Description = string.Empty,
             Versions = entity.Versions
                 .OrderByDescending(v => v.Version)
-                .Select(v => new BlueprintVersionViewModel
-                {
-                    BlueprintVersionId = v.Id,
-                    BlueprintDefinitionId = v.BlueprintDefinitionId,
-                    Name = v.Name,
-                    Description = null,
-                    Version = v.Version,
-                    StartingTaskInstanceId = 0,
-                    Tasks = new()
-                })
+                .Select(v => MapBlueprintVersion(v, includeTaskDetails))
                 .ToList()
+        };
+
+    private static BlueprintVersionViewModel MapBlueprintVersion(BlueprintVersion version, bool includeTaskDetails)
+        => new()
+        {
+            BlueprintVersionId = version.Id,
+            BlueprintDefinitionId = version.BlueprintDefinitionId,
+            Name = version.Name,
+            Description = null,
+            Version = version.Version,
+            StartingTaskInstanceId = version.StartingTaskInstanceId ?? Guid.Empty,
+            Tasks = includeTaskDetails
+                ? version.TaskInstances.OrderBy(taskInstance => taskInstance.Id).Select(MapBlueprintTask).ToList()
+                : new()
+        };
+
+    private static BlueprintTaskViewModel MapBlueprintTask(TaskInstance taskInstance)
+        => new()
+        {
+            InstanceId = taskInstance.Id,
+            VersionId = taskInstance.TaskVersionId,
+            Position = new CoordinatesViewModel { X = taskInstance.PositionX, Y = taskInstance.PositionY },
+            OutgoingConnections = taskInstance.OutgoingConnections.Select(connection => new BlueprintTaskConnectionViewModel
+            {
+                ChannelId = connection.ChannelId,
+                ChannelName = connection.Channel?.Name,
+                TaskInstanceId = connection.DestinationTaskInstanceId ?? Guid.Empty,
+                Anchor = connection.Anchor,
+                Side = connection.Side,
+                Position = connection.Position,
+            }).Where(connection => connection.TaskInstanceId != Guid.Empty).ToList()
         };
 
     private async Task<BlueprintVersionViewModel> GetBlueprintVersionViewModel(int blueprintVersionId, CancellationToken cancellationToken)
     {
         var bv = await _context.BlueprintVersions
-            .Include(v => v.TaskInstances)
-                .ThenInclude(ti => ti.OutgoingConnections)
-                    .ThenInclude(tc => tc.Channel)
             .AsNoTracking()
-            .AsSplitQuery()
             .FirstOrDefaultAsync(v => v.Id == blueprintVersionId, cancellationToken);
 
         if (bv is null)
             throw new EntityNotFoundException<BlueprintVersionViewModel>(blueprintVersionId);
 
-        return new BlueprintVersionViewModel
-        {
-            BlueprintVersionId = bv.Id,
-            BlueprintDefinitionId = bv.BlueprintDefinitionId,
-            Name = bv.Name,
-            Description = null,
-            Version = bv.Version,
-            StartingTaskInstanceId = 0,
-            Tasks = bv.TaskInstances.Select(ti => new BlueprintTaskViewModel
-            {
-                InstanceId = ti.Id,
-                VersionId = ti.TaskVersionId,
-                Position = new CoordinatesViewModel { X = 0, Y = 0 },
-                OutgoingConnections = ti.OutgoingConnections.Select(tc => new BlueprintTaskConnectionViewModel
-                {
-                    ChannelId = tc.ChannelId,
-                    ChannelName = tc.Channel?.Name,
-                    TaskInstanceId = tc.DestinationTaskInstanceId ?? Guid.Empty
-                }).Where(c => c.TaskInstanceId != Guid.Empty).ToList()
-            }).ToList()
-        };
+        var taskInstances = await _context.TaskInstances
+            .Where(ti => ti.BlueprintVersionId == blueprintVersionId)
+            .Include(ti => ti.OutgoingConnections)
+                .ThenInclude(tc => tc.Channel)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .ToListAsync(cancellationToken);
+
+        bv.TaskInstances = taskInstances;
+
+        return MapBlueprintVersion(bv, includeTaskDetails: true);
     }
 }

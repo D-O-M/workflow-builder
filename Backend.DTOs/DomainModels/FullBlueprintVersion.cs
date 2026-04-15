@@ -67,5 +67,8 @@ public class ChannelDetails
 public class TaskConnection
 {
     public required ChannelDetails ChannelDetails { get; set; }
+    public int Anchor { get; set; }
+    public required string Side { get; set; }
+    public int Position { get; set; }
     public BlueprintTaskTree? Task { get; set; }
 }

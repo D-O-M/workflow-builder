@@ -138,11 +138,21 @@ namespace Backend.Database.Relational.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int>("Anchor")
+                        .HasColumnType("int");
+
                     b.Property<int>("ChannelId")
                         .HasColumnType("int");
 
                     b.Property<Guid?>("DestinationTaskInstanceId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Side")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid?>("SourceTaskInstanceId")
                         .HasColumnType("uniqueidentifier");
@@ -185,6 +195,12 @@ namespace Backend.Database.Relational.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("BlueprintVersionId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PositionX")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PositionY")
                         .HasColumnType("int");
 
                     b.Property<int>("TaskVersionId")
