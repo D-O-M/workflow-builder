@@ -1,7 +1,8 @@
 using System.Diagnostics;
 using System.IO.Pipelines;
-using System.Text.Json;
+using System.Text;
 using Backend.Engine.Debugging;
+using Backend.Plugins.Communication;
 using CliWrap;
 using CliWrap.EventStream;
 
@@ -23,7 +24,7 @@ public class NanoServiceAgent
     private Pipe _commsStream = new();
     private bool ready = false;
 
-    private string _name;
+    private string _name = string.Empty;
     public string Name => _name;
 
     public NanoServiceAgent(
@@ -83,6 +84,10 @@ public class NanoServiceAgent
                     {
                         "OTEL_EXPORTER_OTLP_HEADERS",
                         _configuration["OTEL_EXPORTER_OTLP_HEADERS"]
+                    },
+                    {
+                        "ConnectionStrings__enginedb",
+                        _configuration.GetConnectionString("enginedb")
                     }
                 }
             )
@@ -110,7 +115,7 @@ public class NanoServiceAgent
                     break;
                 case ExitedCommandEvent exited:
                     _logger.LogCritical("{PluginName} Process exited; Code: {ExitCode}", Name, exited.ExitCode);
-                    _processCancellation.Cancel();
+                    _processCancellation?.Cancel();
                     break;
             }
         }
@@ -134,29 +139,49 @@ public class NanoServiceAgent
 
     private async Task OnOutput(string output)
     {
-        if (!ready)
+        if (string.IsNullOrWhiteSpace(output))
         {
-            if (output == "Ready") ready = true;
             return;
         }
 
-        var jobCompletionEvent = JsonSerializer.Deserialize<JobCompletionEvent>(output);
-        await _jobManager.CompleteJob(jobCompletionEvent!, CancellationToken.None);
+        if (!ready)
+        {
+            if (output == "Ready")
+            {
+                ready = true;
+            }
+
+            return;
+        }
+
+        try
+        {
+            var result = PluginExecutionResultSerializer.Deserialize(Encoding.UTF8.GetBytes(output));
+            await _jobManager.CompleteJob(result, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to parse output from nano-service {PluginName}: {Output}",
+                Name,
+                output);
+        }
     }
 
     public async Task<bool> QueueJob(
-        JobInitialisationEvent jobInitialisationEvent,
+        InvocationEnvelope invocationEnvelope,
         CancellationToken cancellationToken)
     {
         try
         {
-            await JsonSerializer.SerializeAsync(
-                _commsStream.Writer,
-                jobInitialisationEvent,
-                JsonSerializerOptions.Default,
-                cancellationToken);
-
-            await _commsStream.Writer.FlushAsync(cancellationToken);
+            var payload = InvocationEnvelopeSerializer.Serialize(invocationEnvelope);
+            var writer = _commsStream.Writer;
+            var buffer = writer.GetMemory(payload.Length + 1);
+            payload.Span.CopyTo(buffer.Span);
+            buffer.Span[payload.Length] = (byte)'\n';
+            writer.Advance(payload.Length + 1);
+            await writer.FlushAsync(cancellationToken);
 
             return true;
         }

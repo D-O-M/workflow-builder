@@ -1,12 +1,11 @@
-namespace Backend.Engine.Messages;
+namespace Backend.Plugins.Communication;
 
-public record WorkflowTaskInitialisationMessage
+public sealed record WorkflowTaskInitialisationMessage
 {
     public Guid WorkflowInstanceId { get; init; }
     public int WorkflowBlueprintId { get; init; }
-
     public Guid WorkflowTaskInstanceId { get; init; }
-    public int WorkflowTaskId { get; init; }
-
+    public Guid BlueprintTaskId { get; init; }
     public Guid PreviousWorkflowTaskInstanceId { get; init; }
+    public string LinkedOutputChannelName { get; init; } = string.Empty;
 }

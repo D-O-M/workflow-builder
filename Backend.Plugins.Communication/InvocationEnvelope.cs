@@ -11,11 +11,11 @@ public sealed record PreviousTaskDetails(
 /// The envelope omits payload data and instead conveys the identifiers needed
 /// for the recipient to hydrate state locally.
 /// </summary>
+/// <param name="WorkflowBlueprintId">Identifier of the blueprint version being executed.</param>
 /// <param name="WorkflowInstanceId">Identifier of the workflow instance being executed.</param>
 /// <param name="WorkflowTaskInstanceId">Identifier of the task instance within the workflow.</param>
-/// <param name="InputChannelName">Name of the input channel to hydrate locally.</param>
 public sealed record InvocationEnvelope(
-    Guid WorkflowBlueprintId,
+    int WorkflowBlueprintId,
     Guid WorkflowInstanceId,
     Guid WorkflowTaskInstanceId,
     PreviousTaskDetails PreviousTaskDetails);

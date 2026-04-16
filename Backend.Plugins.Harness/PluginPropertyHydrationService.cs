@@ -19,8 +19,8 @@ internal class PluginPropertyHydrationService<TDocument, TProperty>
 
     public async Task HydratePluginProperty(
         Action<TProperty> propertySetter,
-        Guid documentId,
-        Guid partitionKey,
+        string documentId,
+        string partitionKey,
         string outputChannelName,
         CancellationToken cancellationToken)
     {
@@ -35,18 +35,18 @@ internal class PluginPropertyHydrationService<TDocument, TProperty>
     }
 
     private async Task<TDocument> GetDocument(
-        Guid id,
-        Guid partitionKey,
+        string id,
+        string partitionKey,
         CancellationToken cancellationToken)
     {
         var document = await _cosmosRepository.GetAsync(
-            id.ToString(),
-            new PartitionKey(partitionKey.ToString()),
+            id,
+            new PartitionKey(partitionKey),
             cancellationToken);
 
         if (document is null)
         {
-            throw new EntityNotFoundException<TDocument>(id.ToString());
+            throw new EntityNotFoundException<TDocument>(id);
         }
 
         return document;

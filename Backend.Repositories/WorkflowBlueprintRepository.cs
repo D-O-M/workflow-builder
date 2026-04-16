@@ -95,22 +95,32 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
             taskDtosById.Add(taskDto.Id, taskDto);
         }
 
-        // OPTIONAL: If WorkflowTaskChannel has Source/Destination navigation in DTO-land,
-        // you can wire it here using TaskConnections. This was commented out in your old code;
-        // leaving it out keeps parity.
-        //
-        // foreach (var nodeEntity in blueprintVersionEntity.TaskInstances)
-        // {
-        //     var sourceTaskDto = taskDtosById[nodeEntity.Id];
-        //
-        //     foreach (var conn in nodeEntity.OutgoingConnections)
-        //     {
-        //         if (conn.DestinationTaskInstanceId is null) continue;
-        //
-        //         // Map connection.ChannelId -> the output channel DTO on the source task
-        //         // (You currently key output channels by name; you could also build an id->dto lookup.)
-        //     }
-        // }
+        foreach (var nodeEntity in blueprintVersionEntity.TaskInstances)
+        {
+            var sourceTaskDto = taskDtosById[nodeEntity.Id];
+            var outputChannelDtosById = sourceTaskDto.OutputChannels.Values.ToDictionary(channel => channel.Id);
+
+            foreach (var connection in nodeEntity.OutgoingConnections)
+            {
+                if (connection.DestinationTaskInstanceId is null)
+                {
+                    continue;
+                }
+
+                if (!taskDtosById.TryGetValue(connection.DestinationTaskInstanceId.Value, out var destinationTaskDto))
+                {
+                    continue;
+                }
+
+                if (!outputChannelDtosById.TryGetValue(connection.ChannelId, out var outputChannelDto))
+                {
+                    continue;
+                }
+
+                outputChannelDto.Source = sourceTaskDto;
+                outputChannelDto.Destination = destinationTaskDto;
+            }
+        }
 
         var allTasks = taskDtosById.Values.ToList();
 

@@ -12,6 +12,13 @@ public class WorkflowInstanceRepository<TGlobalState>
         : base(container, wo => wo.WorkflowInstanceId, wo => new PartitionKey(wo.BlueprintId))
     {}
 
+    public async Task<WorkflowObject<TGlobalState>> CreateWorkflowState(
+        WorkflowObject<TGlobalState> state,
+        CancellationToken cancellationToken)
+    {
+        return (await CreateAsync(state, cancellationToken)).Resource;
+    }
+
     public async Task<WorkflowObject<TGlobalState>> GetWorkflowStateById(
         Guid workflowInstanceId,
         int workflowBlueprintId,
@@ -35,6 +42,6 @@ public class WorkflowInstanceRepository<TGlobalState>
         WorkflowObject<TGlobalState> state,
         CancellationToken cancellationToken)
     {
-        return (await UpsertAsync(state, cancellationToken)).Resource;
+        return (await ReplaceAsync(state, cancellationToken)).Resource;
     }
 }

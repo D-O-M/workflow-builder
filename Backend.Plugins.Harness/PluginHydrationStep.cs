@@ -23,15 +23,15 @@ internal sealed class PluginHydrationStep<TPlugin, TDocument, TProperty> : IPlug
     private readonly PropertySetterUtility<TPlugin, TProperty> _setter;
 
     // Extracts IDs from the envelope
-    private readonly Func<InvocationEnvelope, Guid> _documentIdSelector;
-    private readonly Func<InvocationEnvelope, Guid> _partitionKeySelector;
+    private readonly Func<InvocationEnvelope, string> _documentIdSelector;
+    private readonly Func<InvocationEnvelope, string> _partitionKeySelector;
 
     public PluginHydrationStep(
         string channelName,
         PluginPropertyHydrationService<TDocument, TProperty> hydrator,
         PropertySetterUtility<TPlugin, TProperty> setter,
-        Func<InvocationEnvelope, Guid> documentIdSelector,
-        Func<InvocationEnvelope, Guid> partitionKeySelector)
+        Func<InvocationEnvelope, string> documentIdSelector,
+        Func<InvocationEnvelope, string> partitionKeySelector)
     {
         _channelName = channelName;
         _hydrator = hydrator;

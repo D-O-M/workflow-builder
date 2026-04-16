@@ -20,6 +20,7 @@ public class PluginBuilder<TPlugin>
     where TPlugin : class, IPlugin
 {
     private readonly string _displayName;
+    private Func<TPlugin, object?>? _globalStateGetter;
     private readonly Dictionary<string, PluginChannel> _inputChannels = new();
     private readonly Dictionary<string, PluginChannel> _outputChannels = new();
     private readonly HostApplicationBuilder _hostAppBuilder;
@@ -32,6 +33,7 @@ public class PluginBuilder<TPlugin>
     public PluginBuilder(string displayName)
     {
         _hostAppBuilder = Host.CreateApplicationBuilder(Environment.GetCommandLineArgs());
+        _hostAppBuilder.Configuration.AddEnvironmentVariables();
 
         RegisterCosmos();
 
@@ -39,8 +41,6 @@ public class PluginBuilder<TPlugin>
         _hostAppBuilder.Services.AddHostedService<EventHandler<TPlugin>>();
 
         _hostAppBuilder.Logging.ClearProviders();
-
-        _hostAppBuilder.Configuration.AddEnvironmentVariables();
 
         _hostAppBuilder.Services.AddOpenTelemetry()
             .ConfigureResource(builder => builder.AddService(displayName))
@@ -107,10 +107,10 @@ public class PluginBuilder<TPlugin>
             var hydrator = sp.GetRequiredService<PluginPropertyHydrationService<TaskObject, TChannelType>>();
             var setter = sp.GetRequiredService<PropertySetterUtility<TPlugin, TChannelType>>();
 
-            // These selectors are based on your commented usage in EventHandler.
-            // Adjust if your InvocationEnvelope uses different fields.
-            Func<InvocationEnvelope, Guid> documentIdSelector = env => env.WorkflowTaskInstanceId;
-            Func<InvocationEnvelope, Guid> partitionKeySelector = env => env.WorkflowInstanceId;
+            Func<InvocationEnvelope, string> documentIdSelector =
+                env => env.PreviousTaskDetails.PreviousTaskInstanceId.ToString();
+            Func<InvocationEnvelope, string> partitionKeySelector =
+                env => env.WorkflowInstanceId.ToString();
 
             return new PluginHydrationStep<TPlugin, TaskObject, TChannelType>(
                 channelName: name,
@@ -152,6 +152,8 @@ public class PluginBuilder<TPlugin>
                 name, propertySelector.Compile()));
 
         _globalStateType = typeof(TGlobalState);
+        var globalStateGetter = propertySelector.Compile();
+        _globalStateGetter = plugin => globalStateGetter(plugin);
 
         _hostAppBuilder.Services.AddSingleton(
             new PropertySetterUtility<TPlugin, TGlobalState>(propertySelector));
@@ -171,9 +173,10 @@ public class PluginBuilder<TPlugin>
             var hydrator = sp.GetRequiredService<PluginPropertyHydrationService<WorkflowObject<TGlobalState>, TGlobalState>>();
             var setter = sp.GetRequiredService<PropertySetterUtility<TPlugin, TGlobalState>>();
 
-            // Adjust these if your WorkflowObject is keyed differently.
-            Func<InvocationEnvelope, Guid> documentIdSelector = env => env.WorkflowInstanceId;
-            Func<InvocationEnvelope, Guid> partitionKeySelector = env => env.WorkflowBlueprintId;
+            Func<InvocationEnvelope, string> documentIdSelector =
+                env => env.WorkflowInstanceId.ToString();
+            Func<InvocationEnvelope, string> partitionKeySelector =
+                env => env.WorkflowBlueprintId.ToString();
 
             return new GlobalStateHydrationStep<TPlugin, WorkflowObject<TGlobalState>, TGlobalState>(
                 hydrator, setter, documentIdSelector, partitionKeySelector);
@@ -203,6 +206,11 @@ public class PluginBuilder<TPlugin>
         {
             WithGlobalState(p => p.GlobalState);
         }
+
+        _hostAppBuilder.Services.AddSingleton(
+            new PluginExecutionResultFactory<TPlugin>(
+                _outputChannels.Values.ToList(),
+                _globalStateGetter ?? (_ => new GlobalStateStub())));
 
 #if DEBUG
         try
@@ -282,9 +290,8 @@ public class PluginBuilder<TPlugin>
     private void RegisterCosmos()
     {
         var builder = _hostAppBuilder;
-
-        var cosmosConnectionString =
-            "AccountEndpoint=http://localhost:8081/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
+        var cosmosConnectionString = builder.Configuration.GetConnectionString("enginedb")
+            ?? throw new InvalidOperationException("Cosmos DB connection string is not configured for the plugin harness.");
 
         var databaseName = "enginedb";
         var containerName = "tasks";
@@ -325,14 +332,14 @@ public class PluginBuilder<TPlugin>
     {
         private readonly PluginPropertyHydrationService<TDoc, TProp> _hydrator;
         private readonly PropertySetterUtility<TP, TProp> _setter;
-        private readonly Func<InvocationEnvelope, Guid> _documentIdSelector;
-        private readonly Func<InvocationEnvelope, Guid> _partitionKeySelector;
+        private readonly Func<InvocationEnvelope, string> _documentIdSelector;
+        private readonly Func<InvocationEnvelope, string> _partitionKeySelector;
 
         public GlobalStateHydrationStep(
             PluginPropertyHydrationService<TDoc, TProp> hydrator,
             PropertySetterUtility<TP, TProp> setter,
-            Func<InvocationEnvelope, Guid> documentIdSelector,
-            Func<InvocationEnvelope, Guid> partitionKeySelector)
+            Func<InvocationEnvelope, string> documentIdSelector,
+            Func<InvocationEnvelope, string> partitionKeySelector)
         {
             _hydrator = hydrator;
             _setter = setter;

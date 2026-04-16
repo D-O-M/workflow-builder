@@ -31,9 +31,17 @@ public class TaskInstanceRepository
         return taskInstance;
     }
 
-    public Task<TaskObject> UpdateTaskInstance(
-        TaskObject state, CancellationToken cancellationToken)
+    public async Task<TaskObject> CreateTaskInstance(
+        TaskObject state,
+        CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        return (await CreateAsync(state, cancellationToken)).Resource;
+    }
+
+    public async Task<TaskObject> UpdateTaskInstance(
+        TaskObject state,
+        CancellationToken cancellationToken)
+    {
+        return (await ReplaceAsync(state, cancellationToken)).Resource;
     }
 }

@@ -4,6 +4,10 @@ namespace Backend.Interfaces.Repositories;
 
 public interface ITaskInstanceRepository
 {
+    Task<TaskObject> CreateTaskInstance(
+        TaskObject state,
+        CancellationToken cancellationToken);
+
     Task<TaskObject> GetTaskInstanceById(
         Guid taskInstanceId,
         Guid workflowInstanceId,

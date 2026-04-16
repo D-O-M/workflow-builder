@@ -1,23 +1,15 @@
-using System.Text.Json;
-using System.Threading.Channels;
 using Backend.Plugins.Communication;
-using Backend.Plugins.Harness;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+
+namespace Backend.Plugins.Harness;
 
 internal sealed class EventHandler<TPlugin> : BackgroundService
     where TPlugin : class, IPlugin
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<EventHandler<TPlugin>> _logger;
-
-    private readonly Channel<InvocationEnvelope> _queue = Channel.CreateUnbounded<InvocationEnvelope>(
-        new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = true
-        });
 
     public EventHandler(
         IServiceScopeFactory scopeFactory,
@@ -36,54 +28,54 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _ = Task.Run(() => ReadStdinLoop(stoppingToken), stoppingToken);
-
-        await foreach (var envelope in _queue.Reader.ReadAllAsync(stoppingToken))
+        while (!stoppingToken.IsCancellationRequested)
         {
+            var line = await Console.In.ReadLineAsync().ConfigureAwait(false);
+            if (line is null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            InvocationEnvelope envelope;
+            try
+            {
+                envelope = InvocationEnvelopeSerializer.Deserialize(System.Text.Encoding.UTF8.GetBytes(line));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse invocation envelope from stdin.");
+                continue;
+            }
+
             await using var scope = _scopeFactory.CreateAsyncScope();
             var plugin = ActivatorUtilities.CreateInstance<TPlugin>(scope.ServiceProvider);
+            var resultFactory = scope.ServiceProvider.GetRequiredService<PluginExecutionResultFactory<TPlugin>>();
 
-            await PopulateStateAsync(scope.ServiceProvider, plugin, envelope, stoppingToken);
+            var startedAt = DateTimeOffset.UtcNow;
 
-            await plugin.Execute();
-        }
-    }
-
-    private async Task ReadStdinLoop(CancellationToken stoppingToken)
-    {
-        try
-        {
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                var line = await Console.In.ReadLineAsync().ConfigureAwait(false);
+                await PopulateStateAsync(scope.ServiceProvider, plugin, envelope, stoppingToken);
+                await plugin.Execute();
 
-                if (line is null)
-                {
-                    _queue.Writer.TryComplete();
-                    return;
-                }
-
-                if (string.IsNullOrWhiteSpace(line))
-                    continue;
-
-                InvocationEnvelope envelope;
-                try
-                {
-                    envelope = JsonSerializer.Deserialize<InvocationEnvelope>(line, JsonSerializerOptions.Web)
-                        ?? throw new InvalidOperationException("Invocation envelope payload missing.");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to parse invocation envelope from stdin.");
-                    continue;
-                }
-
-                await _queue.Writer.WriteAsync(envelope, stoppingToken).ConfigureAwait(false);
+                var completedAt = DateTimeOffset.UtcNow;
+                Console.Out.WriteLine(
+                    PluginExecutionResultSerializer.Serialize(
+                        resultFactory.CreateSuccess(plugin, envelope, startedAt, completedAt)));
             }
-        }
-        catch (Exception ex)
-        {
-            _queue.Writer.TryComplete(ex);
+            catch (Exception ex)
+            {
+                var completedAt = DateTimeOffset.UtcNow;
+                _logger.LogError(ex, "Plugin execution failed for workflow task {WorkflowTaskInstanceId}.", envelope.WorkflowTaskInstanceId);
+                Console.Out.WriteLine(
+                    PluginExecutionResultSerializer.Serialize(
+                        resultFactory.CreateFailure(plugin, envelope, startedAt, completedAt, ex)));
+            }
         }
     }
 

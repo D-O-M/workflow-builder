@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Azure.Messaging.ServiceBus;
-using Backend.Engine.Messages;
+using Backend.Plugins.Communication;
 
 namespace Backend.Engine;
 
@@ -19,43 +19,81 @@ public class JobFinalizationService
 
     public async Task FinalizeSuccess(
         JobContext context,
+        PluginExecutionResult executionResult,
         CancellationToken cancellationToken)
     {
+        await context.PersistSuccessAsync(
+            executionResult.OutputData,
+            executionResult.GlobalState,
+            executionResult.CompletedAt,
+            cancellationToken);
+
+        await EnqueueNextTasksAsync(context, executionResult, cancellationToken);
         await context.CompleteMessageAsync(cancellationToken);
-        await EnqueueNextTasksAsync(context, cancellationToken);
     }
 
-    public async Task FinalizeFailureAsync(JobContext context, CancellationToken cancellationToken)
+    public async Task FinalizeFailureAsync(
+        JobContext context,
+        PluginExecutionResult executionResult,
+        CancellationToken cancellationToken)
     {
-        await context.AbandonMessageAsync(cancellationToken);
-    }
+        await context.PersistFailureAsync(
+            executionResult.GlobalState,
+            executionResult.CompletedAt,
+            cancellationToken);
+        await context.CompleteMessageAsync(cancellationToken);
 
-    private async Task EnqueueNextTasksAsync(JobContext context, CancellationToken cancellationToken)
-    {
-        foreach (var task in context.NextTasks)
+        if (!string.IsNullOrWhiteSpace(executionResult.ErrorMessage))
         {
-            if (!context.OutputChannelsPopulated.Contains(task.InputChannel.Name))
+            _logger.LogError(
+                "Workflow task {BlueprintTaskId} for workflow instance {WorkflowInstanceId} failed: {ErrorMessage}",
+                context.BlueprintTaskId,
+                context.WorkflowInstanceId,
+                executionResult.ErrorMessage);
+        }
+    }
+
+    private async Task EnqueueNextTasksAsync(
+        JobContext context,
+        PluginExecutionResult executionResult,
+        CancellationToken cancellationToken)
+    {
+        foreach (var outputChannel in context.WorkflowTask.OutputChannels.Values)
+        {
+            if (!executionResult.OutputData.ContainsKey(outputChannel.Name) ||
+                outputChannel.Destination is null)
             {
                 continue;
             }
+
+            var downstreamTaskInstanceId = Guid.NewGuid();
+            await context.CreatePendingTaskAsync(
+                downstreamTaskInstanceId,
+                outputChannel.Destination.Id,
+                executionResult.CompletedAt,
+                cancellationToken);
 
             var job = new WorkflowTaskInitialisationMessage
             {
                 WorkflowInstanceId = context.WorkflowInstanceId,
                 WorkflowBlueprintId = context.WorkflowBlueprintId,
-                WorkflowTaskInstanceId = Guid.NewGuid(),
-                WorkflowTaskId = 0 // TODO: task.Id
+                WorkflowTaskInstanceId = downstreamTaskInstanceId,
+                BlueprintTaskId = outputChannel.Destination.Id,
+                PreviousWorkflowTaskInstanceId = context.WorkflowTaskInstanceId,
+                LinkedOutputChannelName = outputChannel.Name
             };
 
-            var message = new ServiceBusMessage(BinaryData.FromBytes(JsonSerializer.SerializeToUtf8Bytes(job)))
+            var message = new ServiceBusMessage(BinaryData.FromBytes(
+                JsonSerializer.SerializeToUtf8Bytes(job)))
             {
                 ContentType = "application/json"
             };
 
             await _serviceBusSender.SendMessageAsync(message, cancellationToken);
             _logger.LogInformation(
-                "Enqueued downstream task {TaskId} for workflow instance {WorkflowInstanceId}",
-                task.Id,
+                "Enqueued downstream task {TaskId} from output channel {OutputChannelName} for workflow instance {WorkflowInstanceId}",
+                outputChannel.Destination.Id,
+                outputChannel.Name,
                 context.WorkflowInstanceId);
         }
     }

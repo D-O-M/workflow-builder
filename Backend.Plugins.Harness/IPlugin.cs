@@ -4,7 +4,7 @@ public interface IPlugin
 {
     public GlobalStateStub GlobalState {
         get => new GlobalStateStub();
-        set => GlobalState = value;
+        set { }
     }
 
     Task Execute();

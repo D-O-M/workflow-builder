@@ -8,7 +8,13 @@
     <UserSecretsId>WorkflowBuilder</UserSecretsId>
   </PropertyGroup>
 
+    <PropertyGroup>
+        <AzureCosmosDisableNewtonsoftJsonCheck>true</AzureCosmosDisableNewtonsoftJsonCheck>
+    </PropertyGroup>
+
   <ItemGroup>
+    <PackageReference Include="Aspire.Microsoft.Azure.Cosmos" />
+    <PackageReference Include="Azure.Messaging.ServiceBus" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" />
     <PackageReference Include="Scalar.AspNetCore" />
@@ -18,6 +24,7 @@
     <ProjectReference Include="..\Backend.Database.Relational\Backend.Database.Relational.csproj" />
     <ProjectReference Include="..\Backend.DTOs\Backend.Models.csproj" />
     <ProjectReference Include="..\Backend.Interfaces\Backend.Interfaces.csproj" />
+    <ProjectReference Include="..\Backend.Plugins.Communication\Backend.Plugins.Communication.csproj" />
     <ProjectReference Include="..\Backend.Repositories\Backend.Repositories.csproj" />
     <ProjectReference Include="..\Backend.ServiceDefaults\Backend.ServiceDefaults.csproj" />
   </ItemGroup>

@@ -1,3 +1,4 @@
+using Backend.API.Services;
 using Backend.Models.DomainModels;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
@@ -13,13 +14,16 @@ namespace Backend.API.Controllers;
 public class BlueprintsController : ControllerBase
 {
     private readonly IBlueprintVersionValidator _blueprintVersionValidator;
+    private readonly BlueprintExecutionService _blueprintExecutionService;
     private readonly IWorkflowBlueprintRepository _workflowBlueprintRepository;
 
     public BlueprintsController(
         IBlueprintVersionValidator blueprintVersionValidator,
+        BlueprintExecutionService blueprintExecutionService,
         IWorkflowBlueprintRepository workflowBlueprintRepository)
     {
         _blueprintVersionValidator = blueprintVersionValidator;
+        _blueprintExecutionService = blueprintExecutionService;
         _workflowBlueprintRepository = workflowBlueprintRepository;
     }
 
@@ -112,21 +116,17 @@ public class BlueprintsController : ControllerBase
     {
         try
         {
-            await _workflowBlueprintRepository.GetBlueprintById(model.Id, HttpContext.RequestAborted);
+            var accepted = await _blueprintExecutionService.ExecuteLatestVersionAsync(
+                model.Id,
+                executionModel,
+                HttpContext.RequestAborted);
+
+            return Accepted(accepted);
         }
         catch (EntityNotFoundException<BlueprintViewModel>)
         {
             return NotFound();
         }
-
-        return Accepted(new
-        {
-            WorkflowInstanceId = Guid.NewGuid(),
-            BlueprintId = model.Id,
-            AcceptedAt = DateTimeOffset.UtcNow,
-            GlobalState = executionModel.GlobalState,
-            InitialTaskInput = executionModel.InitialTaskInput,
-        });
     }
 
     private BlueprintTaskTree BuildTaskTree(

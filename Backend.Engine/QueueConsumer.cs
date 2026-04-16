@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Azure.Messaging.ServiceBus;
-using Backend.Engine.Messages;
 using Backend.Interfaces.Repositories;
+using Backend.Plugins.Communication;
 
 namespace Backend.Engine;
 
@@ -60,9 +60,8 @@ public class QueueConsumer : BackgroundService
                 var blueprint = await workflowBlueprintRepository
                     .GetFullBlueprintById(job.WorkflowBlueprintId, stoppingToken);
 
-                // TODO: FIX!
                 var task = blueprint.AllTasks
-                    .FirstOrDefault(t => t.SchemaId == job.WorkflowTaskId);
+                    .FirstOrDefault(t => t.Id == job.BlueprintTaskId);
 
                 if (task is null || !_agentManager.AgentExists(task.SchemaId))
                 {
