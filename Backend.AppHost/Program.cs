@@ -8,7 +8,7 @@ internal class Program
     {
         var builder = DistributedApplication.CreateBuilder(args);
 
-        var cosmos = AddCosmos(builder);
+        var cosmosDb = AddCosmos(builder);
 
         var password = builder.AddParameter("SqlServerPassword", secret: true);
 
@@ -26,19 +26,29 @@ internal class Program
             pluginsBlobContainerName);
 
         var (serviceBus, workflowTaskQueue) = AddServiceBus(builder);
+        var cosmosConnectionName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureCosmos:ConnectionName");
+        var workflowTaskQueueConnectionName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureServiceBus:Queues:WorkflowTaskQueue:ConnectionName");
 
         var api = builder.AddProject<Projects.Backend_API>("backend-api")
+            .WithReference(cosmosDb, connectionName: cosmosConnectionName)
+            .WaitFor(cosmosDb)
             .WithReference(blobs)
             .WaitFor(blobContainer)
-            .WithReference(workflowTaskQueue)
+            .WithReference(workflowTaskQueue, connectionName: workflowTaskQueueConnectionName)
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
             .WaitFor(sqlDb);
 
         var engine = builder.AddProject<Projects.Backend_Engine>("backend-engine")
+            .WithReference(cosmosDb, connectionName: cosmosConnectionName)
+            .WaitFor(cosmosDb)
             .WithReference(blobs)
             .WaitFor(blobContainer)
-            .WithReference(workflowTaskQueue)
+            .WithReference(workflowTaskQueue, connectionName: workflowTaskQueueConnectionName)
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
             .WaitFor(sqlDb);
@@ -62,26 +72,32 @@ internal class Program
         builder.Build().Run();
     }
 
-    static IResourceBuilder<AzureCosmosDBResource> AddCosmos(IDistributedApplicationBuilder builder)
+    static IResourceBuilder<AzureCosmosDBDatabaseResource> AddCosmos(
+        IDistributedApplicationBuilder builder)
     {
+        var cosmosResourceName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureCosmos:ResourceName");
+        var cosmosDatabaseName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureCosmos:DatabaseName");
+
 #pragma warning disable ASPIRECOSMOSDB001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-        var cosmos = builder.AddAzureCosmosDB("cosmos-db")
+        var cosmos = builder.AddAzureCosmosDB(cosmosResourceName)
             .RunAsPreviewEmulator(emulator =>
             {
                 emulator.WithDataExplorer(1234);
                 emulator.WithDataVolume();
-                // Optional: map emulator’s 8081 to a fixed host port (otherwise it is dynamic)
                 emulator.WithGatewayPort(8081);
-                //emulator.WithEnvironment("PROTOCOL", "https");
                 emulator.WithLifetime(ContainerLifetime.Persistent);
             });
 #pragma warning restore ASPIRECOSMOSDB001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
-        var db = cosmos.AddCosmosDatabase("enginedb");
-        db.AddContainer("workflows", "/blueprintId");
-        db.AddContainer("tasks", "/workflowId");
+        var database = cosmos.AddCosmosDatabase(cosmosDatabaseName);
+        database.AddContainer("workflows", "/blueprintId");
+        database.AddContainer("tasks", "/workflowId");
 
-        return cosmos;
+        return database;
     }
 
     static IResourceBuilder<SqlServerServerResource> AddSqlServer(
@@ -124,27 +140,35 @@ internal class Program
         IResourceBuilder<AzureServiceBusQueueResource> workflowTaskQueue)
         AddServiceBus(IDistributedApplicationBuilder builder)
     {
-        var serviceBus = builder.AddAzureServiceBus(
-            builder.Configuration.GetValue<string>("AzureServiceBus:ResourceName")!);
+        var serviceBusResourceName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureServiceBus:ResourceName");
+        var workflowTaskQueueResourceName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureServiceBus:Queues:WorkflowTaskQueue:ResourceName");
+        var workflowTaskQueueName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureServiceBus:Queues:WorkflowTaskQueue:Name");
+
+        var serviceBus = builder.AddAzureServiceBus(serviceBusResourceName);
 
         if (builder.Environment.IsDevelopment())
         {
             serviceBus.RunAsEmulator();
         }
 
-        var serviceBusResourceName = builder.Configuration.GetValue<string>(
-            "AzureServiceBus:ResourceName");
-
-        var workflowTaskQueueResourceName = builder.Configuration.GetValue<string>(
-            "AzureServiceBus:Queues:WorkflowTaskQueue:ResourceName")!;
-        var workflowTaskQueueName = builder.Configuration.GetValue<string>(
-            "AzureServiceBus:Queues:WorkflowTaskQueue:Name")!;
-
         var workflowTaskQueue = serviceBus.AddServiceBusQueue(
-            workflowTaskQueueResourceName, workflowTaskQueueName);
+            workflowTaskQueueResourceName,
+            workflowTaskQueueName);
 
         return (serviceBus, workflowTaskQueue);
     }
+
+    static string GetRequiredConfigurationValue(
+        IConfiguration configuration,
+        string key) =>
+        configuration.GetValue<string>(key)
+        ?? throw new InvalidOperationException($"Configuration value '{key}' is not configured.");
 
     static void AddFrontend(IDistributedApplicationBuilder builder, IResourceBuilder<ProjectResource> api)
     {

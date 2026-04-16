@@ -2,12 +2,12 @@ using Azure.Messaging.ServiceBus;
 using Azure.Storage.Blobs;
 using Backend.Engine;
 using Backend.Engine.Debugging;
-using Backend.Interfaces.Utilities;
 using Backend.Database.Relational;
+using Backend.Interfaces.Utilities;
 using Backend.Repositories;
 using Backend.Utilities;
-using Microsoft.EntityFrameworkCore;
 using Backend.Interfaces.Repositories;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
@@ -23,7 +23,14 @@ var sqlConnectionString = builder.Configuration.GetConnectionString("TasksDB");
 builder.Services.AddDbContextPool<WorkflowDbContext>(options =>
     options.UseSqlServer(sqlConnectionString));
 
+var cosmosConnectionName = builder.Configuration["AzureCosmos:ConnectionName"]
+    ?? throw new InvalidOperationException("Azure Cosmos connection name is not configured.");
+var workflowTaskQueueConnectionName = builder.Configuration["AzureServiceBus:Queues:WorkflowTaskQueue:ConnectionName"]
+    ?? throw new InvalidOperationException("Workflow task queue connection name is not configured.");
+
+builder.AddAzureCosmosClient(cosmosConnectionName);
 builder.Services.AddRelationalDataRepositories();
+builder.Services.AddWorkflowExecutionState();
 
 builder.Services.AddSingleton(_ =>
 {
@@ -49,11 +56,8 @@ builder.Services.AddSingleton<VisualStudioDebuggerAttacher>();
 builder.Services.AddTransient<NanoServiceAgent>();
 builder.Services.AddScoped<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
 builder.Services.AddScoped<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
-builder.Services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
-builder.Services.AddScoped<IWorkflowBlueprintRepository, WorkflowBlueprintRepository>();
 
-var serviceBusConnectionString = builder.Configuration.GetConnectionString(
-    builder.Configuration["AzureServiceBus:Queues:WorkflowTaskQueue:ResourceName"]!)
+var serviceBusConnectionString = builder.Configuration.GetConnectionString(workflowTaskQueueConnectionName)
     ?? throw new InvalidOperationException("ServiceBus connection string is not configured.");
 
 var workflowTaskQueueName = builder.Configuration["AzureServiceBus:Queues:WorkflowTaskQueue:Name"]
