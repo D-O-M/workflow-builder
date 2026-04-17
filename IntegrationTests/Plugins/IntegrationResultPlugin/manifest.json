@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Integration Result Plugin",
+  "InputChannel": {
+    "Name": "Request",
+    "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationResultPlugin.ResultRequest"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Success",
+      "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationResultPlugin.ResultSuccess"
+    }
+  ],
+  "GlobalState": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationResultPlugin.IntegrationWorkflowState"
+}

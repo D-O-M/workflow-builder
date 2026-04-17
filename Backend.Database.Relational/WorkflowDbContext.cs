@@ -190,10 +190,15 @@ public class WorkflowDbContext : DbContext
 
         modelBuilder.Entity<GlobalStateDefinition>(entity =>
         {
-            entity.HasIndex(e => e.TaskVersionId)
-                  .IsUnique()
-                  .HasDatabaseName("UX_Channels_TaskVersionId_GlobalState")
-                  .HasFilter("[Discriminator] = 'GlobalStateDefinition'");
+            var indexBuilder = entity.HasIndex(e => e.TaskVersionId)
+                .HasDatabaseName("UX_Channels_TaskVersionId_GlobalState");
+
+            if (Database.IsSqlServer())
+            {
+                indexBuilder
+                    .IsUnique()
+                    .HasFilter("[Discriminator] = 'GlobalStateDefinition'");
+            }
         });
 
         // -----------------------------

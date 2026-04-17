@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Backend.DTOs\Backend.Models.csproj" />
+    <ProjectReference Include="..\Backend.Plugins.Communication\Backend.Plugins.Communication.csproj" />
     <ProjectReference Include="..\Backend.State.DAL\Backend.Database.State.csproj" />
   </ItemGroup>
 

@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Showcase weekend forecast",
+  "InputChannel": {
+    "Name": "ResolvedTown",
+    "Type": "ShowcaseTownForecast.ResolvedTown"
+  },
+  "OutputChannels": [
+    {
+      "Name": "TownWeekendForecast",
+      "Type": "ShowcaseTownForecast.TownWeekendForecast"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

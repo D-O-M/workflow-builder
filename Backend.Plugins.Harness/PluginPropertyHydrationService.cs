@@ -1,19 +1,19 @@
+using Backend.Interfaces.Repositories;
 using Backend.Repositories;
-using Microsoft.Azure.Cosmos;
 
 namespace Backend.Plugins.Harness;
 
-internal class PluginPropertyHydrationService<TDocument, TProperty>
+internal sealed class PluginPropertyHydrationService<TDocument, TProperty>
     where TDocument : class
 {
-    private readonly CosmosRepository<TDocument> _cosmosRepository;
+    private readonly IPluginDocumentStore<TDocument> _documentStore;
     private readonly Func<TDocument, string, TProperty> _documentValueExtractionFunction;
 
     public PluginPropertyHydrationService(
-        CosmosRepository<TDocument> cosmosRepository,
+        IPluginDocumentStore<TDocument> documentStore,
         Func<TDocument, string, TProperty> documentValueExtractionFunction)
     {
-        _cosmosRepository = cosmosRepository;
+        _documentStore = documentStore;
         _documentValueExtractionFunction = documentValueExtractionFunction;
     }
 
@@ -24,31 +24,14 @@ internal class PluginPropertyHydrationService<TDocument, TProperty>
         string outputChannelName,
         CancellationToken cancellationToken)
     {
-        var document = await GetDocument(
-            documentId,
-            partitionKey,
-            cancellationToken);
-
-        var value = _documentValueExtractionFunction(document, outputChannelName);
-
-        propertySetter(value);
-    }
-
-    private async Task<TDocument> GetDocument(
-        string id,
-        string partitionKey,
-        CancellationToken cancellationToken)
-    {
-        var document = await _cosmosRepository.GetAsync(
-            id,
-            new PartitionKey(partitionKey),
-            cancellationToken);
+        var document = await _documentStore.GetAsync(documentId, partitionKey, cancellationToken);
 
         if (document is null)
         {
-            throw new EntityNotFoundException<TDocument>(id);
+            throw new EntityNotFoundException<TDocument>(documentId);
         }
 
-        return document;
+        var value = _documentValueExtractionFunction(document, outputChannelName);
+        propertySetter(value);
     }
 }

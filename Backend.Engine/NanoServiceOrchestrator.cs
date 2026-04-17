@@ -1,8 +1,7 @@
 using System.Collections.Generic;
-using Azure.Storage.Blobs;
+using Backend.Interfaces.Utilities;
 using Backend.Models;
 using Backend.Interfaces.Repositories;
-using Backend.Interfaces.Utilities;
 using Task = System.Threading.Tasks.Task;
 
 namespace Backend.Engine;
@@ -10,7 +9,7 @@ namespace Backend.Engine;
 public class NanoServiceOrchestrator : BackgroundService
 {
     private readonly IAgentManager _agentManager;
-    private readonly BlobContainerClient _blobContainerClient;
+    private readonly IPluginBundleSource _pluginBundleSource;
     private readonly ILogger _logger;
     private readonly IServiceScopeFactory _serviceScopeFactory;
 
@@ -19,12 +18,12 @@ public class NanoServiceOrchestrator : BackgroundService
 
     public NanoServiceOrchestrator(
         IAgentManager agentManager,
-        BlobContainerClient blobContainerClient,
+        IPluginBundleSource pluginBundleSource,
         ILogger<NanoServiceOrchestrator> logger,
         IServiceScopeFactory serviceScopeFactory)
     {
         _agentManager = agentManager;
-        _blobContainerClient = blobContainerClient;
+        _pluginBundleSource = pluginBundleSource;
         _logger = logger;
         _serviceScopeFactory = serviceScopeFactory;
     }
@@ -96,8 +95,10 @@ public class NanoServiceOrchestrator : BackgroundService
         _logger.LogInformation("Downloading and extracting version {PluginVersion} of plugin {PluginName}",
             pluginVersion, pluginName);
 
-        var blobKey = $"{pluginName}_{pluginVersion.ToString()}.zip";
-        var blobClient = _blobContainerClient.GetBlobClient(blobKey);
+        var pluginInfo = new PluginBlobInfo(
+            $"{pluginName}_{pluginVersion}.zip",
+            pluginName,
+            pluginVersion);
 
         var workspaceFactory = serviceScope.ServiceProvider
             .GetRequiredService<IPluginWorkspaceFactoryUtility>();
@@ -105,10 +106,10 @@ public class NanoServiceOrchestrator : BackgroundService
             pluginName, pluginVersion, cancellationToken);
 
         var archiveExtractor = serviceScope.ServiceProvider
-            .GetRequiredService<IPluginArchiveExtractionUtility>();
+            .GetRequiredService<IPluginBundleSource>();
 
-        await archiveExtractor.ExtractAsync(
-            blobClient,
+        await archiveExtractor.ExtractBundleAsync(
+            pluginInfo,
             workspaceDirectory,
             cancellationToken);
 

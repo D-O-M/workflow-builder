@@ -4,6 +4,7 @@ using Backend.Interfaces.Utilities;
 using Backend.Database.Relational;
 using Backend.Repositories;
 using Backend.Services;
+using Backend.Services.PluginBundles;
 using Backend.Utilities;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.EntityFrameworkCore;
@@ -30,8 +31,8 @@ var host = new HostBuilder()
 
         services.AddSingleton(_ =>
         {
-            var blobConnectionString = context.Configuration["Aspire:Azure:Storage:Blobs:pluginblob:ConnectionString"];
-            //context.Configuration.GetConnectionString("BlobConnection");
+            var blobConnectionString = context.Configuration["AzureWebJobsStorage"]
+                ?? throw new InvalidOperationException("AzureWebJobsStorage is not configured.");
             var containerName = context.Configuration["AzureStorage:BlobContainers:Plugins:ContainerName"]!;
 
             return new BlobContainerClient(blobConnectionString, containerName);
@@ -39,6 +40,7 @@ var host = new HostBuilder()
 
         services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
         services.AddSingleton<IPluginBlobNameParsingUtility, PluginBlobNameParsingUtility>();
+        services.AddSingleton<IPluginBundleSource, BlobPluginBundleSource>();
         services.AddSingleton<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
         services.AddSingleton<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
         services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();

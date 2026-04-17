@@ -202,9 +202,13 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
         await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
 
         await _context.SaveChangesAsync(cancellationToken);
-        blueprintVersion.StartingTaskInstanceId = model.StartingTaskInstanceId;
-        await _context.SaveChangesAsync(cancellationToken);
-
+        await _context.BlueprintVersions
+            .Where(version => version.Id == blueprintVersion.Id)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(
+                    version => version.StartingTaskInstanceId,
+                    model.StartingTaskInstanceId),
+                cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         // Reload for a consistent view model (including generated ids)
@@ -248,12 +252,18 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
             tasks,
             cancellationToken);
 
+        _context.BlueprintVersions.Add(createdVersion);
+
         await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
 
         await _context.SaveChangesAsync(cancellationToken);
-        createdVersion.StartingTaskInstanceId = model.TaskTree.InstanceId;
-        await _context.SaveChangesAsync(cancellationToken);
-
+        await _context.BlueprintVersions
+            .Where(version => version.Id == createdVersion.Id)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(
+                    version => version.StartingTaskInstanceId,
+                    model.TaskTree.InstanceId),
+                cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return await GetBlueprintVersionViewModel(createdVersion.Id, cancellationToken);

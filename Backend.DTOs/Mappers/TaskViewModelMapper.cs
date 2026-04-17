@@ -34,6 +34,7 @@ public class TaskViewModelMapper
     public TaskChannel MapViewModel(Database.Relational.Entities.Channel channel) =>
         new TaskChannel
         {
+            Id = channel.Id,
             Name = channel.Name,
             Properties = channel.Properties.ToDictionary(
                 prop => prop.Name,

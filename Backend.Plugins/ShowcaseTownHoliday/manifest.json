@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Showcase holiday context",
+  "InputChannel": {
+    "Name": "TownWeekendForecast",
+    "Type": "ShowcaseTownHoliday.TownWeekendForecast"
+  },
+  "OutputChannels": [
+    {
+      "Name": "TownWeekendHolidayContext",
+      "Type": "ShowcaseTownHoliday.TownWeekendHolidayContext"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

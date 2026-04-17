@@ -76,6 +76,46 @@ export interface BlueprintExecutionAcceptedViewModel {
   acceptedAt: string;
 }
 
+export interface WorkflowExecutionSummaryViewModel {
+  workflowInstanceId: string;
+  blueprintVersionId: number;
+  blueprintVersionNumber: number;
+  blueprintVersionName: string;
+  status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+  createdAt: string;
+  updatedAt?: string | null;
+  completedTaskCount: number;
+  failedTaskCount: number;
+  inProgressTaskCount: number;
+  pendingTaskCount: number;
+}
+
+export interface WorkflowExecutionNodeViewModel {
+  instanceId: string;
+  versionId: number;
+  name: string;
+  status: 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+  position: CoordinatesViewModel;
+  failureMessage?: string | null;
+  inputChannelName?: string | null;
+  outputChannelNames: string[];
+  outgoingConnections: BlueprintTaskConnectionViewModel[];
+}
+
+export interface WorkflowExecutionDetailViewModel {
+  workflowInstanceId: string;
+  blueprintDefinitionId: number;
+  blueprintName: string;
+  blueprintVersionId: number;
+  blueprintVersionNumber: number;
+  blueprintVersionName: string;
+  status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+  createdAt: string;
+  updatedAt?: string | null;
+  startingTaskInstanceId: string;
+  nodes: WorkflowExecutionNodeViewModel[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class BlueprintEditorService {
   readonly nodes = signal<NodeModel[]>([]);
@@ -311,5 +351,13 @@ export class BlueprintEditorService {
 
   executeBlueprint(definitionId: number, payload: BlueprintExecutionInputModel): Promise<BlueprintExecutionAcceptedViewModel> {
     return this.http.post<BlueprintExecutionAcceptedViewModel>(`api/blueprints/${definitionId}/execute`, payload).toPromise() as Promise<BlueprintExecutionAcceptedViewModel>;
+  }
+
+  getBlueprintExecutions(definitionId: number): Promise<WorkflowExecutionSummaryViewModel[]> {
+    return this.http.get<WorkflowExecutionSummaryViewModel[]>(`api/blueprints/${definitionId}/executions`).toPromise() as Promise<WorkflowExecutionSummaryViewModel[]>;
+  }
+
+  getBlueprintExecution(definitionId: number, workflowInstanceId: string): Promise<WorkflowExecutionDetailViewModel> {
+    return this.http.get<WorkflowExecutionDetailViewModel>(`api/blueprints/${definitionId}/executions/${workflowInstanceId}`).toPromise() as Promise<WorkflowExecutionDetailViewModel>;
   }
 }

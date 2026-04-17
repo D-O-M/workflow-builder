@@ -13,10 +13,8 @@ public class NanoServiceAgent
     private const string LinuxProcessWrapperScript = "parent_pid=\"$1\"; shift; \"$@\" & child_pid=$!; trap 'kill -TERM \"$child_pid\" 2>/dev/null; wait \"$child_pid\" 2>/dev/null' EXIT INT TERM; while kill -0 \"$parent_pid\" 2>/dev/null && kill -0 \"$child_pid\" 2>/dev/null; do sleep 1; done; kill -TERM \"$child_pid\" 2>/dev/null; wait \"$child_pid\"";
 
     private readonly IConfiguration _configuration;
-    private readonly EngineInstanceInfo _engineInstanceInfo;
     private readonly ILogger _logger;
     private readonly JobManager _jobManager;
-    private readonly VisualStudioDebuggerAttacher _debuggerAttacher;
     private readonly IChildProcessTracker _childProcessTracker;
     private readonly IOperatingSystemInformation _operatingSystemInformation;
     private Process? _process;
@@ -29,18 +27,14 @@ public class NanoServiceAgent
 
     public NanoServiceAgent(
         IConfiguration configuration,
-        EngineInstanceInfo engineInstanceInfo,
         ILogger<NanoServiceAgent> logger,
         JobManager jobManager,
-        VisualStudioDebuggerAttacher debuggerAttacher,
         IChildProcessTracker childProcessTracker,
         IOperatingSystemInformation operatingSystemInformation)
     {
         _configuration = configuration;
-        _engineInstanceInfo = engineInstanceInfo;
         _logger = logger;
         _jobManager = jobManager;
-        _debuggerAttacher = debuggerAttacher;
         _childProcessTracker = childProcessTracker;
         _operatingSystemInformation = operatingSystemInformation;
     }
@@ -68,29 +62,44 @@ public class NanoServiceAgent
         _processCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         await using var stdinStream = _commsStream.Reader.AsStream(leaveOpen: true);
+        var cosmosConnectionName =
+            _configuration["AzureCosmos:ConnectionName"]
+            ?? "enginedb";
+        var cosmosConnectionString =
+            _configuration.GetConnectionString(cosmosConnectionName)
+            ?? _configuration.GetConnectionString("enginedb");
+        var environmentVariables = new Dictionary<string, string?>
+        {
+            {
+                "OTEL_EXPORTER_OTLP_ENDPOINT",
+                _configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
+            },
+            {
+                "OTEL_EXPORTER_OTLP_PROTOCOL",
+                _configuration["OTEL_EXPORTER_OTLP_PROTOCOL"]
+            },
+            {
+                "OTEL_EXPORTER_OTLP_HEADERS",
+                _configuration["OTEL_EXPORTER_OTLP_HEADERS"]
+            },
+            {
+                "PluginStateStore__Mode",
+                _configuration["PluginStateStore:Mode"]
+            },
+            {
+                "PluginStateStore__RootPath",
+                _configuration["PluginStateStore:RootPath"]
+            }
+        };
+
+        if (!string.IsNullOrWhiteSpace(cosmosConnectionString))
+        {
+            environmentVariables["ConnectionStrings__enginedb"] = cosmosConnectionString;
+            environmentVariables[$"ConnectionStrings__{cosmosConnectionName}"] = cosmosConnectionString;
+        }
 
         var cmd = CreateCommand(fileInfo)
-            .WithEnvironmentVariables(
-                new Dictionary<string, string?>
-                {
-                    {
-                        "OTEL_EXPORTER_OTLP_ENDPOINT",
-                        _configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
-                    },
-                    {
-                        "OTEL_EXPORTER_OTLP_PROTOCOL",
-                        _configuration["OTEL_EXPORTER_OTLP_PROTOCOL"]
-                    },
-                    {
-                        "OTEL_EXPORTER_OTLP_HEADERS",
-                        _configuration["OTEL_EXPORTER_OTLP_HEADERS"]
-                    },
-                    {
-                        "ConnectionStrings__enginedb",
-                        _configuration.GetConnectionString("enginedb")
-                    }
-                }
-            )
+            .WithEnvironmentVariables(environmentVariables)
             .WithWorkingDirectory(fileInfo.Directory!.FullName)
             .WithValidation(CommandResultValidation.None)
             .WithStandardInputPipe(PipeSource.FromStream(stdinStream));

@@ -1,5 +1,4 @@
-using System.Text.Json;
-using Azure.Messaging.ServiceBus;
+using Backend.Interfaces.Queues;
 using Backend.Plugins.Communication;
 
 namespace Backend.Engine;
@@ -7,14 +6,14 @@ namespace Backend.Engine;
 public class JobFinalizationService
 {
     private readonly ILogger<JobFinalizationService> _logger;
-    private readonly ServiceBusSender _serviceBusSender;
+    private readonly IWorkflowTaskQueueWriter _workflowTaskQueueWriter;
 
     public JobFinalizationService(
         ILogger<JobFinalizationService> logger,
-        ServiceBusSender serviceBusSender)
+        IWorkflowTaskQueueWriter workflowTaskQueueWriter)
     {
         _logger = logger;
-        _serviceBusSender = serviceBusSender;
+        _workflowTaskQueueWriter = workflowTaskQueueWriter;
     }
 
     public async Task FinalizeSuccess(
@@ -39,6 +38,7 @@ public class JobFinalizationService
     {
         await context.PersistFailureAsync(
             executionResult.GlobalState,
+            executionResult.ErrorMessage,
             executionResult.CompletedAt,
             cancellationToken);
         await context.CompleteMessageAsync(cancellationToken);
@@ -83,13 +83,7 @@ public class JobFinalizationService
                 LinkedOutputChannelName = outputChannel.Name
             };
 
-            var message = new ServiceBusMessage(BinaryData.FromBytes(
-                JsonSerializer.SerializeToUtf8Bytes(job)))
-            {
-                ContentType = "application/json"
-            };
-
-            await _serviceBusSender.SendMessageAsync(message, cancellationToken);
+            await _workflowTaskQueueWriter.EnqueueAsync(job, cancellationToken);
             _logger.LogInformation(
                 "Enqueued downstream task {TaskId} from output channel {OutputChannelName} for workflow instance {WorkflowInstanceId}",
                 outputChannel.Destination.Id,

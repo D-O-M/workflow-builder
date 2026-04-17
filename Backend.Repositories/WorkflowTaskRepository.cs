@@ -35,8 +35,9 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
 
     public async Task CreateVersion(TaskVersionDomainModel version, CancellationToken cancellationToken)
     {
-        var taskDefinitionEntity = await _context.TaskDefinitions.FirstOrDefaultAsync(
-            td => td.Name == version.Name, cancellationToken);
+        var taskDefinitionEntity = await _context.TaskDefinitions
+            .Include(td => td.Versions)
+            .FirstOrDefaultAsync(td => td.Name == version.Name, cancellationToken);
 
         if (taskDefinitionEntity is null)
         {
@@ -47,6 +48,10 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
             };
 
             _context.Add(taskDefinitionEntity);
+        }
+        else
+        {
+            taskDefinitionEntity.Versions ??= [];
         }
 
         var versionEntity = new TaskVersion
@@ -185,6 +190,8 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
             Name = name,
             Versions = []
         };
+
+        taskDefinition.Versions ??= [];
 
         taskDefinition.Versions.Add(new TaskVersion
         {

@@ -2,10 +2,12 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
 using Backend.Database.State.Objects;
+using Backend.Repositories;
 using Backend.Plugins.Communication;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
@@ -34,8 +36,6 @@ public class PluginBuilder<TPlugin>
     {
         _hostAppBuilder = Host.CreateApplicationBuilder(Environment.GetCommandLineArgs());
         _hostAppBuilder.Configuration.AddEnvironmentVariables();
-
-        RegisterCosmos();
 
         // Register the event loop
         _hostAppBuilder.Services.AddHostedService<EventHandler<TPlugin>>();
@@ -79,8 +79,9 @@ public class PluginBuilder<TPlugin>
         _hostAppBuilder.Services.AddSingleton(
             new PropertySetterUtility<TPlugin, TChannelType>(propertySelector));
 
-        // Register hydrator for TaskObject -> TChannelType
-        _hostAppBuilder.Services.AddSingleton(sp =>
+        EnsureTaskDocumentStoreRegistered();
+
+        _hostAppBuilder.Services.TryAddSingleton(sp =>
         {
             Func<TaskObject, string, TChannelType> valueExtractionFunction =
                 (task, channelName) =>
@@ -95,29 +96,26 @@ public class PluginBuilder<TPlugin>
                         json, JsonSerializerOptions.Web)!;
                 };
 
-            var cosmosRepo = sp.GetRequiredService<CosmosRepository<TaskObject>>();
-
             return new PluginPropertyHydrationService<TaskObject, TChannelType>(
-                cosmosRepo, valueExtractionFunction);
+                sp.GetRequiredService<IPluginDocumentStore<TaskObject>>(),
+                valueExtractionFunction);
         });
 
-        // Register the step façade (Option B: multiple steps)
         _hostAppBuilder.Services.AddSingleton<IPluginHydrationStep<TPlugin>>(sp =>
         {
             var hydrator = sp.GetRequiredService<PluginPropertyHydrationService<TaskObject, TChannelType>>();
             var setter = sp.GetRequiredService<PropertySetterUtility<TPlugin, TChannelType>>();
-
             Func<InvocationEnvelope, string> documentIdSelector =
                 env => env.PreviousTaskDetails.PreviousTaskInstanceId.ToString();
             Func<InvocationEnvelope, string> partitionKeySelector =
                 env => env.WorkflowInstanceId.ToString();
 
             return new PluginHydrationStep<TPlugin, TaskObject, TChannelType>(
-                channelName: name,
-                hydrator: hydrator,
-                setter: setter,
-                documentIdSelector: documentIdSelector,
-                partitionKeySelector: partitionKeySelector);
+                name,
+                hydrator,
+                setter,
+                documentIdSelector,
+                partitionKeySelector);
         });
 
         return this;
@@ -158,37 +156,27 @@ public class PluginBuilder<TPlugin>
         _hostAppBuilder.Services.AddSingleton(
             new PropertySetterUtility<TPlugin, TGlobalState>(propertySelector));
 
-        _hostAppBuilder.Services.AddSingleton(sp =>
-        {
-            var cosmosRepo = sp.GetRequiredService<CosmosRepository<WorkflowObject<TGlobalState>>>();
+        EnsureWorkflowDocumentStoreRegistered<TGlobalState>();
 
-            return new PluginPropertyHydrationService<WorkflowObject<TGlobalState>, TGlobalState>(
-                cosmosRepo,
-                (workflow, _) => workflow.GlobalState);
-        });
+        _hostAppBuilder.Services.TryAddSingleton(sp =>
+            new PluginPropertyHydrationService<WorkflowObject<TGlobalState>, TGlobalState>(
+                sp.GetRequiredService<IPluginDocumentStore<WorkflowObject<TGlobalState>>>(),
+                (workflow, _) => workflow.GlobalState));
 
-        // Global state step: always run (no channel gating)
         _hostAppBuilder.Services.AddSingleton<IPluginHydrationStep<TPlugin>>(sp =>
         {
             var hydrator = sp.GetRequiredService<PluginPropertyHydrationService<WorkflowObject<TGlobalState>, TGlobalState>>();
             var setter = sp.GetRequiredService<PropertySetterUtility<TPlugin, TGlobalState>>();
-
             Func<InvocationEnvelope, string> documentIdSelector =
                 env => env.WorkflowInstanceId.ToString();
             Func<InvocationEnvelope, string> partitionKeySelector =
                 env => env.WorkflowBlueprintId.ToString();
 
             return new GlobalStateHydrationStep<TPlugin, WorkflowObject<TGlobalState>, TGlobalState>(
-                hydrator, setter, documentIdSelector, partitionKeySelector);
-        });
-
-        _hostAppBuilder.Services.AddSingleton(sp =>
-        {
-            var client = sp.GetRequiredService<CosmosClient>();
-            return new CosmosRepository<WorkflowObject<TGlobalState>>(
-                client.GetContainer("enginedb", "workflows"),
-                task => task.WorkflowInstanceId,
-                task => new PartitionKey(task.BlueprintId));
+                hydrator,
+                setter,
+                documentIdSelector,
+                partitionKeySelector);
         });
 
         return this;
@@ -287,45 +275,100 @@ public class PluginBuilder<TPlugin>
         return null;
     }
 
-    private void RegisterCosmos()
+    private bool UseFileStateStore() =>
+        string.Equals(
+            _hostAppBuilder.Configuration["PluginStateStore:Mode"],
+            "File",
+            StringComparison.OrdinalIgnoreCase);
+
+    private string GetFileStateRootPath() =>
+        _hostAppBuilder.Configuration["PluginStateStore:RootPath"]
+        ?? throw new InvalidOperationException(
+            "Plugin state store root path is not configured for file-based hydration.");
+
+    private string GetCosmosDatabaseName() =>
+        _hostAppBuilder.Configuration["AzureCosmos:DatabaseName"]
+        ?? "enginedb";
+
+    private string GetCosmosConnectionString() =>
+        _hostAppBuilder.Configuration.GetConnectionString(
+            _hostAppBuilder.Configuration["AzureCosmos:ConnectionName"]
+            ?? "enginedb")
+        ?? _hostAppBuilder.Configuration.GetConnectionString("enginedb")
+        ?? throw new InvalidOperationException(
+            "Cosmos DB connection string is not configured for the plugin harness.");
+
+    private void EnsureCosmosClientRegistered()
     {
-        var builder = _hostAppBuilder;
-        var cosmosConnectionString = builder.Configuration.GetConnectionString("enginedb")
-            ?? throw new InvalidOperationException("Cosmos DB connection string is not configured for the plugin harness.");
-
-        var databaseName = "enginedb";
-        var containerName = "tasks";
-
-        builder.Services.AddSingleton(sp =>
+        if (UseFileStateStore())
         {
-            var options = new CosmosClientOptions
-            {
-                ApplicationName = "MyApp",
-                ConnectionMode = ConnectionMode.Gateway,
-                RequestTimeout = TimeSpan.FromSeconds(10),
-                UseSystemTextJsonSerializerWithOptions = new JsonSerializerOptions
+            return;
+        }
+
+        _hostAppBuilder.Services.TryAddSingleton(sp =>
+        {
+            return new CosmosClient(
+                GetCosmosConnectionString(),
+                new CosmosClientOptions
                 {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                    PropertyNameCaseInsensitive = true
-                }
-            };
-
-            return new CosmosClient(cosmosConnectionString, options);
-        });
-
-        builder.Services.AddSingleton(sp =>
-        {
-            var client = sp.GetRequiredService<CosmosClient>();
-            return new CosmosRepository<TaskObject>(
-                client.GetContainer(databaseName, containerName),
-                task => task.Id,
-                task => new PartitionKey(task.WorkflowInstanceId));
+                    ApplicationName = "WorkflowBuilder.PluginHarness",
+                    ConnectionMode = ConnectionMode.Gateway,
+                    RequestTimeout = TimeSpan.FromSeconds(10),
+                    UseSystemTextJsonSerializerWithOptions = new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                        PropertyNameCaseInsensitive = true
+                    }
+                });
         });
     }
 
+    private void EnsureTaskDocumentStoreRegistered()
+    {
+        if (UseFileStateStore())
+        {
+            _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<TaskObject>>(
+                _ => new FilePluginDocumentStore<TaskObject>(GetFileStateRootPath(), "tasks"));
+            return;
+        }
+
+        EnsureCosmosClientRegistered();
+        var databaseName = GetCosmosDatabaseName();
+        _hostAppBuilder.Services.TryAddSingleton(sp =>
+            new CosmosRepository<TaskObject>(
+                sp.GetRequiredService<CosmosClient>().GetContainer(databaseName, "tasks"),
+                task => task.Id,
+                task => new PartitionKey(task.WorkflowInstanceId)));
+        _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<TaskObject>>(sp =>
+            new CosmosPluginDocumentStore<TaskObject>(
+                sp.GetRequiredService<CosmosRepository<TaskObject>>()));
+    }
+
+    private void EnsureWorkflowDocumentStoreRegistered<TGlobalState>()
+        where TGlobalState : class
+    {
+        if (UseFileStateStore())
+        {
+            _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<WorkflowObject<TGlobalState>>>(
+                _ => new FilePluginDocumentStore<WorkflowObject<TGlobalState>>(GetFileStateRootPath(), "workflows"));
+            return;
+        }
+
+        EnsureCosmosClientRegistered();
+        var databaseName = GetCosmosDatabaseName();
+        _hostAppBuilder.Services.TryAddSingleton(sp =>
+            new CosmosRepository<WorkflowObject<TGlobalState>>(
+                sp.GetRequiredService<CosmosClient>().GetContainer(databaseName, "workflows"),
+                workflow => workflow.WorkflowInstanceId,
+                workflow => new PartitionKey(workflow.BlueprintId)));
+        _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<WorkflowObject<TGlobalState>>>(sp =>
+            new CosmosPluginDocumentStore<WorkflowObject<TGlobalState>>(
+                sp.GetRequiredService<CosmosRepository<WorkflowObject<TGlobalState>>>()));
+    }
+
     /// <summary>
-    /// Global state hydration step that always runs.
-    /// </summary>
+     /// Global state hydration step that always runs.
+     /// </summary>
     private sealed class GlobalStateHydrationStep<TP, TDoc, TProp> : IPluginHydrationStep<TP>
         where TP : class, IPlugin
         where TDoc : class
@@ -347,20 +390,12 @@ public class PluginBuilder<TPlugin>
             _partitionKeySelector = partitionKeySelector;
         }
 
-        public bool CanHydrate(InvocationEnvelope envelope) => true;
-
         public Task HydrateAsync(TP plugin, InvocationEnvelope envelope, CancellationToken cancellationToken)
-        {
-            var documentId = _documentIdSelector(envelope);
-            var partitionKey = _partitionKeySelector(envelope);
-
-            // outputChannelName is ignored by the global state extractor; pass empty.
-            return _hydrator.HydratePluginProperty(
+            => _hydrator.HydratePluginProperty(
                 value => _setter.Set(plugin, value),
-                documentId,
-                partitionKey,
+                _documentIdSelector(envelope),
+                _partitionKeySelector(envelope),
                 outputChannelName: string.Empty,
                 cancellationToken);
-        }
     }
 }

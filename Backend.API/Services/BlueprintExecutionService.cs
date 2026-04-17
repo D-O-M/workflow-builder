@@ -1,6 +1,6 @@
 using System.Text.Json;
-using Azure.Messaging.ServiceBus;
 using Backend.Database.State.Objects;
+using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Models.InputModels;
 using Backend.Plugins.Communication;
@@ -15,18 +15,18 @@ public sealed record BlueprintExecutionAcceptedResult(
 public sealed class BlueprintExecutionService
 {
     private readonly ITaskInstanceRepository _taskInstanceRepository;
-    private readonly ServiceBusSender _serviceBusSender;
+    private readonly IWorkflowTaskQueueWriter _workflowTaskQueueWriter;
     private readonly IWorkflowBlueprintRepository _workflowBlueprintRepository;
     private readonly IWorkflowInstanceRepository<Dictionary<string, JsonElement>> _workflowInstanceRepository;
 
     public BlueprintExecutionService(
         ITaskInstanceRepository taskInstanceRepository,
-        ServiceBusSender serviceBusSender,
+        IWorkflowTaskQueueWriter workflowTaskQueueWriter,
         IWorkflowBlueprintRepository workflowBlueprintRepository,
         IWorkflowInstanceRepository<Dictionary<string, JsonElement>> workflowInstanceRepository)
     {
         _taskInstanceRepository = taskInstanceRepository;
-        _serviceBusSender = serviceBusSender;
+        _workflowTaskQueueWriter = workflowTaskQueueWriter;
         _workflowBlueprintRepository = workflowBlueprintRepository;
         _workflowInstanceRepository = workflowInstanceRepository;
     }
@@ -57,7 +57,7 @@ public sealed class BlueprintExecutionService
 
         var workflowState = new WorkflowObject<Dictionary<string, JsonElement>>
         {
-            WorkflowInstanceId = workflowInstanceId.ToString(),
+            id = workflowInstanceId.ToString(),
             BlueprintId = blueprintVersionIdString,
             CreatedAt = acceptedAt,
             UpdatedAt = acceptedAt,
@@ -110,13 +110,7 @@ public sealed class BlueprintExecutionService
             LinkedOutputChannelName = fullBlueprint.InitialTask.InputChannel.Name
         };
 
-        var queueMessage = new ServiceBusMessage(BinaryData.FromBytes(
-            JsonSerializer.SerializeToUtf8Bytes(initialisationMessage)))
-        {
-            ContentType = "application/json"
-        };
-
-        await _serviceBusSender.SendMessageAsync(queueMessage, cancellationToken);
+        await _workflowTaskQueueWriter.EnqueueAsync(initialisationMessage, cancellationToken);
 
         return new BlueprintExecutionAcceptedResult(
             workflowInstanceId,

@@ -1,10 +1,15 @@
 using Azure.Messaging.ServiceBus;
 using Backend.Database.Relational;
 using Backend.API.Services;
+using Backend.API.Infrastructure;
+using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Repositories;
+using Backend.Services.WorkflowTaskQueue;
+using Microsoft.Azure.Cosmos;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
+using System.Text.Json;
 
 namespace Backend.API;
 
@@ -16,33 +21,42 @@ public class Program
         builder.AddServiceDefaults();
 
         // Add services to the container.
-        builder.Services.AddDbContextPool<WorkflowDbContext>(options =>
+        builder.Services.AddSingleton<IWorkflowDbContextOptionsConfigurator, SqlServerWorkflowDbContextOptionsConfigurator>();
+        builder.Services.AddDbContextPool<WorkflowDbContext>((serviceProvider, options) =>
         {
-            options.UseSqlServer(builder.Configuration.GetConnectionString("SqlServer"));
+            serviceProvider
+                .GetRequiredService<IWorkflowDbContextOptionsConfigurator>()
+                .Configure(options, serviceProvider);
         });
 
-        var cosmosConnectionName = builder.Configuration["AzureCosmos:ConnectionName"]
-            ?? throw new InvalidOperationException("Azure Cosmos connection name is not configured.");
-        var workflowTaskQueueConnectionName = builder.Configuration["AzureServiceBus:Queues:WorkflowTaskQueue:ConnectionName"]
-            ?? throw new InvalidOperationException("Workflow task queue connection name is not configured.");
-
-        builder.AddAzureCosmosClient(cosmosConnectionName);
+        builder.Services.AddSingleton(sp => new CosmosClient(
+            LocalDevelopmentResourceSettings.GetCosmosConnectionString(
+                sp.GetRequiredService<IConfiguration>(),
+                sp.GetRequiredService<IHostEnvironment>()),
+            new CosmosClientOptions
+            {
+                ConnectionMode = ConnectionMode.Gateway,
+                UseSystemTextJsonSerializerWithOptions = JsonSerializerOptions.Web
+            }));
         builder.Services.AddRelationalDataRepositories();
         builder.Services.AddWorkflowExecutionState();
 
-        var serviceBusConnectionString = builder.Configuration.GetConnectionString(workflowTaskQueueConnectionName)
-            ?? throw new InvalidOperationException("Workflow task queue connection string is not configured.");
-
-        var workflowTaskQueueName = builder.Configuration["AzureServiceBus:Queues:WorkflowTaskQueue:Name"]
-            ?? throw new InvalidOperationException("Workflow task queue name is not configured.");
-
-        builder.Services.AddSingleton(_ => new ServiceBusClient(serviceBusConnectionString));
+        builder.Services.AddSingleton(sp => new ServiceBusClient(
+            LocalDevelopmentResourceSettings.GetWorkflowTaskQueueConnectionString(
+                sp.GetRequiredService<IConfiguration>(),
+                sp.GetRequiredService<IHostEnvironment>())));
         builder.Services.AddSingleton(provider =>
         {
             var client = provider.GetRequiredService<ServiceBusClient>();
-            return client.CreateSender(workflowTaskQueueName);
+            var configuration = provider.GetRequiredService<IConfiguration>();
+            var environment = provider.GetRequiredService<IHostEnvironment>();
+            return client.CreateSender(LocalDevelopmentResourceSettings.GetWorkflowTaskQueueName(
+                configuration,
+                environment));
         });
+        builder.Services.AddSingleton<IWorkflowTaskQueueWriter, ServiceBusWorkflowTaskQueueWriter>();
         builder.Services.AddScoped<BlueprintExecutionService>();
+        builder.Services.AddScoped<WorkflowExecutionQueryService>();
 
         builder.Services.AddControllers();
 

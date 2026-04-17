@@ -1,7 +1,5 @@
-using System.Text.Json;
-using Azure.Messaging.ServiceBus;
+using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
-using Backend.Plugins.Communication;
 
 namespace Backend.Engine;
 
@@ -9,20 +7,20 @@ public class QueueConsumer : BackgroundService
 {
     private readonly IAgentManager _agentManager;
     private readonly JobManager _jobManager;
-    private readonly ServiceBusReceiver _serviceBusReceiver;
+    private readonly IWorkflowTaskQueueReader _workflowTaskQueueReader;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger _logger;
 
     public QueueConsumer(
         IAgentManager agentManager,
         JobManager jobManager,
-        ServiceBusReceiver serviceBusReceiver,
+        IWorkflowTaskQueueReader workflowTaskQueueReader,
         IServiceScopeFactory serviceScopeFactory,
         ILogger<QueueConsumer> logger)
     {
         _agentManager = agentManager;
         _jobManager = jobManager;
-        _serviceBusReceiver = serviceBusReceiver;
+        _workflowTaskQueueReader = workflowTaskQueueReader;
         _serviceScopeFactory = serviceScopeFactory;
         _logger = logger;
     }
@@ -31,9 +29,7 @@ public class QueueConsumer : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            var message = await _serviceBusReceiver.ReceiveMessageAsync(
-                maxWaitTime: null,
-                cancellationToken: stoppingToken);
+            var message = await _workflowTaskQueueReader.ReceiveAsync(stoppingToken);
 
             if (message is null)
             {
@@ -42,15 +38,7 @@ public class QueueConsumer : BackgroundService
 
             try
             {
-                var job = JsonSerializer.Deserialize<WorkflowTaskInitialisationMessage>(message.Body);
-
-                if (job is null)
-                {
-                    await _serviceBusReceiver.AbandonMessageAsync(
-                        message,
-                        cancellationToken: stoppingToken);
-                    continue;
-                }
+                var job = message.Payload;
 
                 await using var scope = _serviceScopeFactory.CreateAsyncScope();
 
@@ -65,9 +53,7 @@ public class QueueConsumer : BackgroundService
 
                 if (task is null || !_agentManager.AgentExists(task.SchemaId))
                 {
-                    await _serviceBusReceiver.AbandonMessageAsync(
-                        message,
-                        cancellationToken: stoppingToken);
+                    await message.AbandonAsync(stoppingToken);
                     continue;
                 }
 
@@ -75,24 +61,19 @@ public class QueueConsumer : BackgroundService
                     scope.ServiceProvider,
                     job,
                     message,
-                    _serviceBusReceiver,
                     blueprint);
 
                 var started = await _jobManager.StartJob(context, stoppingToken);
 
                 if (!started)
                 {
-                    await _serviceBusReceiver.AbandonMessageAsync(
-                        message,
-                        cancellationToken: stoppingToken);
+                    await message.AbandonAsync(stoppingToken);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to process workflow task message {MessageId}", message.MessageId);
-                await _serviceBusReceiver.AbandonMessageAsync(
-                    message,
-                    cancellationToken: stoppingToken);
+                await message.AbandonAsync(stoppingToken);
             }
         }
     }

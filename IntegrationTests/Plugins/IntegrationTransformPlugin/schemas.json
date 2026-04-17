@@ -1,0 +1,57 @@
+{
+  "components": {
+    "schemas": {
+      "WorkflowBuilder.IntegrationTests.Plugins.IntegrationTransformPlugin.TransformRequest": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "NormalizedName": {
+            "type": "string"
+          },
+          "Score": {
+            "type": "integer"
+          }
+        }
+      },
+      "WorkflowBuilder.IntegrationTests.Plugins.IntegrationTransformPlugin.TransformSuccess": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Message": {
+            "type": "string"
+          },
+          "FinalScore": {
+            "type": "integer"
+          }
+        }
+      },
+      "WorkflowBuilder.IntegrationTests.Plugins.IntegrationTransformPlugin.IntegrationWorkflowState": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "RunLabel": {
+            "type": "string"
+          },
+          "StepsCompleted": {
+            "type": "integer"
+          },
+          "TotalScore": {
+            "type": "integer"
+          },
+          "LastStage": {
+            "type": "string"
+          },
+          "ShouldFail": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

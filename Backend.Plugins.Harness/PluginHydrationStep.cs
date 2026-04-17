@@ -21,8 +21,6 @@ internal sealed class PluginHydrationStep<TPlugin, TDocument, TProperty> : IPlug
     private readonly string _channelName;
     private readonly PluginPropertyHydrationService<TDocument, TProperty> _hydrator;
     private readonly PropertySetterUtility<TPlugin, TProperty> _setter;
-
-    // Extracts IDs from the envelope
     private readonly Func<InvocationEnvelope, string> _documentIdSelector;
     private readonly Func<InvocationEnvelope, string> _partitionKeySelector;
 
@@ -44,15 +42,10 @@ internal sealed class PluginHydrationStep<TPlugin, TDocument, TProperty> : IPlug
         TPlugin plugin,
         InvocationEnvelope envelope,
         CancellationToken cancellationToken)
-    {
-        var documentId = _documentIdSelector(envelope);
-        var partitionKey = _partitionKeySelector(envelope);
-
-        return _hydrator.HydratePluginProperty(
+        => _hydrator.HydratePluginProperty(
             propertySetter: value => _setter.Set(plugin, value),
-            documentId: documentId,
-            partitionKey: partitionKey,
+            documentId: _documentIdSelector(envelope),
+            partitionKey: _partitionKeySelector(envelope),
             outputChannelName: envelope.PreviousTaskDetails.LinkedOutputChannelName,
             cancellationToken: cancellationToken);
-    }
 }

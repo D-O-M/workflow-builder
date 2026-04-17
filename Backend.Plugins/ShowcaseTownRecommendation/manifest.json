@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Showcase town recommendation",
+  "InputChannel": {
+    "Name": "TownWeekendHolidayContext",
+    "Type": "ShowcaseTownRecommendation.TownWeekendHolidayContext"
+  },
+  "OutputChannels": [
+    {
+      "Name": "TownRecommendation",
+      "Type": "ShowcaseTownRecommendation.TownRecommendation"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

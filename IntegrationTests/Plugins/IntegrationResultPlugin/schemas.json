@@ -1,0 +1,57 @@
+{
+  "components": {
+    "schemas": {
+      "WorkflowBuilder.IntegrationTests.Plugins.IntegrationResultPlugin.ResultRequest": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Message": {
+            "type": "string"
+          },
+          "FinalScore": {
+            "type": "integer"
+          }
+        }
+      },
+      "WorkflowBuilder.IntegrationTests.Plugins.IntegrationResultPlugin.ResultSuccess": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Summary": {
+            "type": "string"
+          },
+          "FinalScore": {
+            "type": "integer"
+          }
+        }
+      },
+      "WorkflowBuilder.IntegrationTests.Plugins.IntegrationResultPlugin.IntegrationWorkflowState": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "RunLabel": {
+            "type": "string"
+          },
+          "StepsCompleted": {
+            "type": "integer"
+          },
+          "TotalScore": {
+            "type": "integer"
+          },
+          "LastStage": {
+            "type": "string"
+          },
+          "ShouldFail": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

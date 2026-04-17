@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Integration Failure Plugin",
+  "InputChannel": {
+    "Name": "Request",
+    "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationFailurePlugin.FailureRequest"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Success",
+      "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationFailurePlugin.FailureSuccess"
+    }
+  ],
+  "GlobalState": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationFailurePlugin.IntegrationWorkflowState"
+}

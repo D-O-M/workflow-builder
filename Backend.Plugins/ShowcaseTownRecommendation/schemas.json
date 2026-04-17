@@ -1,0 +1,127 @@
+{
+  "components": {
+    "schemas": {
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ShowcaseTownRecommendation.TownRecommendation": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "ResolvedTownName": {
+            "type": "string"
+          },
+          "ResolvedCountryCode": {
+            "type": "string"
+          },
+          "WeekendStartIsoDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "WeekendEndIsoDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "WeatherSuitabilityScore": {
+            "type": "integer"
+          },
+          "HolidayDemandAdjustmentPct": {
+            "type": "number"
+          },
+          "FinalRecommendationScore": {
+            "type": "integer"
+          },
+          "RecommendationBand": {
+            "type": "string"
+          },
+          "RecommendationSummary": {
+            "type": "string"
+          },
+          "WeatherSummary": {
+            "type": "string"
+          },
+          "HolidaySummary": {
+            "type": "string"
+          }
+        }
+      },
+      "ShowcaseTownRecommendation.TownWeekendHolidayContext": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "RequestedTownName": {
+            "type": "string"
+          },
+          "ResolvedTownName": {
+            "type": "string"
+          },
+          "ResolvedDisplayName": {
+            "type": "string"
+          },
+          "ResolvedCountryCode": {
+            "type": "string"
+          },
+          "Latitude": {
+            "type": "number"
+          },
+          "Longitude": {
+            "type": "number"
+          },
+          "WeekendStartIsoDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "WeekendEndIsoDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "AverageTemperatureC": {
+            "type": "number"
+          },
+          "MaximumWindSpeedMps": {
+            "type": "number"
+          },
+          "TotalPrecipitationMm": {
+            "type": "number"
+          },
+          "RainRisk01": {
+            "type": "number"
+          },
+          "WeatherSuitabilityScore": {
+            "type": "integer"
+          },
+          "WeatherSummary": {
+            "type": "string"
+          },
+          "HolidayLookupSucceeded": {
+            "type": "boolean"
+          },
+          "NearbyHolidayDetected": {
+            "type": "boolean"
+          },
+          "NearbyHolidayName": {
+            "type": "string"
+          },
+          "HolidayDemandAdjustmentPct": {
+            "type": "number"
+          },
+          "HolidaySummary": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

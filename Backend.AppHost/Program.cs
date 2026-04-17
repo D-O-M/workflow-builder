@@ -63,7 +63,7 @@ internal class Program
 
         builder.AddAzureFunctionsProject<Projects.Backend_Functions_PluginDetector>("plugin-detector")
             .WithHostStorage(storage)
-            .WithReference(blobs, connectionName: pluginsBlobContainerName)
+            .WaitFor(blobContainer)
             .WithReference(sqlDb)
             .WaitFor(sqlDb);
 
@@ -81,15 +81,23 @@ internal class Program
         var cosmosDatabaseName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureCosmos:DatabaseName");
+        var persistCosmosData = builder.Configuration.GetValue("AzureCosmos:PersistData", false);
 
 #pragma warning disable ASPIRECOSMOSDB001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
         var cosmos = builder.AddAzureCosmosDB(cosmosResourceName)
             .RunAsPreviewEmulator(emulator =>
             {
                 emulator.WithDataExplorer(1234);
-                emulator.WithDataVolume();
                 emulator.WithGatewayPort(8081);
-                emulator.WithLifetime(ContainerLifetime.Persistent);
+                emulator.WithLifetime(
+                    persistCosmosData
+                        ? ContainerLifetime.Persistent
+                        : ContainerLifetime.Session);
+
+                if (persistCosmosData)
+                {
+                    emulator.WithDataVolume();
+                }
             });
 #pragma warning restore ASPIRECOSMOSDB001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
@@ -102,12 +110,26 @@ internal class Program
 
     static IResourceBuilder<SqlServerServerResource> AddSqlServer(
         IDistributedApplicationBuilder builder,
-        IResourceBuilder<ParameterResource> password) =>
-        builder.AddSqlServer("sqlserver", password)
+        IResourceBuilder<ParameterResource> password)
+    {
+        var persistSqlData = builder.Configuration.GetValue("SqlServer:PersistData", true);
+
+        var sqlServer = builder.AddSqlServer("sqlserver", password)
             .WithHostPort(12345)
-            .WithLifetime(ContainerLifetime.Persistent)
+            .WithLifetime(
+                persistSqlData
+                    ? ContainerLifetime.Persistent
+                    : ContainerLifetime.Session)
             .WithEnvironment("ACCEPT_EULA", "Y")
             .WithEnvironment("MSSQL_SA_PASSWORD", password);
+
+        if (persistSqlData)
+        {
+            sqlServer.WithDataVolume();
+        }
+
+        return sqlServer;
+    }
     //.WithEndpoint(port: 1433, name: "sqlserver-tcp", targetPort: 1433);
 
     static (

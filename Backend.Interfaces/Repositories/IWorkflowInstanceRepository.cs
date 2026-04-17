@@ -13,6 +13,10 @@ public interface IWorkflowInstanceRepository<TGlobalState>
         int workflowBlueprintId,
         CancellationToken cancellationToken);
 
+    Task<List<WorkflowObject<TGlobalState>>> GetWorkflowStatesForBlueprint(
+        int workflowBlueprintId,
+        CancellationToken cancellationToken);
+
     Task<WorkflowObject<TGlobalState>> UpdateWorkflowState(
         WorkflowObject<TGlobalState> state,
         CancellationToken cancellationToken);

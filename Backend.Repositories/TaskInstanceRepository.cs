@@ -38,6 +38,24 @@ public class TaskInstanceRepository
         return (await CreateAsync(state, cancellationToken)).Resource;
     }
 
+    public async Task<List<TaskObject>> GetTaskInstancesForWorkflow(
+        Guid workflowInstanceId,
+        CancellationToken cancellationToken)
+    {
+        var workflowInstanceIdString = workflowInstanceId.ToString();
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.workflowId = @workflowId ORDER BY c.createdAt ASC")
+            .WithParameter("@workflowId", workflowInstanceIdString);
+
+        return await QueryToListAsync(
+            query,
+            cancellationToken,
+            new QueryRequestOptions
+            {
+                PartitionKey = new PartitionKey(workflowInstanceIdString)
+            });
+    }
+
     public async Task<TaskObject> UpdateTaskInstance(
         TaskObject state,
         CancellationToken cancellationToken)

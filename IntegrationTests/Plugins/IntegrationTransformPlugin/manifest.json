@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Integration Transform Plugin",
+  "InputChannel": {
+    "Name": "Request",
+    "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationTransformPlugin.TransformRequest"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Success",
+      "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationTransformPlugin.TransformSuccess"
+    }
+  ],
+  "GlobalState": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationTransformPlugin.IntegrationWorkflowState"
+}

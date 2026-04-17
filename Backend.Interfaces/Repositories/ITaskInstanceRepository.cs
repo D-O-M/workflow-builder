@@ -13,6 +13,10 @@ public interface ITaskInstanceRepository
         Guid workflowInstanceId,
         CancellationToken cancellationToken);
 
+    Task<List<TaskObject>> GetTaskInstancesForWorkflow(
+        Guid workflowInstanceId,
+        CancellationToken cancellationToken);
+
     Task<TaskObject> UpdateTaskInstance(
         TaskObject state,
         CancellationToken cancellationToken);

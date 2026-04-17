@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Showcase town lookup",
+  "InputChannel": {
+    "Name": "TownLookupRequest",
+    "Type": "ShowcaseTownLookup.TownLookupRequest"
+  },
+  "OutputChannels": [
+    {
+      "Name": "ResolvedTown",
+      "Type": "ShowcaseTownLookup.ResolvedTown"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

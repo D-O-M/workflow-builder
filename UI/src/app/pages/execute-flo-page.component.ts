@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { HttpClient } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AbstractControl, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink, RouterLinkActive } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatToolbarModule } from '@angular/material/toolbar';
@@ -36,6 +36,7 @@ interface OverridePreview {
 const EXECUTE_NAV_ITEMS: ExecuteNavItem[] = [
   { label: 'Workflows', route: '/blueprints', exact: true },
   { label: 'Trigger', route: '/execute' },
+  { label: 'Executions', route: '/executions' },
 ];
 
 const WORKSPACE_LINKS: WorkspaceLink[] = [
@@ -65,6 +66,7 @@ export class ExecuteFloPageComponent {
   private readonly http = inject(HttpClient);
   private readonly blueprintService = inject(BlueprintEditorService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
 
   protected readonly loading = signal(true);
   protected readonly blueprintLoading = signal(false);
@@ -194,6 +196,12 @@ export class ExecuteFloPageComponent {
       this.successMessage.set(
         `Execution accepted for workflow instance ${response.workflowInstanceId}.`,
       );
+      await this.router.navigate(['/executions'], {
+        queryParams: {
+          blueprintId: this.form.controls.blueprintId.value,
+          workflowInstanceId: response.workflowInstanceId,
+        },
+      });
     } catch {
       this.errorMessage.set('Unable to execute the selected Flo.');
     } finally {

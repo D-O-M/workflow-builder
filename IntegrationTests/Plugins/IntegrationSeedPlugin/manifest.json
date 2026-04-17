@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Integration Seed Plugin",
+  "InputChannel": {
+    "Name": "Request",
+    "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationSeedPlugin.SeedRequest"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Success",
+      "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationSeedPlugin.SeedSuccess"
+    }
+  ],
+  "GlobalState": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationSeedPlugin.IntegrationWorkflowState"
+}

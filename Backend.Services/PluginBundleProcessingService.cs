@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using Azure.Storage.Blobs;
 using Backend.Models;
 using Backend.Models.DomainModels;
 using Backend.Interfaces.Repositories;
@@ -12,26 +11,23 @@ namespace Backend.Services;
 
 public sealed class PluginBundleProcessingService : IPluginBundleProcessingService
 {
-    private readonly BlobContainerClient _blobContainerClient;
+    private readonly IPluginBundleSource _pluginBundleSource;
     private readonly IPluginWorkspaceFactoryUtility _workspaceFactory;
-    private readonly IPluginArchiveExtractionUtility _archiveExtractor;
     private readonly IPluginManifestParsingUtility _manifestParser;
     private readonly IPluginSchemaAggregationUtility _schemaAggregator;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PluginBundleProcessingService> _logger;
 
     public PluginBundleProcessingService(
-        BlobContainerClient blobContainerClient,
+        IPluginBundleSource pluginBundleSource,
         IPluginWorkspaceFactoryUtility workspaceFactory,
-        IPluginArchiveExtractionUtility archiveExtractor,
         IPluginManifestParsingUtility manifestReader,
         IPluginSchemaAggregationUtility schemaAggregator,
         IServiceScopeFactory scopeFactory,
         ILogger<PluginBundleProcessingService> logger)
     {
-        _blobContainerClient = blobContainerClient;
+        _pluginBundleSource = pluginBundleSource;
         _workspaceFactory = workspaceFactory;
-        _archiveExtractor = archiveExtractor;
         _manifestParser = manifestReader;
         _schemaAggregator = schemaAggregator;
         _scopeFactory = scopeFactory;
@@ -42,10 +38,25 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
     {
         _logger.LogInformation("Processing plugin {Plugin} ({Version}) from blob {BlobName}", pluginInfo.PluginName, pluginInfo.Version, pluginInfo.BlobName);
 
-        var blobClient = _blobContainerClient.GetBlobClient(pluginInfo.BlobName);
+        using var serviceScope = _scopeFactory.CreateScope();
+        var workflowTaskRepository = serviceScope.ServiceProvider.GetRequiredService<IWorkflowTaskRepository>();
+        var existingTasks = await workflowTaskRepository.GetAll(cancellationToken);
+        var alreadyRegistered = existingTasks.Any(task =>
+            task.Name == pluginInfo.PluginName &&
+            task.Version == pluginInfo.Version);
+
+        if (alreadyRegistered)
+        {
+            _logger.LogInformation(
+                "Plugin {Plugin} ({Version}) already registered; skipping processing.",
+                pluginInfo.PluginName,
+                pluginInfo.Version);
+            return;
+        }
+
         var workspaceDirectory = await _workspaceFactory.CreateWorkspaceAsync(pluginInfo.PluginName, pluginInfo.Version, cancellationToken);
 
-        await _archiveExtractor.ExtractAsync(blobClient, workspaceDirectory, cancellationToken);
+        await _pluginBundleSource.ExtractBundleAsync(pluginInfo, workspaceDirectory, cancellationToken);
 
         var manifest = await _manifestParser.ReadAsync(workspaceDirectory, cancellationToken);
         if (manifest is null)
@@ -60,9 +71,6 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         if (schemas is null) throw new Exception();
 
         var entryPoint = FindEntryPoint(workspaceDirectory, pluginInfo.PluginName);
-
-        using var serviceScope = _scopeFactory.CreateScope();
-        var workflowTaskRepository = serviceScope.ServiceProvider.GetRequiredService<IWorkflowTaskRepository>();
 
         var version = new TaskVersionDomainModel
         {
@@ -85,11 +93,6 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                 pluginInfo.PluginName, pluginInfo.Version);
         }
 
-        /*await workflowTaskRepository.CreateBasicTask(
-            pluginInfo.PluginName,
-            pluginInfo.Version.ToString(),
-            entryPoint.ToString(),
-            cancellationToken);*/
     }
 
     private void LogProcessingSummary(PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult? schemas)
@@ -141,7 +144,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
 
         return new ChannelDefinitionDomainModel
         {
-            Name = pluginInfo.PluginName,
+            Name = manifest.InputChannel.Name,
             ModelTypeName = inputChannelType,
             Properties = propDefs
         };
@@ -177,7 +180,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
 
             if (!channelDefs.Add(new ChannelDefinitionDomainModel
             {
-                Name = pluginInfo.PluginName,
+                Name = channel.Name,
                 ModelTypeName = channelType,
                 Properties = propDefs
             }))

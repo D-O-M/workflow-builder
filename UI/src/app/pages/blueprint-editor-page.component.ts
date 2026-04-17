@@ -64,6 +64,7 @@ interface TaskLibrarySection {
 const APP_NAV_ITEMS: AppNavItem[] = [
     { label: 'Workflows', route: '/blueprints', exact: true },
     { label: 'Trigger', route: '/execute' },
+    { label: 'Executions', route: '/executions' },
 ];
 
 const CANVAS_ACTIONS: QuickAction[] = [
@@ -233,7 +234,9 @@ export class BlueprintEditorPageComponent implements AfterViewInit, OnDestroy {
         const nodes = this.editor.nodes();
         if (nodes.length === 0) return;
 
-        const startingNodeId = nodes[0].id;
+        const destinationNodeIds = new Set(this.editor.connections().map((connection) => connection.to.id));
+        const rootNodes = nodes.filter((node) => !destinationNodeIds.has(node.id));
+        const startingNodeId = rootNodes[0]?.id ?? nodes[0].id;
         const blueprintName = `Blueprint ${new Date().toISOString()}`;
 
         this.saving.set(true);

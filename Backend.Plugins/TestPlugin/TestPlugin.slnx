@@ -2,6 +2,10 @@
   <Project Path="../../Backend.Plugins.Harness/Backend.Plugins.Harness.csproj" />
   <Project Path="../TownFinalScore/TownFinalScore.csproj" />
   <Project Path="../TownScoreEmailer/TownScoreEmailer.csproj" />
+  <Project Path="../ShowcaseTownLookup/ShowcaseTownLookup.csproj" />
+  <Project Path="../ShowcaseTownForecast/ShowcaseTownForecast.csproj" />
+  <Project Path="../ShowcaseTownHoliday/ShowcaseTownHoliday.csproj" />
+  <Project Path="../ShowcaseTownRecommendation/ShowcaseTownRecommendation.csproj" />
   <Project Path="../WeatherTownGeocode/WeatherTownGeocode.csproj" />
   <Project Path="../WeatherWeekendForecast/WeatherWeekendForecast.csproj" />
   <Project Path="../WeekendHolidayDemand/WeekendHolidayDemand.csproj" />

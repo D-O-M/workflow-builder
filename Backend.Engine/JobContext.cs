@@ -1,6 +1,6 @@
 using System.Text.Json;
-using Azure.Messaging.ServiceBus;
 using Backend.Database.State.Objects;
+using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Models;
 using Backend.Plugins.Communication;
@@ -13,8 +13,7 @@ public class JobContext
     private readonly CancellationTokenSource _cts = new();
     private readonly WorkflowTaskInitialisationMessage _message;
     private readonly ILogger _logger;
-    private readonly ServiceBusReceivedMessage _messageContainer;
-    private readonly ServiceBusReceiver _serviceBusReceiver;
+    private readonly IWorkflowTaskQueueMessage _messageContainer;
     private readonly ITaskInstanceRepository _taskInstanceRepository;
     private readonly WorkflowBlueprint _workflowBlueprint;
     private readonly IWorkflowInstanceRepository<Dictionary<string, JsonElement>> _workflowInstanceRepository;
@@ -41,8 +40,7 @@ public class JobContext
     public JobContext(
         WorkflowTaskInitialisationMessage job,
         ILogger<JobContext> logger,
-        ServiceBusReceivedMessage message,
-        ServiceBusReceiver serviceBusReceiver,
+        IWorkflowTaskQueueMessage message,
         ITaskInstanceRepository taskInstanceRepository,
         IWorkflowInstanceRepository<Dictionary<string, JsonElement>> workflowInstanceRepository,
         WorkflowBlueprint workflowBlueprint)
@@ -50,7 +48,6 @@ public class JobContext
         _message = job;
         _logger = logger;
         _messageContainer = message;
-        _serviceBusReceiver = serviceBusReceiver;
         _taskInstanceRepository = taskInstanceRepository;
         _workflowBlueprint = workflowBlueprint;
         _workflowInstanceRepository = workflowInstanceRepository;
@@ -80,7 +77,7 @@ public class JobContext
                 _message.WorkflowInstanceId,
                 _message.WorkflowBlueprintId);
 
-            await _serviceBusReceiver.RenewMessageLockAsync(_messageContainer, _cts.Token);
+            await _messageContainer.RenewLockAsync(_cts.Token);
 
             _logger.LogInformation(
                 "Successfully renewed lock on message {MessageId} for task {BlueprintTaskId} of Workflow Instance {WorkflowInstanceId} of Workflow Blueprint {WorkflowBlueprintId}",
@@ -162,6 +159,7 @@ public class JobContext
 
     public async Task PersistFailureAsync(
         Dictionary<string, JsonElement> globalState,
+        string? errorMessage,
         DateTimeOffset failedAt,
         CancellationToken cancellationToken)
     {
@@ -173,6 +171,7 @@ public class JobContext
         taskState.Status = TaskExecutionStatus.Failed;
         taskState.UpdatedAt = failedAt;
         taskState.FailedAt = failedAt;
+        taskState.ErrorMessage = errorMessage;
         await _taskInstanceRepository.UpdateTaskInstance(taskState, cancellationToken);
 
         var workflowState = await _workflowInstanceRepository.GetWorkflowStateById(
@@ -208,11 +207,11 @@ public class JobContext
 
     public async Task CompleteMessageAsync(CancellationToken cancellationToken)
     {
-        await _serviceBusReceiver.CompleteMessageAsync(_messageContainer, cancellationToken);
+        await _messageContainer.CompleteAsync(cancellationToken);
     }
 
     public async Task AbandonMessageAsync(CancellationToken cancellationToken)
     {
-        await _serviceBusReceiver.AbandonMessageAsync(_messageContainer, cancellationToken: cancellationToken);
+        await _messageContainer.AbandonAsync(cancellationToken);
     }
 }

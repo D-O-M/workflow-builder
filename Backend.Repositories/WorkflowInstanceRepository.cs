@@ -9,7 +9,7 @@ public class WorkflowInstanceRepository<TGlobalState>
     IWorkflowInstanceRepository<TGlobalState>
 {
     public WorkflowInstanceRepository(Container container)
-        : base(container, wo => wo.WorkflowInstanceId, wo => new PartitionKey(wo.BlueprintId))
+        : base(container, wo => wo.Id, wo => new PartitionKey(wo.BlueprintId))
     {}
 
     public async Task<WorkflowObject<TGlobalState>> CreateWorkflowState(
@@ -36,6 +36,23 @@ public class WorkflowInstanceRepository<TGlobalState>
         }
 
         return workflowState;
+    }
+
+    public async Task<List<WorkflowObject<TGlobalState>>> GetWorkflowStatesForBlueprint(
+        int workflowBlueprintId,
+        CancellationToken cancellationToken)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.blueprintId = @blueprintId ORDER BY c.createdAt DESC")
+            .WithParameter("@blueprintId", workflowBlueprintId.ToString());
+
+        return await QueryToListAsync(
+            query,
+            cancellationToken,
+            new QueryRequestOptions
+            {
+                PartitionKey = new PartitionKey(workflowBlueprintId.ToString())
+            });
     }
 
     public async Task<WorkflowObject<TGlobalState>> UpdateWorkflowState(

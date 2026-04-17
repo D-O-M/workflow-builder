@@ -1,0 +1,95 @@
+{
+  "components": {
+    "schemas": {
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ShowcaseTownForecast.ResolvedTown": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "RequestedTownName": {
+            "type": "string"
+          },
+          "ResolvedTownName": {
+            "type": "string"
+          },
+          "ResolvedDisplayName": {
+            "type": "string"
+          },
+          "ResolvedCountryCode": {
+            "type": "string"
+          },
+          "Latitude": {
+            "type": "number"
+          },
+          "Longitude": {
+            "type": "number"
+          }
+        }
+      },
+      "ShowcaseTownForecast.TownWeekendForecast": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "RequestedTownName": {
+            "type": "string"
+          },
+          "ResolvedTownName": {
+            "type": "string"
+          },
+          "ResolvedDisplayName": {
+            "type": "string"
+          },
+          "ResolvedCountryCode": {
+            "type": "string"
+          },
+          "Latitude": {
+            "type": "number"
+          },
+          "Longitude": {
+            "type": "number"
+          },
+          "WeekendStartIsoDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "WeekendEndIsoDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "AverageTemperatureC": {
+            "type": "number"
+          },
+          "MaximumWindSpeedMps": {
+            "type": "number"
+          },
+          "TotalPrecipitationMm": {
+            "type": "number"
+          },
+          "RainRisk01": {
+            "type": "number"
+          },
+          "WeatherSuitabilityScore": {
+            "type": "integer"
+          },
+          "WeatherSummary": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

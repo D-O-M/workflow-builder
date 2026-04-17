@@ -16,10 +16,25 @@ public sealed class PluginArchiveExtractionUtility : IPluginArchiveExtractionUti
 
     public async Task ExtractAsync(BlobClient blobClient, string destinationDirectory, CancellationToken cancellationToken)
     {
-        await using var zipStream = await blobClient.OpenReadAsync(cancellationToken: cancellationToken);
-        using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: false);
-        ExtractArchiveToDirectory(archive, destinationDirectory, overwrite: true);
-        _logger.LogInformation("Extracted blob {BlobName} to {Destination}", blobClient.Name, destinationDirectory);
+        var tempArchivePath = Path.Combine(
+            Path.GetTempPath(),
+            $"{Guid.NewGuid():N}-{Path.GetFileName(blobClient.Name)}");
+
+        try
+        {
+            await blobClient.DownloadToAsync(tempArchivePath, cancellationToken: cancellationToken);
+
+            using var archive = ZipFile.OpenRead(tempArchivePath);
+            ExtractArchiveToDirectory(archive, destinationDirectory, overwrite: true);
+            _logger.LogInformation("Extracted blob {BlobName} to {Destination}", blobClient.Name, destinationDirectory);
+        }
+        finally
+        {
+            if (File.Exists(tempArchivePath))
+            {
+                File.Delete(tempArchivePath);
+            }
+        }
     }
 
     private static void ExtractArchiveToDirectory(ZipArchive archive, string destinationDirectoryFullPath, bool overwrite)
