@@ -8,6 +8,8 @@ namespace ShowcaseTownHoliday;
 
 public sealed class ShowcaseTownHolidayPlugin : IPlugin
 {
+    private static readonly TimeSpan DemonstrationDelay = TimeSpan.FromSeconds(5);
+
     public required TownWeekendForecast TownWeekendForecast { get; init; }
     public TownWeekendHolidayContext TownWeekendHolidayContext { get; set; } = new();
 
@@ -15,6 +17,8 @@ public sealed class ShowcaseTownHolidayPlugin : IPlugin
 
     public async Task Execute()
     {
+        await Task.Delay(DemonstrationDelay);
+
         if (string.IsNullOrWhiteSpace(TownWeekendForecast.ResolvedCountryCode))
         {
             TownWeekendHolidayContext = ShowcaseTownHolidayFallback.CreateUnavailableContext(

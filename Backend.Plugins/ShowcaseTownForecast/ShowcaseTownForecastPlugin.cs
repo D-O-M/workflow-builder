@@ -7,6 +7,8 @@ namespace ShowcaseTownForecast;
 
 public sealed class ShowcaseTownForecastPlugin : IPlugin
 {
+    private static readonly TimeSpan DemonstrationDelay = TimeSpan.FromSeconds(5);
+
     public required ResolvedTown ResolvedTown { get; init; }
     public TownWeekendForecast TownWeekendForecast { get; set; } = new();
 
@@ -14,6 +16,8 @@ public sealed class ShowcaseTownForecastPlugin : IPlugin
 
     public async Task Execute()
     {
+        await Task.Delay(DemonstrationDelay);
+
         var weekendWindow = GetNextWeekendUtc(DateTimeOffset.UtcNow);
 
         var url =

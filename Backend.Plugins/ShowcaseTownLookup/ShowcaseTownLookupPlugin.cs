@@ -7,6 +7,8 @@ namespace ShowcaseTownLookup;
 
 public sealed class ShowcaseTownLookupPlugin : IPlugin
 {
+    private static readonly TimeSpan DemonstrationDelay = TimeSpan.FromSeconds(5);
+
     public required TownLookupRequest TownLookupRequest { get; init; }
     public ResolvedTown ResolvedTown { get; set; } = new();
 
@@ -17,6 +19,8 @@ public sealed class ShowcaseTownLookupPlugin : IPlugin
 
     public async Task Execute()
     {
+        await Task.Delay(DemonstrationDelay);
+
         var requestedTownName = TownLookupRequest.RequestedTownName?.Trim();
         if (string.IsNullOrWhiteSpace(requestedTownName))
             throw new InvalidDataException("RequestedTownName is required.");

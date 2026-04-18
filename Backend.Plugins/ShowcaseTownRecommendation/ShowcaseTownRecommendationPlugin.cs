@@ -4,11 +4,15 @@ namespace ShowcaseTownRecommendation;
 
 public sealed class ShowcaseTownRecommendationPlugin : IPlugin
 {
+    private static readonly TimeSpan DemonstrationDelay = TimeSpan.FromSeconds(5);
+
     public required TownWeekendHolidayContext TownWeekendHolidayContext { get; init; }
     public TownRecommendation TownRecommendation { get; set; } = new();
 
-    public Task Execute()
+    public async Task Execute()
     {
+        await Task.Delay(DemonstrationDelay);
+
         var finalRecommendationScore = ShowcaseTownRecommendationScoring.CalculateFinalRecommendationScore(
             TownWeekendHolidayContext.WeatherSuitabilityScore,
             TownWeekendHolidayContext.HolidayDemandAdjustmentPct);
@@ -29,7 +33,5 @@ public sealed class ShowcaseTownRecommendationPlugin : IPlugin
             WeatherSummary = TownWeekendHolidayContext.WeatherSummary,
             HolidaySummary = TownWeekendHolidayContext.HolidaySummary
         };
-
-        return Task.CompletedTask;
     }
 }
