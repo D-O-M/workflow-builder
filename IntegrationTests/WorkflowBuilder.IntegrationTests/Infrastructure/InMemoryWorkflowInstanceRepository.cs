@@ -48,6 +48,19 @@ internal sealed class InMemoryWorkflowInstanceRepository
         return Task.FromResult(Clone(workflow));
     }
 
+    public Task<List<WorkflowObject<Dictionary<string, JsonElement>>>> GetWorkflowStatesForBlueprint(
+        int workflowBlueprintId,
+        CancellationToken cancellationToken)
+    {
+        var workflows = _workflows.Values
+            .Where(workflow => workflow.BlueprintId == workflowBlueprintId.ToString())
+            .OrderByDescending(workflow => workflow.CreatedAt)
+            .Select(Clone)
+            .ToList();
+
+        return Task.FromResult(workflows);
+    }
+
     public Task<WorkflowObject<Dictionary<string, JsonElement>>> UpdateWorkflowState(
         WorkflowObject<Dictionary<string, JsonElement>> state,
         CancellationToken cancellationToken)

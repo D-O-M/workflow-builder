@@ -20,5 +20,7 @@
     <ProjectReference Include="..\Backend.API\Backend.API.csproj" />
     <ProjectReference Include="..\Backend.Engine\Backend.Engine.csproj" />
     <ProjectReference Include="..\Backend.Functions.PluginDetector\Backend.Functions.PluginDetector.csproj" />
+    <ProjectReference Include="..\Backend.Functions.ProgressBroadcaster\Backend.Functions.ProgressBroadcaster.csproj" />
+    <ProjectReference Include="..\Backend.SignalR\Backend.SignalR.csproj" />
   </ItemGroup>
 </Project>

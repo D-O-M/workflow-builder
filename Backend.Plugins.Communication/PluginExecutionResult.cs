@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 namespace Backend.Plugins.Communication;
@@ -15,6 +16,7 @@ public static class PluginExecutionResultSerializer
 {
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
     {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = false
     };

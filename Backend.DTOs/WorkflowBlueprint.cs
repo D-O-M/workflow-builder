@@ -13,8 +13,11 @@ public record WorkflowTask
 {
     public Guid Id { get; set; }
     public required string Name { get; set; }
-    public required Version Version { get; set; }
-    public int SchemaId { get; set; }
+    public int TaskDefinitionId { get; set; }
+    public int AllowedMajor { get; set; }
+    public int AllowedMinor { get; set; }
+    public required Version ResolvedVersion { get; set; }
+    public int ResolvedTaskVersionId { get; set; }
     public required WorkflowTaskChannel InputChannel { get; set; }
     public required Dictionary<string, WorkflowTaskChannel> OutputChannels { get; set; }
 }

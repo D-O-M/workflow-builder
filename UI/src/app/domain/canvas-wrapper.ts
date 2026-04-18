@@ -15,10 +15,13 @@ export class CanvasWrapper {
         nodeTextMuted: 'rgba(113, 131, 166, 0.88)',
         nodeSectionText: 'rgba(136, 153, 187, 0.95)',
         nodeDanger: '#df3d3d',
+        nodeWarning: '#f28c18',
+        nodeWarningText: '#fff7ed',
         nodeShadow: 'rgba(57, 81, 153, 0.16)',
         accent: '#2d4bdd',
         tooltipBg: '#101728',
         tooltipText: '#ffffff',
+        tooltipDanger: '#ffb8b8',
         anchor: {
             normal: '#d6e0ff',
             hover: '#2d4bdd',
@@ -30,6 +33,38 @@ export class CanvasWrapper {
         connection: {
             stroke: '#2d4bdd',
             soft: 'rgba(45, 75, 221, 0.72)',
+        },
+        status: {
+            Completed: {
+                accent: '#12b76a',
+                text: '#027a48',
+                border: 'rgba(18, 183, 106, 0.3)',
+                badgeFill: 'rgba(18, 183, 106, 0.14)',
+            },
+            InProgress: {
+                accent: '#2d4bdd',
+                text: '#2446c5',
+                border: 'rgba(45, 75, 221, 0.24)',
+                badgeFill: 'rgba(45, 75, 221, 0.12)',
+            },
+            Failed: {
+                accent: '#d92d20',
+                text: '#b42318',
+                border: 'rgba(217, 45, 32, 0.3)',
+                badgeFill: 'rgba(217, 45, 32, 0.12)',
+            },
+            Pending: {
+                accent: '#64748b',
+                text: '#475467',
+                border: 'rgba(100, 116, 139, 0.28)',
+                badgeFill: 'rgba(100, 116, 139, 0.12)',
+            },
+            NotExecuted: {
+                accent: '#cbd5e1',
+                text: '#667085',
+                border: 'rgba(203, 213, 225, 0.42)',
+                badgeFill: 'rgba(203, 213, 225, 0.26)',
+            },
         },
     } as const;
 
@@ -110,7 +145,10 @@ export class CanvasWrapper {
         } | null,
         hovered: number | null,
         hoveredAnchor: number | null,
+        options?: { readOnly?: boolean },
     ) {
+        const readOnly = options?.readOnly ?? false;
+
         for (const node of nodes) {
             const inputAnchorIndex = node.inputAnchorIndex();
             const connectedAnchorIndexes = new Set<number>(
@@ -121,6 +159,7 @@ export class CanvasWrapper {
             const hasIncomingConnection =
                 inputAnchorIndex !== null &&
                 connections.some((connection) => connection.to.id === node.id);
+            const statusTheme = node.renderStatus ? CanvasWrapper.theme.status[node.renderStatus] : null;
 
             const grad = this.ctx.createLinearGradient(node.x, node.y, node.x + node.width, node.y + node.height);
             grad.addColorStop(0, CanvasWrapper.theme.surface);
@@ -131,7 +170,7 @@ export class CanvasWrapper {
             this.ctx.shadowBlur = 22;
             this.ctx.shadowOffsetY = 12;
             this.ctx.fillStyle = grad;
-            this.ctx.strokeStyle = CanvasWrapper.theme.nodeStroke;
+            this.ctx.strokeStyle = statusTheme?.border ?? CanvasWrapper.theme.nodeStroke;
             this.ctx.lineJoin = 'round';
             this.ctx.lineWidth = 1.4;
 
@@ -161,7 +200,7 @@ export class CanvasWrapper {
             this.ctx.stroke();
 
             this.ctx.save();
-            this.ctx.fillStyle = CanvasWrapper.theme.accent;
+            this.ctx.fillStyle = statusTheme?.accent ?? CanvasWrapper.theme.accent;
             this.roundedRect(node.x, node.y, 10, node.height, 18);
             this.ctx.fill();
             this.ctx.restore();
@@ -170,7 +209,7 @@ export class CanvasWrapper {
             this.roundedRect(node.x + 22, node.y + 18, 32, 32, 8);
             this.ctx.fill();
 
-            this.ctx.fillStyle = CanvasWrapper.theme.accent;
+            this.ctx.fillStyle = statusTheme?.accent ?? CanvasWrapper.theme.accent;
             this.setFont(700, 12);
             this.ctx.fillText('::', node.x + 31, node.y + 39);
 
@@ -180,8 +219,16 @@ export class CanvasWrapper {
                 node.name,
                 node.x + 68,
                 node.y + 34,
-                node.width - 90,
+                node.width - (node.hasUpgradeWarning ? 126 : 90),
             );
+
+            if (node.hasUpgradeWarning) {
+                this.drawNodeWarning(node.x + node.width - 28, node.y + 30);
+            }
+
+            if (statusTheme && node.renderStatus) {
+                this.drawStatusBadge(node, this.statusLabel(node.renderStatus), statusTheme.badgeFill, statusTheme.text);
+            }
 
             this.ctx.fillStyle = CanvasWrapper.theme.nodeTextMuted;
             this.setFont(500, 12);
@@ -217,6 +264,11 @@ export class CanvasWrapper {
 
             const anchors = node.anchorDefinitions();
             this.ctx.save();
+            if (readOnly) {
+                this.ctx.restore();
+                continue;
+            }
+
             if (drag && drag.from === node.id) {
                 const pos = anchors.find((anchor) => anchor.index === drag.anchor);
                 if (pos) {
@@ -302,25 +354,112 @@ export class CanvasWrapper {
         this.ctx.restore();
     }
 
+    private drawStatusBadge(node: NodeModel, label: string, fill: string, text: string): void {
+        this.ctx.save();
+        this.setFont(700, 11);
+        const paddingX = 10;
+        const width = this.ctx.measureText(label).width + paddingX * 2;
+        const height = 24;
+        const x = node.x + node.width - width - 18 - (node.hasUpgradeWarning ? 26 : 0);
+        const y = node.y + 18;
+
+        this.ctx.fillStyle = fill;
+        this.roundedRect(x, y, width, height, 12);
+        this.ctx.fill();
+
+        this.ctx.fillStyle = text;
+        this.ctx.fillText(label, x + paddingX, y + 16);
+        this.ctx.restore();
+    }
+
+    drawFailureTooltip(node: NodeModel, message: string): void {
+        this.ctx.save();
+        const width = 280;
+        const paddingX = 14;
+        const paddingY = 12;
+        const title = 'Failure';
+        const lines = this.wrapText(message, width - paddingX * 2);
+        const bodyHeight = Math.max(lines.length, 1) * 16;
+        const height = paddingY * 2 + 18 + bodyHeight + 8;
+        const x = node.x + node.width / 2 - width / 2;
+        const y = node.y - height - 16;
+
+        this.ctx.fillStyle = CanvasWrapper.theme.tooltipBg;
+        this.roundedRect(x, y, width, height, 12);
+        this.ctx.fill();
+
+        this.ctx.fillStyle = CanvasWrapper.theme.tooltipDanger;
+        this.setFont(700, 11);
+        this.ctx.fillText(title, x + paddingX, y + 18);
+
+        this.ctx.fillStyle = CanvasWrapper.theme.tooltipText;
+        this.setFont(500, 12);
+        lines.forEach((line, index) => {
+            this.ctx.fillText(line, x + paddingX, y + paddingY + 26 + index * 16);
+        });
+
+        this.ctx.restore();
+    }
+
+    private drawNodeWarning(x: number, y: number): void {
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.fillStyle = CanvasWrapper.theme.nodeWarning;
+        this.ctx.arc(x, y, 12, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        this.ctx.fillStyle = CanvasWrapper.theme.nodeWarningText;
+        this.setFont(700, 12);
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText('!', x, y + 0.5);
+        this.ctx.restore();
+    }
+
+    private statusLabel(status: NonNullable<NodeModel['renderStatus']>): string {
+        switch (status) {
+            case 'Completed':
+                return 'SUCCEEDED';
+            case 'InProgress':
+                return 'IN PROGRESS';
+            case 'Failed':
+                return 'FAILED';
+            case 'Pending':
+                return 'PENDING';
+            default:
+                return 'NOT EXECUTED';
+        }
+    }
+
     snap(value: number): number {
         return Math.round(value / this.gridSize) * this.gridSize;
     }
 
     drawWrappedText(text: string, x: number, y: number, maxWidth: number): void {
+        const lines = this.wrapText(text, maxWidth);
+        for (const line of lines) {
+            this.ctx.fillText(line, x, y);
+            y += 18;
+        }
+    }
+
+    private wrapText(text: string, maxWidth: number): string[] {
         const words = text.split(/\s+/);
         let line = '';
-        const lineHeight = 18;
+        const lines: string[] = [];
         for (const word of words) {
             const test = line ? `${line} ${word}` : word;
             if (this.ctx.measureText(test).width > maxWidth && line) {
-                this.ctx.fillText(line, x, y);
+                lines.push(line);
                 line = word;
-                y += lineHeight;
             } else {
                 line = test;
             }
         }
-        this.ctx.fillText(line, x, y);
+        if (line) {
+            lines.push(line);
+        }
+        return lines;
     }
 
     drawArrowHead(x: number, y: number, side: Side): void {

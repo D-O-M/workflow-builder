@@ -22,6 +22,7 @@ internal sealed class WorkflowApiFactory : WebApplicationFactory<Backend.API.Pro
     private readonly InMemoryTaskInstanceRepository _taskRepository;
     private readonly InMemoryWorkflowInstanceRepository _workflowRepository;
     private readonly InMemoryWorkflowTaskQueue _queue;
+    private readonly InMemoryPluginReloadQueue _pluginReloadQueue;
     private readonly IPluginBundleSource _pluginBundleSource;
 
     public WorkflowApiFactory(
@@ -30,6 +31,7 @@ internal sealed class WorkflowApiFactory : WebApplicationFactory<Backend.API.Pro
         InMemoryTaskInstanceRepository taskRepository,
         InMemoryWorkflowInstanceRepository workflowRepository,
         InMemoryWorkflowTaskQueue queue,
+        InMemoryPluginReloadQueue pluginReloadQueue,
         IPluginBundleSource pluginBundleSource)
     {
         _sqliteConnectionString = sqliteConnectionString;
@@ -37,6 +39,7 @@ internal sealed class WorkflowApiFactory : WebApplicationFactory<Backend.API.Pro
         _taskRepository = taskRepository;
         _workflowRepository = workflowRepository;
         _queue = queue;
+        _pluginReloadQueue = pluginReloadQueue;
         _pluginBundleSource = pluginBundleSource;
     }
 
@@ -54,6 +57,9 @@ internal sealed class WorkflowApiFactory : WebApplicationFactory<Backend.API.Pro
                 ["AzureServiceBus:Queues:WorkflowTaskQueue:ConnectionName"] = "workflow-task-queue",
                 ["ConnectionStrings:workflow-task-queue"] = "Endpoint=sb://localhost/;SharedAccessKeyName=fake;SharedAccessKey=fake=",
                 ["AzureServiceBus:Queues:WorkflowTaskQueue:Name"] = "workflowtasks",
+                ["AzureServiceBus:Queues:PluginControlQueue:ConnectionName"] = "plugin-control-queue",
+                ["ConnectionStrings:plugin-control-queue"] = "Endpoint=sb://localhost/;SharedAccessKeyName=fake;SharedAccessKey=fake=",
+                ["AzureServiceBus:Queues:PluginControlQueue:Name"] = "pluginreloadqueue",
                 ["PluginStateStore:Mode"] = "File",
                 ["PluginStateStore:RootPath"] = _pluginStateRootPath
             });
@@ -69,6 +75,8 @@ internal sealed class WorkflowApiFactory : WebApplicationFactory<Backend.API.Pro
             services.RemoveAll<Azure.Messaging.ServiceBus.ServiceBusSender>();
             services.RemoveAll<IWorkflowTaskQueueReader>();
             services.RemoveAll<IWorkflowTaskQueueWriter>();
+            services.RemoveAll<IPluginReloadQueueReader>();
+            services.RemoveAll<IPluginReloadQueueWriter>();
             services.RemoveAll<IPluginBundleSource>();
 
             services.AddSingleton<IWorkflowDbContextOptionsConfigurator>(
@@ -77,6 +85,8 @@ internal sealed class WorkflowApiFactory : WebApplicationFactory<Backend.API.Pro
             services.AddSingleton<IWorkflowInstanceRepository<Dictionary<string, JsonElement>>>(_workflowRepository);
             services.AddSingleton<IWorkflowTaskQueueReader>(_queue);
             services.AddSingleton<IWorkflowTaskQueueWriter>(_queue);
+            services.AddSingleton<IPluginReloadQueueReader>(_pluginReloadQueue);
+            services.AddSingleton<IPluginReloadQueueWriter>(_pluginReloadQueue);
             services.AddSingleton(_pluginBundleSource);
             services.AddSingleton<IAgentManager, AgentManager>();
             services.AddSingleton<IChildProcessTracker, ChildProcessTracker>();
@@ -85,8 +95,10 @@ internal sealed class WorkflowApiFactory : WebApplicationFactory<Backend.API.Pro
             services.AddSingleton<JobManager>();
             services.AddTransient<JobFinalizationService>();
             services.AddSingleton<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
-            services.AddHostedService<NanoServiceOrchestrator>();
+            services.AddSingleton<NanoServiceOrchestrator>();
+            services.AddHostedService(provider => provider.GetRequiredService<NanoServiceOrchestrator>());
             services.AddHostedService<QueueConsumer>();
+            services.AddHostedService<PluginReloadConsumer>();
         });
     }
 }

@@ -12,8 +12,7 @@ public class TaskVersion
 
     public required Version Version { get; set; }
     public required string Path { get; set; }
-
-    public List<TaskInstance> TaskInstances { get; set; } = new();
+    public TaskVersionState State { get; set; } = TaskVersionState.Registered;
 
     public List<Channel> Channels { get; set; } = new();
 

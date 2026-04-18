@@ -170,3 +170,58 @@ textarea {
   white-space: nowrap;
   border: 0;
 }
+
+.nav-drawer-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  min-height: 2.9rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 0.95rem;
+  background: rgba(232, 239, 255, 0.82);
+  box-shadow: inset 0 0 0 1px rgba(87, 121, 222, 0.12);
+  color: var(--flo-text-soft);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    background-color 120ms ease,
+    box-shadow 120ms ease,
+    color 120ms ease;
+}
+
+.nav-drawer-toggle:hover {
+  transform: translateY(-1px);
+  background: rgba(226, 234, 255, 0.96);
+}
+
+.nav-drawer-toggle mat-icon {
+  color: var(--flo-primary);
+}
+
+.nav-drawer-toggle__label {
+  letter-spacing: -0.01em;
+}
+
+.nav-drawer-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  border: 0;
+  background: rgba(15, 23, 42, 0.22);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .nav-drawer-toggle {
+    padding: 0 0.85rem;
+  }
+
+  .nav-drawer-toggle__label {
+    display: none;
+  }
+}

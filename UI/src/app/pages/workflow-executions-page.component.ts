@@ -1,9 +1,7 @@
 import {
-  AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
-  ElementRef,
   computed,
   effect,
   inject,
@@ -12,82 +10,55 @@ import {
 } from '@angular/core';
 import { DatePipe, NgClass } from '@angular/common';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink, RouterLinkActive } from '@angular/router';
-import { MatIconModule } from '@angular/material/icon';
+import { ActivatedRoute } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
-import { MatToolbarModule } from '@angular/material/toolbar';
+import { MatIconModule } from '@angular/material/icon';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   BlueprintEditorService,
   BlueprintViewModel,
   WorkflowExecutionDetailViewModel,
-  WorkflowExecutionNodeViewModel,
   WorkflowExecutionSummaryViewModel,
 } from '../domain/blueprint-editor.service';
+import {
+  ExecutionNodesUpdatedEvent,
+  ExecutionRealtimeService,
+  ExecutionSummaryUpdatedEvent,
+} from '../domain/execution-realtime.service';
 import { NodeModel } from '../domain/node-model';
 import { ConnectionModel } from '../domain/connection-model';
-
-type ExecutionNodeStatus =
-  | 'NotExecuted'
-  | 'Pending'
-  | 'InProgress'
-  | 'Completed'
-  | 'Failed';
-
-interface ExecutionNavItem {
-  label: string;
-  route: string;
-  exact?: boolean;
-}
-
-interface ExecutionGraphNode {
-  data: WorkflowExecutionNodeViewModel;
-  model: NodeModel;
-}
-
-interface ExecutionGraphConnection {
-  key: string;
-  segments: Array<{ x1: number; y1: number; x2: number; y2: number }>;
-  status: ExecutionNodeStatus;
-}
-
-const EXECUTION_NAV_ITEMS: ExecutionNavItem[] = [
-  { label: 'Workflows', route: '/blueprints', exact: true },
-  { label: 'Trigger', route: '/execute' },
-  { label: 'Executions', route: '/executions' },
-];
+import { WorkflowCanvasComponent } from '../components/workflow-canvas.component';
 
 @Component({
   selector: 'app-workflow-executions-page',
   imports: [
     ReactiveFormsModule,
-    RouterLink,
-    RouterLinkActive,
-    MatToolbarModule,
     MatButtonModule,
     MatIconModule,
     NgClass,
     DatePipe,
+    WorkflowCanvasComponent,
   ],
   templateUrl: './workflow-executions-page.component.html',
   styleUrl: './workflow-executions-page.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class WorkflowExecutionsPageComponent implements AfterViewInit {
+export class WorkflowExecutionsPageComponent {
   private readonly blueprintService = inject(BlueprintEditorService);
+  private readonly executionRealtime = inject(ExecutionRealtimeService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
-  private readonly graphViewportRef = viewChild<ElementRef<HTMLDivElement>>('graphViewport');
+  private readonly canvasViewport = viewChild(WorkflowCanvasComponent);
   private requestedBlueprintId: number | null = null;
   private requestedWorkflowInstanceId: string | null = null;
   private readonly preferredWorkflowInstanceId = signal<string | null>(null);
   private lastLoadedBlueprintId: number | null = null;
 
-  protected readonly navItems = EXECUTION_NAV_ITEMS;
   protected readonly loading = signal(true);
   protected readonly pickerOpen = signal(false);
   protected readonly executionsLoading = signal(false);
   protected readonly detailLoading = signal(false);
+  protected readonly historyCollapsed = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly blueprints = signal<BlueprintViewModel[]>([]);
   protected readonly selectedBlueprint = signal<BlueprintViewModel | null>(null);
@@ -95,8 +66,8 @@ export class WorkflowExecutionsPageComponent implements AfterViewInit {
   protected readonly selectedExecution = signal<WorkflowExecutionDetailViewModel | null>(null);
   protected readonly selectedExecutionId = signal<string | null>(null);
   protected readonly blueprintSearch = new FormControl('', { nonNullable: true });
-  protected readonly graphWidth = signal(1200);
-  protected readonly graphHeight = signal(720);
+  protected readonly executionSearch = new FormControl('', { nonNullable: true });
+  protected readonly zoomPercent = computed(() => this.canvasViewport()?.zoomPercent() ?? 100);
 
   protected readonly filteredBlueprints = computed(() => {
     const query = this.blueprintSearch.value.trim().toLocaleLowerCase();
@@ -110,67 +81,85 @@ export class WorkflowExecutionsPageComponent implements AfterViewInit {
     );
   });
 
-  protected readonly graphNodes = computed<ExecutionGraphNode[]>(() => {
+  protected readonly filteredExecutions = computed(() => {
+    const query = this.executionSearch.value.trim().toLocaleLowerCase();
+    if (!query) {
+      return this.executionSummaries();
+    }
+
+    return this.executionSummaries().filter((execution) => {
+      const searchHaystack = [
+        execution.blueprintVersionName,
+        execution.blueprintVersionNumber.toString(),
+        execution.workflowInstanceId,
+        execution.status,
+        execution.createdAt,
+      ].join(' ').toLocaleLowerCase();
+
+      return searchHaystack.includes(query);
+    });
+  });
+
+  protected readonly executionCountLabel = computed(() => {
+    const count = this.executionSummaries().length;
+    return count === 1 ? '1 run' : `${count} runs`;
+  });
+
+  protected readonly executionNodes = computed(() => {
     const detail = this.selectedExecution();
     if (!detail) {
       return [];
     }
 
-    return detail.nodes.map((node, index) => ({
-      data: node,
-      model: new NodeModel(
-        index + 1,
-        node.versionId,
-        node.name,
-        node.position.x,
-        node.position.y,
-        320,
-        Math.max(220, 168 + Math.max(node.outputChannelNames.length, 1) * 34),
-        node.inputChannelName ?? null,
-        node.outputChannelNames,
-      ),
-    }));
+    return detail.nodes.map((node, index) => new NodeModel(
+      index + 1,
+      node.taskDefinitionId,
+      node.allowedMajor,
+      node.allowedMinor,
+      node.resolvedVersionId,
+      node.resolvedVersion ?? null,
+      node.name,
+      node.position.x,
+      node.position.y,
+      320,
+      Math.max(220, 168 + Math.max(node.outputChannelNames.length, 1) * 34),
+      node.inputChannelName ?? null,
+      node.outputChannelNames,
+      false,
+      node.status,
+      node.failureMessage ?? null,
+    ));
   });
 
-  protected readonly graphConnections = computed<ExecutionGraphConnection[]>(() => {
-    const nodes = this.graphNodes();
-    if (nodes.length === 0) {
+  protected readonly executionConnections = computed(() => {
+    const detail = this.selectedExecution();
+    const nodes = this.executionNodes();
+    if (!detail || nodes.length === 0) {
       return [];
     }
 
-    const nodeByInstanceId = new Map(nodes.map((node) => [node.data.instanceId, node] as const));
-    const nodeModels = nodes.map((node) => node.model);
-    const options = {
-      gridSize: 20,
-      nodeMargin: NodeModel.buffer,
-      obstacleBuffer: Math.max(NodeModel.buffer / 20, 1),
-    };
+    const nodeByInstanceId = new Map(detail.nodes.map((node, index) => [node.instanceId, nodes[index]] as const));
+    return detail.nodes.flatMap((node) => {
+      const fromNode = nodeByInstanceId.get(node.instanceId);
+      if (!fromNode) {
+        return [];
+      }
 
-    return nodes.flatMap((node) =>
-      node.data.outgoingConnections.flatMap((connection) => {
-        const target = nodeByInstanceId.get(connection.taskInstanceId);
-        if (!target) {
+      return node.outgoingConnections.flatMap((connection) => {
+        const toNode = nodeByInstanceId.get(connection.taskInstanceId);
+        if (!toNode) {
           return [];
         }
 
-        const model = new ConnectionModel(
-          node.model,
-          target.model,
+        return [new ConnectionModel(
+          fromNode,
+          toNode,
           connection.anchor,
           connection.side,
           connection.position,
-        );
-        const obstacles = nodeModels.filter((candidate) =>
-          candidate.id !== node.model.id && candidate.id !== target.model.id,
-        );
-
-        return [{
-          key: `${node.data.instanceId}-${connection.taskInstanceId}-${connection.anchor}-${connection.position}`,
-          segments: model.segments(options, obstacles),
-          status: node.data.status,
-        }];
-      }),
-    );
+        )];
+      });
+    });
   });
 
   constructor() {
@@ -188,6 +177,13 @@ export class WorkflowExecutionsPageComponent implements AfterViewInit {
       this.lastLoadedBlueprintId = blueprintId;
       void this.loadExecutions(blueprintId, preferredWorkflowInstanceId);
       this.preferredWorkflowInstanceId.set(null);
+    });
+
+    effect(() => {
+      this.executionRealtime.setSubscriptions(
+        this.selectedBlueprint()?.id ?? null,
+        this.selectedExecutionId(),
+      );
     });
 
     this.blueprintSearch.valueChanges
@@ -210,36 +206,48 @@ export class WorkflowExecutionsPageComponent implements AfterViewInit {
         }
       });
 
+    this.executionRealtime.summaryUpdates$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((updates) => this.applyRealtimeSummaryUpdates(updates));
+
+    this.executionRealtime.nodeUpdates$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((updates) => this.applyRealtimeNodeUpdates(updates));
+
+    this.executionRealtime.reconnected$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        void this.refreshCurrentSelection();
+      });
+
+    this.executionRealtime.connect();
+    this.destroyRef.onDestroy(() => {
+      void this.executionRealtime.disconnect();
+    });
+
     void this.loadBlueprints();
   }
 
-  ngAfterViewInit(): void {
-    queueMicrotask(() => this.updateGraphBounds());
+  protected toggleHistoryPanel(): void {
+    this.historyCollapsed.update((collapsed) => !collapsed);
   }
 
-  protected readonly executionCountLabel = computed(() => {
-    const count = this.executionSummaries().length;
-    return count === 1 ? '1 execution' : `${count} executions`;
-  });
-
-  protected selectBlueprint(blueprint: BlueprintViewModel): void {
-    void this.openBlueprintExecutions(blueprint);
+  protected async selectBlueprint(blueprint: BlueprintViewModel): Promise<void> {
+    await this.openBlueprintExecutions(blueprint);
   }
 
-  private async openBlueprintExecutions(
-    blueprint: BlueprintViewModel,
-    preferredWorkflowInstanceId?: string | null,
-  ): Promise<void> {
-    if (this.selectedBlueprint()?.id !== blueprint.id) {
-      this.lastLoadedBlueprintId = null;
+  protected openPicker(): void {
+    this.pickerOpen.set(true);
+  }
+
+  protected closePicker(event: FocusEvent): void {
+    const currentTarget = event.currentTarget as HTMLElement | null;
+    const nextTarget = event.relatedTarget as Node | null;
+    if (currentTarget && nextTarget && currentTarget.contains(nextTarget)) {
+      return;
     }
 
-    this.preferredWorkflowInstanceId.set(preferredWorkflowInstanceId ?? null);
-    this.selectedBlueprint.set(blueprint);
-    this.blueprintSearch.setValue(blueprint.name, { emitEvent: false });
-    this.pickerOpen.set(false);
-    this.selectedExecution.set(null);
-    this.selectedExecutionId.set(null);
+    window.setTimeout(() => this.pickerOpen.set(false), 120);
   }
 
   protected async selectExecution(execution: WorkflowExecutionSummaryViewModel): Promise<void> {
@@ -257,8 +265,7 @@ export class WorkflowExecutionsPageComponent implements AfterViewInit {
         execution.workflowInstanceId,
       );
       this.selectedExecution.set(detail);
-      this.updateGraphBounds();
-      this.scrollGraphToStart(detail.startingTaskInstanceId);
+      this.centerOnStartingNode(detail);
     } catch {
       this.errorMessage.set('Unable to load the selected execution.');
     } finally {
@@ -266,18 +273,16 @@ export class WorkflowExecutionsPageComponent implements AfterViewInit {
     }
   }
 
-  protected openPicker(): void {
-    this.pickerOpen.set(true);
+  protected resetView(): void {
+    this.canvasViewport()?.resetView();
   }
 
-  protected closePicker(event: FocusEvent): void {
-    const currentTarget = event.currentTarget as HTMLElement | null;
-    const nextTarget = event.relatedTarget as Node | null;
-    if (currentTarget && nextTarget && currentTarget.contains(nextTarget)) {
-      return;
-    }
+  protected zoomIn(): void {
+    this.canvasViewport()?.zoomIn();
+  }
 
-    window.setTimeout(() => this.pickerOpen.set(false), 120);
+  protected zoomOut(): void {
+    this.canvasViewport()?.zoomOut();
   }
 
   protected statusLabel(status: string): string {
@@ -285,13 +290,28 @@ export class WorkflowExecutionsPageComponent implements AfterViewInit {
       case 'Completed':
         return 'Succeeded';
       case 'InProgress':
-        return 'In Progress';
+        return 'Running';
       case 'Failed':
-        return 'Failed';
+        return 'Execution Failed';
       case 'Pending':
         return 'Pending';
       default:
         return 'Not Executed';
+    }
+  }
+
+  protected statusIcon(status: string): string {
+    switch (status) {
+      case 'Completed':
+        return 'check_circle';
+      case 'InProgress':
+        return 'hourglass_top';
+      case 'Failed':
+        return 'error';
+      case 'Pending':
+        return 'schedule';
+      default:
+        return 'radio_button_unchecked';
     }
   }
 
@@ -303,17 +323,22 @@ export class WorkflowExecutionsPageComponent implements AfterViewInit {
     return execution.workflowInstanceId;
   }
 
-  protected trackGraphNode(_: number, node: ExecutionGraphNode): string {
-    return node.data.instanceId;
-  }
-
-  protected nodeTooltip(node: WorkflowExecutionNodeViewModel): string | null {
-    if (node.status !== 'Failed') {
-      return null;
+  private async openBlueprintExecutions(
+    blueprint: BlueprintViewModel,
+    preferredWorkflowInstanceId?: string | null,
+  ): Promise<void> {
+    if (this.selectedBlueprint()?.id !== blueprint.id) {
+      this.lastLoadedBlueprintId = null;
     }
 
-    return node.failureMessage?.trim()
-      || 'This node failed, but no persisted error details were available for this execution.';
+    this.preferredWorkflowInstanceId.set(preferredWorkflowInstanceId ?? null);
+    this.selectedBlueprint.set(blueprint);
+    this.blueprintSearch.setValue(blueprint.name, { emitEvent: false });
+    this.executionSearch.setValue('', { emitEvent: false });
+    this.pickerOpen.set(false);
+    this.selectedExecution.set(null);
+    this.selectedExecutionId.set(null);
+    this.historyCollapsed.set(false);
   }
 
   private async loadBlueprints(): Promise<void> {
@@ -373,31 +398,128 @@ export class WorkflowExecutionsPageComponent implements AfterViewInit {
     await this.openBlueprintExecutions(blueprint, this.requestedWorkflowInstanceId);
   }
 
-  private updateGraphBounds(): void {
-    const nodes = this.graphNodes();
-    if (nodes.length === 0) {
-      this.graphWidth.set(1200);
-      this.graphHeight.set(720);
+  private applyRealtimeSummaryUpdates(updates: ExecutionSummaryUpdatedEvent[]): void {
+    const selectedBlueprintId = this.selectedBlueprint()?.id;
+    if (!selectedBlueprintId) {
       return;
     }
 
-    const maxX = Math.max(...nodes.map((node) => node.model.x + node.model.width));
-    const maxY = Math.max(...nodes.map((node) => node.model.y + node.model.height));
-    this.graphWidth.set(Math.max(1200, maxX + 240));
-    this.graphHeight.set(Math.max(720, maxY + 180));
+    const relevantUpdates = updates.filter((update) => update.blueprintDefinitionId === selectedBlueprintId);
+    if (relevantUpdates.length === 0) {
+      return;
+    }
+
+    this.executionSummaries.update((currentSummaries) => {
+      const summariesByWorkflowId = new Map(currentSummaries.map((summary) => [summary.workflowInstanceId, summary] as const));
+
+      for (const update of relevantUpdates) {
+        summariesByWorkflowId.set(update.workflowInstanceId, {
+          workflowInstanceId: update.workflowInstanceId,
+          blueprintDefinitionId: update.blueprintDefinitionId,
+          blueprintVersionId: update.blueprintVersionId,
+          blueprintVersionNumber: update.blueprintVersionNumber,
+          blueprintVersionName: update.blueprintVersionName,
+          status: update.status,
+          createdAt: update.createdAt,
+          updatedAt: update.updatedAt ?? null,
+          completedTaskCount: update.completedTaskCount,
+          failedTaskCount: update.failedTaskCount,
+          inProgressTaskCount: update.inProgressTaskCount,
+          pendingTaskCount: update.pendingTaskCount,
+        });
+      }
+
+      return [...summariesByWorkflowId.values()]
+        .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+    });
+
+    const selectedExecutionId = this.selectedExecutionId();
+    if (!selectedExecutionId) {
+      return;
+    }
+
+    const matchingSummary = relevantUpdates.find((update) => update.workflowInstanceId === selectedExecutionId);
+    if (!matchingSummary) {
+      return;
+    }
+
+    this.selectedExecution.update((currentExecution) => currentExecution
+      ? {
+        ...currentExecution,
+        blueprintVersionId: matchingSummary.blueprintVersionId,
+        blueprintVersionNumber: matchingSummary.blueprintVersionNumber,
+        blueprintVersionName: matchingSummary.blueprintVersionName,
+        status: matchingSummary.status,
+        updatedAt: matchingSummary.updatedAt ?? currentExecution.updatedAt,
+      }
+      : currentExecution);
   }
 
-  private scrollGraphToStart(startingTaskInstanceId: string): void {
-    const viewport = this.graphViewportRef()?.nativeElement;
-    const startNode = this.graphNodes().find((node) => node.data.instanceId === startingTaskInstanceId);
-    if (!viewport || !startNode) {
+  private applyRealtimeNodeUpdates(updates: ExecutionNodesUpdatedEvent[]): void {
+    const selectedExecution = this.selectedExecution();
+    if (!selectedExecution) {
       return;
     }
 
-    viewport.scrollTo({
-      left: Math.max(startNode.model.x - 140, 0),
-      top: Math.max(startNode.model.y - 80, 0),
-      behavior: 'smooth',
-    });
+    const relevantUpdates = updates.filter((update) => update.workflowInstanceId === selectedExecution.workflowInstanceId);
+    if (relevantUpdates.length === 0) {
+      return;
+    }
+
+    const deltasByInstanceId = new Map(relevantUpdates
+      .flatMap((update) => update.nodes)
+      .map((node) => [node.instanceId, node] as const));
+
+    this.selectedExecution.update((currentExecution) => currentExecution
+      ? {
+        ...currentExecution,
+        nodes: currentExecution.nodes.map((node) => {
+          const delta = deltasByInstanceId.get(node.instanceId);
+          return delta
+            ? {
+              ...node,
+              status: delta.status,
+              resolvedVersionId: delta.resolvedVersionId,
+              resolvedVersion: delta.resolvedVersion ?? node.resolvedVersion,
+              failureMessage: delta.failureMessage ?? null,
+            }
+            : node;
+        }),
+      }
+      : currentExecution);
+  }
+
+  private async refreshCurrentSelection(): Promise<void> {
+    const blueprintId = this.selectedBlueprint()?.id;
+    if (!blueprintId) {
+      return;
+    }
+
+    try {
+      const executions = await this.blueprintService.getBlueprintExecutions(blueprintId);
+      this.executionSummaries.set(executions);
+
+      const selectedExecutionId = this.selectedExecutionId();
+      if (!selectedExecutionId) {
+        return;
+      }
+
+      const detail = await this.blueprintService.getBlueprintExecution(
+        blueprintId,
+        selectedExecutionId,
+      );
+      this.selectedExecution.set(detail);
+    } catch {
+      // Best-effort refresh after reconnect.
+    }
+  }
+
+  private centerOnStartingNode(detail: WorkflowExecutionDetailViewModel): void {
+    const nodeIndex = detail.nodes.findIndex((node) => node.instanceId === detail.startingTaskInstanceId);
+    if (nodeIndex < 0) {
+      return;
+    }
+
+    queueMicrotask(() => this.canvasViewport()?.centerOnNode(nodeIndex + 1));
   }
 }

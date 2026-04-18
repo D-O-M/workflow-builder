@@ -15,15 +15,12 @@ public sealed class PluginWorkspaceFactoryUtility : IPluginWorkspaceFactoryUtili
     public Task<string> CreateWorkspaceAsync(string pluginName, Version pluginVersion, CancellationToken cancellationToken)
     {
         var sanitizedName = Sanitize(pluginName);
-        var workDir = Path.Combine(Path.GetTempPath(), $"plugin_{sanitizedName}_{pluginVersion}");
+        var workDir = Path.Combine(
+            Path.GetTempPath(),
+            $"plugin_{sanitizedName}_{pluginVersion}_{Guid.NewGuid():N}");
 
         try
         {
-            if (Directory.Exists(workDir))
-            {
-                Task.FromResult(workDir);
-            }
-
             Directory.CreateDirectory(workDir);
             _logger.LogInformation("Created workspace {Workspace} for plugin {Plugin} ({Version})", workDir, pluginName, pluginVersion);
         }

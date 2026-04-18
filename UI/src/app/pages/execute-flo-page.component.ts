@@ -2,25 +2,12 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { HttpClient } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AbstractControl, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router, RouterLink, RouterLinkActive } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatToolbarModule } from '@angular/material/toolbar';
 import { BlueprintEditorService, BlueprintViewModel, BlueprintVersionViewModel } from '../domain/blueprint-editor.service';
 import { DynamicFieldDefinition, DynamicFormFieldComponent } from '../components/dynamic-form-field.component';
 import { ITaskChannel, ITaskDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
-
-interface BlueprintExecutionAccepted {
-  workflowInstanceId: string;
-  blueprintId: number;
-  acceptedAt: string;
-}
-
-interface ExecuteNavItem {
-  label: string;
-  route: string;
-  exact?: boolean;
-}
 
 interface WorkspaceLink {
   icon: string;
@@ -32,12 +19,6 @@ interface OverridePreview {
   subtitle: string;
   values: Array<{ label: string; value: string }>;
 }
-
-const EXECUTE_NAV_ITEMS: ExecuteNavItem[] = [
-  { label: 'Workflows', route: '/blueprints', exact: true },
-  { label: 'Trigger', route: '/execute' },
-  { label: 'Executions', route: '/executions' },
-];
 
 const WORKSPACE_LINKS: WorkspaceLink[] = [
   { icon: 'architecture', label: 'My Blueprints' },
@@ -51,10 +32,8 @@ const WORKSPACE_LINKS: WorkspaceLink[] = [
   imports: [
     ReactiveFormsModule,
     RouterLink,
-    RouterLinkActive,
     MatButtonModule,
     MatIconModule,
-    MatToolbarModule,
     DynamicFormFieldComponent,
   ],
   templateUrl: './execute-flo-page.component.html',
@@ -78,7 +57,6 @@ export class ExecuteFloPageComponent {
   protected readonly selectedBlueprint = signal<BlueprintViewModel | null>(null);
   protected readonly globalStateFields = signal<DynamicFieldDefinition[]>([]);
   protected readonly firstTaskFields = signal<DynamicFieldDefinition[]>([]);
-  protected readonly navItems = EXECUTE_NAV_ITEMS;
   protected readonly workspaceLinks = WORKSPACE_LINKS;
 
   protected readonly form = this.fb.group({
@@ -107,7 +85,7 @@ export class ExecuteFloPageComponent {
 
     return this.taskDefinitions()
       .flatMap((definition) => definition.versions)
-      .find((version) => version.id === firstTask.versionId) ?? null;
+      .find((version) => version.id === firstTask.resolvedVersionId) ?? null;
   });
 
   protected readonly firstTaskName = computed(() => {
@@ -120,10 +98,6 @@ export class ExecuteFloPageComponent {
       definition.versions.some((version) => version.id === taskVersion.id),
     )?.name ?? null;
   });
-
-  protected readonly selectedBlueprintName = computed(() =>
-    this.selectedBlueprint()?.name ?? 'Select a Blueprint',
-  );
 
   protected readonly overridePreviews = computed<OverridePreview[]>(() => {
     const firstTask = this.firstTaskName() ?? 'Primary Node';

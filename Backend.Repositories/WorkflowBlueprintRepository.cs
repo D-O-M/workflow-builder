@@ -6,6 +6,7 @@ using Backend.Interfaces.Repositories;
 using Backend.Database.Relational;
 using Backend.Database.Relational.Entities;
 using Microsoft.EntityFrameworkCore;
+using Backend.Models.Versioning;
 
 namespace Backend.Repositories;
 
@@ -30,14 +31,15 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
         // id == BlueprintVersion.Id (BV.Id)
         var blueprintVersionEntity = await _context.BlueprintVersions
             .Include(bv => bv.TaskInstances)
-                .ThenInclude(ti => ti.TaskVersion.TaskDefinition)
+                .ThenInclude(ti => ti.TaskDefinition)
+                    .ThenInclude(td => td.Versions)
             .Include(bv => bv.TaskInstances)
-                .ThenInclude(ti => ti.TaskVersion)
-                    .ThenInclude(tv => tv.Channels)
+                .ThenInclude(ti => ti.TaskDefinition)
+                    .ThenInclude(td => td.Versions)
+                        .ThenInclude(tv => tv.Channels)
                         .ThenInclude(c => c.Properties)
             .Include(bv => bv.TaskInstances)
                 .ThenInclude(ti => ti.OutgoingConnections)
-                    .ThenInclude(tc => tc.Channel.Properties)
             // If you later want to traverse destinations in-memory without extra queries:
             .Include(bv => bv.TaskInstances)
                 .ThenInclude(ti => ti.OutgoingConnections)
@@ -54,7 +56,7 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
 
         foreach (var nodeEntity in blueprintVersionEntity.TaskInstances)
         {
-            var taskVersion = nodeEntity.TaskVersion;
+            var taskVersion = ResolveConcreteVersion(nodeEntity, requireActive: true);
 
             // Your new schema supports multiple input channels; if your domain expects exactly one,
             // keep Single(). If it can be 0/1+, adjust the DTO accordingly.
@@ -82,11 +84,13 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
             var taskDto = new WorkflowTask
             {
                 Id = nodeEntity.Id,
+                TaskDefinitionId = nodeEntity.TaskDefinitionId,
+                AllowedMajor = nodeEntity.AllowedMajor,
+                AllowedMinor = nodeEntity.AllowedMinor,
                 Name = taskVersion.TaskDefinition!.Name,
-                Version = taskVersion.Version,
+                ResolvedVersion = taskVersion.Version,
 
-                // if your DTO still expects a schema id, TV.Id is the concrete version row
-                SchemaId = taskVersion.Id,
+                ResolvedTaskVersionId = taskVersion.Id,
 
                 InputChannel = inputChannelDto,
                 OutputChannels = outputChannelDtos
@@ -98,7 +102,7 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
         foreach (var nodeEntity in blueprintVersionEntity.TaskInstances)
         {
             var sourceTaskDto = taskDtosById[nodeEntity.Id];
-            var outputChannelDtosById = sourceTaskDto.OutputChannels.Values.ToDictionary(channel => channel.Id);
+            var outputChannelDtosByName = sourceTaskDto.OutputChannels;
 
             foreach (var connection in nodeEntity.OutgoingConnections)
             {
@@ -112,7 +116,7 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
                     continue;
                 }
 
-                if (!outputChannelDtosById.TryGetValue(connection.ChannelId, out var outputChannelDto))
+                if (!outputChannelDtosByName.TryGetValue(connection.ChannelName, out var outputChannelDto))
                 {
                     continue;
                 }
@@ -147,12 +151,19 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
     {
         var items = await _context.BlueprintDefinitions
             .Include(d => d.Versions)
+                .ThenInclude(version => version.TaskInstances)
+                    .ThenInclude(taskInstance => taskInstance.TaskDefinition)
+                        .ThenInclude(taskDefinition => taskDefinition.Versions)
+                            .ThenInclude(taskVersion => taskVersion.Channels)
+            .Include(d => d.Versions)
+                .ThenInclude(version => version.TaskInstances)
+                    .ThenInclude(taskInstance => taskInstance.OutgoingConnections)
             .AsNoTracking()
             .AsSplitQuery()
             .OrderBy(d => d.Id)
             .ToListAsync(cancellationToken);
 
-        return items.Select(item => MapBlueprintDefinition(item)).ToList();
+        return items.Select(item => MapBlueprintDefinition(item, includeTaskDetails: true)).ToList();
     }
 
     public async Task<BlueprintViewModel> GetBlueprintById(int id, CancellationToken cancellationToken)
@@ -226,11 +237,13 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
 
         var nextVersion = definition.Versions.Count == 0 ? 1 : definition.Versions.Max(v => v.Version) + 1;
 
-        var tasks = model.TasksByInstanceId.Values
+            var tasks = model.TasksByInstanceId.Values
             .Select(t => new BlueprintTaskInputModel
             {
                 InstanceId = t.InstanceId,
-                VersionId = t.VersionId,
+                TaskDefinitionId = t.TaskDefinitionId,
+                AllowedMajor = t.AllowedMajor,
+                AllowedMinor = t.AllowedMinor,
                 Position = new CoordinatesViewModel { X = t.Position.X, Y = t.Position.Y },
                 OutgoingConnections = t.OutgoingConnections.Select(c => new BlueprintTaskConnectionInputModel
                 {
@@ -293,7 +306,9 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
             {
                 Id = instanceId,
                 BlueprintVersion = blueprintVersion,
-                TaskVersionId = t.VersionId,
+                TaskDefinitionId = t.TaskDefinitionId,
+                AllowedMajor = t.AllowedMajor,
+                AllowedMinor = t.AllowedMinor,
                 PositionX = t.Position.X,
                 PositionY = t.Position.Y,
             };
@@ -319,20 +334,16 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
                 if (!instancesById.TryGetValue(conn.ConnectedTaskInstanceId, out var destEntity))
                     continue;
 
-                var channelId = conn.ChannelId;
-                if (channelId is null)
+                var channelName = conn.ChannelName;
+                if (string.IsNullOrWhiteSpace(channelName) && conn.ChannelId is not null)
                 {
-                    // If only the channel name is supplied, resolve it against the source task version.
-                    if (string.IsNullOrWhiteSpace(conn.ChannelName))
-                        continue;
-
-                    channelId = await _context.Channels
-                        .Where(c => c.TaskVersionId == sourceEntity.TaskVersionId && c.Name == conn.ChannelName)
-                        .Select(c => (int?)c.Id)
+                    channelName = await _context.Channels
+                        .Where(c => c.Id == conn.ChannelId.Value)
+                        .Select(c => c.Name)
                         .FirstOrDefaultAsync(cancellationToken);
                 }
 
-                if (channelId is null)
+                if (string.IsNullOrWhiteSpace(channelName))
                     continue;
 
                 sourceEntity.OutgoingConnections.Add(new Backend.Database.Relational.Entities.TaskConnection
@@ -343,7 +354,7 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
                     Anchor = conn.Anchor,
                     Side = conn.Side,
                     Position = conn.Position,
-                    ChannelId = channelId.Value
+                    ChannelName = channelName
                 });
             }
         }
@@ -352,7 +363,7 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
         return blueprintVersion;
     }
 
-    private static BlueprintViewModel MapBlueprintDefinition(BlueprintDefinition entity, bool includeTaskDetails = false)
+    private BlueprintViewModel MapBlueprintDefinition(BlueprintDefinition entity, bool includeTaskDetails = false)
         => new BlueprintViewModel
         {
             Id = entity.Id,
@@ -364,7 +375,7 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
                 .ToList()
         };
 
-    private static BlueprintVersionViewModel MapBlueprintVersion(BlueprintVersion version, bool includeTaskDetails)
+    private BlueprintVersionViewModel MapBlueprintVersion(BlueprintVersion version, bool includeTaskDetails)
         => new()
         {
             BlueprintVersionId = version.Id,
@@ -378,22 +389,29 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
                 : new()
         };
 
-    private static BlueprintTaskViewModel MapBlueprintTask(TaskInstance taskInstance)
-        => new()
+    private BlueprintTaskViewModel MapBlueprintTask(TaskInstance taskInstance)
+    {
+        var resolvedVersion = ResolveConcreteVersion(taskInstance, requireActive: false);
+        return new BlueprintTaskViewModel
         {
             InstanceId = taskInstance.Id,
-            VersionId = taskInstance.TaskVersionId,
+            TaskDefinitionId = taskInstance.TaskDefinitionId,
+            AllowedMajor = taskInstance.AllowedMajor,
+            AllowedMinor = taskInstance.AllowedMinor,
+            ResolvedVersionId = resolvedVersion.Id,
+            ResolvedVersion = resolvedVersion.Version.ToString(),
             Position = new CoordinatesViewModel { X = taskInstance.PositionX, Y = taskInstance.PositionY },
             OutgoingConnections = taskInstance.OutgoingConnections.Select(connection => new BlueprintTaskConnectionViewModel
             {
-                ChannelId = connection.ChannelId,
-                ChannelName = connection.Channel?.Name,
+                ChannelId = resolvedVersion.OutputChannels.FirstOrDefault(channel => channel.Name == connection.ChannelName)?.Id,
+                ChannelName = connection.ChannelName,
                 TaskInstanceId = connection.DestinationTaskInstanceId ?? Guid.Empty,
                 Anchor = connection.Anchor,
                 Side = connection.Side,
                 Position = connection.Position,
             }).Where(connection => connection.TaskInstanceId != Guid.Empty).ToList()
         };
+    }
 
     private async Task<BlueprintVersionViewModel> GetBlueprintVersionViewModel(int blueprintVersionId, CancellationToken cancellationToken)
     {
@@ -406,8 +424,10 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
 
         var taskInstances = await _context.TaskInstances
             .Where(ti => ti.BlueprintVersionId == blueprintVersionId)
+            .Include(ti => ti.TaskDefinition)
+                .ThenInclude(td => td.Versions)
+                    .ThenInclude(tv => tv.Channels)
             .Include(ti => ti.OutgoingConnections)
-                .ThenInclude(tc => tc.Channel)
             .AsNoTracking()
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
@@ -415,5 +435,31 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
         bv.TaskInstances = taskInstances;
 
         return MapBlueprintVersion(bv, includeTaskDetails: true);
+    }
+
+    private static TaskVersion ResolveConcreteVersion(TaskInstance taskInstance, bool requireActive)
+    {
+        var laneVersions = taskInstance.TaskDefinition.Versions
+            .Where(version => SemanticVersionUtility.IsSameLane(version.Version, taskInstance.AllowedMajor, taskInstance.AllowedMinor))
+            .OrderByDescending(version => version.Version)
+            .ToList();
+
+        if (laneVersions.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"No task version exists for task definition {taskInstance.TaskDefinitionId} lane {taskInstance.AllowedMajor}.{taskInstance.AllowedMinor}.");
+        }
+
+        if (requireActive)
+        {
+            return laneVersions.FirstOrDefault(version => version.State == TaskVersionState.Active)
+                ?? throw new InvalidOperationException(
+                    $"No active task version exists for task definition {taskInstance.TaskDefinitionId} lane {taskInstance.AllowedMajor}.{taskInstance.AllowedMinor}.");
+        }
+
+        return laneVersions.FirstOrDefault(version => version.State == TaskVersionState.Active)
+            ?? laneVersions.FirstOrDefault(version => version.State == TaskVersionState.Draining)
+            ?? laneVersions.FirstOrDefault(version => version.State == TaskVersionState.Registered)
+            ?? laneVersions.First();
     }
 }

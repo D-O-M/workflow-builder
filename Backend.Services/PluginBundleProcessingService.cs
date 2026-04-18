@@ -1,8 +1,10 @@
 using System.Runtime.CompilerServices;
+using Backend.Interfaces.Queues;
 using Backend.Models;
 using Backend.Models.DomainModels;
 using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
+using Backend.Plugins.Communication;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -15,6 +17,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
     private readonly IPluginWorkspaceFactoryUtility _workspaceFactory;
     private readonly IPluginManifestParsingUtility _manifestParser;
     private readonly IPluginSchemaAggregationUtility _schemaAggregator;
+    private readonly IPluginReloadQueueWriter _pluginReloadQueueWriter;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PluginBundleProcessingService> _logger;
 
@@ -23,6 +26,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         IPluginWorkspaceFactoryUtility workspaceFactory,
         IPluginManifestParsingUtility manifestReader,
         IPluginSchemaAggregationUtility schemaAggregator,
+        IPluginReloadQueueWriter pluginReloadQueueWriter,
         IServiceScopeFactory scopeFactory,
         ILogger<PluginBundleProcessingService> logger)
     {
@@ -30,6 +34,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         _workspaceFactory = workspaceFactory;
         _manifestParser = manifestReader;
         _schemaAggregator = schemaAggregator;
+        _pluginReloadQueueWriter = pluginReloadQueueWriter;
         _scopeFactory = scopeFactory;
         _logger = logger;
     }
@@ -84,7 +89,18 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
 
         try
         {
-            await workflowTaskRepository.CreateVersion(version, cancellationToken);
+            var registrationResult = await workflowTaskRepository.CreateVersion(version, cancellationToken);
+            await _pluginReloadQueueWriter.EnqueueAsync(
+                new PluginReloadRequestMessage
+                {
+                    TaskDefinitionId = registrationResult.TaskDefinitionId,
+                    TaskVersionId = registrationResult.TaskVersionId,
+                    TaskName = registrationResult.TaskName,
+                    Version = registrationResult.Version.ToString(),
+                    ChangeKind = registrationResult.ChangeKind.ToString(),
+                    RequestedAt = DateTimeOffset.UtcNow
+                },
+                cancellationToken);
         }
         catch (Exception ex)
         {

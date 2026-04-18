@@ -74,7 +74,7 @@ public sealed class ShowcaseTownForecastPlugin : IPlugin
                 totalPrecipitation,
                 maximumWindSpeed),
             WeatherSummary =
-                $"Next weekend in {ResolvedTown.ResolvedTownName}: avg {Math.Round(averageTemperature, 1)}°C, wind up to {Math.Round(maximumWindSpeed, 1)} m/s, precipitation {Math.Round(totalPrecipitation, 1)} mm."
+                $"Next weekend in {ResolvedTown.ResolvedTownName}: avg {Math.Round(averageTemperature, 1)} C, wind up to {Math.Round(maximumWindSpeed, 1)} m/s, precipitation {Math.Round(totalPrecipitation, 1)} mm."
         };
     }
 

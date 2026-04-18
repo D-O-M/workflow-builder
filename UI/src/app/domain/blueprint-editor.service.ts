@@ -20,7 +20,9 @@ interface BlueprintTaskConnectionInputModel {
 
 interface BlueprintTaskInputModel {
   instanceId: string;
-  versionId: number;
+  taskDefinitionId: number;
+  allowedMajor: number;
+  allowedMinor: number;
   position: CoordinatesViewModel;
   outgoingConnections: BlueprintTaskConnectionInputModel[];
 }
@@ -43,7 +45,11 @@ interface BlueprintTaskConnectionViewModel {
 
 interface BlueprintTaskViewModel {
   instanceId: string;
-  versionId: number;
+  taskDefinitionId: number;
+  allowedMajor: number;
+  allowedMinor: number;
+  resolvedVersionId: number;
+  resolvedVersion?: string | null;
   position: CoordinatesViewModel;
   outgoingConnections: BlueprintTaskConnectionViewModel[];
 }
@@ -78,6 +84,7 @@ export interface BlueprintExecutionAcceptedViewModel {
 
 export interface WorkflowExecutionSummaryViewModel {
   workflowInstanceId: string;
+  blueprintDefinitionId: number;
   blueprintVersionId: number;
   blueprintVersionNumber: number;
   blueprintVersionName: string;
@@ -92,7 +99,11 @@ export interface WorkflowExecutionSummaryViewModel {
 
 export interface WorkflowExecutionNodeViewModel {
   instanceId: string;
-  versionId: number;
+  taskDefinitionId: number;
+  allowedMajor: number;
+  allowedMinor: number;
+  resolvedVersionId: number;
+  resolvedVersion?: string | null;
   name: string;
   status: 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   position: CoordinatesViewModel;
@@ -124,18 +135,27 @@ export class BlueprintEditorService {
 
   private createNodeModel(
     id: number,
-    taskVersionId: number,
+    taskDefinitionId: number,
+    allowedMajor: number,
+    allowedMinor: number,
+    resolvedVersionId: number,
+    resolvedVersion: string | null,
     name: string,
     coordinates: Point,
     inputChannelName: string | null,
     outputChannelNames: string[],
+    hasUpgradeWarning: boolean,
     snap?: (v: number) => number,
   ): NodeModel {
     const y = snap ? snap(coordinates.y) : coordinates.y;
     const outputCount = Math.max(outputChannelNames.length, 1);
     return new NodeModel(
       id,
-      taskVersionId,
+      taskDefinitionId,
+      allowedMajor,
+      allowedMinor,
+      resolvedVersionId,
+      resolvedVersion,
       name,
       snap ? snap(coordinates.x) : coordinates.x,
       y,
@@ -143,6 +163,7 @@ export class BlueprintEditorService {
       Math.max(220, 168 + outputCount * 34),
       inputChannelName,
       outputChannelNames,
+      hasUpgradeWarning,
     );
   }
 
@@ -152,9 +173,15 @@ export class BlueprintEditorService {
       throw new Error(`Task definition ${taskDefinition.name} has no versions.`);
     }
 
+    const [allowedMajor, allowedMinor] = this.getVersionLane(version.version);
+
     const node = new NodeModel(
       Date.now(),
+      taskDefinition.id,
+      allowedMajor,
+      allowedMinor,
       version.id,
+      version.version,
       taskDefinition.name,
       snap(coordinates.x),
       snap(coordinates.y),
@@ -162,6 +189,7 @@ export class BlueprintEditorService {
       Math.max(220, 168 + Math.max(version.outputChannels.length, 1) * 34),
       version.inputChannel?.name ?? null,
       version.outputChannels.map((channel) => channel.name),
+      false,
     );
 
     this.nodes.update((n) => [...n, node]);
@@ -176,7 +204,11 @@ export class BlueprintEditorService {
       nodes.map((n) => (n.id === nodeId
         ? new NodeModel(
           n.id,
-          n.taskVersionId,
+          n.taskDefinitionId,
+          n.allowedMajor,
+          n.allowedMinor,
+          n.resolvedVersionId,
+          n.resolvedVersion,
           n.name,
           nx,
           ny,
@@ -184,6 +216,9 @@ export class BlueprintEditorService {
           n.height,
           n.inputChannelName,
           n.outputChannelNames,
+          n.hasUpgradeWarning,
+          n.renderStatus,
+          n.failureMessage,
         )
         : n)),
     );
@@ -252,7 +287,9 @@ export class BlueprintEditorService {
 
     const tasks: BlueprintTaskInputModel[] = this.nodes().map((n) => ({
       instanceId: instanceIdByNodeId.get(n.id)!,
-      versionId: n.taskVersionId,
+      taskDefinitionId: n.taskDefinitionId,
+      allowedMajor: n.allowedMajor,
+      allowedMinor: n.allowedMinor,
       position: { x: n.x, y: n.y },
       outgoingConnections: [],
     }));
@@ -269,7 +306,7 @@ export class BlueprintEditorService {
       const source = taskByNodeId.get(c.from.id);
       if (!source) continue;
 
-      const sourceTaskVersion = taskDefinitionByVersionId.get(source.versionId);
+      const sourceTaskVersion = taskDefinitionByVersionId.get(c.from.resolvedVersionId);
       const anchorChannelName = c.from.outputChannelNameForAnchor(c.anchor);
       const defaultOutputChannel = sourceTaskVersion?.outputChannels.find((channel) => channel.name === anchorChannelName)
         ?? sourceTaskVersion?.outputChannels[0];
@@ -302,24 +339,28 @@ export class BlueprintEditorService {
       return blueprint;
     }
 
-    const taskNameByVersionId = new Map<number, string>();
-    const taskVersionById = new Map<number, ITaskDefinition['versions'][number]>();
+    const taskDefinitionById = new Map<number, ITaskDefinition>();
     for (const taskDefinition of taskDefinitions) {
-      for (const taskVersion of taskDefinition.versions) {
-        taskNameByVersionId.set(taskVersion.id, taskDefinition.name);
-        taskVersionById.set(taskVersion.id, taskVersion);
-      }
+      taskDefinitionById.set(taskDefinition.id, taskDefinition);
     }
 
     const nodes = version.tasks.map((task, index) => {
-      const taskVersion = taskVersionById.get(task.versionId);
+      const taskDefinition = taskDefinitionById.get(task.taskDefinitionId);
+      const taskVersion = taskDefinition
+        ? this.resolveVersionForLane(taskDefinition, task.allowedMajor, task.allowedMinor, task.resolvedVersionId)
+        : null;
       return this.createNodeModel(
         index + 1,
-        task.versionId,
-        taskNameByVersionId.get(task.versionId) ?? `Task ${task.versionId}`,
+        task.taskDefinitionId,
+        task.allowedMajor,
+        task.allowedMinor,
+        taskVersion?.id ?? task.resolvedVersionId,
+        taskVersion?.version ?? task.resolvedVersion ?? null,
+        taskDefinition?.name ?? `Task ${task.taskDefinitionId}`,
         task.position,
         taskVersion?.inputChannel?.name ?? null,
         taskVersion?.outputChannels.map((channel) => channel.name) ?? [],
+        taskDefinition ? this.hasNewerMajorMinorLane(taskDefinition, task.allowedMajor, task.allowedMinor) : false,
       );
     });
 
@@ -359,5 +400,45 @@ export class BlueprintEditorService {
 
   getBlueprintExecution(definitionId: number, workflowInstanceId: string): Promise<WorkflowExecutionDetailViewModel> {
     return this.http.get<WorkflowExecutionDetailViewModel>(`api/blueprints/${definitionId}/executions/${workflowInstanceId}`).toPromise() as Promise<WorkflowExecutionDetailViewModel>;
+  }
+
+  hasNewerMajorMinorLane(taskDefinition: ITaskDefinition, allowedMajor: number, allowedMinor: number): boolean {
+    return taskDefinition.versions.some((version) => {
+      const [major, minor] = this.getVersionLane(version.version);
+      return major > allowedMajor || (major === allowedMajor && minor > allowedMinor);
+    });
+  }
+
+  resolveVersionForLane(
+    taskDefinition: ITaskDefinition,
+    allowedMajor: number,
+    allowedMinor: number,
+    preferredVersionId?: number | null,
+  ): ITaskDefinition['versions'][number] | null {
+    if (preferredVersionId) {
+      const preferredVersion = taskDefinition.versions.find((version) => version.id === preferredVersionId);
+      if (preferredVersion) {
+        return preferredVersion;
+      }
+    }
+
+    const laneVersions = taskDefinition.versions.filter((version) => {
+      const [major, minor] = this.getVersionLane(version.version);
+      return major === allowedMajor && minor === allowedMinor;
+    });
+
+    if (laneVersions.length === 0) {
+      return null;
+    }
+
+    return laneVersions.find((version) => version.state === 'Active')
+      ?? laneVersions.find((version) => version.state === 'Draining')
+      ?? laneVersions.find((version) => version.state === 'Registered')
+      ?? laneVersions[0];
+  }
+
+  private getVersionLane(version: `${number}.${number}.${number}` | string): [number, number] {
+    const [major, minor] = version.split('.').map((segment) => Number(segment));
+    return [Number.isFinite(major) ? major : 0, Number.isFinite(minor) ? minor : 0];
   }
 }

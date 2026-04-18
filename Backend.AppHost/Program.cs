@@ -4,11 +4,20 @@ using Microsoft.Extensions.Hosting;
 
 internal class Program
 {
+    private const string WorkflowsContainerName = "workflows";
+    private const string TasksContainerName = "tasks";
+    private const string TaskProgressLeaseContainerName = "taskprogressleases";
+    private const string RealtimeCosmosConnectionName = "RealtimeCosmos";
+    private const string SignalRBaseUrl = "http://localhost:5181";
+
     private static void Main(string[] args)
     {
         var builder = DistributedApplication.CreateBuilder(args);
 
-        var cosmosDb = AddCosmos(builder);
+        var cosmosDatabaseName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureCosmos:DatabaseName");
+        var cosmosDb = AddCosmos(builder, cosmosDatabaseName);
 
         var password = builder.AddParameter("SqlServerPassword", secret: true);
 
@@ -25,13 +34,16 @@ internal class Program
             pluginsBlobResourceName,
             pluginsBlobContainerName);
 
-        var (serviceBus, workflowTaskQueue) = AddServiceBus(builder);
+        var (serviceBus, workflowTaskQueue, pluginControlQueue) = AddServiceBus(builder);
         var cosmosConnectionName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureCosmos:ConnectionName");
         var workflowTaskQueueConnectionName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureServiceBus:Queues:WorkflowTaskQueue:ConnectionName");
+        var pluginControlQueueConnectionName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureServiceBus:Queues:PluginControlQueue:ConnectionName");
 
         var api = builder.AddProject<Projects.Backend_API>("backend-api")
             .WithReference(cosmosDb, connectionName: cosmosConnectionName)
@@ -43,12 +55,21 @@ internal class Program
             .WithReference(sqlDb)
             .WaitFor(sqlDb);
 
+        var signalR = builder.AddProject<Projects.Backend_SignalR>("backend-signalr")
+            .WithEndpoint("http", endpoint =>
+            {
+                endpoint.Port = 5181;
+                endpoint.TargetPort = 5181;
+                endpoint.IsProxied = false;
+            });
+
         var engine = builder.AddProject<Projects.Backend_Engine>("backend-engine")
             .WithReference(cosmosDb, connectionName: cosmosConnectionName)
             .WaitFor(cosmosDb)
             .WithReference(blobs)
             .WaitFor(blobContainer)
             .WithReference(workflowTaskQueue, connectionName: workflowTaskQueueConnectionName)
+            .WithReference(pluginControlQueue, connectionName: pluginControlQueueConnectionName)
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
             .WaitFor(sqlDb);
@@ -64,8 +85,24 @@ internal class Program
         builder.AddAzureFunctionsProject<Projects.Backend_Functions_PluginDetector>("plugin-detector")
             .WithHostStorage(storage)
             .WaitFor(blobContainer)
+            .WithReference(serviceBus, connectionName: "ServiceBus")
+            .WithReference(pluginControlQueue, connectionName: pluginControlQueueConnectionName)
+            .WaitFor(serviceBus)
             .WithReference(sqlDb)
             .WaitFor(sqlDb);
+
+        builder.AddAzureFunctionsProject<Projects.Backend_Functions_ProgressBroadcaster>("progress-broadcaster")
+            .WithHostStorage(storage)
+            .WithReference(cosmosDb, connectionName: RealtimeCosmosConnectionName)
+            .WaitFor(cosmosDb)
+            .WithReference(sqlDb)
+            .WaitFor(sqlDb)
+            .WaitFor(signalR)
+            .WithEnvironment("Realtime__SignalRBaseUrl", SignalRBaseUrl)
+            .WithEnvironment("Realtime__Cosmos__DatabaseName", cosmosDatabaseName)
+            .WithEnvironment("Realtime__Cosmos__WorkflowsContainerName", WorkflowsContainerName)
+            .WithEnvironment("Realtime__Cosmos__TasksContainerName", TasksContainerName)
+            .WithEnvironment("Realtime__Cosmos__LeaseContainerName", TaskProgressLeaseContainerName);
 
         //AddFrontend(builder, api);
 
@@ -73,14 +110,12 @@ internal class Program
     }
 
     static IResourceBuilder<AzureCosmosDBDatabaseResource> AddCosmos(
-        IDistributedApplicationBuilder builder)
+        IDistributedApplicationBuilder builder,
+        string cosmosDatabaseName)
     {
         var cosmosResourceName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureCosmos:ResourceName");
-        var cosmosDatabaseName = GetRequiredConfigurationValue(
-            builder.Configuration,
-            "AzureCosmos:DatabaseName");
         var persistCosmosData = builder.Configuration.GetValue("AzureCosmos:PersistData", false);
 
 #pragma warning disable ASPIRECOSMOSDB001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
@@ -102,8 +137,9 @@ internal class Program
 #pragma warning restore ASPIRECOSMOSDB001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
         var database = cosmos.AddCosmosDatabase(cosmosDatabaseName);
-        database.AddContainer("workflows", "/blueprintId");
-        database.AddContainer("tasks", "/workflowId");
+        database.AddContainer(WorkflowsContainerName, "/blueprintId");
+        database.AddContainer(TasksContainerName, "/workflowId");
+        database.AddContainer(TaskProgressLeaseContainerName, "/id");
 
         return database;
     }
@@ -159,7 +195,8 @@ internal class Program
     }
 
     static (IResourceBuilder<AzureServiceBusResource> serviceBus,
-        IResourceBuilder<AzureServiceBusQueueResource> workflowTaskQueue)
+        IResourceBuilder<AzureServiceBusQueueResource> workflowTaskQueue,
+        IResourceBuilder<AzureServiceBusQueueResource> pluginControlQueue)
         AddServiceBus(IDistributedApplicationBuilder builder)
     {
         var serviceBusResourceName = GetRequiredConfigurationValue(
@@ -171,6 +208,12 @@ internal class Program
         var workflowTaskQueueName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureServiceBus:Queues:WorkflowTaskQueue:Name");
+        var pluginControlQueueResourceName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureServiceBus:Queues:PluginControlQueue:ResourceName");
+        var pluginControlQueueName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureServiceBus:Queues:PluginControlQueue:Name");
 
         var serviceBus = builder.AddAzureServiceBus(serviceBusResourceName);
 
@@ -182,8 +225,11 @@ internal class Program
         var workflowTaskQueue = serviceBus.AddServiceBusQueue(
             workflowTaskQueueResourceName,
             workflowTaskQueueName);
+        var pluginControlQueue = serviceBus.AddServiceBusQueue(
+            pluginControlQueueResourceName,
+            pluginControlQueueName);
 
-        return (serviceBus, workflowTaskQueue);
+        return (serviceBus, workflowTaskQueue, pluginControlQueue);
     }
 
     static string GetRequiredConfigurationValue(

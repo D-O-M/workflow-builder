@@ -47,6 +47,18 @@ internal sealed class InMemoryTaskInstanceRepository : ITaskInstanceRepository
         return Task.FromResult(Clone(task));
     }
 
+    public Task<List<TaskObject>> GetTaskInstancesForWorkflow(
+        Guid workflowInstanceId,
+        CancellationToken cancellationToken)
+    {
+        var tasks = _tasks.Values
+            .Where(task => task.WorkflowInstanceId == workflowInstanceId.ToString())
+            .Select(Clone)
+            .ToList();
+
+        return Task.FromResult(tasks);
+    }
+
     public Task<TaskObject> UpdateTaskInstance(
         TaskObject state,
         CancellationToken cancellationToken)

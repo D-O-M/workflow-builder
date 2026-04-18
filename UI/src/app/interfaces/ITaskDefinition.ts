@@ -7,6 +7,7 @@ export interface ITaskDefinition {
 export interface ITaskVersion {
     id: number;
     version: `${number}.${number}.${number}`;
+    state: 'Registered' | 'Active' | 'Draining' | 'Superseded' | 'Failed';
     description: string | null;
     requiredGlobalState: ITaskChannel | null;
     inputChannel: ITaskChannel | null;

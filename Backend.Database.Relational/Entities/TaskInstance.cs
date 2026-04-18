@@ -7,8 +7,11 @@ public class TaskInstance
     public int BlueprintVersionId { get; set; }
     public BlueprintVersion BlueprintVersion { get; set; } = null!;
 
-    public int TaskVersionId { get; set; }
-    public TaskVersion TaskVersion { get; set; } = null!;
+    public int TaskDefinitionId { get; set; }
+    public TaskDefinition TaskDefinition { get; set; } = null!;
+
+    public int AllowedMajor { get; set; }
+    public int AllowedMinor { get; set; }
 
     public int PositionX { get; set; }
     public int PositionY { get; set; }

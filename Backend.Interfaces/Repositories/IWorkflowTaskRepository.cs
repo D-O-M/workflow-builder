@@ -15,5 +15,11 @@ public interface IWorkflowTaskRepository
     Task CreateBasicTask(string name, string version,
         string entryPath, CancellationToken cancellationToken);
 
-    Task CreateVersion(TaskVersionDomainModel version, CancellationToken cancellationToken);
+    Task<TaskVersionRegistrationResult> CreateVersion(TaskVersionDomainModel version, CancellationToken cancellationToken);
+
+    Task PromoteVersionAsync(int taskVersionId, CancellationToken cancellationToken);
+
+    Task MarkVersionSupersededAsync(int taskVersionId, CancellationToken cancellationToken);
+
+    Task MarkVersionFailedAsync(int taskVersionId, CancellationToken cancellationToken);
 }

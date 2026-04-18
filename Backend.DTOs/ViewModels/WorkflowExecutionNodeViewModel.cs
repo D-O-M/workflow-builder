@@ -3,7 +3,11 @@ namespace Backend.Models.ViewModels;
 public sealed class WorkflowExecutionNodeViewModel
 {
     public required Guid InstanceId { get; init; }
-    public required int VersionId { get; init; }
+    public required int TaskDefinitionId { get; init; }
+    public required int AllowedMajor { get; init; }
+    public required int AllowedMinor { get; init; }
+    public required int ResolvedVersionId { get; init; }
+    public string? ResolvedVersion { get; init; }
     public required string Name { get; init; }
     public required string Status { get; init; }
     public required CoordinatesViewModel Position { get; init; }

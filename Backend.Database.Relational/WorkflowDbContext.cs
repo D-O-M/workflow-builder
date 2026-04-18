@@ -98,6 +98,9 @@ public class WorkflowDbContext : DbContext
             entity.HasKey(e => e.Id);
 
             entity.Property(e => e.Path).IsRequired();
+            entity.Property(e => e.State)
+                .HasConversion<string>()
+                .IsRequired();
             entity.Property(e => e.Version)
                 .HasConversion(
                     inValue => inValue.ToString(),
@@ -106,13 +109,6 @@ public class WorkflowDbContext : DbContext
 
             entity.HasIndex(e => new { e.TaskDefinitionId, e.Version })
                   .IsUnique();
-
-            // TV 1 -> many TI
-            // Restrict is typically safest if you don't want deleting a task version to delete runtime instances
-            entity.HasMany(e => e.TaskInstances)
-                  .WithOne(ti => ti.TaskVersion)
-                  .HasForeignKey(ti => ti.TaskVersionId)
-                  .OnDelete(DeleteBehavior.Restrict);
 
             // TV 1 -> many Channels (TPH)
             entity.HasMany(e => e.Channels)
@@ -130,8 +126,15 @@ public class WorkflowDbContext : DbContext
             entity.ToTable("TaskInstances");
             entity.HasKey(e => e.Id);
 
+            entity.Property(e => e.AllowedMajor).IsRequired();
+            entity.Property(e => e.AllowedMinor).IsRequired();
             entity.Property(e => e.PositionX).IsRequired();
             entity.Property(e => e.PositionY).IsRequired();
+
+            entity.HasOne(e => e.TaskDefinition)
+                .WithMany()
+                .HasForeignKey(e => e.TaskDefinitionId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasMany(e => e.OutgoingConnections)
               .WithOne(tc => tc.SourceTaskInstance)
@@ -156,13 +159,7 @@ public class WorkflowDbContext : DbContext
             entity.Property(e => e.SourceTaskInstanceId).IsRequired(false);
             entity.Property(e => e.DestinationTaskInstanceId).IsRequired(false);
             entity.Property(e => e.Side).IsRequired();
-
-            // TC -> Channel (many-to-one)
-            // Restrict avoids unintended deletes of connections if a channel is removed.
-            entity.HasOne(e => e.Channel)
-                  .WithMany()
-                  .HasForeignKey(e => e.ChannelId)
-                  .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(e => e.ChannelName).IsRequired();
         });
 
         // -----------------------------

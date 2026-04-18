@@ -14,7 +14,9 @@ public sealed class BlueprintVersionGraphValidatorTests
         => new()
         {
             InstanceId = id,
-            VersionId = 1,
+            TaskDefinitionId = 1,
+            AllowedMajor = 1,
+            AllowedMinor = 0,
             Position = new CoordinatesViewModel { X = 0, Y = 0 },
             OutgoingConnections = outgoing
                 .Select(o => new BlueprintTaskConnectionInputModel

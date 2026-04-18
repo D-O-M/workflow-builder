@@ -36,6 +36,26 @@ public class TaskObject
     [JsonProperty(PropertyName = "blueprintTaskId")]
     public string BlueprintTaskId { get; init; } = null!;
 
+    [JsonPropertyName("taskDefinitionId")]
+    [JsonProperty(PropertyName = "taskDefinitionId")]
+    public int? TaskDefinitionId { get; set; }
+
+    [JsonPropertyName("allowedMajor")]
+    [JsonProperty(PropertyName = "allowedMajor")]
+    public int? AllowedMajor { get; set; }
+
+    [JsonPropertyName("allowedMinor")]
+    [JsonProperty(PropertyName = "allowedMinor")]
+    public int? AllowedMinor { get; set; }
+
+    [JsonPropertyName("resolvedTaskVersionId")]
+    [JsonProperty(PropertyName = "resolvedTaskVersionId")]
+    public int? ResolvedTaskVersionId { get; set; }
+
+    [JsonPropertyName("resolvedTaskVersion")]
+    [JsonProperty(PropertyName = "resolvedTaskVersion")]
+    public string? ResolvedTaskVersion { get; set; }
+
     [JsonPropertyName("workflowId")]
     [JsonProperty(PropertyName = "workflowId")]
     public string WorkflowInstanceId { get; init; } = null!; // Partition Key

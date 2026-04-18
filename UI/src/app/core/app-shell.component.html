@@ -1,0 +1,71 @@
+<div
+  class="app-shell"
+  [class.is-nav-collapsed]="sidebarCollapsed()"
+  [class.is-mobile-nav-open]="mobileSidebarOpen()"
+>
+  <header class="app-shell__topbar">
+    <div class="app-shell__topbar-left">
+      <button
+        class="app-shell__menu-button"
+        type="button"
+        (click)="toggleNavigationDrawer()"
+        [attr.aria-expanded]="navigationDrawerExpanded()"
+        aria-controls="app-primary-navigation"
+        aria-label="Toggle navigation"
+      >
+        <mat-icon>{{ navigationDrawerIcon() }}</mat-icon>
+      </button>
+
+      <div class="app-shell__title-wrap">
+        <h1>{{ shellState().title }}</h1>
+      </div>
+    </div>
+
+    <div class="app-shell__topbar-actions">
+      <button class="icon-button" type="button" aria-label="Search">
+        <mat-icon>search</mat-icon>
+      </button>
+      <button class="icon-button" type="button" aria-label="Notifications">
+        <mat-icon>notifications_none</mat-icon>
+      </button>
+      <button class="icon-button" type="button" aria-label="Help">
+        <mat-icon>help_outline</mat-icon>
+      </button>
+      <button class="profile-chip" type="button" aria-label="Profile">
+        <span>D</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="app-shell__body">
+    <aside class="app-shell__nav" id="app-primary-navigation" aria-label="Primary">
+      <nav class="app-shell__nav-links">
+        @for (item of navItems; track item.id) {
+          <a
+            class="app-shell__nav-link"
+            [class.is-active]="activeNavId() === item.id"
+            [routerLink]="[item.route]"
+            [attr.aria-current]="activeNavId() === item.id ? 'page' : null"
+            (click)="closeNavigationDrawer()"
+          >
+            <mat-icon>{{ item.icon }}</mat-icon>
+            <span class="app-shell__nav-label">{{ item.label }}</span>
+          </a>
+        }
+      </nav>
+    </aside>
+
+    @if (mobileSidebarOpen()) {
+      <button
+        class="nav-drawer-scrim"
+        type="button"
+        (click)="closeNavigationDrawer()"
+        aria-label="Close navigation drawer"
+      ></button>
+    }
+
+    <section class="app-shell__content">
+      <router-outlet />
+    </section>
+  </div>
+</div>

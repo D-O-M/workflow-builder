@@ -10,7 +10,9 @@ public class TaskViewModelMapper
         {
             Id = taskDefinition.Id,
             Name = taskDefinition.Name,
-            Versions = [..taskDefinition.Versions.Select(MapViewModel)]
+            Versions = [..taskDefinition.Versions
+                .OrderByDescending(version => version.Version)
+                .Select(MapViewModel)]
         };
 
     public TaskVersionViewModel MapViewModel(TaskVersion taskVersion)
@@ -19,6 +21,7 @@ public class TaskViewModelMapper
         {
             Id = taskVersion.Id,
             Version = taskVersion.Version.ToString(),
+            State = taskVersion.State.ToString(),
             Description = taskVersion.Description,
             RequiredGlobalState = taskVersion.GlobalState is not null
                 ? MapViewModel(taskVersion.GlobalState)

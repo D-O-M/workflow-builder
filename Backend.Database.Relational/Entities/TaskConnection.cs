@@ -1,5 +1,3 @@
-using System.Threading.Channels;
-
 namespace Backend.Database.Relational.Entities;
 
 public class TaskConnection
@@ -15,7 +13,5 @@ public class TaskConnection
     public int Anchor { get; set; }
     public string Side { get; set; } = null!;
     public int Position { get; set; }
-
-    public int ChannelId { get; set; }
-    public Channel Channel { get; set; } = null!;
+    public string ChannelName { get; set; } = null!;
 }

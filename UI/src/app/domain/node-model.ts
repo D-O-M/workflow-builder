@@ -4,6 +4,7 @@ export interface Point {
 }
 
 export type Side = 'left' | 'right' | 'top' | 'bottom';
+export type NodeRenderStatus = 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
 
 export interface NodeAnchor {
     index: number;
@@ -23,7 +24,11 @@ export class NodeModel {
 
     constructor(
         public id: number,
-        public taskVersionId: number,
+        public taskDefinitionId: number,
+        public allowedMajor: number,
+        public allowedMinor: number,
+        public resolvedVersionId: number,
+        public resolvedVersion: string | null,
         public name: string,
         public x: number,
         public y: number,
@@ -31,6 +36,9 @@ export class NodeModel {
         public height: number,
         public inputChannelName: string | null = null,
         public outputChannelNames: string[] = [],
+        public hasUpgradeWarning: boolean = false,
+        public renderStatus: NodeRenderStatus | null = null,
+        public failureMessage: string | null = null,
     ) {}
 
     contains(x: number, y: number): boolean {

@@ -51,7 +51,7 @@ public class QueueConsumer : BackgroundService
                 var task = blueprint.AllTasks
                     .FirstOrDefault(t => t.Id == job.BlueprintTaskId);
 
-                if (task is null || !_agentManager.AgentExists(task.SchemaId))
+                if (task is null || !_agentManager.AgentExists(task.ResolvedTaskVersionId))
                 {
                     await message.AbandonAsync(stoppingToken);
                     continue;

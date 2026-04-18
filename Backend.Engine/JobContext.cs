@@ -1,4 +1,6 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Backend.Database.State.Objects;
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
@@ -10,6 +12,13 @@ namespace Backend.Engine;
 
 public class JobContext
 {
+    private static readonly JsonSerializerOptions NormalizedJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = false
+    };
+
     private readonly CancellationTokenSource _cts = new();
     private readonly WorkflowTaskInitialisationMessage _message;
     private readonly ILogger _logger;
@@ -26,7 +35,10 @@ public class JobContext
     public Guid WorkflowTaskInstanceId => _message.WorkflowTaskInstanceId;
     public int WorkflowBlueprintId => _message.WorkflowBlueprintId;
     public Guid BlueprintTaskId => _message.BlueprintTaskId;
-    public int SchemaId => _workflowTask.Value.SchemaId;
+    public int ResolvedTaskVersionId => _workflowTask.Value.ResolvedTaskVersionId;
+    public int TaskDefinitionId => _workflowTask.Value.TaskDefinitionId;
+    public int AllowedMajor => _workflowTask.Value.AllowedMajor;
+    public int AllowedMinor => _workflowTask.Value.AllowedMinor;
     public string InputChannelName => _workflowTask.Value.InputChannel.Name;
     public string LinkedOutputChannelName => _message.LinkedOutputChannelName;
     public Guid PreviousTaskInstanceId => _message.PreviousWorkflowTaskInstanceId;
@@ -112,6 +124,11 @@ public class JobContext
             cancellationToken);
 
         taskState.Status = TaskExecutionStatus.InProgress;
+        taskState.TaskDefinitionId = TaskDefinitionId;
+        taskState.AllowedMajor = AllowedMajor;
+        taskState.AllowedMinor = AllowedMinor;
+        taskState.ResolvedTaskVersionId = ResolvedTaskVersionId;
+        taskState.ResolvedTaskVersion = WorkflowTask.ResolvedVersion.ToString();
         taskState.UpdatedAt = now;
         await _taskInstanceRepository.UpdateTaskInstance(taskState, cancellationToken);
 
@@ -143,7 +160,7 @@ public class JobContext
         taskState.UpdatedAt = completedAt;
         taskState.CompletedAt = completedAt;
         taskState.FailedAt = null;
-        taskState.OutputData = outputData;
+        taskState.OutputData = NormalizeJsonMap(outputData);
         await _taskInstanceRepository.UpdateTaskInstance(taskState, cancellationToken);
 
         var workflowState = await _workflowInstanceRepository.GetWorkflowStateById(
@@ -153,7 +170,7 @@ public class JobContext
 
         workflowState.Status = WorkflowExecutionStatus.InProgress;
         workflowState.UpdatedAt = completedAt;
-        workflowState.GlobalState = globalState;
+        workflowState.GlobalState = NormalizeJsonMap(globalState);
         await _workflowInstanceRepository.UpdateWorkflowState(workflowState, cancellationToken);
     }
 
@@ -181,7 +198,7 @@ public class JobContext
 
         workflowState.Status = WorkflowExecutionStatus.Failed;
         workflowState.UpdatedAt = failedAt;
-        workflowState.GlobalState = globalState;
+        workflowState.GlobalState = NormalizeJsonMap(globalState);
         await _workflowInstanceRepository.UpdateWorkflowState(workflowState, cancellationToken);
     }
 
@@ -191,11 +208,16 @@ public class JobContext
         DateTimeOffset createdAt,
         CancellationToken cancellationToken)
     {
+        var downstreamTask = _workflowBlueprint.AllTasks.First(task => task.Id == blueprintTaskId);
+
         await _taskInstanceRepository.CreateTaskInstance(
             new TaskObject
             {
                 Id = taskInstanceId.ToString(),
                 BlueprintTaskId = blueprintTaskId.ToString(),
+                TaskDefinitionId = downstreamTask.TaskDefinitionId,
+                AllowedMajor = downstreamTask.AllowedMajor,
+                AllowedMinor = downstreamTask.AllowedMinor,
                 WorkflowInstanceId = WorkflowInstanceId.ToString(),
                 BlueprintId = WorkflowBlueprintId.ToString(),
                 CreatedAt = createdAt,
@@ -213,5 +235,69 @@ public class JobContext
     public async Task AbandonMessageAsync(CancellationToken cancellationToken)
     {
         await _messageContainer.AbandonAsync(cancellationToken);
+    }
+
+    private static Dictionary<string, JsonElement> NormalizeJsonMap(
+        Dictionary<string, JsonElement> values) =>
+        values.ToDictionary(
+            entry => entry.Key,
+            entry => NormalizeJsonElement(entry.Value),
+            StringComparer.Ordinal);
+
+    private static JsonElement NormalizeJsonElement(JsonElement element)
+    {
+        var node = BuildNormalizedNode(element);
+        var normalizedJson = node?.ToJsonString(NormalizedJsonOptions) ?? "null";
+        using var normalizedDocument = JsonDocument.Parse(normalizedJson);
+        return normalizedDocument.RootElement.Clone();
+    }
+
+    private static JsonNode? BuildNormalizedNode(JsonElement element) =>
+        element.ValueKind switch
+        {
+            JsonValueKind.Object => BuildNormalizedObject(element),
+            JsonValueKind.Array => BuildNormalizedArray(element),
+            JsonValueKind.String => JsonValue.Create(element.GetString()),
+            JsonValueKind.Number => BuildNormalizedNumberValue(element),
+            JsonValueKind.True or JsonValueKind.False => JsonValue.Create(element.GetBoolean()),
+            JsonValueKind.Null or JsonValueKind.Undefined => null,
+            _ => throw new InvalidOperationException($"Unsupported JSON value kind '{element.ValueKind}'.")
+        };
+
+    private static JsonObject BuildNormalizedObject(JsonElement element)
+    {
+        var normalizedObject = new JsonObject();
+        foreach (var property in element.EnumerateObject())
+        {
+            normalizedObject[property.Name] = BuildNormalizedNode(property.Value);
+        }
+
+        return normalizedObject;
+    }
+
+    private static JsonArray BuildNormalizedArray(JsonElement element)
+    {
+        var normalizedArray = new JsonArray();
+        foreach (var item in element.EnumerateArray())
+        {
+            normalizedArray.Add(BuildNormalizedNode(item));
+        }
+
+        return normalizedArray;
+    }
+
+    private static JsonValue BuildNormalizedNumberValue(JsonElement element)
+    {
+        if (element.TryGetInt64(out var int64Value))
+        {
+            return JsonValue.Create(int64Value)!;
+        }
+
+        if (element.TryGetDecimal(out var decimalValue))
+        {
+            return JsonValue.Create(decimalValue)!;
+        }
+
+        return JsonValue.Create(element.GetDouble())!;
     }
 }

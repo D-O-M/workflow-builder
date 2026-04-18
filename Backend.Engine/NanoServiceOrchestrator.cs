@@ -1,88 +1,183 @@
-using System.Collections.Generic;
+using Backend.Database.Relational.Entities;
+using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
 using Backend.Models;
-using Backend.Interfaces.Repositories;
-using Task = System.Threading.Tasks.Task;
 
 namespace Backend.Engine;
 
 public class NanoServiceOrchestrator : BackgroundService
 {
     private readonly IAgentManager _agentManager;
-    private readonly IPluginBundleSource _pluginBundleSource;
     private readonly ILogger _logger;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly Lock _sync = new();
 
-    private readonly List<(FileInfo fileInfo, WorkflowTaskInfo taskInfo)> _plugins = [];
     private readonly Dictionary<int, NanoServiceAgent> _agents = [];
+    private readonly SemaphoreSlim _reloadGate = new(1, 1);
 
     public NanoServiceOrchestrator(
         IAgentManager agentManager,
-        IPluginBundleSource pluginBundleSource,
         ILogger<NanoServiceOrchestrator> logger,
         IServiceScopeFactory serviceScopeFactory)
     {
         _agentManager = agentManager;
-        _pluginBundleSource = pluginBundleSource;
         _logger = logger;
         _serviceScopeFactory = serviceScopeFactory;
     }
 
-    public override async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await using var scope = _serviceScopeFactory.CreateAsyncScope();
-
-        _logger.LogInformation($"{nameof(NanoServiceOrchestrator)} started. Retrieving tasks from database.");
-        var workflowTaskRepository = scope.ServiceProvider.GetRequiredService<IWorkflowTaskRepository>();
-        var tasks = await workflowTaskRepository.GetAll(cancellationToken);
-        _logger.LogInformation("{TaskAmount} tasks retrieved.", tasks.Count);
-
-        _logger.LogInformation("Downloading plugins from blob.");
-        foreach (var task in tasks)
-        {
-            _plugins.Add((await DownloadPlugin(
-                task.Name,
-                task.Version,
-                task.Path,
-                scope,
-                cancellationToken), task));
-        }
-        _logger.LogInformation("{PluginAmount} plugins downloaded.", _plugins.Count);
-
-        await base.StartAsync(cancellationToken);
-    }
-
-    protected async override Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        await using var scope = _serviceScopeFactory.CreateAsyncScope();
-        var initialisationTasks = new List<Task>();
-
-        foreach (var (fileInfo, taskInfo) in _plugins)
-        {
-            var newAgent = scope.ServiceProvider.GetRequiredService<NanoServiceAgent>();
-            initialisationTasks.Add(newAgent.InitialiseAsync(
-                fileInfo,
-                $"{taskInfo.Name} (Version: {taskInfo.Version})",
-                stoppingToken));
-            _agents.Add(taskInfo.Id, newAgent);
-            _agentManager.RegisterAgent(taskInfo.Id, newAgent);
-        }
-
-        await Task.WhenAll(initialisationTasks);
+        await ReloadAsync(stoppingToken);
 
         try
         {
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
-            }
+            await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
         }
         catch (OperationCanceledException)
         {
-            // Expected when the host is shutting down.
+            // Expected during shutdown.
         }
 
         await StopAgentsAsync(stoppingToken);
+    }
+
+    public async Task ReloadAsync(CancellationToken cancellationToken)
+    {
+        await _reloadGate.WaitAsync(cancellationToken);
+        try
+        {
+            await ReloadCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            _reloadGate.Release();
+        }
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Stopping {OrchestratorName}.", nameof(NanoServiceOrchestrator));
+        await StopAgentsAsync(cancellationToken);
+        await base.StopAsync(cancellationToken);
+    }
+
+    private async Task ReloadCoreAsync(CancellationToken cancellationToken)
+    {
+        await using var scope = _serviceScopeFactory.CreateAsyncScope();
+        var workflowTaskRepository = scope.ServiceProvider.GetRequiredService<IWorkflowTaskRepository>();
+
+        var allVersions = await workflowTaskRepository.GetAll(cancellationToken);
+
+        foreach (var lane in allVersions
+                     .GroupBy(version => (version.TaskDefinitionId, version.Version.Major, version.Version.Minor)))
+        {
+            var ordered = lane
+                .OrderByDescending(version => version.Version)
+                .ToList();
+
+            var active = ordered.FirstOrDefault(version => version.State == TaskVersionState.Active);
+            var highestRegistered = ordered.FirstOrDefault(version => version.State == TaskVersionState.Registered);
+
+            if (highestRegistered is not null)
+            {
+                if (active is null || highestRegistered.Version > active.Version)
+                {
+                    if (await TryStartAgentAsync(highestRegistered, scope, cancellationToken))
+                    {
+                        await workflowTaskRepository.PromoteVersionAsync(highestRegistered.Id, cancellationToken);
+                        _logger.LogInformation(
+                            "Promoted task version {TaskName} {Version} to active lane {Major}.{Minor}.",
+                            highestRegistered.Name,
+                            highestRegistered.Version,
+                            highestRegistered.Version.Major,
+                            highestRegistered.Version.Minor);
+                    }
+                }
+                else
+                {
+                    foreach (var staleRegistered in ordered.Where(version => version.State == TaskVersionState.Registered))
+                    {
+                        await workflowTaskRepository.MarkVersionSupersededAsync(staleRegistered.Id, cancellationToken);
+                    }
+                }
+            }
+        }
+
+        allVersions = await workflowTaskRepository.GetAll(cancellationToken);
+
+        foreach (var version in allVersions.Where(version =>
+                     version.State is TaskVersionState.Active or TaskVersionState.Draining))
+        {
+            await TryStartAgentAsync(version, scope, cancellationToken);
+        }
+
+        foreach (var drainingVersion in allVersions.Where(version => version.State == TaskVersionState.Draining))
+        {
+            await TryRetireVersionAsync(drainingVersion.Id, workflowTaskRepository, cancellationToken);
+        }
+
+        foreach (var stoppedVersion in allVersions.Where(version =>
+                     version.State is TaskVersionState.Superseded or TaskVersionState.Failed))
+        {
+            await StopAgentIfIdleAsync(stoppedVersion.Id, cancellationToken);
+        }
+    }
+
+    private async Task<bool> TryStartAgentAsync(
+        WorkflowTaskInfo taskInfo,
+        AsyncServiceScope scope,
+        CancellationToken cancellationToken)
+    {
+        if (_agentManager.AgentExists(taskInfo.Id))
+        {
+            return true;
+        }
+
+        try
+        {
+            var entryPoint = await DownloadPlugin(
+                taskInfo.Name,
+                taskInfo.Version,
+                taskInfo.Path,
+                scope,
+                cancellationToken);
+
+            var agent = scope.ServiceProvider.GetRequiredService<NanoServiceAgent>();
+            await agent.InitialiseAsync(
+                entryPoint,
+                $"{taskInfo.Name} (Version: {taskInfo.Version})",
+                cancellationToken);
+
+            lock (_sync)
+            {
+                if (!_agents.ContainsKey(taskInfo.Id))
+                {
+                    _agents.Add(taskInfo.Id, agent);
+                    _agentManager.RegisterAgent(taskInfo.Id, agent);
+                }
+            }
+
+            _logger.LogInformation(
+                "Plugin agent ready for task version {TaskVersionId} ({TaskName} {Version}).",
+                taskInfo.Id,
+                taskInfo.Name,
+                taskInfo.Version);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to start agent for task version {TaskVersionId} ({TaskName} {Version}).",
+                taskInfo.Id,
+                taskInfo.Name,
+                taskInfo.Version);
+
+            var workflowTaskRepository = scope.ServiceProvider.GetRequiredService<IWorkflowTaskRepository>();
+            await workflowTaskRepository.MarkVersionFailedAsync(taskInfo.Id, cancellationToken);
+            return false;
+        }
     }
 
     private async Task<FileInfo> DownloadPlugin(
@@ -92,8 +187,10 @@ public class NanoServiceOrchestrator : BackgroundService
         IServiceScope serviceScope,
         CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Downloading and extracting version {PluginVersion} of plugin {PluginName}",
-            pluginVersion, pluginName);
+        _logger.LogInformation(
+            "Downloading and extracting version {PluginVersion} of plugin {PluginName}.",
+            pluginVersion,
+            pluginName);
 
         var pluginInfo = new PluginBlobInfo(
             $"{pluginName}_{pluginVersion}.zip",
@@ -103,7 +200,9 @@ public class NanoServiceOrchestrator : BackgroundService
         var workspaceFactory = serviceScope.ServiceProvider
             .GetRequiredService<IPluginWorkspaceFactoryUtility>();
         var workspaceDirectory = await workspaceFactory.CreateWorkspaceAsync(
-            pluginName, pluginVersion, cancellationToken);
+            pluginName,
+            pluginVersion,
+            cancellationToken);
 
         var archiveExtractor = serviceScope.ServiceProvider
             .GetRequiredService<IPluginBundleSource>();
@@ -116,22 +215,58 @@ public class NanoServiceOrchestrator : BackgroundService
         return new FileInfo(Path.Combine(workspaceDirectory, entryPoint));
     }
 
-    public override async Task StopAsync(CancellationToken cancellationToken)
+    private async Task TryRetireVersionAsync(
+        int taskVersionId,
+        IWorkflowTaskRepository workflowTaskRepository,
+        CancellationToken cancellationToken)
     {
-        _logger.LogInformation($"Stopping {nameof(NanoServiceOrchestrator)}.");
-        await StopAgentsAsync(cancellationToken);
-        await base.StopAsync(cancellationToken);
+        if (_agentManager.GetActiveJobCount(taskVersionId) > 0)
+        {
+            return;
+        }
+
+        await StopAgentIfIdleAsync(taskVersionId, cancellationToken);
+        await workflowTaskRepository.MarkVersionSupersededAsync(taskVersionId, cancellationToken);
+    }
+
+    private async Task StopAgentIfIdleAsync(int taskVersionId, CancellationToken cancellationToken)
+    {
+        if (!_agentManager.AgentExists(taskVersionId) || _agentManager.GetActiveJobCount(taskVersionId) > 0)
+        {
+            return;
+        }
+
+        NanoServiceAgent agent;
+        lock (_sync)
+        {
+            if (!_agents.TryGetValue(taskVersionId, out agent!))
+            {
+                _agentManager.UnregisterAgent(taskVersionId);
+                return;
+            }
+
+            _agents.Remove(taskVersionId);
+            _agentManager.UnregisterAgent(taskVersionId);
+        }
+
+        _logger.LogInformation("Stopping drained plugin agent {AgentName}.", agent.Name);
+        await agent.StopAsync(cancellationToken);
     }
 
     private async Task StopAgentsAsync(CancellationToken cancellationToken)
     {
-        foreach (var agent in _agents.Values)
+        List<KeyValuePair<int, NanoServiceAgent>> agentsToStop;
+        lock (_sync)
         {
-            _logger.LogInformation(
-                $"Stopping {nameof(NanoServiceAgent)} " + "{AgentName}", agent.Name);
-            await agent.StopAsync(cancellationToken);
+            agentsToStop = [.. _agents];
+            _agents.Clear();
         }
 
-        _agents.Clear();
+        foreach (var (taskVersionId, agent) in agentsToStop)
+        {
+            _agentManager.UnregisterAgent(taskVersionId);
+            _logger.LogInformation("Stopping plugin agent {AgentName}.", agent.Name);
+            await agent.StopAsync(cancellationToken);
+        }
     }
 }

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Backend.Database.Relational;
 using Backend.Database.State.Objects;
 using Backend.Engine;
+using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
 using Backend.Models;
@@ -33,6 +34,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         InMemoryTaskInstanceRepository taskRepository,
         InMemoryWorkflowInstanceRepository workflowRepository,
         InMemoryWorkflowTaskQueue queue,
+        InMemoryPluginReloadQueue pluginReloadQueue,
         FilePluginBundleSource pluginBundleSource)
     {
         _databasePath = databasePath;
@@ -44,6 +46,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         Settings = settings;
         BundleCatalog = bundleCatalog;
         Queue = queue;
+        PluginReloadQueue = pluginReloadQueue;
         PluginBundleSource = pluginBundleSource;
         _factory = new WorkflowApiFactory(
             sqliteConnectionString,
@@ -51,6 +54,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
             taskRepository,
             workflowRepository,
             queue,
+            pluginReloadQueue,
             pluginBundleSource);
     }
 
@@ -59,6 +63,8 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
     public PluginBundleCatalog BundleCatalog { get; }
 
     public InMemoryWorkflowTaskQueue Queue { get; }
+
+    public InMemoryPluginReloadQueue PluginReloadQueue { get; }
 
     public FilePluginBundleSource PluginBundleSource { get; }
 
@@ -91,6 +97,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
 
         var sqliteConnectionString = $"Data Source={databasePath}";
         var queue = new InMemoryWorkflowTaskQueue();
+        var pluginReloadQueue = new InMemoryPluginReloadQueue();
         var taskRepository = new InMemoryTaskInstanceRepository(pluginStateRootPath);
         var workflowRepository = new InMemoryWorkflowInstanceRepository(pluginStateRootPath);
         var pluginBundleSource = new FilePluginBundleSource(bundles);
@@ -104,6 +111,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
             taskRepository,
             workflowRepository,
             queue,
+            pluginReloadQueue,
             pluginBundleSource);
 
         IntegrationProgressLog.Write("[integration] Resetting relational database.");
@@ -228,6 +236,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         services.AddSingleton<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
         services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();
         services.AddSingleton<IPluginSchemaAggregationUtility, PluginSchemaAggregationUtility>();
+        services.AddSingleton<IPluginReloadQueueWriter>(PluginReloadQueue);
         services.AddSingleton<IPluginBundleProcessingService, PluginBundleProcessingService>();
         return services.BuildServiceProvider();
     }

@@ -12,12 +12,20 @@ public sealed class BlueprintTaskInputModel
     public Guid InstanceId { get; init; }
 
     /// <summary>
-    /// The TaskVersions.Id this task instance uses.
-    /// This identifies the referenced task version only; task identity within the graph is carried by `InstanceId`.
+    /// The TaskDefinitions.Id this task instance uses.
+    /// This identifies the task definition; the allowed compatibility lane is expressed by AllowedMajor/AllowedMinor.
     /// </summary>
     [Required]
     [Range(1, int.MaxValue)]
-    public int VersionId { get; init; }
+    public int TaskDefinitionId { get; init; }
+
+    [Required]
+    [Range(0, int.MaxValue)]
+    public int AllowedMajor { get; init; }
+
+    [Required]
+    [Range(0, int.MaxValue)]
+    public int AllowedMinor { get; init; }
 
     [Required]
     public CoordinatesViewModel Position { get; init; }

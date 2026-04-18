@@ -20,12 +20,14 @@
   <Project Path="Backend.Constants/Backend.Constants.csproj" />
   <Project Path="Backend.DTOs/Backend.Models.csproj" />
   <Project Path="Backend.Engine/Backend.Engine.csproj" />
+  <Project Path="Backend.Functions.ProgressBroadcaster/Backend.Functions.ProgressBroadcaster.csproj" />
   <Project Path="Backend.Functions.PluginDetector/Backend.Functions.PluginDetector.csproj" />
   <Project Path="Backend.Interfaces/Backend.Interfaces.csproj" />
   <Project Path="Backend.Plugins.Communication/Backend.Plugins.Communication.csproj" />
   <Project Path="Backend.Plugins.Harness/Backend.Plugins.Harness.csproj" />
   <Project Path="Backend.Repositories/Backend.Repositories.csproj" />
   <Project Path="Backend.ServiceDefaults/Backend.ServiceDefaults.csproj" />
+  <Project Path="Backend.SignalR/Backend.SignalR.csproj" />
   <Project Path="Backend.Services/Backend.Services.csproj" />
   <Project Path="Backend.State.DAL/Backend.Database.State.csproj" />
   <Project Path="Backend.Utilities/Backend.Utilities.csproj" />

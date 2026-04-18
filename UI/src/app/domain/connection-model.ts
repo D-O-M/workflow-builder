@@ -3,9 +3,31 @@ import { CanvasWrapper } from './canvas-wrapper';
 import { PathfinderOptions, orthogonalSegments } from './pathfinder';
 
 export class ConnectionModel {
-  private static readonly theme = {
-    connection: '#2d4bdd',
-    connectionSoft: 'rgba(45, 75, 221, 0.78)',
+  private static readonly themeByStatus = {
+    default: {
+      connection: '#2d4bdd',
+      connectionSoft: 'rgba(45, 75, 221, 0.78)',
+    },
+    Completed: {
+      connection: '#12b76a',
+      connectionSoft: 'rgba(18, 183, 106, 0.72)',
+    },
+    InProgress: {
+      connection: '#2d4bdd',
+      connectionSoft: 'rgba(45, 75, 221, 0.78)',
+    },
+    Failed: {
+      connection: '#d92d20',
+      connectionSoft: 'rgba(217, 45, 32, 0.72)',
+    },
+    Pending: {
+      connection: '#64748b',
+      connectionSoft: 'rgba(100, 116, 139, 0.72)',
+    },
+    NotExecuted: {
+      connection: '#94a3b8',
+      connectionSoft: 'rgba(148, 163, 184, 0.68)',
+    },
   } as const;
 
   constructor(
@@ -54,9 +76,13 @@ export class ConnectionModel {
   }
 
   draw(wrapper: CanvasWrapper, obstacles: NodeModel[] = []): void {
+    const theme = this.from.renderStatus
+      ? ConnectionModel.themeByStatus[this.from.renderStatus]
+      : ConnectionModel.themeByStatus.default;
+
     wrapper.ctx.save();
-    wrapper.ctx.strokeStyle = ConnectionModel.theme.connectionSoft;
-    wrapper.ctx.fillStyle = ConnectionModel.theme.connection;
+    wrapper.ctx.strokeStyle = theme.connectionSoft;
+    wrapper.ctx.fillStyle = theme.connection;
     wrapper.ctx.lineWidth = 2.5;
 
     const start = this.from.anchorPositions()[this.anchor];

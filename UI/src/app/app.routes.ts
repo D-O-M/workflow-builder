@@ -5,7 +5,28 @@ import { WorkflowExecutionsPageComponent } from './pages/workflow-executions-pag
 
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'blueprints' },
-  { path: 'blueprints', component: BlueprintEditorPageComponent },
-  { path: 'execute', component: ExecuteFloPageComponent },
-  { path: 'executions', component: WorkflowExecutionsPageComponent },
+  {
+    path: 'blueprints',
+    component: BlueprintEditorPageComponent,
+    data: {
+      shellTitle: 'Blueprint Builder',
+      navId: 'workflows',
+    },
+  },
+  {
+    path: 'execute',
+    component: ExecuteFloPageComponent,
+    data: {
+      shellTitle: 'Trigger Workflow',
+      navId: 'trigger',
+    },
+  },
+  {
+    path: 'executions',
+    component: WorkflowExecutionsPageComponent,
+    data: {
+      shellTitle: 'Execution Explorer',
+      navId: 'executions',
+    },
+  },
 ];

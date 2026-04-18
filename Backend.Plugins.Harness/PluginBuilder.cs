@@ -314,11 +314,7 @@ public class PluginBuilder<TPlugin>
                     ApplicationName = "WorkflowBuilder.PluginHarness",
                     ConnectionMode = ConnectionMode.Gateway,
                     RequestTimeout = TimeSpan.FromSeconds(10),
-                    UseSystemTextJsonSerializerWithOptions = new JsonSerializerOptions
-                    {
-                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                        PropertyNameCaseInsensitive = true
-                    }
+                    UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
                 });
         });
     }

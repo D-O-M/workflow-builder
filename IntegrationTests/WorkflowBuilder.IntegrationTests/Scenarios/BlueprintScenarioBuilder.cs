@@ -49,9 +49,9 @@ internal static class BlueprintScenarioBuilder
     {
         var tasks = await environment.GetTasksAsync(cancellationToken);
 
-        var firstTaskVersionId = GetVersionId(tasks, pluginNames[0], environment.Settings.RunVersion);
-        var middleTaskVersionId = GetVersionId(tasks, pluginNames[1], environment.Settings.RunVersion);
-        var finalTaskVersionId = GetVersionId(tasks, pluginNames[2], environment.Settings.RunVersion);
+        var firstTaskVersion = GetTaskVersion(tasks, pluginNames[0], environment.Settings.RunVersion);
+        var middleTaskVersion = GetTaskVersion(tasks, pluginNames[1], environment.Settings.RunVersion);
+        var finalTaskVersion = GetTaskVersion(tasks, pluginNames[2], environment.Settings.RunVersion);
 
         var firstTaskIdV1 = Guid.NewGuid();
         var middleTaskIdV1 = Guid.NewGuid();
@@ -64,9 +64,9 @@ internal static class BlueprintScenarioBuilder
             StartingTaskInstanceId = firstTaskIdV1,
             Tasks =
             [
-                CreateTask(firstTaskIdV1, firstTaskVersionId, 100, 120, middleTaskIdV1),
-                CreateTask(middleTaskIdV1, middleTaskVersionId, 420, 120, finalTaskIdV1),
-                CreateTask(finalTaskIdV1, finalTaskVersionId, 740, 120)
+                CreateTask(firstTaskIdV1, firstTaskVersion.TaskDefinitionId, firstTaskVersion.Version, 100, 120, middleTaskIdV1),
+                CreateTask(middleTaskIdV1, middleTaskVersion.TaskDefinitionId, middleTaskVersion.Version, 420, 120, finalTaskIdV1),
+                CreateTask(finalTaskIdV1, finalTaskVersion.TaskDefinitionId, finalTaskVersion.Version, 740, 120)
             ]
         };
 
@@ -93,9 +93,9 @@ internal static class BlueprintScenarioBuilder
             StartingTaskInstanceId = firstTaskIdV2,
             Tasks =
             [
-                CreateTask(firstTaskIdV2, firstTaskVersionId, 120, 160, middleTaskIdV2),
-                CreateTask(middleTaskIdV2, middleTaskVersionId, 460, 160, finalTaskIdV2),
-                CreateTask(finalTaskIdV2, finalTaskVersionId, 780, 160)
+                CreateTask(firstTaskIdV2, firstTaskVersion.TaskDefinitionId, firstTaskVersion.Version, 120, 160, middleTaskIdV2),
+                CreateTask(middleTaskIdV2, middleTaskVersion.TaskDefinitionId, middleTaskVersion.Version, 460, 160, finalTaskIdV2),
+                CreateTask(finalTaskIdV2, finalTaskVersion.TaskDefinitionId, finalTaskVersion.Version, 780, 160)
             ]
         };
 
@@ -119,15 +119,19 @@ internal static class BlueprintScenarioBuilder
 
     private static BlueprintTaskInputModel CreateTask(
         Guid instanceId,
-        int versionId,
+        int taskDefinitionId,
+        string version,
         int x,
         int y,
         Guid? nextTaskInstanceId = null)
     {
+        var (allowedMajor, allowedMinor) = GetVersionLane(version);
         var task = new BlueprintTaskInputModel
         {
             InstanceId = instanceId,
-            VersionId = versionId,
+            TaskDefinitionId = taskDefinitionId,
+            AllowedMajor = allowedMajor,
+            AllowedMinor = allowedMinor,
             Position = new CoordinatesViewModel { X = x, Y = y }
         };
 
@@ -146,16 +150,16 @@ internal static class BlueprintScenarioBuilder
         return task;
     }
 
-    private static int GetVersionId(
+    private static (int TaskDefinitionId, string Version) GetTaskVersion(
         IEnumerable<TaskDefinitionViewModel> tasks,
         string pluginName,
         string version)
     {
-        return tasks
-            .Single(task => task.Name == pluginName)
-            .Versions
-            .Single(taskVersion => VersionsMatch(taskVersion.Version, version))
-            .Id;
+        var taskDefinition = tasks.Single(task => task.Name == pluginName);
+        var taskVersion = taskDefinition.Versions
+            .Single(versionViewModel => VersionsMatch(versionViewModel.Version, version));
+
+        return (taskDefinition.Id, taskVersion.Version);
     }
 
     private static bool VersionsMatch(string left, string right)
@@ -166,5 +170,11 @@ internal static class BlueprintScenarioBuilder
         }
 
         return string.Equals(left, right, StringComparison.Ordinal);
+    }
+
+    private static (int Major, int Minor) GetVersionLane(string version)
+    {
+        var parsed = Version.Parse(version);
+        return (parsed.Major, parsed.Minor);
     }
 }

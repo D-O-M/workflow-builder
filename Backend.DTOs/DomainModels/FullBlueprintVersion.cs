@@ -51,7 +51,9 @@ public class FullBlueprintVersion
 public class BlueprintTaskTree
 {
     public Guid InstanceId { get; set; }
-    public int VersionId { get; set; }
+    public int TaskDefinitionId { get; set; }
+    public int AllowedMajor { get; set; }
+    public int AllowedMinor { get; set; }
     public Coordinates Position { get; set; }
     public List<TaskConnection> OutgoingConnections { get; set; } = new();
 }

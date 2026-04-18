@@ -21,7 +21,13 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
 
     public async Task<List<WorkflowTaskInfo>> GetAll(CancellationToken cancellationToken) =>
         await _context.TaskVersions
-            .Select(ts => new WorkflowTaskInfo(ts.Id, ts.TaskDefinition!.Name, ts.Path, ts.Version))
+            .Select(ts => new WorkflowTaskInfo(
+                ts.Id,
+                ts.TaskDefinitionId,
+                ts.TaskDefinition!.Name,
+                ts.Path,
+                ts.Version,
+                ts.State))
             .ToListAsync(cancellationToken);
 
     public async Task<List<TaskDefinitionViewModel>> GetAllTaskDefinitionViewModels(CancellationToken cancellationToken) =>
@@ -33,7 +39,7 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
             .ToListAsync())
             .Select(_mapper.MapViewModel)];
 
-    public async Task CreateVersion(TaskVersionDomainModel version, CancellationToken cancellationToken)
+    public async Task<TaskVersionRegistrationResult> CreateVersion(TaskVersionDomainModel version, CancellationToken cancellationToken)
     {
         var taskDefinitionEntity = await _context.TaskDefinitions
             .Include(td => td.Versions)
@@ -54,11 +60,15 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
             taskDefinitionEntity.Versions ??= [];
         }
 
+        ArgumentNullException.ThrowIfNull(taskDefinitionEntity);
+        var changeKind = DetermineChangeKind(taskDefinitionEntity.Versions, version.Version);
+
         var versionEntity = new TaskVersion
         {
             Description = version.Description,
             Path = version.WorkspaceEntryPointPath,
-            Version = version.Version
+            Version = version.Version,
+            State = TaskVersionState.Registered
         };
 
         if (version.RequiredGlobalState is not null)
@@ -126,6 +136,69 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
 
         taskDefinitionEntity.Versions.Add(versionEntity);
 
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return new TaskVersionRegistrationResult(
+            versionEntity.Id,
+            taskDefinitionEntity.Id,
+            taskDefinitionEntity.Name,
+            versionEntity.Version,
+            changeKind);
+    }
+
+    public async Task PromoteVersionAsync(int taskVersionId, CancellationToken cancellationToken)
+    {
+        var targetVersion = await _context.TaskVersions
+            .FirstOrDefaultAsync(version => version.Id == taskVersionId, cancellationToken)
+            ?? throw new EntityNotFoundException<WorkflowTaskInfo>(taskVersionId);
+
+        var laneVersions = await _context.TaskVersions
+            .Where(version => version.TaskDefinitionId == targetVersion.TaskDefinitionId)
+            .ToListAsync(cancellationToken);
+
+        laneVersions = laneVersions
+            .Where(version =>
+                version.Version.Major == targetVersion.Version.Major &&
+                version.Version.Minor == targetVersion.Version.Minor)
+            .ToList();
+
+        foreach (var version in laneVersions)
+        {
+            if (version.Id == targetVersion.Id)
+            {
+                version.State = TaskVersionState.Active;
+                continue;
+            }
+
+            version.State = version.State switch
+            {
+                TaskVersionState.Active => TaskVersionState.Draining,
+                TaskVersionState.Draining => TaskVersionState.Draining,
+                TaskVersionState.Failed => TaskVersionState.Failed,
+                _ => TaskVersionState.Superseded
+            };
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task MarkVersionSupersededAsync(int taskVersionId, CancellationToken cancellationToken)
+    {
+        var version = await _context.TaskVersions
+            .FirstOrDefaultAsync(item => item.Id == taskVersionId, cancellationToken)
+            ?? throw new EntityNotFoundException<WorkflowTaskInfo>(taskVersionId);
+
+        version.State = TaskVersionState.Superseded;
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task MarkVersionFailedAsync(int taskVersionId, CancellationToken cancellationToken)
+    {
+        var version = await _context.TaskVersions
+            .FirstOrDefaultAsync(item => item.Id == taskVersionId, cancellationToken)
+            ?? throw new EntityNotFoundException<WorkflowTaskInfo>(taskVersionId);
+
+        version.State = TaskVersionState.Failed;
         await _context.SaveChangesAsync(cancellationToken);
     }
 
@@ -201,5 +274,28 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
 
         _context.Add(taskDefinition);
         await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    private static PluginVersionChangeKind DetermineChangeKind(
+        IEnumerable<TaskVersion> existingVersions,
+        Version newVersion)
+    {
+        var versions = existingVersions.ToList();
+        if (versions.Count == 0)
+        {
+            return PluginVersionChangeKind.Initial;
+        }
+
+        if (versions.Any(version => version.Version.Major == newVersion.Major && version.Version.Minor == newVersion.Minor))
+        {
+            return PluginVersionChangeKind.Patch;
+        }
+
+        if (versions.Any(version => version.Version.Major == newVersion.Major))
+        {
+            return PluginVersionChangeKind.Minor;
+        }
+
+        return PluginVersionChangeKind.Major;
     }
 }

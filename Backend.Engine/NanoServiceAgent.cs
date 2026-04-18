@@ -21,6 +21,9 @@ public class NanoServiceAgent
     private CancellationTokenSource? _processCancellation;
     private Pipe _commsStream = new();
     private bool ready = false;
+    private readonly TaskCompletionSource _readySignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private Task? _runTask;
+    private readonly StringBuilder _stdoutBuffer = new();
 
     private string _name = string.Empty;
     public string Name => _name;
@@ -52,81 +55,106 @@ public class NanoServiceAgent
             throw new InvalidOperationException("Nano-service process already initialised.");
         }
 
-        await Run(entryPoint, token);
+        _runTask = Run(entryPoint, token);
+
+        try
+        {
+            await WaitUntilReadyAsync(token);
+        }
+        catch
+        {
+            await StopAsync(CancellationToken.None);
+            throw;
+        }
     }
 
     public async Task Run(
         FileInfo fileInfo,
         CancellationToken cancellationToken)
     {
-        _processCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-        await using var stdinStream = _commsStream.Reader.AsStream(leaveOpen: true);
-        var cosmosConnectionName =
-            _configuration["AzureCosmos:ConnectionName"]
-            ?? "enginedb";
-        var cosmosConnectionString =
-            _configuration.GetConnectionString(cosmosConnectionName)
-            ?? _configuration.GetConnectionString("enginedb");
-        var environmentVariables = new Dictionary<string, string?>
+        try
         {
+            _processCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+            await using var stdinStream = _commsStream.Reader.AsStream(leaveOpen: true);
+            var cosmosConnectionName =
+                _configuration["AzureCosmos:ConnectionName"]
+                ?? "enginedb";
+            var cosmosConnectionString =
+                _configuration.GetConnectionString(cosmosConnectionName)
+                ?? _configuration.GetConnectionString("enginedb");
+            var environmentVariables = new Dictionary<string, string?>
             {
-                "OTEL_EXPORTER_OTLP_ENDPOINT",
-                _configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
-            },
+                {
+                    "OTEL_EXPORTER_OTLP_ENDPOINT",
+                    _configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
+                },
+                {
+                    "OTEL_EXPORTER_OTLP_PROTOCOL",
+                    _configuration["OTEL_EXPORTER_OTLP_PROTOCOL"]
+                },
+                {
+                    "OTEL_EXPORTER_OTLP_HEADERS",
+                    _configuration["OTEL_EXPORTER_OTLP_HEADERS"]
+                },
+                {
+                    "PluginStateStore__Mode",
+                    _configuration["PluginStateStore:Mode"]
+                },
+                {
+                    "PluginStateStore__RootPath",
+                    _configuration["PluginStateStore:RootPath"]
+                }
+            };
+
+            if (!string.IsNullOrWhiteSpace(cosmosConnectionString))
             {
-                "OTEL_EXPORTER_OTLP_PROTOCOL",
-                _configuration["OTEL_EXPORTER_OTLP_PROTOCOL"]
-            },
-            {
-                "OTEL_EXPORTER_OTLP_HEADERS",
-                _configuration["OTEL_EXPORTER_OTLP_HEADERS"]
-            },
-            {
-                "PluginStateStore__Mode",
-                _configuration["PluginStateStore:Mode"]
-            },
-            {
-                "PluginStateStore__RootPath",
-                _configuration["PluginStateStore:RootPath"]
+                environmentVariables["ConnectionStrings__enginedb"] = cosmosConnectionString;
+                environmentVariables[$"ConnectionStrings__{cosmosConnectionName}"] = cosmosConnectionString;
             }
-        };
 
-        if (!string.IsNullOrWhiteSpace(cosmosConnectionString))
-        {
-            environmentVariables["ConnectionStrings__enginedb"] = cosmosConnectionString;
-            environmentVariables[$"ConnectionStrings__{cosmosConnectionName}"] = cosmosConnectionString;
+            var cmd = CreateCommand(fileInfo)
+                .WithEnvironmentVariables(environmentVariables)
+                .WithWorkingDirectory(fileInfo.Directory!.FullName)
+                .WithValidation(CommandResultValidation.None)
+                .WithStandardInputPipe(PipeSource.FromStream(stdinStream));
+
+            await foreach (var cmdEvent in cmd.ListenAsync(cancellationToken))
+            {
+                switch (cmdEvent)
+                {
+                    case StartedCommandEvent started:
+                        _process = Process.GetProcessById(started.ProcessId);
+                        if (_operatingSystemInformation.IsWindows())
+                        {
+                            _childProcessTracker.Track(_process);
+                        }
+                        _logger.LogInformation("{PluginName} Process started; ID: {ProcessId}", Name, started.ProcessId);
+                        break;
+                    case StandardOutputCommandEvent stdOut:
+                        await OnOutput(stdOut.Text);
+                        break;
+                    case StandardErrorCommandEvent stdErr:
+                        _logger.LogError("{PluginName} Error: {ErrorText}", Name, stdErr.Text);
+                        break;
+                    case ExitedCommandEvent exited:
+                        await FlushBufferedOutputAsync(processRemainingText: true);
+                        _logger.LogCritical("{PluginName} Process exited; Code: {ExitCode}", Name, exited.ExitCode);
+                        if (!ready)
+                        {
+                            _readySignal.TrySetException(
+                                new InvalidOperationException($"{Name} exited before signalling readiness. Exit code: {exited.ExitCode}."));
+                        }
+
+                        _processCancellation?.Cancel();
+                        break;
+                }
+            }
         }
-
-        var cmd = CreateCommand(fileInfo)
-            .WithEnvironmentVariables(environmentVariables)
-            .WithWorkingDirectory(fileInfo.Directory!.FullName)
-            .WithValidation(CommandResultValidation.None)
-            .WithStandardInputPipe(PipeSource.FromStream(stdinStream));
-
-        await foreach (var cmdEvent in cmd.ListenAsync(cancellationToken))
+        catch (Exception ex)
         {
-            switch (cmdEvent)
-            {
-                case StartedCommandEvent started:
-                    _process = Process.GetProcessById(started.ProcessId);
-                    if (_operatingSystemInformation.IsWindows())
-                    {
-                        _childProcessTracker.Track(_process);
-                    }
-                    _logger.LogInformation("{PluginName} Process started; ID: {ProcessId}", Name, started.ProcessId);
-                    break;
-                case StandardOutputCommandEvent stdOut:
-                    await OnOutput(stdOut.Text);
-                    break;
-                case StandardErrorCommandEvent stdErr:
-                    _logger.LogError("{PluginName} Error: {ErrorText}", Name, stdErr.Text);
-                    break;
-                case ExitedCommandEvent exited:
-                    _logger.LogCritical("{PluginName} Process exited; Code: {ExitCode}", Name, exited.ExitCode);
-                    _processCancellation?.Cancel();
-                    break;
-            }
+            _readySignal.TrySetException(ex);
+            throw;
         }
     }
 
@@ -148,24 +176,113 @@ public class NanoServiceAgent
 
     private async Task OnOutput(string output)
     {
-        if (string.IsNullOrWhiteSpace(output))
+        if (string.IsNullOrEmpty(output))
+        {
+            return;
+        }
+
+        _stdoutBuffer.Append(output);
+        await FlushBufferedOutputAsync(processRemainingText: false);
+    }
+
+    private async Task FlushBufferedOutputAsync(bool processRemainingText)
+    {
+        while (true)
+        {
+            var bufferText = _stdoutBuffer.ToString();
+            if (bufferText.Length == 0)
+            {
+                return;
+            }
+
+            var newlineIndex = bufferText.IndexOf('\n');
+            if (newlineIndex >= 0)
+            {
+                var line = bufferText[..newlineIndex].TrimEnd('\r');
+                _stdoutBuffer.Remove(0, newlineIndex + 1);
+                await ProcessOutputLineAsync(line);
+                continue;
+            }
+
+            if (TryConsumeBufferedStandaloneMessage(out var standaloneMessage))
+            {
+                await ProcessOutputLineAsync(standaloneMessage);
+                continue;
+            }
+
+            if (!processRemainingText)
+            {
+                return;
+            }
+
+            _stdoutBuffer.Clear();
+            await ProcessOutputLineAsync(bufferText.TrimEnd('\r'));
+            return;
+        }
+    }
+
+    private bool TryConsumeBufferedStandaloneMessage(out string standaloneMessage)
+    {
+        standaloneMessage = string.Empty;
+
+        var bufferText = _stdoutBuffer.ToString().Trim();
+        if (bufferText.Length == 0)
+        {
+            _stdoutBuffer.Clear();
+            return false;
+        }
+
+        if (!ready)
+        {
+            if (!string.Equals(bufferText, "Ready", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            _stdoutBuffer.Clear();
+            standaloneMessage = "Ready";
+            return true;
+        }
+
+        try
+        {
+            PluginExecutionResultSerializer.Deserialize(Encoding.UTF8.GetBytes(bufferText));
+            _stdoutBuffer.Clear();
+            standaloneMessage = bufferText;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task ProcessOutputLineAsync(string outputLine)
+    {
+        if (string.IsNullOrWhiteSpace(outputLine))
         {
             return;
         }
 
         if (!ready)
         {
-            if (output == "Ready")
+            if (outputLine == "Ready")
             {
                 ready = true;
+                _readySignal.TrySetResult();
+                return;
             }
 
+            _logger.LogDebug(
+                "Ignoring pre-ready stdout from nano-service {PluginName}: {Output}",
+                Name,
+                outputLine);
             return;
         }
 
         try
         {
-            var result = PluginExecutionResultSerializer.Deserialize(Encoding.UTF8.GetBytes(output));
+            var result = PluginExecutionResultSerializer.Deserialize(Encoding.UTF8.GetBytes(outputLine));
             await _jobManager.CompleteJob(result, CancellationToken.None);
         }
         catch (Exception ex)
@@ -174,7 +291,7 @@ public class NanoServiceAgent
                 ex,
                 "Failed to parse output from nano-service {PluginName}: {Output}",
                 Name,
-                output);
+                outputLine);
         }
     }
 
@@ -227,6 +344,27 @@ public class NanoServiceAgent
                 _process.Dispose();
                 _process = null;
             }
+        }
+    }
+
+    private async Task WaitUntilReadyAsync(CancellationToken cancellationToken)
+    {
+        var startupTimeout = TimeSpan.FromSeconds(
+            Math.Max(1, _configuration.GetValue("NanoService:StartupTimeoutSeconds", 30)));
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(startupTimeout);
+        using var registration = timeoutCts.Token.Register(
+            () => _readySignal.TrySetCanceled(timeoutCts.Token));
+
+        try
+        {
+            await _readySignal.Task.WaitAsync(timeoutCts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"{Name} did not signal readiness within {startupTimeout.TotalSeconds:0} seconds.");
         }
     }
 }

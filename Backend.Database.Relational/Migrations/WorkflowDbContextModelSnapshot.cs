@@ -141,8 +141,9 @@ namespace Backend.Database.Relational.Migrations
                     b.Property<int>("Anchor")
                         .HasColumnType("int");
 
-                    b.Property<int>("ChannelId")
-                        .HasColumnType("int");
+                    b.Property<string>("ChannelName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid?>("DestinationTaskInstanceId")
                         .HasColumnType("uniqueidentifier");
@@ -158,8 +159,6 @@ namespace Backend.Database.Relational.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ChannelId");
 
                     b.HasIndex("DestinationTaskInstanceId");
 
@@ -194,6 +193,12 @@ namespace Backend.Database.Relational.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int>("AllowedMajor")
+                        .HasColumnType("int");
+
+                    b.Property<int>("AllowedMinor")
+                        .HasColumnType("int");
+
                     b.Property<int>("BlueprintVersionId")
                         .HasColumnType("int");
 
@@ -203,14 +208,14 @@ namespace Backend.Database.Relational.Migrations
                     b.Property<int>("PositionY")
                         .HasColumnType("int");
 
-                    b.Property<int>("TaskVersionId")
+                    b.Property<int>("TaskDefinitionId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
                     b.HasIndex("BlueprintVersionId");
 
-                    b.HasIndex("TaskVersionId");
+                    b.HasIndex("TaskDefinitionId");
 
                     b.ToTable("TaskInstances", (string)null);
                 });
@@ -227,6 +232,10 @@ namespace Backend.Database.Relational.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Path")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("State")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
@@ -308,12 +317,6 @@ namespace Backend.Database.Relational.Migrations
 
             modelBuilder.Entity("Backend.Database.Relational.Entities.TaskConnection", b =>
                 {
-                    b.HasOne("Backend.Database.Relational.Entities.Channel", "Channel")
-                        .WithMany()
-                        .HasForeignKey("ChannelId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("Backend.Database.Relational.Entities.TaskInstance", "DestinationTaskInstance")
                         .WithMany("IncomingConnections")
                         .HasForeignKey("DestinationTaskInstanceId")
@@ -323,8 +326,6 @@ namespace Backend.Database.Relational.Migrations
                         .WithMany("OutgoingConnections")
                         .HasForeignKey("SourceTaskInstanceId")
                         .OnDelete(DeleteBehavior.NoAction);
-
-                    b.Navigation("Channel");
 
                     b.Navigation("DestinationTaskInstance");
 
@@ -339,15 +340,15 @@ namespace Backend.Database.Relational.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Backend.Database.Relational.Entities.TaskVersion", "TaskVersion")
-                        .WithMany("TaskInstances")
-                        .HasForeignKey("TaskVersionId")
+                    b.HasOne("Backend.Database.Relational.Entities.TaskDefinition", "TaskDefinition")
+                        .WithMany()
+                        .HasForeignKey("TaskDefinitionId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("BlueprintVersion");
 
-                    b.Navigation("TaskVersion");
+                    b.Navigation("TaskDefinition");
                 });
 
             modelBuilder.Entity("Backend.Database.Relational.Entities.TaskVersion", b =>
@@ -391,8 +392,6 @@ namespace Backend.Database.Relational.Migrations
             modelBuilder.Entity("Backend.Database.Relational.Entities.TaskVersion", b =>
                 {
                     b.Navigation("Channels");
-
-                    b.Navigation("TaskInstances");
                 });
 #pragma warning restore 612, 618
         }

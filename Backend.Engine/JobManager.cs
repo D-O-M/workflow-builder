@@ -23,14 +23,30 @@ public class JobManager
         JobContext job,
         CancellationToken cancellationToken)
     {
+        if (!_agentManager.TryAcquireJobSlot(job.ResolvedTaskVersionId))
+        {
+            return false;
+        }
+
         _jobs.Add(job.Guid, job);
 
-        var queued = await _agentManager.GetAgent(job.SchemaId)
-            .QueueJob(job.ToInvocationEnvelope(), cancellationToken);
+        bool queued;
+        try
+        {
+            queued = await _agentManager.GetAgent(job.ResolvedTaskVersionId)
+                .QueueJob(job.ToInvocationEnvelope(), cancellationToken);
+        }
+        catch
+        {
+            _jobs.Remove(job.Guid);
+            _agentManager.ReleaseJobSlot(job.ResolvedTaskVersionId);
+            throw;
+        }
 
         if (!queued)
         {
             _jobs.Remove(job.Guid);
+            _agentManager.ReleaseJobSlot(job.ResolvedTaskVersionId);
             return false;
         }
 
@@ -100,6 +116,7 @@ public class JobManager
         finally
         {
             _jobs.Remove(job.Guid);
+            _agentManager.ReleaseJobSlot(job.ResolvedTaskVersionId);
         }
     }
 }

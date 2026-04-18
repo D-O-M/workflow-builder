@@ -10,6 +10,7 @@ public static class LocalDevelopmentResourceSettings
         "Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;";
     private const string LocalBlobConnectionString = "UseDevelopmentStorage=true";
     private const string DefaultWorkflowTaskQueueName = "workflowtaskqueue";
+    private const string DefaultPluginReloadQueueName = "pluginreloadqueue";
     private const string DefaultPluginsBlobContainerName = "pluginblob";
 
     public static string GetTasksDbConnectionString(
@@ -48,10 +49,32 @@ public static class LocalDevelopmentResourceSettings
     public static string GetWorkflowTaskQueueName(
         IConfiguration configuration,
         IHostEnvironment environment) =>
-        TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:WorkflowTaskQueue:Name")
+        TryGetServiceBusEntityPath(GetWorkflowTaskQueueConnectionString(configuration, environment))
+        ?? TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:WorkflowTaskQueue:Name")
         ?? TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:WorkflowTaskQueue")
         ?? UseDevelopmentFallback(environment, DefaultWorkflowTaskQueueName)
         ?? throw new InvalidOperationException("Workflow task queue name is not configured.");
+
+    public static string GetPluginReloadQueueConnectionString(
+        IConfiguration configuration,
+        IHostEnvironment environment) =>
+        TryGetConfiguredConnectionString(configuration, "AzureServiceBus:Queues:PluginControlQueue:ConnectionName")
+        ?? TryGetConnectionString(configuration, "plugin-control-queue")
+        ?? TryGetConnectionString(configuration, "ServiceBus")
+        ?? UseDevelopmentFallback(environment, LocalServiceBusConnectionString)
+        ?? ThrowMissingConnectionString(
+            "plugin reload queue",
+            "AzureServiceBus:Queues:PluginControlQueue:ConnectionName, plugin-control-queue, or ServiceBus",
+            environment);
+
+    public static string GetPluginReloadQueueName(
+        IConfiguration configuration,
+        IHostEnvironment environment) =>
+        TryGetServiceBusEntityPath(GetPluginReloadQueueConnectionString(configuration, environment))
+        ?? TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:PluginControlQueue:Name")
+        ?? TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:PluginControlQueue")
+        ?? UseDevelopmentFallback(environment, DefaultPluginReloadQueueName)
+        ?? throw new InvalidOperationException("Plugin reload queue name is not configured.");
 
     public static string GetBlobConnectionString(
         IConfiguration configuration,
@@ -99,6 +122,35 @@ public static class LocalDevelopmentResourceSettings
     private static bool IsConfiguredValue(string? value) =>
         !string.IsNullOrWhiteSpace(value) &&
         !(value.StartsWith("<", StringComparison.Ordinal) && value.EndsWith(">", StringComparison.Ordinal));
+
+    private static string? TryGetServiceBusEntityPath(string? connectionString)
+    {
+        if (!IsConfiguredValue(connectionString))
+        {
+            return null;
+        }
+
+        var configuredConnectionString = connectionString!;
+        foreach (var segment in configuredConnectionString.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separatorIndex = segment.IndexOf('=');
+            if (separatorIndex <= 0)
+            {
+                continue;
+            }
+
+            var key = segment[..separatorIndex];
+            if (!key.Equals("EntityPath", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var value = segment[(separatorIndex + 1)..];
+            return IsConfiguredValue(value) ? value : null;
+        }
+
+        return null;
+    }
 
     private static string? UseDevelopmentFallback(
         IHostEnvironment environment,

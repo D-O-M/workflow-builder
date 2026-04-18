@@ -136,7 +136,9 @@ public class BlueprintsController : ControllerBase
         var task = new BlueprintTaskTree
         {
             InstanceId = model.InstanceId,
-            VersionId = model.VersionId,
+            TaskDefinitionId = model.TaskDefinitionId,
+            AllowedMajor = model.AllowedMajor,
+            AllowedMinor = model.AllowedMinor,
             Position = new(model.Position.X, model.Position.Y)
         };
 

@@ -1,5 +1,6 @@
 using Backend.Interfaces.Repositories;
 using Backend.Database.State.Objects;
+using Backend.Repositories.Execution;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
@@ -11,6 +12,7 @@ public static class ServiceExtensions
     {
         services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
         services.AddScoped<IWorkflowBlueprintRepository, WorkflowBlueprintRepository>();
+        services.AddScoped<WorkflowExecutionProjectionService>();
 
         return services;
     }

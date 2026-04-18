@@ -36,7 +36,7 @@ public class Program
             new CosmosClientOptions
             {
                 ConnectionMode = ConnectionMode.Gateway,
-                UseSystemTextJsonSerializerWithOptions = JsonSerializerOptions.Web
+                UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
             }));
         builder.Services.AddRelationalDataRepositories();
         builder.Services.AddWorkflowExecutionState();

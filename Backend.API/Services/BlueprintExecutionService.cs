@@ -89,6 +89,9 @@ public sealed class BlueprintExecutionService
         {
             Id = firstTaskInstanceId.ToString(),
             BlueprintTaskId = fullBlueprint.InitialTask.Id.ToString(),
+            TaskDefinitionId = fullBlueprint.InitialTask.TaskDefinitionId,
+            AllowedMajor = fullBlueprint.InitialTask.AllowedMajor,
+            AllowedMinor = fullBlueprint.InitialTask.AllowedMinor,
             WorkflowInstanceId = workflowInstanceId.ToString(),
             BlueprintId = blueprintVersionIdString,
             CreatedAt = acceptedAt,

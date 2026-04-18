@@ -1,0 +1,11 @@
+<canvas
+  #canvas
+  class="workflow-canvas"
+  [class.is-readonly]="mode() === 'readonly'"
+  [class.is-dragging]="dragNode() !== null || dragOffset() !== null"
+  (mousemove)="onMouseMove($event)"
+  (mousedown)="onMouseDown($event)"
+  (mouseup)="onMouseUp($event)"
+  (mouseleave)="onMouseLeave()"
+  (wheel)="onWheel($event)"
+></canvas>
