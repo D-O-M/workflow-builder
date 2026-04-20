@@ -1,13 +1,23 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { AbstractControl, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { catchError, distinctUntilChanged, firstValueFrom, forkJoin, map, of, startWith } from 'rxjs';
 import { BlueprintEditorService, BlueprintViewModel, BlueprintVersionViewModel } from '../domain/blueprint-editor.service';
 import { DynamicFieldDefinition, DynamicFormFieldComponent } from '../components/dynamic-form-field.component';
 import { ITaskChannel, ITaskDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
+import {
+  createRequestStateStream,
+  errorRequestState,
+  idleRequestState,
+  isErrorRequestState,
+  isReadyRequestState,
+  loadingRequestState,
+  readyRequestState,
+} from '../domain/request-state';
+import { TaskDefinitionsService } from '../domain/task-definitions.service';
 
 interface WorkspaceLink {
   icon: string;
@@ -18,6 +28,11 @@ interface OverridePreview {
   title: string;
   subtitle: string;
   values: Array<{ label: string; value: string }>;
+}
+
+interface ExecuteFloInitialData {
+  blueprints: BlueprintViewModel[];
+  taskDefinitions: ITaskDefinition[];
 }
 
 const WORKSPACE_LINKS: WorkspaceLink[] = [
@@ -42,21 +57,13 @@ const WORKSPACE_LINKS: WorkspaceLink[] = [
 })
 export class ExecuteFloPageComponent {
   private readonly fb = inject(FormBuilder);
-  private readonly http = inject(HttpClient);
   private readonly blueprintService = inject(BlueprintEditorService);
-  private readonly destroyRef = inject(DestroyRef);
+  private readonly taskDefinitionsService = inject(TaskDefinitionsService);
   private readonly router = inject(Router);
 
-  protected readonly loading = signal(true);
-  protected readonly blueprintLoading = signal(false);
   protected readonly executing = signal(false);
-  protected readonly errorMessage = signal<string | null>(null);
+  protected readonly executeErrorMessage = signal<string | null>(null);
   protected readonly successMessage = signal<string | null>(null);
-  protected readonly blueprints = signal<BlueprintViewModel[]>([]);
-  protected readonly taskDefinitions = signal<ITaskDefinition[]>([]);
-  protected readonly selectedBlueprint = signal<BlueprintViewModel | null>(null);
-  protected readonly globalStateFields = signal<DynamicFieldDefinition[]>([]);
-  protected readonly firstTaskFields = signal<DynamicFieldDefinition[]>([]);
   protected readonly workspaceLinks = WORKSPACE_LINKS;
 
   protected readonly form = this.fb.group({
@@ -65,6 +72,46 @@ export class ExecuteFloPageComponent {
     initialTaskInput: this.fb.group({}),
   });
 
+  private readonly initialDataState = toSignal(
+    forkJoin({
+      blueprints: this.blueprintService.getBlueprints(),
+      taskDefinitions: this.taskDefinitionsService.getTaskDefinitions(),
+    }).pipe(
+      map((data) => readyRequestState<ExecuteFloInitialData>(data)),
+      startWith(loadingRequestState<ExecuteFloInitialData>()),
+      catchError(() => of(errorRequestState<ExecuteFloInitialData>('Unable to load Flos and task definitions.'))),
+    ),
+    { initialValue: loadingRequestState<ExecuteFloInitialData>() },
+  );
+
+  private readonly selectedBlueprintId = toSignal(
+    this.form.controls.blueprintId.valueChanges.pipe(startWith(this.form.controls.blueprintId.value)),
+    { initialValue: this.form.controls.blueprintId.value },
+  );
+
+  private readonly selectedBlueprintState = toSignal(
+    createRequestStateStream(
+      toObservable(this.selectedBlueprintId).pipe(distinctUntilChanged()),
+      (blueprintId) => this.blueprintService.getBlueprintById(blueprintId),
+      'Unable to load the selected Flo.',
+    ),
+    { initialValue: idleRequestState<BlueprintViewModel>() },
+  );
+
+  protected readonly loading = computed(() => this.initialDataState().status === 'loading');
+  protected readonly blueprintLoading = computed(() => this.selectedBlueprintState().status === 'loading');
+  protected readonly blueprints = computed<BlueprintViewModel[]>(() => {
+    const state = this.initialDataState();
+    return isReadyRequestState(state) ? state.data.blueprints : [];
+  });
+  protected readonly taskDefinitions = computed<ITaskDefinition[]>(() => {
+    const state = this.initialDataState();
+    return isReadyRequestState(state) ? state.data.taskDefinitions : [];
+  });
+  protected readonly selectedBlueprint = computed<BlueprintViewModel | null>(() => {
+    const state = this.selectedBlueprintState();
+    return isReadyRequestState(state) ? state.data : null;
+  });
   protected readonly selectedBlueprintVersion = computed<BlueprintVersionViewModel | null>(() =>
     this.selectedBlueprint()?.versions[0] ?? null,
   );
@@ -98,6 +145,13 @@ export class ExecuteFloPageComponent {
       definition.versions.some((version) => version.id === taskVersion.id),
     )?.name ?? null;
   });
+
+  protected readonly globalStateFields = computed(() =>
+    this.createFieldDefinitions(this.firstTaskVersion()?.requiredGlobalState ?? null),
+  );
+  protected readonly firstTaskFields = computed(() =>
+    this.createFieldDefinitions(this.firstTaskVersion()?.inputChannel ?? null),
+  );
 
   protected readonly overridePreviews = computed<OverridePreview[]>(() => {
     const firstTask = this.firstTaskName() ?? 'Primary Node';
@@ -138,19 +192,38 @@ export class ExecuteFloPageComponent {
     this.firstTaskFields().length + this.globalStateFields().length,
   );
 
-  constructor() {
-    this.form.controls.blueprintId.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((blueprintId) => {
-        void this.onBlueprintSelected(blueprintId);
-      });
+  protected readonly errorMessage = computed(() => {
+    if (this.executeErrorMessage()) {
+      return this.executeErrorMessage();
+    }
 
-    void this.loadInitialData();
+    const initialDataState = this.initialDataState();
+    if (isErrorRequestState(initialDataState)) {
+      return initialDataState.message;
+    }
+
+    const selectedBlueprintState = this.selectedBlueprintState();
+    if (isErrorRequestState(selectedBlueprintState)) {
+      return selectedBlueprintState.message;
+    }
+
+    if (this.selectedBlueprintId() && isReadyRequestState(selectedBlueprintState) && !this.firstTaskVersion()) {
+      return 'The selected Flo has no starting task or matching task definition.';
+    }
+
+    return null;
+  });
+
+  constructor() {
+    effect(() => {
+      this.resetGroup(this.form.controls.globalState, this.globalStateFields());
+      this.resetGroup(this.form.controls.initialTaskInput, this.firstTaskFields());
+    });
   }
 
   protected async execute(): Promise<void> {
     this.successMessage.set(null);
-    this.errorMessage.set(null);
+    this.executeErrorMessage.set(null);
 
     if (this.form.invalid || !this.form.controls.blueprintId.value) {
       this.form.markAllAsTouched();
@@ -159,13 +232,13 @@ export class ExecuteFloPageComponent {
 
     this.executing.set(true);
     try {
-      const response = await this.blueprintService.executeBlueprint(
+      const response = await firstValueFrom(this.blueprintService.executeBlueprint(
         this.form.controls.blueprintId.value,
         {
           globalState: this.form.controls.globalState.getRawValue(),
           initialTaskInput: this.form.controls.initialTaskInput.getRawValue(),
         },
-      );
+      ));
 
       this.successMessage.set(
         `Execution accepted for workflow instance ${response.workflowInstanceId}.`,
@@ -177,69 +250,10 @@ export class ExecuteFloPageComponent {
         },
       });
     } catch {
-      this.errorMessage.set('Unable to execute the selected Flo.');
+      this.executeErrorMessage.set('Unable to execute the selected Flo.');
     } finally {
       this.executing.set(false);
     }
-  }
-
-  private async loadInitialData(): Promise<void> {
-    this.loading.set(true);
-    this.errorMessage.set(null);
-
-    try {
-      const [blueprints, taskDefinitions] = await Promise.all([
-        this.blueprintService.getBlueprints(),
-        this.http.get<ITaskDefinition[]>('tasks').toPromise() as Promise<ITaskDefinition[]>,
-      ]);
-
-      this.blueprints.set(blueprints);
-      this.taskDefinitions.set(taskDefinitions);
-    } catch {
-      this.errorMessage.set('Unable to load Flos and task definitions.');
-    } finally {
-      this.loading.set(false);
-    }
-  }
-
-  private async onBlueprintSelected(blueprintId: number | null): Promise<void> {
-    this.selectedBlueprint.set(null);
-    this.successMessage.set(null);
-    this.errorMessage.set(null);
-    this.rebuildDynamicSections(null, null);
-
-    if (!blueprintId) {
-      return;
-    }
-
-    this.blueprintLoading.set(true);
-    try {
-      const blueprint = await this.blueprintService.getBlueprintById(blueprintId);
-      this.selectedBlueprint.set(blueprint);
-
-      const taskVersion = this.firstTaskVersion();
-      if (!taskVersion) {
-        this.errorMessage.set('The selected Flo has no starting task or matching task definition.');
-        return;
-      }
-
-      this.rebuildDynamicSections(taskVersion.requiredGlobalState, taskVersion.inputChannel);
-    } catch {
-      this.errorMessage.set('Unable to load the selected Flo.');
-    } finally {
-      this.blueprintLoading.set(false);
-    }
-  }
-
-  private rebuildDynamicSections(globalState: ITaskChannel | null, firstTaskInput: ITaskChannel | null): void {
-    const globalStateFields = this.createFieldDefinitions(globalState);
-    const firstTaskFields = this.createFieldDefinitions(firstTaskInput);
-
-    this.globalStateFields.set(globalStateFields);
-    this.firstTaskFields.set(firstTaskFields);
-
-    this.resetGroup(this.form.controls.globalState, globalStateFields);
-    this.resetGroup(this.form.controls.initialTaskInput, firstTaskFields);
   }
 
   private createFieldDefinitions(channel: ITaskChannel | null): DynamicFieldDefinition[] {

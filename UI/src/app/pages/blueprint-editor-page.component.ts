@@ -1,17 +1,15 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal, viewChild } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { firstValueFrom } from 'rxjs';
 import { BlueprintEditorService, BlueprintViewModel } from '../domain/blueprint-editor.service';
+import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
+import { BuilderInputService } from '../domain/builder-input.service';
+import { TaskDefinitionsService } from '../domain/task-definitions.service';
 import { ITaskDefinition } from '../interfaces/ITaskDefinition';
 import { WorkflowCanvasComponent } from '../components/workflow-canvas.component';
-
-interface QuickAction {
-  icon: string;
-  label: string;
-  active?: boolean;
-}
 
 interface SidebarShortcut {
   icon: string;
@@ -28,13 +26,6 @@ interface TaskLibrarySection {
   title: string;
   items: TaskLibraryItem[];
 }
-
-const CANVAS_ACTIONS: QuickAction[] = [
-  { icon: 'pan_tool_alt', label: 'Pan', active: true },
-  { icon: 'back_hand', label: 'Move' },
-  { icon: 'add_box', label: 'Add' },
-  { icon: 'history', label: 'History' },
-];
 
 const BLUEPRINT_SHORTCUTS: SidebarShortcut[] = [
   { icon: 'share', label: 'Payment Retry' },
@@ -62,12 +53,13 @@ const SUPPORT_LINKS: SidebarShortcut[] = [
 })
 export class BlueprintEditorPageComponent {
   protected readonly Math = Math;
-  protected readonly canvasActions = CANVAS_ACTIONS;
   protected readonly blueprintShortcuts = BLUEPRINT_SHORTCUTS;
   protected readonly supportLinks = SUPPORT_LINKS;
 
-  private readonly http = inject(HttpClient);
   protected readonly editor = inject(BlueprintEditorService);
+  protected readonly editorStore = inject(BlueprintEditorStore);
+  private readonly taskDefinitions = inject(TaskDefinitionsService);
+  private readonly builderInput = inject(BuilderInputService);
   private readonly canvasViewport = viewChild(WorkflowCanvasComponent);
   private readonly gridSize = 20;
 
@@ -75,7 +67,7 @@ export class BlueprintEditorPageComponent {
   protected readonly blueprints = signal<BlueprintViewModel[]>([]);
   protected readonly selectedBlueprintId = signal<number | null>(null);
   protected readonly drawerCollapsed = signal(false);
-  protected readonly tasks = signal<ITaskDefinition[]>([]);
+  protected readonly tasks = toSignal(this.taskDefinitions.getTaskDefinitions(), { initialValue: [] as ITaskDefinition[] });
   protected readonly blueprintSearch = new FormControl('', { nonNullable: true });
   protected readonly zoomPercent = computed(() => this.canvasViewport()?.zoomPercent() ?? 100);
   protected readonly filteredBlueprints = computed(() =>
@@ -89,36 +81,45 @@ export class BlueprintEditorPageComponent {
     const match = this.blueprints().find((blueprint) => blueprint.id === selectedId);
     return match?.name ?? 'User Onboarding';
   });
-  protected readonly activeNodeCount = computed(() => this.editor.nodes().length);
-  protected readonly activeChannelCount = computed(() => this.editor.connections().length);
+  protected readonly activeNodeCount = computed(() => this.editorStore.nodes().length);
+  protected readonly activeChannelCount = computed(() => this.editorStore.connections().length);
   protected readonly availableChannelCount = computed(() =>
     Math.max(this.tasks().length - this.activeChannelCount(), 0),
   );
+  protected readonly canUndo = this.editorStore.canUndo;
+  protected readonly canCopy = this.editorStore.canCopy;
+  protected readonly canPaste = this.editorStore.canPaste;
+  protected readonly canDelete = this.editorStore.canDelete;
   protected readonly projectInitial = computed(() =>
     this.selectedBlueprintName().trim().charAt(0).toUpperCase() || 'A',
   );
 
   constructor() {
-    this.http.get<ITaskDefinition[]>('tasks').subscribe((tasks) => {
-      this.tasks.set(tasks);
-    });
+    void this.builderInput;
     void this.refreshBlueprints();
   }
 
   protected async save(): Promise<void> {
-    const nodes = this.editor.nodes();
+    const nodes = this.editorStore.nodes();
     if (nodes.length === 0) {
       return;
     }
 
-    const destinationNodeIds = new Set(this.editor.connections().map((connection) => connection.to.id));
+    const connections = this.editorStore.connections();
+    const destinationNodeIds = new Set(connections.map((connection) => connection.to.id));
     const rootNodes = nodes.filter((node) => !destinationNodeIds.has(node.id));
     const startingNodeId = rootNodes[0]?.id ?? nodes[0].id;
     const blueprintName = `Blueprint ${new Date().toISOString()}`;
 
     this.saving.set(true);
     try {
-      const created = await this.editor.saveBlueprint(blueprintName, startingNodeId, this.tasks());
+      const created = await firstValueFrom(this.editor.saveBlueprintGraph(
+        blueprintName,
+        startingNodeId,
+        this.tasks(),
+        nodes,
+        connections,
+      ));
       this.selectedBlueprintId.set(created.id);
       await this.refreshBlueprints();
     } finally {
@@ -127,13 +128,19 @@ export class BlueprintEditorPageComponent {
   }
 
   protected async openBlueprint(blueprintId: number): Promise<void> {
-    await this.editor.loadBlueprint(blueprintId, this.tasks());
-    this.selectedBlueprintId.set(blueprintId);
+    const graph = await firstValueFrom(this.editor.loadBlueprintGraph(blueprintId, this.tasks()));
+    this.editorStore.loadGraph(graph.nodes, graph.connections);
+    this.selectedBlueprintId.set(graph.blueprint.id);
+    requestAnimationFrame(() => {
+      this.canvasViewport()?.resetView();
+      this.canvasViewport()?.focusCanvas();
+    });
   }
 
   protected newBlueprint(): void {
     this.selectedBlueprintId.set(null);
-    this.editor.clear();
+    this.editorStore.clearGraph();
+    requestAnimationFrame(() => this.canvasViewport()?.focusCanvas());
   }
 
   protected toggleDrawer(): void {
@@ -146,36 +153,18 @@ export class BlueprintEditorPageComponent {
     }
 
     const viewportCenter = this.canvasViewport()?.viewportCenterWorld() ?? { x: 420, y: 260 };
-    const stagger = (this.editor.nodes().length % 5) * this.gridSize * 2;
-    this.editor.createNode(
+    const stagger = (this.editorStore.nodes().length % 5) * this.gridSize * 2;
+    const node = this.editorStore.createNode(
       task,
       {
         x: viewportCenter.x + stagger,
         y: viewportCenter.y + stagger * 0.45,
       },
-      (value) => this.snap(value),
     );
-  }
-
-  protected onNodeMoved(event: { nodeId: number; coordinates: { x: number; y: number } }): void {
-    this.editor.updateNodeCoordinates(event.nodeId, event.coordinates, (value) => value);
-  }
-
-  protected onConnectionCreated(event: {
-    sourceNodeId: number;
-    destinationNodeId: number;
-    anchor: number;
-    side: 'left' | 'right' | 'top' | 'bottom';
-    position: number;
-  }): void {
-    this.editor.createConnection(
-      event.sourceNodeId,
-      event.destinationNodeId,
-      event.anchor,
-      event.side,
-      event.position,
-      (value) => value,
-    );
+    requestAnimationFrame(() => {
+      this.canvasViewport()?.centerOnNode(node.id);
+      this.canvasViewport()?.focusCanvas();
+    });
   }
 
   protected resetView(): void {
@@ -188,6 +177,26 @@ export class BlueprintEditorPageComponent {
 
   protected zoomOut(): void {
     this.canvasViewport()?.zoomOut();
+  }
+
+  protected undo(): void {
+    this.editorStore.undo();
+    this.canvasViewport()?.focusCanvas();
+  }
+
+  protected copySelection(): void {
+    this.editorStore.copySelection();
+    this.canvasViewport()?.focusCanvas();
+  }
+
+  protected pasteSelection(): void {
+    this.editorStore.pasteClipboard();
+    this.canvasViewport()?.focusCanvas();
+  }
+
+  protected deleteSelection(): void {
+    this.editorStore.deleteSelection();
+    this.canvasViewport()?.focusCanvas();
   }
 
   protected blueprintHasUpgradeWarning(blueprint: BlueprintViewModel): boolean {
@@ -205,12 +214,8 @@ export class BlueprintEditorPageComponent {
   }
 
   private async refreshBlueprints(): Promise<void> {
-    const blueprints = await this.editor.getBlueprints();
+    const blueprints = await firstValueFrom(this.editor.getBlueprints());
     this.blueprints.set(blueprints);
-  }
-
-  private snap(value: number): number {
-    return Math.round(value / this.gridSize) * this.gridSize;
   }
 
   private filterBlueprints(

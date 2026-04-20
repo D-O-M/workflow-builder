@@ -2,10 +2,11 @@
 import {
   HttpInterceptorFn
 } from '@angular/common/http';
-import { environment } from '../../environments/environment';
+import { inject } from '@angular/core';
+import { RuntimeClientConfigService } from '../domain/runtime-client-config.service';
 
 export const apiPrefixInterceptor: HttpInterceptorFn = (req, next) => {
-  const apiBaseUrl = environment.apiBaseUrl;
+  const apiBaseUrl = inject(RuntimeClientConfigService).apiBaseUrl;
 
   // Skip absolute URLs
   if (/^(http|https):\/\//i.test(req.url)) {

@@ -1,7 +1,7 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { HubConnection, HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr';
 import { Subject } from 'rxjs';
-import { environment } from '../../environments/environment';
+import { RuntimeClientConfigService } from './runtime-client-config.service';
 
 export interface ExecutionSummaryUpdatedEvent {
   workflowInstanceId: string;
@@ -24,6 +24,9 @@ export interface ExecutionNodeDelta {
   status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   resolvedVersionId: number;
   resolvedVersion?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  failedAt?: string | null;
   failureMessage?: string | null;
   updatedAt?: string | null;
 }
@@ -37,10 +40,11 @@ export interface ExecutionNodesUpdatedEvent {
 
 @Injectable({ providedIn: 'root' })
 export class ExecutionRealtimeService {
+  private readonly runtimeClientConfig = inject(RuntimeClientConfigService);
   private connection: HubConnection | null = null;
   private startPromise: Promise<void> | null = null;
   private reconnectTimeoutId: number | null = null;
-  private flushHandle: number | null = null;
+  private flushScheduled = false;
 
   private desiredConnected = false;
   private desiredBlueprintId: number | null = null;
@@ -166,7 +170,7 @@ export class ExecutionRealtimeService {
 
   private createConnection(): HubConnection {
     const connection = new HubConnectionBuilder()
-      .withUrl(`${environment.signalRBaseUrl}/hubs/executions`, {
+      .withUrl(`${this.runtimeClientConfig.signalRBaseUrl}/hubs/executions`, {
         withCredentials: false,
       })
       .withAutomaticReconnect()
@@ -228,12 +232,13 @@ export class ExecutionRealtimeService {
   }
 
   private scheduleFlush(): void {
-    if (this.flushHandle !== null) {
+    if (this.flushScheduled) {
       return;
     }
 
-    this.flushHandle = window.requestAnimationFrame(() => {
-      this.flushHandle = null;
+    this.flushScheduled = true;
+    queueMicrotask(() => {
+      this.flushScheduled = false;
       this.flushPendingEvents();
     });
   }
@@ -285,10 +290,6 @@ export class ExecutionRealtimeService {
   private clearPendingEvents(): void {
     this.pendingSummaries.length = 0;
     this.pendingNodeUpdates.length = 0;
-
-    if (this.flushHandle !== null) {
-      window.cancelAnimationFrame(this.flushHandle);
-      this.flushHandle = null;
-    }
+    this.flushScheduled = false;
   }
 }

@@ -1,10 +1,19 @@
 import { Routes } from '@angular/router';
+import { DashboardPageComponent } from './pages/dashboard-page.component';
 import { BlueprintEditorPageComponent } from './pages/blueprint-editor-page.component';
 import { ExecuteFloPageComponent } from './pages/execute-flo-page.component';
 import { WorkflowExecutionsPageComponent } from './pages/workflow-executions-page.component';
 
 export const routes: Routes = [
-  { path: '', pathMatch: 'full', redirectTo: 'blueprints' },
+  { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
+  {
+    path: 'dashboard',
+    component: DashboardPageComponent,
+    data: {
+      shellTitle: 'Dashboard',
+      navId: 'dashboard',
+    },
+  },
   {
     path: 'blueprints',
     component: BlueprintEditorPageComponent,

@@ -33,6 +33,7 @@ export class CanvasWrapper {
         connection: {
             stroke: '#2d4bdd',
             soft: 'rgba(45, 75, 221, 0.72)',
+            selected: '#2563eb',
         },
         status: {
             Completed: {
@@ -126,10 +127,19 @@ export class CanvasWrapper {
         this.ctx.textBaseline = 'alphabetic';
     }
 
-    drawConnections(connections: ConnectionModel[], nodes: NodeModel[]): void {
-        for (const conn of connections) {
+    drawConnections(
+        connections: ConnectionModel[],
+        nodes: NodeModel[],
+        selectedConnectionIds: ReadonlySet<string> = new Set<string>(),
+    ): void {
+        for (const conn of connections.filter((connection) => !selectedConnectionIds.has(connection.id))) {
             const obstacles = nodes.filter((n) => n.id !== conn.from.id && n.id !== conn.to.id);
             conn.draw(this, obstacles);
+        }
+
+        for (const conn of connections.filter((connection) => selectedConnectionIds.has(connection.id))) {
+            const obstacles = nodes.filter((n) => n.id !== conn.from.id && n.id !== conn.to.id);
+            conn.draw(this, obstacles, { selected: true });
         }
     }
 
@@ -145,6 +155,7 @@ export class CanvasWrapper {
         } | null,
         hovered: number | null,
         hoveredAnchor: number | null,
+        selectedNodeIds: ReadonlySet<number> = new Set<number>(),
         options?: { readOnly?: boolean },
     ) {
         const readOnly = options?.readOnly ?? false;
@@ -160,6 +171,7 @@ export class CanvasWrapper {
                 inputAnchorIndex !== null &&
                 connections.some((connection) => connection.to.id === node.id);
             const statusTheme = node.renderStatus ? CanvasWrapper.theme.status[node.renderStatus] : null;
+            const isSelected = selectedNodeIds.has(node.id);
 
             const grad = this.ctx.createLinearGradient(node.x, node.y, node.x + node.width, node.y + node.height);
             grad.addColorStop(0, CanvasWrapper.theme.surface);
@@ -170,9 +182,11 @@ export class CanvasWrapper {
             this.ctx.shadowBlur = 22;
             this.ctx.shadowOffsetY = 12;
             this.ctx.fillStyle = grad;
-            this.ctx.strokeStyle = statusTheme?.border ?? CanvasWrapper.theme.nodeStroke;
+            this.ctx.strokeStyle = isSelected
+                ? CanvasWrapper.theme.connection.selected
+                : statusTheme?.border ?? CanvasWrapper.theme.nodeStroke;
             this.ctx.lineJoin = 'round';
-            this.ctx.lineWidth = 1.4;
+            this.ctx.lineWidth = isSelected ? 3 : 1.4;
 
             const isHoveredDest =
                 drag && node.id !== drag.from && hovered === node.id;
@@ -398,6 +412,20 @@ export class CanvasWrapper {
             this.ctx.fillText(line, x + paddingX, y + paddingY + 26 + index * 16);
         });
 
+        this.ctx.restore();
+    }
+
+    drawMarqueeRect(left: number, top: number, right: number, bottom: number): void {
+        const width = right - left;
+        const height = bottom - top;
+
+        this.ctx.save();
+        this.ctx.fillStyle = 'rgba(37, 99, 235, 0.12)';
+        this.ctx.strokeStyle = 'rgba(37, 99, 235, 0.82)';
+        this.ctx.lineWidth = 1.5;
+        this.ctx.setLineDash([8, 6]);
+        this.ctx.fillRect(left, top, width, height);
+        this.ctx.strokeRect(left, top, width, height);
         this.ctx.restore();
     }
 

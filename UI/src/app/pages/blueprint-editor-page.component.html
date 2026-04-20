@@ -67,11 +67,46 @@
 
   <section class="canvas-stage">
     <div class="canvas-stage__toolbar">
-      @for (action of canvasActions; track action.label) {
-        <button class="canvas-tool" type="button" [class.is-active]="action.active" [attr.aria-label]="action.label">
-          <mat-icon>{{ action.icon }}</mat-icon>
-        </button>
-      }
+      <button
+        class="canvas-tool"
+        type="button"
+        aria-label="Undo"
+        title="Undo (Ctrl+Z)"
+        [disabled]="!canUndo()"
+        (click)="undo()"
+      >
+        <mat-icon>undo</mat-icon>
+      </button>
+      <button
+        class="canvas-tool"
+        type="button"
+        aria-label="Copy selection"
+        title="Copy selection (Ctrl+C)"
+        [disabled]="!canCopy()"
+        (click)="copySelection()"
+      >
+        <mat-icon>content_copy</mat-icon>
+      </button>
+      <button
+        class="canvas-tool"
+        type="button"
+        aria-label="Paste selection"
+        title="Paste selection (Ctrl+V)"
+        [disabled]="!canPaste()"
+        (click)="pasteSelection()"
+      >
+        <mat-icon>content_paste</mat-icon>
+      </button>
+      <button
+        class="canvas-tool"
+        type="button"
+        aria-label="Delete selection"
+        title="Delete selection (Delete)"
+        [disabled]="!canDelete()"
+        (click)="deleteSelection()"
+      >
+        <mat-icon>delete</mat-icon>
+      </button>
     </div>
 
     <div class="canvas-stage__panel canvas-grid">
@@ -100,16 +135,14 @@
       </div>
 
       <app-workflow-canvas
-        [nodes]="editor.nodes()"
-        [connections]="editor.connections()"
+        [nodes]="editorStore.nodes()"
+        [connections]="editorStore.connections()"
         mode="edit"
-        (nodeMoved)="onNodeMoved($event)"
-        (connectionCreated)="onConnectionCreated($event)"
       />
 
       <div class="canvas-stage__hint">
-        <span>Use plugin drawer to add task nodes</span>
-        <span>Drag nodes to rewire flow</span>
+        <span>Shift-drag to marquee select</span>
+        <span>Use Delete, Ctrl+C, Ctrl+V, Ctrl+Z while the canvas is focused</span>
       </div>
     </div>
   </section>

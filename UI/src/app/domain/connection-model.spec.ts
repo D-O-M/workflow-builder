@@ -5,37 +5,59 @@ import { PathfinderOptions } from './pathfinder';
 
 const opts: PathfinderOptions = { gridSize: 10, nodeMargin: 5 };
 
-const source = new NodeModel(1, 'src', 0, 0, 40, 40);
-const dest = new NodeModel(2, 'dest', 100, 60, 40, 40);
-
-const anchorIndex: Record<Side, number> = {
-  top: 0,
-  right: 3,
-  bottom: 6,
-  left: 9,
-};
+function createNode(
+  id: number,
+  name: string,
+  x: number,
+  y: number,
+  options?: {
+    inputChannelName?: string | null;
+    outputChannelNames?: string[];
+  },
+): NodeModel {
+  return new NodeModel(
+    id,
+    id,
+    0,
+    0,
+    id * 10,
+    '0.0.1',
+    name,
+    x,
+    y,
+    320,
+    220,
+    options?.inputChannelName ?? null,
+    options?.outputChannelNames ?? [],
+    false,
+  );
+}
 
 describe('ConnectionModel segments', () => {
-  const sides: Side[] = ['left', 'right', 'top', 'bottom'];
-  for (const start of sides) {
-    for (const end of sides) {
-      it(`forms unbroken line from ${start} to ${end}`, () => {
-        const conn = new ConnectionModel(
-          source,
-          dest,
-          anchorIndex[start],
-          end,
-          end === 'left' || end === 'right' ? dest.height / 2 : dest.width / 2,
-        );
-        const segs = conn.segments(opts);
-        const anchor = source.anchorPositions()[anchorIndex[start]];
-        expect(segs[0].x1).toBe(anchor.x);
-        expect(segs[0].y1).toBe(anchor.y);
-        for (let i = 1; i < segs.length; i++) {
-          expect(segs[i - 1].x2).toBe(segs[i].x1);
-          expect(segs[i - 1].y2).toBe(segs[i].y1);
-        }
-      });
-    }
+  const source = createNode(1, 'Lookup', 0, 0, { outputChannelNames: ['Success'] });
+  const destination = createNode(2, 'Forecast', 420, 80, {
+    inputChannelName: 'Input',
+    outputChannelNames: ['Done'],
+  });
+  const anchor = source.outputAnchors()[0];
+
+  for (const side of ['left', 'right', 'top', 'bottom'] as Side[]) {
+    it(`forms an unbroken line to destination side ${side}`, () => {
+      const connection = new ConnectionModel(
+        source,
+        destination,
+        anchor.index,
+        side,
+        side === 'left' || side === 'right' ? destination.height / 2 : destination.width / 2,
+      );
+      const segments = connection.segments(opts);
+
+      expect(segments[0].x1).toBe(anchor.x);
+      expect(segments[0].y1).toBe(anchor.y);
+      for (let i = 1; i < segments.length; i++) {
+        expect(segments[i - 1].x2).toBe(segments[i].x1);
+        expect(segments[i - 1].y2).toBe(segments[i].y1);
+      }
+    });
   }
 });

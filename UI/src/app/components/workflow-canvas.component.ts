@@ -4,20 +4,51 @@ import {
   Component,
   ElementRef,
   OnDestroy,
-  effect,
+  afterRenderEffect,
+  inject,
   input,
-  output,
   signal,
   viewChild,
 } from '@angular/core';
+import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
 import { ConnectionModel } from '../domain/connection-model';
 import { CanvasWrapper } from '../domain/canvas-wrapper';
-import { NodeModel, Point, Side } from '../domain/node-model';
+import { NodeModel, NodeRenderStatus, Point, Side } from '../domain/node-model';
 
-interface DragNode {
-  id: number;
-  dx: number;
-  dy: number;
+interface PendingClickState {
+  pointerId: number;
+  startCanvas: Point;
+  nodeId: number | null;
+  connectionId: string | null;
+  shift: boolean;
+}
+
+interface DragNodeState {
+  pointerId: number;
+  startWorld: Point;
+  nodeIds: number[];
+  initialPositions: Map<number, Point>;
+}
+
+interface DragConnectionState {
+  pointerId: number;
+  from: number;
+  anchor: number;
+  x: number;
+  y: number;
+  side?: Side;
+}
+
+interface PanState {
+  pointerId: number;
+  startCanvas: Point;
+  initialOffset: Point;
+}
+
+interface MarqueeState {
+  pointerId: number;
+  startWorld: Point;
+  currentWorld: Point;
 }
 
 @Component({
@@ -31,39 +62,55 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
   readonly connections = input.required<ConnectionModel[]>();
   readonly mode = input<'edit' | 'readonly'>('edit');
 
-  readonly nodeMoved = output<{ nodeId: number; coordinates: Point }>();
-  readonly connectionCreated = output<{
-    sourceNodeId: number;
-    destinationNodeId: number;
-    anchor: number;
-    side: Side;
-    position: number;
-  }>();
-
-  private readonly canvasRef = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
+  private readonly editorStore = inject(BlueprintEditorStore);
+  private readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
   private readonly gridSize = 20;
+  private readonly clickTolerance = 4;
+
   private canvasWrapper?: CanvasWrapper;
-  private animationId: number | null = null;
-  private zoomRedrawTimeoutId: number | null = null;
   private resizeObserver?: ResizeObserver;
 
   protected readonly hoveredNodeId = signal<number | null>(null);
   protected readonly hoveredAnchor = signal<number | null>(null);
-  protected readonly dragOffset = signal<Point | null>(null);
-  protected readonly dragNode = signal<DragNode | null>(null);
-  protected readonly dragConnection = signal<{
-    from: number;
-    anchor: number;
-    x: number;
-    y: number;
-    side?: Side;
-  } | null>(null);
+  protected readonly pendingClick = signal<PendingClickState | null>(null);
+  protected readonly dragNode = signal<DragNodeState | null>(null);
+  protected readonly dragConnection = signal<DragConnectionState | null>(null);
+  protected readonly panState = signal<PanState | null>(null);
+  protected readonly marqueeState = signal<MarqueeState | null>(null);
   readonly zoomPercent = signal(100);
 
+  constructor() {
+    afterRenderEffect(() => {
+      const wrapper = this.canvasWrapper;
+      if (!wrapper) {
+        return;
+      }
+
+      this.mode();
+      this.nodes();
+      this.connections();
+      this.hoveredNodeId();
+      this.hoveredAnchor();
+      this.pendingClick();
+      this.dragNode();
+      this.dragConnection();
+      this.panState();
+      this.marqueeState();
+      this.editorStore.selectedNodeIds();
+      this.editorStore.selectedConnectionIds();
+      this.editorStore.canvasFocused();
+      wrapper.fontReady();
+      wrapper.viewportOffset();
+      wrapper.zoomLevel();
+      this.zoomPercent.set(Math.round(wrapper.zoomLevel() * 100));
+      this.draw();
+    });
+  }
+
   ngAfterViewInit(): void {
-    const canvas = this.canvasRef().nativeElement;
-    const context = canvas.getContext('2d');
-    if (!context) {
+    const canvas = this.canvasRef()?.nativeElement;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context) {
       return;
     }
 
@@ -75,34 +122,10 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
       this.draw();
     });
     this.resizeObserver.observe(canvas);
-
-    effect(() => {
-      const wrapper = this.canvasWrapper;
-      if (!wrapper) {
-        return;
-      }
-
-      this.nodes();
-      this.connections();
-      this.hoveredNodeId();
-      this.hoveredAnchor();
-      this.dragConnection();
-      this.dragNode();
-      this.dragOffset();
-      wrapper.fontReady();
-      this.zoomPercent.set(Math.round(wrapper.zoomLevel() * 100));
-      wrapper.viewportOffset();
-      this.draw();
-    });
   }
 
   ngOnDestroy(): void {
     this.resizeObserver?.disconnect();
-    if (this.zoomRedrawTimeoutId !== null) {
-      window.clearTimeout(this.zoomRedrawTimeoutId);
-      this.zoomRedrawTimeoutId = null;
-    }
-    this.stopAnimation();
   }
 
   resetView(): void {
@@ -122,11 +145,23 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
     this.adjustZoom(-0.1);
   }
 
+  focusCanvas(): void {
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!canvas) {
+      return;
+    }
+
+    canvas.focus({ preventScroll: true });
+    if (!this.isReadonly()) {
+      this.editorStore.setCanvasFocused(true);
+    }
+  }
+
   centerOnNode(nodeId: number): void {
     const wrapper = this.canvasWrapper;
-    const canvas = this.canvasRef().nativeElement;
+    const canvas = this.canvasRef()?.nativeElement;
     const node = this.nodes().find((candidate) => candidate.id === nodeId);
-    if (!wrapper || !node) {
+    if (!wrapper || !canvas || !node) {
       return;
     }
 
@@ -139,11 +174,11 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
 
   viewportCenterWorld(): Point | null {
     const wrapper = this.canvasWrapper;
-    if (!wrapper) {
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!wrapper || !canvas) {
       return null;
     }
 
-    const canvas = this.canvasRef().nativeElement;
     const offset = wrapper.viewportOffset();
     const zoom = wrapper.zoomLevel();
     return {
@@ -152,164 +187,371 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
     };
   }
 
-  protected onMouseMove(event: MouseEvent): void {
-    const wrapper = this.canvasWrapper;
-    if (!wrapper) {
-      return;
+  protected onFocus(): void {
+    if (!this.isReadonly()) {
+      this.editorStore.setCanvasFocused(true);
     }
-
-    const { canvas, world } = this.getCoordinates(event);
-    const { x, y } = canvas;
-    const { x: worldX, y: worldY } = world;
-
-    if (this.dragConnection()) {
-      const drag = this.dragConnection()!;
-      const target = this.getNodeByCoordinates(
-        { x: worldX, y: worldY },
-        ...this.getNodesConnectedTo(this.getNodeById(drag.from)),
-      );
-
-      if (target) {
-        const snap = target.inputAnchorSnap();
-        if (snap) {
-          this.dragConnection.update((current) =>
-            current ? { ...current, x: snap.x, y: snap.y, side: 'left' } : current,
-          );
-          this.hoveredNodeId.set(target.id);
-          this.hoveredAnchor.set(target.inputAnchorIndex());
-        } else {
-          this.dragConnection.update((current) =>
-            current ? { ...current, x: worldX, y: worldY, side: undefined } : current,
-          );
-          this.hoveredNodeId.set(null);
-          this.hoveredAnchor.set(null);
-        }
-      } else {
-        this.dragConnection.update((current) =>
-          current ? { ...current, x: worldX, y: worldY, side: undefined } : current,
-        );
-        this.hoveredNodeId.set(null);
-        this.hoveredAnchor.set(null);
-      }
-      return;
-    }
-
-    if (this.dragNode()) {
-      const drag = this.dragNode()!;
-      this.nodeMoved.emit({
-        nodeId: drag.id,
-        coordinates: {
-          x: wrapper.snap(worldX - drag.dx),
-          y: wrapper.snap(worldY - drag.dy),
-        },
-      });
-      return;
-    }
-
-    if (this.dragOffset()) {
-      const previous = this.dragOffset()!;
-      wrapper.viewportOffset.update((offset) => ({
-        x: offset.x + (x - previous.x),
-        y: offset.y + (y - previous.y),
-      }));
-      this.dragOffset.set({ x, y });
-      return;
-    }
-
-    const node = this.getNodeByCoordinates({ x: worldX, y: worldY });
-    this.hoveredNodeId.set(node ? node.id : null);
-    this.hoveredAnchor.set(this.isReadonly() || !node ? null : node.inAnchorCircle(worldX, worldY));
   }
 
-  protected onMouseDown(event: MouseEvent): void {
-    const { canvas, world } = this.getCoordinates(event);
-    const hovered = this.getNodeByCoordinates(world);
+  protected onBlur(): void {
+    if (!this.isReadonly()) {
+      this.editorStore.setCanvasFocused(false);
+    }
+  }
 
-    if (!this.isReadonly() && hovered) {
-      const anchor = hovered.inAnchorCircle(world.x, world.y);
-      if (anchor !== null && hovered.isOutputAnchor(anchor)) {
+  protected onPointerDown(event: PointerEvent): void {
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!canvas || !this.canvasWrapper) {
+      return;
+    }
+
+    this.focusCanvas();
+    canvas.setPointerCapture(event.pointerId);
+
+    const { canvas: canvasPoint, world } = this.getCoordinates(event);
+    const shift = !this.isReadonly() && this.editorStore.modifiers().shift;
+    const node = !this.isReadonly() ? this.getNodeByCoordinates(world) : undefined;
+    const connection = !this.isReadonly() && !node ? this.getConnectionByCoordinates(world) : undefined;
+
+    if (!this.isReadonly() && node) {
+      const anchor = this.getAnchorAt(node, world);
+      if (anchor !== null && node.isOutputAnchor(anchor)) {
         this.dragConnection.set({
-          from: hovered.id,
+          pointerId: event.pointerId,
+          from: node.id,
           anchor,
           x: world.x,
           y: world.y,
           side: undefined,
         });
-        this.hoveredNodeId.set(hovered.id);
+        this.hoveredNodeId.set(node.id);
         this.hoveredAnchor.set(anchor);
-        this.startAnimation();
         return;
       }
+    }
 
-      this.dragNode.set({
-        id: hovered.id,
-        dx: world.x - hovered.x,
-        dy: world.y - hovered.y,
+    if (!this.isReadonly() && shift && !node && !connection) {
+      this.marqueeState.set({
+        pointerId: event.pointerId,
+        startWorld: world,
+        currentWorld: world,
       });
-      this.hoveredNodeId.set(hovered.id);
-      this.hoveredAnchor.set(anchor);
-      this.startAnimation();
       return;
     }
 
-    this.dragOffset.set(canvas);
-    this.startAnimation();
+    this.pendingClick.set({
+      pointerId: event.pointerId,
+      startCanvas: canvasPoint,
+      nodeId: node?.id ?? null,
+      connectionId: connection?.id ?? null,
+      shift,
+    });
   }
 
-  protected onMouseUp(event: MouseEvent): void {
+  protected onPointerMove(event: PointerEvent): void {
     const wrapper = this.canvasWrapper;
     if (!wrapper) {
       return;
     }
 
-    const { world } = this.getCoordinates(event);
-    const drag = this.dragConnection();
-    if (drag) {
-      const target = this.getNodeByCoordinates(
-        world,
-        ...this.getNodesConnectedTo(this.getNodeById(drag.from)),
-      );
-      const snap = target?.inputAnchorSnap();
-      if (target && snap) {
-        this.connectionCreated.emit({
-          sourceNodeId: drag.from,
-          destinationNodeId: target.id,
-          anchor: drag.anchor,
-          side: 'left',
-          position: wrapper.snap(snap.pos),
+    const { canvas, world } = this.getCoordinates(event);
+
+    const dragConnection = this.dragConnection();
+    if (dragConnection?.pointerId === event.pointerId) {
+      this.updateConnectionDrag(dragConnection, world);
+      return;
+    }
+
+    const dragNode = this.dragNode();
+    if (dragNode?.pointerId === event.pointerId) {
+      this.updateNodeDrag(dragNode, world);
+      return;
+    }
+
+    const panState = this.panState();
+    if (panState?.pointerId === event.pointerId) {
+      wrapper.viewportOffset.set({
+        x: panState.initialOffset.x + (canvas.x - panState.startCanvas.x),
+        y: panState.initialOffset.y + (canvas.y - panState.startCanvas.y),
+      });
+      return;
+    }
+
+    const marqueeState = this.marqueeState();
+    if (marqueeState?.pointerId === event.pointerId) {
+      this.marqueeState.set({
+        ...marqueeState,
+        currentWorld: world,
+      });
+      return;
+    }
+
+    const pendingClick = this.pendingClick();
+    if (pendingClick?.pointerId === event.pointerId) {
+      if (!this.hasMovedBeyondThreshold(pendingClick.startCanvas, canvas)) {
+        return;
+      }
+
+      if (pendingClick.nodeId !== null && !pendingClick.shift && !this.isReadonly()) {
+        this.startNodeDrag(event.pointerId, pendingClick.nodeId, world);
+        this.pendingClick.set(null);
+        return;
+      }
+
+      if (pendingClick.nodeId === null && pendingClick.connectionId === null) {
+        this.panState.set({
+          pointerId: event.pointerId,
+          startCanvas: pendingClick.startCanvas,
+          initialOffset: wrapper.viewportOffset(),
         });
+        this.pendingClick.set(null);
+        return;
       }
     }
 
-    this.dragConnection.set(null);
-    this.dragNode.set(null);
-    this.dragOffset.set(null);
-    this.hoveredAnchor.set(null);
-    this.stopAnimation();
+    this.updateHoverState(world);
   }
 
-  protected onMouseLeave(): void {
-    this.dragConnection.set(null);
-    this.dragNode.set(null);
-    this.dragOffset.set(null);
-    this.hoveredAnchor.set(null);
+  protected onPointerUp(event: PointerEvent): void {
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!canvas || !this.canvasWrapper) {
+      return;
+    }
+
+    this.completePointerInteraction(event, false);
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  protected onPointerCancel(event: PointerEvent): void {
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!canvas || !this.canvasWrapper) {
+      return;
+    }
+
+    this.completePointerInteraction(event, true);
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  protected onPointerLeave(): void {
+    if (this.dragConnection() || this.dragNode() || this.panState() || this.marqueeState()) {
+      return;
+    }
+
     this.hoveredNodeId.set(null);
-    this.stopAnimation();
+    this.hoveredAnchor.set(null);
   }
 
   protected onWheel(event: WheelEvent): void {
     event.preventDefault();
     this.adjustZoom(Math.sign(-event.deltaY) * 0.05);
-    this.startAnimation();
-    if (this.zoomRedrawTimeoutId !== null) {
-      window.clearTimeout(this.zoomRedrawTimeoutId);
-    }
-    this.zoomRedrawTimeoutId = window.setTimeout(() => {
-      this.zoomRedrawTimeoutId = null;
-      if (!this.dragNode() && !this.dragConnection() && !this.dragOffset()) {
-        this.stopAnimation();
+  }
+
+  private completePointerInteraction(event: PointerEvent, cancelled: boolean): void {
+    const { canvas, world } = this.getCoordinates(event);
+    const dragConnection = this.dragConnection();
+    if (dragConnection?.pointerId === event.pointerId) {
+      if (!cancelled) {
+        this.finalizeConnectionDrag(dragConnection, world);
       }
-    }, 120);
+
+      this.dragConnection.set(null);
+      this.hoveredAnchor.set(null);
+      this.updateHoverState(world);
+      return;
+    }
+
+    if (this.dragNode()?.pointerId === event.pointerId) {
+      this.dragNode.set(null);
+      this.updateHoverState(world);
+      return;
+    }
+
+    if (this.panState()?.pointerId === event.pointerId) {
+      this.panState.set(null);
+      this.updateHoverState(world);
+      return;
+    }
+
+    const marqueeState = this.marqueeState();
+    if (marqueeState?.pointerId === event.pointerId) {
+      if (!cancelled) {
+        const bounds = this.normalizeRect(marqueeState.startWorld, marqueeState.currentWorld);
+        this.editorStore.selectNodesWithinRect(
+          bounds.left,
+          bounds.top,
+          bounds.right,
+          bounds.bottom,
+          true,
+        );
+      }
+
+      this.marqueeState.set(null);
+      this.updateHoverState(world);
+      return;
+    }
+
+    const pendingClick = this.pendingClick();
+    if (pendingClick?.pointerId === event.pointerId) {
+      this.pendingClick.set(null);
+      if (cancelled || this.hasMovedBeyondThreshold(pendingClick.startCanvas, canvas)) {
+        this.updateHoverState(world);
+        return;
+      }
+
+      this.applyClickSelection(pendingClick);
+      this.updateHoverState(world);
+      return;
+    }
+
+    this.updateHoverState(world);
+  }
+
+  private applyClickSelection(click: PendingClickState): void {
+    if (this.isReadonly()) {
+      return;
+    }
+
+    if (click.nodeId !== null) {
+      if (click.shift) {
+        this.editorStore.toggleNodeSelection(click.nodeId);
+      } else {
+        this.editorStore.selectOnlyNode(click.nodeId);
+      }
+      return;
+    }
+
+    if (click.connectionId !== null) {
+      if (click.shift) {
+        this.editorStore.toggleConnectionSelection(click.connectionId);
+      } else {
+        this.editorStore.selectOnlyConnection(click.connectionId);
+      }
+      return;
+    }
+
+    this.editorStore.clearSelection();
+  }
+
+  private startNodeDrag(pointerId: number, nodeId: number, world: Point): void {
+    const selectedNodeIds = this.editorStore.selectedNodeIds();
+    const selectedConnectionIds = this.editorStore.selectedConnectionIds();
+    const useCurrentSelection = selectedConnectionIds.length === 0 && selectedNodeIds.includes(nodeId);
+    const nodeIds = useCurrentSelection ? selectedNodeIds : [nodeId];
+
+    if (!useCurrentSelection) {
+      this.editorStore.selectOnlyNode(nodeId);
+    }
+
+    const initialPositions = new Map<number, Point>();
+    for (const selectedId of nodeIds) {
+      const node = this.getNodeById(selectedId);
+      if (!node) {
+        continue;
+      }
+
+      initialPositions.set(selectedId, { x: node.x, y: node.y });
+    }
+
+    if (initialPositions.size === 0) {
+      return;
+    }
+
+    this.editorStore.captureHistory();
+    this.dragNode.set({
+      pointerId,
+      startWorld: world,
+      nodeIds: [...initialPositions.keys()],
+      initialPositions,
+    });
+    this.hoveredNodeId.set(nodeId);
+  }
+
+  private updateNodeDrag(drag: DragNodeState, world: Point): void {
+    const deltaX = world.x - drag.startWorld.x;
+    const deltaY = world.y - drag.startWorld.y;
+    this.editorStore.updateNodePositions(
+      drag.nodeIds.map((nodeId) => {
+        const initial = drag.initialPositions.get(nodeId)!;
+        return {
+          nodeId,
+          coordinates: {
+            x: initial.x + deltaX,
+            y: initial.y + deltaY,
+          },
+        };
+      }),
+    );
+  }
+
+  private updateConnectionDrag(drag: DragConnectionState, world: Point): void {
+    const sourceNode = this.getNodeById(drag.from);
+    if (!sourceNode) {
+      this.dragConnection.set(null);
+      return;
+    }
+
+    const target = this.getNodeByCoordinates(
+      world,
+      ...this.getNodesConnectedTo(sourceNode),
+    );
+
+    if (target) {
+      const snap = target.inputAnchorSnap();
+      if (snap) {
+        this.dragConnection.set({
+          ...drag,
+          x: snap.x,
+          y: snap.y,
+          side: 'left',
+        });
+        this.hoveredNodeId.set(target.id);
+        this.hoveredAnchor.set(target.inputAnchorIndex());
+        return;
+      }
+    }
+
+    this.dragConnection.set({
+      ...drag,
+      x: world.x,
+      y: world.y,
+      side: undefined,
+    });
+    this.hoveredNodeId.set(null);
+    this.hoveredAnchor.set(null);
+  }
+
+  private finalizeConnectionDrag(drag: DragConnectionState, world: Point): void {
+    const sourceNode = this.getNodeById(drag.from);
+    if (!sourceNode) {
+      return;
+    }
+
+    const target = this.getNodeByCoordinates(
+      world,
+      ...this.getNodesConnectedTo(sourceNode),
+    );
+    const snap = target?.inputAnchorSnap();
+    if (!target || !snap) {
+      return;
+    }
+
+    this.editorStore.createConnection(
+      drag.from,
+      target.id,
+      drag.anchor,
+      'left',
+      snap.pos,
+    );
+  }
+
+  private updateHoverState(world: Point): void {
+    const node = this.getNodeByCoordinates(world);
+    this.hoveredNodeId.set(node?.id ?? null);
+    this.hoveredAnchor.set(!node || this.isReadonly() ? null : this.getAnchorAt(node, world));
   }
 
   private isReadonly(): boolean {
@@ -317,7 +559,11 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   private syncCanvasBackingSize(): void {
-    const canvas = this.canvasRef().nativeElement;
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!canvas) {
+      return;
+    }
+
     const dpr = window.devicePixelRatio || 1;
     const cssWidth = Math.max(1, Math.floor(canvas.clientWidth));
     const cssHeight = Math.max(1, Math.floor(canvas.clientHeight));
@@ -327,6 +573,7 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
     if (canvas.width !== width) {
       canvas.width = width;
     }
+
     if (canvas.height !== height) {
       canvas.height = height;
     }
@@ -348,16 +595,24 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
     wrapper.zoomLevel.set(Number(nextZoom.toFixed(2)));
   }
 
-  private getCoordinates(event: MouseEvent): { canvas: Point; world: Point } {
-    const canvas = this.canvasRef().nativeElement;
+  private getCoordinates(event: MouseEvent | PointerEvent): { canvas: Point; world: Point } {
+    const canvas = this.canvasRef()?.nativeElement;
+    const wrapper = this.canvasWrapper;
+    if (!canvas || !wrapper) {
+      return {
+        canvas: { x: 0, y: 0 },
+        world: { x: 0, y: 0 },
+      };
+    }
+
     const rect = canvas.getBoundingClientRect();
     const position = {
       x: event.clientX - rect.left,
       y: event.clientY - rect.top,
     };
-    const wrapper = this.canvasWrapper!;
     const offset = wrapper.viewportOffset();
     const zoom = wrapper.zoomLevel();
+
     return {
       canvas: position,
       world: {
@@ -367,17 +622,35 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
     };
   }
 
-  private getNodeById(id: number): NodeModel {
-    return this.nodes().find((node) => node.id === id)!;
+  private getNodeById(id: number): NodeModel | undefined {
+    return this.nodes().find((node) => node.id === id);
   }
 
   private getNodeByCoordinates(coordinates: Point, ...except: NodeModel[]): NodeModel | undefined {
-    return this.nodes().find((node) => {
+    return [...this.nodes()].reverse().find((node) => {
       if (except.includes(node) || except.some((candidate) => candidate.contains(coordinates.x, coordinates.y))) {
         return false;
       }
 
       return node.contains(coordinates.x, coordinates.y);
+    });
+  }
+
+  private getConnectionByCoordinates(coordinates: Point): ConnectionModel | undefined {
+    const tolerance = 10 / this.canvasWrapper!.zoomLevel();
+    return [...this.connections()].reverse().find((connection) => {
+      const obstacles = this.nodes().filter((node) => node.id !== connection.from.id && node.id !== connection.to.id);
+      return connection.hitTest(
+        coordinates.x,
+        coordinates.y,
+        tolerance,
+        {
+          gridSize: this.gridSize,
+          nodeMargin: NodeModel.buffer,
+          obstacleBuffer: Math.max(NodeModel.buffer / this.gridSize, 1),
+        },
+        obstacles,
+      );
     });
   }
 
@@ -389,31 +662,29 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
     )];
   }
 
-  private startAnimation(): void {
-    if (this.animationId !== null) {
-      return;
-    }
-
-    const step = () => {
-      this.draw();
-      this.animationId = requestAnimationFrame(step);
-    };
-    this.animationId = requestAnimationFrame(step);
+  private getAnchorAt(node: NodeModel, coordinates: Point): number | null {
+    const zoom = this.canvasWrapper?.zoomLevel() ?? 1;
+    const extraHitRadius = Math.max(4, 12 / zoom - 7);
+    return node.inAnchorCircle(coordinates.x, coordinates.y, extraHitRadius);
   }
 
-  private stopAnimation(): void {
-    if (this.animationId === null) {
-      return;
-    }
+  private hasMovedBeyondThreshold(start: Point, current: Point): boolean {
+    return Math.abs(current.x - start.x) > this.clickTolerance || Math.abs(current.y - start.y) > this.clickTolerance;
+  }
 
-    cancelAnimationFrame(this.animationId);
-    this.animationId = null;
+  private normalizeRect(start: Point, end: Point): { left: number; top: number; right: number; bottom: number } {
+    return {
+      left: Math.min(start.x, end.x),
+      top: Math.min(start.y, end.y),
+      right: Math.max(start.x, end.x),
+      bottom: Math.max(start.y, end.y),
+    };
   }
 
   private draw(): void {
     const wrapper = this.canvasWrapper;
-    const canvas = this.canvasRef().nativeElement;
-    if (!wrapper) {
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!wrapper || !canvas) {
       return;
     }
 
@@ -428,20 +699,28 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
 
     const nodes = this.nodes();
     const connections = this.connections();
-    wrapper.drawConnections(connections, nodes);
+    const selectedNodeIds = this.isReadonly()
+      ? new Set<number>()
+      : this.editorStore.selectedNodeIdSet();
+    const selectedConnectionIds = this.isReadonly()
+      ? new Set<string>()
+      : this.editorStore.selectedConnectionIdSet();
+
+    wrapper.drawConnections(connections, nodes, selectedConnectionIds);
     wrapper.drawNodes(
       nodes,
       connections,
       this.dragConnection(),
       this.hoveredNodeId(),
       this.hoveredAnchor(),
+      selectedNodeIds,
       { readOnly: this.isReadonly() },
     );
 
     const drag = this.dragConnection();
     if (drag) {
       const fromNode = this.getNodeById(drag.from);
-      if (!fromNode.contains(drag.x, drag.y)) {
+      if (fromNode && !fromNode.contains(drag.x, drag.y)) {
         const start = fromNode.anchorPositions()[drag.anchor];
         const hoveredNode = this.hoveredNodeId() && this.hoveredNodeId() !== drag.from
           ? this.getNodeById(this.hoveredNodeId()!)
@@ -460,6 +739,12 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
           fromNode,
         );
       }
+    }
+
+    const marquee = this.marqueeState();
+    if (marquee) {
+      const bounds = this.normalizeRect(marquee.startWorld, marquee.currentWorld);
+      wrapper.drawMarqueeRect(bounds.left, bounds.top, bounds.right, bounds.bottom);
     }
 
     const hoveredNode = this.hoveredNodeId() !== null

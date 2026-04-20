@@ -1,0 +1,163 @@
+<section class="dashboard-page">
+  <header class="dashboard-page__header">
+    <div>
+      <p class="dashboard-page__eyebrow">Observability Overview</p>
+      <h2>Workflow health at a glance</h2>
+      <p class="dashboard-page__subtitle">
+        Grafana-backed summaries for workflow outcomes, recent runs, and node-level success rates.
+      </p>
+    </div>
+
+    <div class="dashboard-page__actions">
+      <a class="shell-button shell-button--ghost" [href]="grafanaLogsUrl()" target="_blank" rel="noreferrer">
+        <mat-icon>travel_explore</mat-icon>
+        <span>Open Logs in Grafana</span>
+      </a>
+      <a class="shell-button shell-button--ghost" [href]="grafanaTraceUrl()" target="_blank" rel="noreferrer">
+        <mat-icon>timeline</mat-icon>
+        <span>Open Trace Explore</span>
+      </a>
+    </div>
+  </header>
+
+  <section class="dashboard-toolbar">
+    <div class="dashboard-toolbar__windows">
+      @for (window of windowPresets; track window) {
+        <button
+          type="button"
+          class="window-chip"
+          [class.is-active]="observabilityWindow() === window"
+          (click)="selectWindow(window)"
+        >
+          {{ window }}
+        </button>
+      }
+    </div>
+
+    <div class="dashboard-toolbar__filters">
+      <label class="dashboard-toolbar__select">
+        <span>Blueprint</span>
+        <select [value]="selectedBlueprintId() ?? ''" (change)="selectBlueprint($any($event.target).value)">
+          <option value="">All blueprints</option>
+          @for (blueprint of blueprints(); track trackBlueprint($index, blueprint)) {
+            <option [value]="blueprint.id">{{ blueprint.name }}</option>
+          }
+        </select>
+      </label>
+
+      @if (selectedBlueprint()) {
+        <button class="shell-button shell-button--ghost" type="button" (click)="clearBlueprint()">Clear Filter</button>
+      }
+    </div>
+  </section>
+
+  @if (loading()) {
+    <section class="dashboard-empty">
+      <p>Loading dashboard...</p>
+    </section>
+  } @else if (errorMessage()) {
+    <section class="dashboard-empty">
+      <p>{{ errorMessage() }}</p>
+    </section>
+  } @else {
+    <section class="dashboard-grid" [class.is-loading]="observabilityLoading()">
+      <article class="metric-card metric-card--hero">
+        <div class="metric-card__header">
+          <div>
+            <span class="metric-card__eyebrow">Workflow Outcome</span>
+            <h3>Success vs failure</h3>
+          </div>
+        </div>
+
+        <div class="metric-card__hero">
+          <div
+            class="donut-chart"
+            [style.background]="donutBackground(workflowSummary()?.successfulCount ?? 0, workflowSummary()?.failedCount ?? 0)"
+          >
+            <strong>{{ workflowSuccessPercent() }}%</strong>
+            <span>success</span>
+          </div>
+
+          <div class="metric-card__stats">
+            <div>
+              <span>Succeeded</span>
+              <strong>{{ workflowSummary()?.successfulCount ?? 0 }}</strong>
+            </div>
+            <div>
+              <span>Failed</span>
+              <strong>{{ workflowSummary()?.failedCount ?? 0 }}</strong>
+            </div>
+            <div>
+              <span>Total terminal runs</span>
+              <strong>{{ workflowSummary()?.totalCount ?? 0 }}</strong>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="metric-card">
+        <div class="metric-card__header">
+          <div>
+            <span class="metric-card__eyebrow">Recent Runs</span>
+            <h3>Latest terminal executions</h3>
+          </div>
+        </div>
+
+        @if (recentRuns().length === 0) {
+          <p class="metric-card__empty">No recent runs are available in the selected window yet.</p>
+        } @else {
+          <div class="recent-runs">
+            @for (run of recentRuns(); track trackRecentRun($index, run)) {
+              <a
+                class="recent-run"
+                [routerLink]="['/executions']"
+                [queryParams]="{ blueprintId: run.blueprintDefinitionId, workflowInstanceId: run.workflowInstanceId }"
+              >
+                <div class="recent-run__top">
+                  <strong>{{ run.blueprintVersionName }}</strong>
+                  <span class="run-status" [ngClass]="'run-status--' + run.status.toLowerCase()">
+                    {{ recentRunStatusLabel(run.status) }}
+                  </span>
+                </div>
+                <small>{{ run.occurredAt | date: 'dd MMM, HH:mm' }}</small>
+              </a>
+            }
+          </div>
+        }
+      </article>
+
+      <article class="metric-card metric-card--nodes">
+        <div class="metric-card__header">
+          <div>
+            <span class="metric-card__eyebrow">Node Outcomes</span>
+            <h3>{{ selectedBlueprint() ? selectedBlueprint()!.name : 'Choose a blueprint' }}</h3>
+          </div>
+        </div>
+
+        @if (!selectedBlueprint()) {
+          <p class="metric-card__empty">Select a blueprint to inspect per-node success and failure rates.</p>
+        } @else if (!nodeSummary() || nodeSummary()!.nodes.length === 0) {
+          <p class="metric-card__empty">No node outcome data is available for the selected window yet.</p>
+        } @else {
+          <div class="node-summary-grid">
+            @for (node of nodeSummary()!.nodes; track node.blueprintTaskId) {
+              <div class="node-summary-card">
+                <div
+                  class="donut-chart donut-chart--small"
+                  [style.background]="donutBackground(node.successfulCount, node.failedCount)"
+                >
+                  <strong>{{ nodeSuccessPercent(node.successRate, node.totalCount) }}%</strong>
+                </div>
+
+                <div class="node-summary-card__body">
+                  <strong>{{ node.taskName }}</strong>
+                  <small>{{ node.successfulCount }} success · {{ node.failedCount }} failed</small>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </article>
+    </section>
+  }
+</section>

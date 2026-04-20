@@ -1,5 +1,6 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { Observable, map } from 'rxjs';
 import { ConnectionModel } from './connection-model';
 import { NodeModel, Point, Side } from './node-model';
 import { ITaskDefinition } from '../interfaces/ITaskDefinition';
@@ -99,6 +100,7 @@ export interface WorkflowExecutionSummaryViewModel {
 
 export interface WorkflowExecutionNodeViewModel {
   instanceId: string;
+  runtimeTaskInstanceId?: string | null;
   taskDefinitionId: number;
   allowedMajor: number;
   allowedMinor: number;
@@ -107,6 +109,9 @@ export interface WorkflowExecutionNodeViewModel {
   name: string;
   status: 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   position: CoordinatesViewModel;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  failedAt?: string | null;
   failureMessage?: string | null;
   inputChannelName?: string | null;
   outputChannelNames: string[];
@@ -127,10 +132,14 @@ export interface WorkflowExecutionDetailViewModel {
   nodes: WorkflowExecutionNodeViewModel[];
 }
 
+export interface BlueprintGraphDocument {
+  blueprint: BlueprintViewModel;
+  nodes: NodeModel[];
+  connections: ConnectionModel[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class BlueprintEditorService {
-  readonly nodes = signal<NodeModel[]>([]);
-  readonly connections = signal<ConnectionModel[]>([]);
   private readonly http = inject(HttpClient);
 
   private createNodeModel(
@@ -167,125 +176,24 @@ export class BlueprintEditorService {
     );
   }
 
-  createNode(taskDefinition: ITaskDefinition, coordinates: Point, snap: (v: number) => number): NodeModel {
-    const version = taskDefinition.versions[0];
-    if (!version) {
-      throw new Error(`Task definition ${taskDefinition.name} has no versions.`);
-    }
-
-    const [allowedMajor, allowedMinor] = this.getVersionLane(version.version);
-
-    const node = new NodeModel(
-      Date.now(),
-      taskDefinition.id,
-      allowedMajor,
-      allowedMinor,
-      version.id,
-      version.version,
-      taskDefinition.name,
-      snap(coordinates.x),
-      snap(coordinates.y),
-      320,
-      Math.max(220, 168 + Math.max(version.outputChannels.length, 1) * 34),
-      version.inputChannel?.name ?? null,
-      version.outputChannels.map((channel) => channel.name),
-      false,
-    );
-
-    this.nodes.update((n) => [...n, node]);
-    return node;
+  getBlueprints(): Observable<BlueprintViewModel[]> {
+    return this.http.get<BlueprintViewModel[]>('api/blueprints');
   }
 
-  updateNodeCoordinates(nodeId: number, newCoordinates: Point, snap: (v: number) => number): void {
-    const nx = snap(newCoordinates.x);
-    const ny = snap(newCoordinates.y);
-
-    this.nodes.update((nodes) =>
-      nodes.map((n) => (n.id === nodeId
-        ? new NodeModel(
-          n.id,
-          n.taskDefinitionId,
-          n.allowedMajor,
-          n.allowedMinor,
-          n.resolvedVersionId,
-          n.resolvedVersion,
-          n.name,
-          nx,
-          ny,
-          n.width,
-          n.height,
-          n.inputChannelName,
-          n.outputChannelNames,
-          n.hasUpgradeWarning,
-          n.renderStatus,
-          n.failureMessage,
-        )
-        : n)),
-    );
-
-    // keep connection endpoints consistent as they reference node instances
-    this.rebindConnections();
+  getBlueprintById(definitionId: number): Observable<BlueprintViewModel> {
+    return this.http.get<BlueprintViewModel>(`api/blueprints/${definitionId}`);
   }
 
-  createConnection(sourceNodeId: number, destinationNodeId: number, anchor: number, side: Side, position: number, snap: (v: number) => number): void {
-    const from = this.getNodeById(sourceNodeId);
-    const to = this.getNodeById(destinationNodeId);
-    const snappedPosition = snap(position);
+  saveBlueprintGraph(
+    name: string,
+    startingNodeId: number,
+    taskDefinitions: ITaskDefinition[],
+    nodes: NodeModel[],
+    connections: ConnectionModel[],
+  ): Observable<BlueprintViewModel> {
+    const instanceIdByNodeId = new Map<number, string>(nodes.map((n) => [n.id, crypto.randomUUID()]));
 
-    this.connections.update((c) => [...c, new ConnectionModel(from, to, anchor, side, snappedPosition)]);
-  }
-
-  getNodeById(id: number): NodeModel {
-    return this.nodes().find((n) => n.id === id)!;
-  }
-
-  getNodes(...except: Array<number | undefined>): NodeModel[] {
-    return this.nodes().filter((node) => !except.includes(node.id));
-  }
-
-  getNodeByCoordinates(coordinates: Point, ...except: NodeModel[]): NodeModel | undefined {
-    return this.nodes().find((node) => {
-      if (except.includes(node) || except.some((n) => n.contains(coordinates.x, coordinates.y))) {
-        return false;
-      }
-
-      return node.contains(coordinates.x, coordinates.y);
-    });
-  }
-
-  getNodesConnectedTo(node: NodeModel): NodeModel[] {
-    return [...new Set(
-      this.connections()
-        .filter((c) => c.from === node || c.to === node)
-        .flatMap((c) => [c.from, c.to])
-        .filter((n) => !!n),
-    )];
-  }
-
-  private rebindConnections(): void {
-    const nodeMap = new Map(this.nodes().map((n) => [n.id, n] as const));
-    this.connections.update((connections) =>
-      connections.map((c) => new ConnectionModel(nodeMap.get(c.from.id)!, nodeMap.get(c.to.id)!, c.anchor, c.side, c.pos)),
-    );
-  }
-
-  clear(): void {
-    this.nodes.set([]);
-    this.connections.set([]);
-  }
-
-  getBlueprints(): Promise<BlueprintViewModel[]> {
-    return this.http.get<BlueprintViewModel[]>('api/blueprints').toPromise() as Promise<BlueprintViewModel[]>;
-  }
-
-  getBlueprintById(definitionId: number): Promise<BlueprintViewModel> {
-    return this.http.get<BlueprintViewModel>(`api/blueprints/${definitionId}`).toPromise() as Promise<BlueprintViewModel>;
-  }
-
-  saveBlueprint(name: string, startingNodeId: number, taskDefinitions: ITaskDefinition[]): Promise<BlueprintViewModel> {
-    const instanceIdByNodeId = new Map<number, string>(this.nodes().map((n) => [n.id, crypto.randomUUID()]));
-
-    const tasks: BlueprintTaskInputModel[] = this.nodes().map((n) => ({
+    const tasks: BlueprintTaskInputModel[] = nodes.map((n) => ({
       instanceId: instanceIdByNodeId.get(n.id)!,
       taskDefinitionId: n.taskDefinitionId,
       allowedMajor: n.allowedMajor,
@@ -294,7 +202,7 @@ export class BlueprintEditorService {
       outgoingConnections: [],
     }));
 
-    const taskByNodeId = new Map<number, BlueprintTaskInputModel>(this.nodes().map((n, index) => [n.id, tasks[index]]));
+    const taskByNodeId = new Map<number, BlueprintTaskInputModel>(nodes.map((n, index) => [n.id, tasks[index]]));
     const taskDefinitionByVersionId = new Map<number, ITaskDefinition['versions'][number]>();
     for (const taskDefinition of taskDefinitions) {
       for (const version of taskDefinition.versions) {
@@ -302,7 +210,7 @@ export class BlueprintEditorService {
       }
     }
 
-    for (const c of this.connections()) {
+    for (const c of connections) {
       const source = taskByNodeId.get(c.from.id);
       if (!source) continue;
 
@@ -327,79 +235,86 @@ export class BlueprintEditorService {
       tasks,
     };
 
-    return this.http.post<BlueprintViewModel>('api/blueprints', payload).toPromise() as Promise<BlueprintViewModel>;
+    return this.http.post<BlueprintViewModel>('api/blueprints', payload);
   }
 
-  async loadBlueprint(definitionId: number, taskDefinitions: ITaskDefinition[]): Promise<BlueprintViewModel> {
-    const blueprint = await this.getBlueprintById(definitionId);
-
-    const version = blueprint.versions[0];
-    if (!version) {
-      this.clear();
-      return blueprint;
-    }
-
-    const taskDefinitionById = new Map<number, ITaskDefinition>();
-    for (const taskDefinition of taskDefinitions) {
-      taskDefinitionById.set(taskDefinition.id, taskDefinition);
-    }
-
-    const nodes = version.tasks.map((task, index) => {
-      const taskDefinition = taskDefinitionById.get(task.taskDefinitionId);
-      const taskVersion = taskDefinition
-        ? this.resolveVersionForLane(taskDefinition, task.allowedMajor, task.allowedMinor, task.resolvedVersionId)
-        : null;
-      return this.createNodeModel(
-        index + 1,
-        task.taskDefinitionId,
-        task.allowedMajor,
-        task.allowedMinor,
-        taskVersion?.id ?? task.resolvedVersionId,
-        taskVersion?.version ?? task.resolvedVersion ?? null,
-        taskDefinition?.name ?? `Task ${task.taskDefinitionId}`,
-        task.position,
-        taskVersion?.inputChannel?.name ?? null,
-        taskVersion?.outputChannels.map((channel) => channel.name) ?? [],
-        taskDefinition ? this.hasNewerMajorMinorLane(taskDefinition, task.allowedMajor, task.allowedMinor) : false,
-      );
-    });
-
-    const nodeIdByInstanceId = new Map<string, number>(version.tasks.map((task, index) => [task.instanceId, index + 1]));
-    const nodeById = new Map<number, NodeModel>(nodes.map((node) => [node.id, node]));
-
-    const connections = version.tasks.flatMap((task) =>
-      task.outgoingConnections.flatMap((connection) => {
-        const fromNodeId = nodeIdByInstanceId.get(task.instanceId);
-        const toNodeId = nodeIdByInstanceId.get(connection.taskInstanceId);
-        if (!fromNodeId || !toNodeId) {
-          return [];
+  loadBlueprintGraph(definitionId: number, taskDefinitions: ITaskDefinition[]): Observable<BlueprintGraphDocument> {
+    return this.getBlueprintById(definitionId).pipe(
+      map((blueprint) => {
+        const version = blueprint.versions[0];
+        if (!version) {
+          return {
+            blueprint,
+            nodes: [],
+            connections: [],
+          };
         }
 
-        return [new ConnectionModel(
-          nodeById.get(fromNodeId)!,
-          nodeById.get(toNodeId)!,
-          connection.anchor,
-          connection.side,
-          connection.position,
-        )];
+        const taskDefinitionById = new Map<number, ITaskDefinition>();
+        for (const taskDefinition of taskDefinitions) {
+          taskDefinitionById.set(taskDefinition.id, taskDefinition);
+        }
+
+        const nodes = version.tasks.map((task, index) => {
+          const taskDefinition = taskDefinitionById.get(task.taskDefinitionId);
+          const taskVersion = taskDefinition
+            ? this.resolveVersionForLane(taskDefinition, task.allowedMajor, task.allowedMinor, task.resolvedVersionId)
+            : null;
+          return this.createNodeModel(
+            index + 1,
+            task.taskDefinitionId,
+            task.allowedMajor,
+            task.allowedMinor,
+            taskVersion?.id ?? task.resolvedVersionId,
+            taskVersion?.version ?? task.resolvedVersion ?? null,
+            taskDefinition?.name ?? `Task ${task.taskDefinitionId}`,
+            task.position,
+            taskVersion?.inputChannel?.name ?? null,
+            taskVersion?.outputChannels.map((channel) => channel.name) ?? [],
+            taskDefinition ? this.hasNewerMajorMinorLane(taskDefinition, task.allowedMajor, task.allowedMinor) : false,
+          );
+        });
+
+        const nodeIdByInstanceId = new Map<string, number>(version.tasks.map((task, index) => [task.instanceId, index + 1]));
+        const nodeById = new Map<number, NodeModel>(nodes.map((node) => [node.id, node]));
+
+        const connections = version.tasks.flatMap((task) =>
+          task.outgoingConnections.flatMap((connection) => {
+            const fromNodeId = nodeIdByInstanceId.get(task.instanceId);
+            const toNodeId = nodeIdByInstanceId.get(connection.taskInstanceId);
+            if (!fromNodeId || !toNodeId) {
+              return [];
+            }
+
+            return [new ConnectionModel(
+              nodeById.get(fromNodeId)!,
+              nodeById.get(toNodeId)!,
+              connection.anchor,
+              connection.side,
+              connection.position,
+            )];
+          }),
+        );
+
+        return {
+          blueprint,
+          nodes,
+          connections,
+        };
       }),
     );
-
-    this.nodes.set(nodes);
-    this.connections.set(connections);
-    return blueprint;
   }
 
-  executeBlueprint(definitionId: number, payload: BlueprintExecutionInputModel): Promise<BlueprintExecutionAcceptedViewModel> {
-    return this.http.post<BlueprintExecutionAcceptedViewModel>(`api/blueprints/${definitionId}/execute`, payload).toPromise() as Promise<BlueprintExecutionAcceptedViewModel>;
+  executeBlueprint(definitionId: number, payload: BlueprintExecutionInputModel): Observable<BlueprintExecutionAcceptedViewModel> {
+    return this.http.post<BlueprintExecutionAcceptedViewModel>(`api/blueprints/${definitionId}/execute`, payload);
   }
 
-  getBlueprintExecutions(definitionId: number): Promise<WorkflowExecutionSummaryViewModel[]> {
-    return this.http.get<WorkflowExecutionSummaryViewModel[]>(`api/blueprints/${definitionId}/executions`).toPromise() as Promise<WorkflowExecutionSummaryViewModel[]>;
+  getBlueprintExecutions(definitionId: number): Observable<WorkflowExecutionSummaryViewModel[]> {
+    return this.http.get<WorkflowExecutionSummaryViewModel[]>(`api/blueprints/${definitionId}/executions`);
   }
 
-  getBlueprintExecution(definitionId: number, workflowInstanceId: string): Promise<WorkflowExecutionDetailViewModel> {
-    return this.http.get<WorkflowExecutionDetailViewModel>(`api/blueprints/${definitionId}/executions/${workflowInstanceId}`).toPromise() as Promise<WorkflowExecutionDetailViewModel>;
+  getBlueprintExecution(definitionId: number, workflowInstanceId: string): Observable<WorkflowExecutionDetailViewModel> {
+    return this.http.get<WorkflowExecutionDetailViewModel>(`api/blueprints/${definitionId}/executions/${workflowInstanceId}`);
   }
 
   hasNewerMajorMinorLane(taskDefinition: ITaskDefinition, allowedMajor: number, allowedMinor: number): boolean {
@@ -431,10 +346,7 @@ export class BlueprintEditorService {
       return null;
     }
 
-    return laneVersions.find((version) => version.state === 'Active')
-      ?? laneVersions.find((version) => version.state === 'Draining')
-      ?? laneVersions.find((version) => version.state === 'Registered')
-      ?? laneVersions[0];
+    return laneVersions[0];
   }
 
   private getVersionLane(version: `${number}.${number}.${number}` | string): [number, number] {

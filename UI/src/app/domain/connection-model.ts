@@ -36,6 +36,7 @@ export class ConnectionModel {
     public anchor: number,
     public side: Side,
     public pos: number,
+    public id: string = crypto.randomUUID(),
   ) {}
 
   segments(options: PathfinderOptions, obstacles: NodeModel[] = []): { x1: number; y1: number; x2: number; y2: number }[] {
@@ -75,15 +76,22 @@ export class ConnectionModel {
     );
   }
 
-  draw(wrapper: CanvasWrapper, obstacles: NodeModel[] = []): void {
+  draw(
+    wrapper: CanvasWrapper,
+    obstacles: NodeModel[] = [],
+    options?: {
+      selected?: boolean;
+    },
+  ): void {
     const theme = this.from.renderStatus
       ? ConnectionModel.themeByStatus[this.from.renderStatus]
       : ConnectionModel.themeByStatus.default;
+    const selected = options?.selected ?? false;
 
     wrapper.ctx.save();
-    wrapper.ctx.strokeStyle = theme.connectionSoft;
-    wrapper.ctx.fillStyle = theme.connection;
-    wrapper.ctx.lineWidth = 2.5;
+    wrapper.ctx.strokeStyle = selected ? '#2563eb' : theme.connectionSoft;
+    wrapper.ctx.fillStyle = selected ? '#2563eb' : theme.connection;
+    wrapper.ctx.lineWidth = selected ? 4 : 2.5;
 
     const start = this.from.anchorPositions()[this.anchor];
     let end: Point;
@@ -124,4 +132,39 @@ export class ConnectionModel {
 
     wrapper.ctx.restore();
   }
+
+  hitTest(
+    x: number,
+    y: number,
+    tolerance: number,
+    options: PathfinderOptions,
+    obstacles: NodeModel[] = [],
+  ): boolean {
+    return this.segments(options, obstacles).some((segment) =>
+      distanceToSegment(x, y, segment.x1, segment.y1, segment.x2, segment.y2) <= tolerance,
+    );
+  }
+}
+
+function distanceToSegment(
+  px: number,
+  py: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): number {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+
+  if (dx === 0 && dy === 0) {
+    return Math.hypot(px - x1, py - y1);
+  }
+
+  const numerator = (px - x1) * dx + (py - y1) * dy;
+  const denominator = dx * dx + dy * dy;
+  const t = Math.min(1, Math.max(0, numerator / denominator));
+  const closestX = x1 + dx * t;
+  const closestY = y1 + dy * t;
+  return Math.hypot(px - closestX, py - closestY);
 }

@@ -59,6 +59,15 @@ export class NodeModel {
         );
     }
 
+    isFullyWithin(left: number, top: number, right: number, bottom: number): boolean {
+        return (
+            this.x >= left &&
+            this.y >= top &&
+            this.x + this.width <= right &&
+            this.y + this.height <= bottom
+        );
+    }
+
     draw(ctx: CanvasRenderingContext2D, drawText: (
       ctx: CanvasRenderingContext2D,
       text: string,
@@ -159,10 +168,10 @@ export class NodeModel {
         };
     }
 
-    inAnchorCircle(x: number, y: number): number | null {
+    inAnchorCircle(x: number, y: number, extraHitRadius = 5): number | null {
         const anchors = this.anchorDefinitions();
         for (const anchor of anchors) {
-            const hitRadius = this.anchorRadius(anchor.index) + 5;
+            const hitRadius = this.anchorRadius(anchor.index) + extraHitRadius;
             if (Math.hypot(x - anchor.x, y - anchor.y) <= hitRadius) {
                 return anchor.index;
             }
