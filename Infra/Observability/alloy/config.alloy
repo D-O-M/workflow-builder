@@ -1,0 +1,86 @@
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+otelcol.receiver.otlp "ingress" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    logs    = [otelcol.processor.memory_limiter.main.input]
+    metrics = [otelcol.processor.memory_limiter.main.input]
+    traces  = [otelcol.processor.memory_limiter.main.input]
+  }
+}
+
+otelcol.processor.memory_limiter "main" {
+  check_interval = "1s"
+  limit          = "256MiB"
+  spike_limit    = "64MiB"
+
+  output {
+    logs    = [otelcol.processor.batch.main.input]
+    metrics = [otelcol.processor.batch.main.input]
+    traces  = [otelcol.processor.batch.main.input]
+  }
+}
+
+otelcol.processor.batch "main" {
+  timeout         = "2s"
+  send_batch_size = 1024
+
+  output {
+    logs = [
+      otelcol.exporter.otlp.aspire.input,
+      otelcol.exporter.otlphttp.loki.input,
+    ]
+
+    metrics = [
+      otelcol.exporter.otlp.aspire.input,
+      otelcol.exporter.otlphttp.prometheus.input,
+    ]
+
+    traces = [
+      otelcol.exporter.otlp.aspire.input,
+      otelcol.exporter.otlp.tempo.input,
+    ]
+  }
+}
+
+otelcol.exporter.otlp "aspire" {
+  client {
+    endpoint = sys.env("OBSERVABILITY__ASPIRE_OTLP_ENDPOINT")
+
+    tls {
+      insecure = true
+    }
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+
+    tls {
+      insecure = true
+    }
+  }
+}
+
+otelcol.exporter.otlphttp "loki" {
+  client {
+    endpoint = "http://loki:3100/otlp"
+  }
+}
+
+otelcol.exporter.otlphttp "prometheus" {
+  client {
+    endpoint = "http://prometheus:9090/api/v1/otlp"
+  }
+}

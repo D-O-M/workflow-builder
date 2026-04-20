@@ -2,7 +2,6 @@
   <Folder Name="/Backend.DTOs/" />
   <Folder Name="/Backend.State.DAL/" />
   <Folder Name="/IntegrationTests/">
-    <Project Path="IntegrationTests/WorkflowBuilder.IntegrationTests.AppHost/WorkflowBuilder.IntegrationTests.AppHost.csproj" />
     <Project Path="IntegrationTests/WorkflowBuilder.IntegrationTests/WorkflowBuilder.IntegrationTests.csproj" />
   </Folder>
   <Folder Name="/Solution Items/">
@@ -16,6 +15,8 @@
   </Folder>
   <Project Path="Backend.API/Backend.API.csproj" />
   <Project Path="Backend.AppHost/Backend.AppHost.csproj" />
+  <Project Path="Backend.BlueprintSeeder/Backend.BlueprintSeeder.csproj" />
+  <Project Path="Backend.Database.MigrationService/Backend.Database.MigrationService.csproj" />
   <Project Path="Backend.Database.Relational/Backend.Database.Relational.csproj" />
   <Project Path="Backend.Constants/Backend.Constants.csproj" />
   <Project Path="Backend.DTOs/Backend.Models.csproj" />
@@ -23,6 +24,7 @@
   <Project Path="Backend.Functions.ProgressBroadcaster/Backend.Functions.ProgressBroadcaster.csproj" />
   <Project Path="Backend.Functions.PluginDetector/Backend.Functions.PluginDetector.csproj" />
   <Project Path="Backend.Interfaces/Backend.Interfaces.csproj" />
+  <Project Path="Backend.PluginSeeder/Backend.PluginSeeder.csproj" />
   <Project Path="Backend.Plugins.Communication/Backend.Plugins.Communication.csproj" />
   <Project Path="Backend.Plugins.Harness/Backend.Plugins.Harness.csproj" />
   <Project Path="Backend.Repositories/Backend.Repositories.csproj" />

@@ -1,23 +1,27 @@
+using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
+using System.Net;
 
 internal class Program
 {
     private const string WorkflowsContainerName = "workflows";
     private const string TasksContainerName = "tasks";
     private const string TaskProgressLeaseContainerName = "taskprogressleases";
-    private const string RealtimeCosmosConnectionName = "RealtimeCosmos";
-    private const string SignalRBaseUrl = "http://localhost:5181";
 
     private static void Main(string[] args)
     {
         var builder = DistributedApplication.CreateBuilder(args);
+        var repositoryRoot = GetRepositoryRootPath();
+        var observabilityRoot = GetObservabilityRootPath(repositoryRoot);
+        var pluginSeedingBundlesRoot = GetPluginSeedingBundlesRoot(builder.Configuration, repositoryRoot);
+        var blueprintSeedingRoot = GetBlueprintSeedingRoot(builder.Configuration, repositoryRoot);
 
         var cosmosDatabaseName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureCosmos:DatabaseName");
-        var cosmosDb = AddCosmos(builder, cosmosDatabaseName);
+        var (cosmos, cosmosDb) = AddCosmos(builder, cosmosDatabaseName);
 
         var password = builder.AddParameter("SqlServerPassword", secret: true);
 
@@ -35,44 +39,125 @@ internal class Program
             pluginsBlobContainerName);
 
         var (serviceBus, workflowTaskQueue, pluginControlQueue) = AddServiceBus(builder);
-        var cosmosConnectionName = GetRequiredConfigurationValue(
-            builder.Configuration,
-            "AzureCosmos:ConnectionName");
+        var (alloy, grafana, loki, tempo, prometheus) = AddObservability(
+            builder,
+            observabilityRoot);
+        var cosmosConnectionName =
+            TryGetConfigurationValue(builder.Configuration, "AzureCosmos:ConnectionName")
+            ?? "enginedb";
         var workflowTaskQueueConnectionName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureServiceBus:Queues:WorkflowTaskQueue:ConnectionName");
+        var workflowTaskQueueName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureServiceBus:Queues:WorkflowTaskQueue:Name");
         var pluginControlQueueConnectionName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureServiceBus:Queues:PluginControlQueue:ConnectionName");
+        var pluginControlQueueName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureServiceBus:Queues:PluginControlQueue:Name");
+        var alloyOtlpGrpcEndpoint = alloy.GetEndpoint("otlp-grpc");
+        var grafanaHttpEndpoint = grafana.GetEndpoint("http");
+        var lokiHttpEndpoint = loki.GetEndpoint("http");
+        var tempoHttpEndpoint = tempo.GetEndpoint("http");
+        var prometheusHttpEndpoint = prometheus.GetEndpoint("http");
+        var migrations = builder.AddProject<Projects.Backend_Database_MigrationService>("backend-database-migrations")
+            .WithReference(sqlDb)
+            .WaitFor(sqlDb)
+            .WaitFor(alloy);
+        ConfigureTelemetryAndObservability(
+            migrations,
+            alloyOtlpGrpcEndpoint,
+            grafanaHttpEndpoint,
+            lokiHttpEndpoint,
+            tempoHttpEndpoint,
+            prometheusHttpEndpoint);
 
-        var api = builder.AddProject<Projects.Backend_API>("backend-api")
-            .WithReference(cosmosDb, connectionName: cosmosConnectionName)
-            .WaitFor(cosmosDb)
+        var cosmosResourceName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureCosmos:ResourceName");
+
+        var api = builder.AddProject<Projects.Backend_API>(
+                "backend-api",
+                launchProfileName: "aspire")
+            .WithHttpEndpoint(
+                port: 5180,
+                name: "http")
+            .WithExternalHttpEndpoints()
+            .WithReference(cosmos, connectionName: cosmosConnectionName)
             .WithReference(blobs)
             .WaitFor(blobContainer)
             .WithReference(workflowTaskQueue, connectionName: workflowTaskQueueConnectionName)
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
-            .WaitFor(sqlDb);
+            .WaitFor(sqlDb)
+            .WaitForCompletion(migrations)
+            .WaitFor(alloy)
+            .WaitFor(loki)
+            .WaitFor(prometheus);
+        api.WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
+            .WithEnvironment("AzureCosmos__ConnectionString", cosmos.Resource.ConnectionStringExpression)
+            .WithEnvironment("ConnectionStrings__enginedb", cosmos.Resource.ConnectionStringExpression)
+            .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
+            .WithEnvironment("AzureServiceBus__Queues__WorkflowTaskQueue__ConnectionName", workflowTaskQueueConnectionName)
+            .WithEnvironment("AzureServiceBus__Queues__WorkflowTaskQueue__Name", workflowTaskQueueName);
 
-        var signalR = builder.AddProject<Projects.Backend_SignalR>("backend-signalr")
-            .WithEndpoint("http", endpoint =>
-            {
-                endpoint.Port = 5181;
-                endpoint.TargetPort = 5181;
-                endpoint.IsProxied = false;
-            });
+        var signalR = builder.AddProject<Projects.Backend_SignalR>(
+                "backend-signalr",
+                launchProfileName: "aspire")
+            .WithHttpEndpoint(name: "http")
+            .WithExternalHttpEndpoints()
+            .WaitFor(alloy);
+        var signalRHttpEndpoint = signalR.GetEndpoint("http");
 
-        var engine = builder.AddProject<Projects.Backend_Engine>("backend-engine")
-            .WithReference(cosmosDb, connectionName: cosmosConnectionName)
-            .WaitFor(cosmosDb)
+        api.WithEnvironment("ClientConfig__ApiBaseUrl", api.GetEndpoint("http"))
+            .WithEnvironment("ClientConfig__SignalRBaseUrl", signalRHttpEndpoint)
+            .WithEnvironment("ClientConfig__GrafanaBaseUrl", grafanaHttpEndpoint);
+        ConfigureTelemetryAndObservability(
+            api,
+            alloyOtlpGrpcEndpoint,
+            grafanaHttpEndpoint,
+            lokiHttpEndpoint,
+            tempoHttpEndpoint,
+            prometheusHttpEndpoint);
+        ConfigureTelemetryAndObservability(
+            signalR,
+            alloyOtlpGrpcEndpoint,
+            grafanaHttpEndpoint,
+            lokiHttpEndpoint,
+            tempoHttpEndpoint,
+            prometheusHttpEndpoint);
+
+        var engine = builder.AddProject<Projects.Backend_Engine>(
+                "backend-engine",
+                launchProfileName: "aspire")
+            .WithReference(cosmos, connectionName: cosmosConnectionName)
             .WithReference(blobs)
             .WaitFor(blobContainer)
             .WithReference(workflowTaskQueue, connectionName: workflowTaskQueueConnectionName)
             .WithReference(pluginControlQueue, connectionName: pluginControlQueueConnectionName)
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
-            .WaitFor(sqlDb);
+            .WaitFor(sqlDb)
+            .WaitForCompletion(migrations)
+            .WaitFor(alloy);
+        engine.WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
+            .WithEnvironment("AzureCosmos__ConnectionString", cosmos.Resource.ConnectionStringExpression)
+            .WithEnvironment("ConnectionStrings__enginedb", cosmos.Resource.ConnectionStringExpression)
+            .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
+            .WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName)
+            .WithEnvironment("AzureServiceBus__Queues__WorkflowTaskQueue__ConnectionName", workflowTaskQueueConnectionName)
+            .WithEnvironment("AzureServiceBus__Queues__WorkflowTaskQueue__Name", workflowTaskQueueName)
+            .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__ConnectionName", pluginControlQueueConnectionName)
+            .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__Name", pluginControlQueueName);
+        ConfigureTelemetryAndObservability(
+            engine,
+            alloyOtlpGrpcEndpoint,
+            grafanaHttpEndpoint,
+            lokiHttpEndpoint,
+            tempoHttpEndpoint,
+            prometheusHttpEndpoint);
 
         /*builder.AddProject<Projects.Backend_PluginLoader>("plugin-loader")
             .WithReference(blobs)
@@ -82,34 +167,196 @@ internal class Program
             .WithReference(sqlDb)
             .WaitFor(sqlDb);*/
 
-        builder.AddAzureFunctionsProject<Projects.Backend_Functions_PluginDetector>("plugin-detector")
+        var pluginDetector = builder.AddAzureFunctionsProject<Projects.Backend_Functions_PluginDetector>("plugin-detector")
             .WithHostStorage(storage)
             .WaitFor(blobContainer)
             .WithReference(serviceBus, connectionName: "ServiceBus")
             .WithReference(pluginControlQueue, connectionName: pluginControlQueueConnectionName)
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
-            .WaitFor(sqlDb);
+            .WaitFor(sqlDb)
+            .WaitForCompletion(migrations)
+            .WaitFor(alloy);
+        pluginDetector.WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName)
+            .WithEnvironment("PluginsBlobContainerName", pluginsBlobContainerName)
+            .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__ConnectionName", pluginControlQueueConnectionName)
+            .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__Name", pluginControlQueueName);
+        ConfigureTelemetryAndObservability(
+            pluginDetector,
+            alloyOtlpGrpcEndpoint,
+            grafanaHttpEndpoint,
+            lokiHttpEndpoint,
+            tempoHttpEndpoint,
+            prometheusHttpEndpoint);
 
-        builder.AddAzureFunctionsProject<Projects.Backend_Functions_ProgressBroadcaster>("progress-broadcaster")
+        var progressBroadcaster = builder.AddAzureFunctionsProject<Projects.Backend_Functions_ProgressBroadcaster>("progress-broadcaster")
             .WithHostStorage(storage)
-            .WithReference(cosmosDb, connectionName: RealtimeCosmosConnectionName)
-            .WaitFor(cosmosDb)
+            .WithReference(cosmos, connectionName: cosmosConnectionName)
             .WithReference(sqlDb)
             .WaitFor(sqlDb)
+            .WaitForCompletion(migrations)
             .WaitFor(signalR)
-            .WithEnvironment("Realtime__SignalRBaseUrl", SignalRBaseUrl)
+            .WaitFor(alloy)
+            .WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
+            .WithEnvironment("AzureCosmos__ConnectionString", cosmos.Resource.ConnectionStringExpression)
+            .WithEnvironment("ConnectionStrings__enginedb", cosmos.Resource.ConnectionStringExpression)
+            .WithEnvironment("RealtimeCosmos", cosmos.Resource.ConnectionStringExpression)
+            .WithEnvironment("ConnectionStrings__RealtimeCosmos", cosmos.Resource.ConnectionStringExpression)
+            .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
+            .WithEnvironment("Realtime__SignalRBaseUrl", signalRHttpEndpoint)
             .WithEnvironment("Realtime__Cosmos__DatabaseName", cosmosDatabaseName)
             .WithEnvironment("Realtime__Cosmos__WorkflowsContainerName", WorkflowsContainerName)
             .WithEnvironment("Realtime__Cosmos__TasksContainerName", TasksContainerName)
             .WithEnvironment("Realtime__Cosmos__LeaseContainerName", TaskProgressLeaseContainerName);
+        ConfigureTelemetryAndObservability(
+            progressBroadcaster,
+            alloyOtlpGrpcEndpoint,
+            grafanaHttpEndpoint,
+            lokiHttpEndpoint,
+            tempoHttpEndpoint,
+            prometheusHttpEndpoint);
 
-        //AddFrontend(builder, api);
+        IResourceBuilder<ProjectResource>? pluginSeeder = null;
+        if (GetPluginSeedingEnabled(builder))
+        {
+            pluginSeeder = builder.AddProject<Projects.Backend_PluginSeeder>("backend-plugin-seeder")
+                .WithReference(blobs)
+                .WaitFor(blobContainer)
+                .WaitFor(api)
+                .WaitFor(engine)
+                .WaitFor(signalR)
+                .WaitForCompletion(migrations)
+                .WaitFor(alloy)
+                .WithEnvironment("PluginSeeding__Enabled", "true")
+                .WithEnvironment("PluginSeeding__BundlesRoot", pluginSeedingBundlesRoot)
+                .WithEnvironment("PluginsBlobContainerName", pluginsBlobContainerName)
+                .WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName);
+        }
+
+        if (GetBlueprintSeedingEnabled(builder))
+        {
+            var blueprintSeeder = builder.AddProject<Projects.Backend_BlueprintSeeder>("backend-blueprint-seeder")
+                .WaitFor(api)
+                .WaitFor(engine)
+                .WaitFor(signalR)
+                .WaitForCompletion(migrations)
+                .WaitFor(alloy)
+                .WithEnvironment("BlueprintSeeding__Enabled", "true")
+                .WithEnvironment("BlueprintSeeding__BlueprintsRoot", blueprintSeedingRoot)
+                .WithEnvironment("BlueprintSeeding__ApiBaseUrl", api.GetEndpoint("http"));
+
+            if (pluginSeeder is not null)
+            {
+                blueprintSeeder.WaitForCompletion(pluginSeeder);
+            }
+        }
+
+        if (builder.Configuration.GetValue("Frontend:Enabled", true))
+        {
+            AddFrontend(builder, api, signalR, repositoryRoot);
+        }
 
         builder.Build().Run();
     }
 
-    static IResourceBuilder<AzureCosmosDBDatabaseResource> AddCosmos(
+    static (
+        IResourceBuilder<ContainerResource> alloy,
+        IResourceBuilder<ContainerResource> grafana,
+        IResourceBuilder<ContainerResource> loki,
+        IResourceBuilder<ContainerResource> tempo,
+        IResourceBuilder<ContainerResource> prometheus)
+        AddObservability(
+            IDistributedApplicationBuilder builder,
+            string observabilityRoot)
+    {
+        var alloyConfigPath = Path.Combine(observabilityRoot, "alloy", "config.alloy");
+        var lokiConfigPath = Path.Combine(observabilityRoot, "loki", "config.yml");
+        var tempoConfigPath = Path.Combine(observabilityRoot, "tempo", "config.yml");
+        var prometheusConfigPath = Path.Combine(observabilityRoot, "prometheus", "prometheus.yml");
+        var grafanaProvisioningPath = Path.Combine(observabilityRoot, "grafana", "provisioning");
+
+        var aspireOtlpEndpoint = TryGetConfigurationValue(
+            builder.Configuration,
+            "DOTNET_DASHBOARD_OTLP_ENDPOINT_URL") is { } dashboardOtlpEndpoint
+                ? TranslateAspireOtlpEndpointForDocker(dashboardOtlpEndpoint)
+                : "host.docker.internal:18889";
+
+        var loki = builder.AddContainer("loki", "grafana/loki:latest")
+            .WithArgs("-config.file=/etc/loki/config.yml")
+            .WithBindMount(lokiConfigPath, "/etc/loki/config.yml", isReadOnly: true)
+            .WithHttpEndpoint(
+                targetPort: 3100,
+                port: null,
+                name: "http",
+                isProxied: false);
+
+        var tempo = builder.AddContainer("tempo", "grafana/tempo:latest")
+            .WithArgs("-config.file=/etc/tempo/config.yml")
+            .WithBindMount(tempoConfigPath, "/etc/tempo/config.yml", isReadOnly: true)
+            .WithHttpEndpoint(
+                targetPort: 3200,
+                port: null,
+                name: "http",
+                isProxied: false);
+
+        var prometheus = builder.AddContainer("prometheus", "prom/prometheus:latest")
+            .WithArgs(
+                "--config.file=/etc/prometheus/prometheus.yml",
+                "--storage.tsdb.path=/prometheus",
+                "--web.enable-otlp-receiver")
+            .WithBindMount(prometheusConfigPath, "/etc/prometheus/prometheus.yml", isReadOnly: true)
+            .WithHttpEndpoint(
+                targetPort: 9090,
+                port: null,
+                name: "http",
+                isProxied: false);
+
+        var alloy = builder.AddContainer("grafana-alloy", "grafana/alloy:latest")
+            .WithArgs(
+                "run",
+                "/etc/alloy/config.alloy",
+                "--storage.path=/var/lib/alloy/data",
+                "--server.http.listen-addr=0.0.0.0:12345")
+            .WithBindMount(alloyConfigPath, "/etc/alloy/config.alloy", isReadOnly: true)
+            .WithEnvironment("OBSERVABILITY__ASPIRE_OTLP_ENDPOINT", aspireOtlpEndpoint)
+            .WaitFor(loki)
+            .WaitFor(tempo)
+            .WaitFor(prometheus)
+            .WithEndpoint(
+                targetPort: 4317,
+                port: null,
+                scheme: "http",
+                name: "otlp-grpc",
+                isProxied: false)
+            .WithEndpoint(
+                targetPort: 4318,
+                port: null,
+                scheme: "http",
+                name: "otlp-http",
+                isProxied: false);
+
+        var grafana = builder.AddContainer("grafana", "grafana/grafana-oss:latest")
+            .WithEnvironment("GF_AUTH_ANONYMOUS_ENABLED", "true")
+            .WithEnvironment("GF_AUTH_ANONYMOUS_ORG_ROLE", "Admin")
+            .WithEnvironment("GF_AUTH_DISABLE_LOGIN_FORM", "true")
+            .WithEnvironment("GF_SECURITY_ALLOW_EMBEDDING", "true")
+            .WithBindMount(grafanaProvisioningPath, "/etc/grafana/provisioning", isReadOnly: true)
+            .WaitFor(loki)
+            .WaitFor(tempo)
+            .WaitFor(prometheus)
+            .WithHttpEndpoint(
+                targetPort: 3000,
+                port: null,
+                name: "http",
+                isProxied: false);
+
+        return (alloy, grafana, loki, tempo, prometheus);
+    }
+
+    static (
+        IResourceBuilder<AzureCosmosDBResource> account,
+        IResourceBuilder<AzureCosmosDBDatabaseResource> database)
+        AddCosmos(
         IDistributedApplicationBuilder builder,
         string cosmosDatabaseName)
     {
@@ -141,17 +388,16 @@ internal class Program
         database.AddContainer(TasksContainerName, "/workflowId");
         database.AddContainer(TaskProgressLeaseContainerName, "/id");
 
-        return database;
+        return (cosmos, database);
     }
 
     static IResourceBuilder<SqlServerServerResource> AddSqlServer(
         IDistributedApplicationBuilder builder,
         IResourceBuilder<ParameterResource> password)
     {
-        var persistSqlData = builder.Configuration.GetValue("SqlServer:PersistData", true);
+        var persistSqlData = builder.Configuration.GetValue("SqlServer:PersistData", false);
 
         var sqlServer = builder.AddSqlServer("sqlserver", password)
-            .WithHostPort(12345)
             .WithLifetime(
                 persistSqlData
                     ? ContainerLifetime.Persistent
@@ -178,11 +424,15 @@ internal class Program
     {
         var azureStorage = builder.AddAzureStorage(
             builder.Configuration.GetValue<string>("AzureStorage:ResourceName")!);
+        var persistStorageData = builder.Configuration.GetValue("AzureStorage:PersistData", false);
 
         if (builder.Environment.IsDevelopment())
         {
             azureStorage.RunAsEmulator(config =>
-                config.WithLifetime(ContainerLifetime.Persistent));
+                config.WithLifetime(
+                    persistStorageData
+                        ? ContainerLifetime.Persistent
+                        : ContainerLifetime.Session));
         }
 
         var blobs = azureStorage.AddBlobs("BlobConnection");
@@ -238,16 +488,151 @@ internal class Program
         configuration.GetValue<string>(key)
         ?? throw new InvalidOperationException($"Configuration value '{key}' is not configured.");
 
-    static void AddFrontend(IDistributedApplicationBuilder builder, IResourceBuilder<ProjectResource> api)
+    static string? TryGetConfigurationValue(IConfiguration configuration, string key) =>
+        configuration.GetValue<string>(key);
+
+    static void ConfigureTelemetryAndObservability<T>(
+        IResourceBuilder<T> resourceBuilder,
+        EndpointReference alloyOtlpGrpcEndpoint,
+        EndpointReference grafanaHttpEndpoint,
+        EndpointReference lokiHttpEndpoint,
+        EndpointReference tempoHttpEndpoint,
+        EndpointReference prometheusHttpEndpoint)
+        where T : IResourceWithEnvironment
     {
-        var uiDirectoryPath = Path.Combine(Directory.GetParent(Environment.CurrentDirectory)!.FullName, "UI");
+        resourceBuilder
+            .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", alloyOtlpGrpcEndpoint)
+            .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+            .WithEnvironment("Observability__GrafanaBaseUrl", grafanaHttpEndpoint)
+            .WithEnvironment("Observability__LokiBaseUrl", lokiHttpEndpoint)
+            .WithEnvironment("Observability__TempoBaseUrl", tempoHttpEndpoint)
+            .WithEnvironment("Observability__PrometheusBaseUrl", prometheusHttpEndpoint);
+    }
+
+    static string GetObservabilityRootPath(string repositoryRoot) =>
+        Path.Combine(repositoryRoot, "Infra", "Observability");
+
+    static bool GetPluginSeedingEnabled(IDistributedApplicationBuilder builder) =>
+        builder.Environment.IsDevelopment()
+            ? builder.Configuration.GetValue("PluginSeeding:Enabled", true)
+            : builder.Configuration.GetValue("PluginSeeding:Enabled", false);
+
+    static bool GetBlueprintSeedingEnabled(IDistributedApplicationBuilder builder) =>
+        builder.Environment.IsDevelopment()
+            ? builder.Configuration.GetValue("BlueprintSeeding:Enabled", true)
+            : builder.Configuration.GetValue("BlueprintSeeding:Enabled", false);
+
+    static string GetPluginSeedingBundlesRoot(IConfiguration configuration, string repositoryRoot)
+    {
+        var configuredRoot = configuration.GetValue<string>("PluginSeeding:BundlesRoot");
+        if (string.IsNullOrWhiteSpace(configuredRoot))
+        {
+            return Path.Combine(repositoryRoot, "Backend.Plugins", "_bundles");
+        }
+
+        return Path.GetFullPath(
+            Path.IsPathRooted(configuredRoot)
+                ? configuredRoot
+                : Path.Combine(repositoryRoot, configuredRoot));
+    }
+
+    static string GetBlueprintSeedingRoot(IConfiguration configuration, string repositoryRoot)
+    {
+        var configuredRoot = configuration.GetValue<string>("BlueprintSeeding:BlueprintsRoot");
+        if (string.IsNullOrWhiteSpace(configuredRoot))
+        {
+            return Path.Combine(repositoryRoot, "SeedData", "Blueprints");
+        }
+
+        return Path.GetFullPath(
+            Path.IsPathRooted(configuredRoot)
+                ? configuredRoot
+                : Path.Combine(repositoryRoot, configuredRoot));
+    }
+
+    static string GetRepositoryRootPath()
+    {
+        foreach (var candidateRoot in GetCandidateRoots())
+        {
+            if (Directory.Exists(Path.Combine(candidateRoot, "Backend.AppHost")) &&
+                Directory.Exists(Path.Combine(candidateRoot, "Infra")))
+            {
+                return candidateRoot;
+            }
+        }
+
+        throw new DirectoryNotFoundException(
+            $"Could not locate the repository root from '{Environment.CurrentDirectory}' or '{AppContext.BaseDirectory}'.");
+    }
+
+    static IEnumerable<string> GetCandidateRoots()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var startPath in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory })
+        {
+            if (string.IsNullOrWhiteSpace(startPath) || !Directory.Exists(startPath))
+            {
+                continue;
+            }
+
+            for (var current = new DirectoryInfo(startPath); current is not null; current = current.Parent)
+            {
+                if (seen.Add(current.FullName))
+                {
+                    yield return current.FullName;
+                }
+            }
+        }
+    }
+
+    static string TranslateAspireOtlpEndpointForDocker(string endpointUrl)
+    {
+        var uri = new Uri(endpointUrl, UriKind.Absolute);
+        var host = uri.Host switch
+        {
+            "localhost" => "host.docker.internal",
+            "127.0.0.1" => "host.docker.internal",
+            "::1" => "host.docker.internal",
+            _ => uri.Host
+        };
+
+        if (!string.Equals(host, uri.Host, StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                _ = Dns.GetHostAddresses(host);
+            }
+            catch
+            {
+                // Docker Desktop exposes host.docker.internal; if unavailable the exporter
+                // will fail fast at runtime rather than breaking AppHost startup.
+            }
+        }
+
+        return $"{host}:{uri.Port}";
+    }
+
+    static void AddFrontend(
+        IDistributedApplicationBuilder builder,
+        IResourceBuilder<ProjectResource> api,
+        IResourceBuilder<ProjectResource> signalR,
+        string repositoryRoot)
+    {
+        var uiDirectoryPath = Path.Combine(repositoryRoot, "UI");
 
         var frontend = builder.AddDockerfile("frontend", uiDirectoryPath)
-            .WithHttpEndpoint(4200, name: "frontend-http", targetPort: 4200);
+            .WithHttpEndpoint(
+                targetPort: 4200,
+                port: null,
+                name: "frontend-http",
+                isProxied: false);
 
         MountUiRootFilesAndTopDirs(frontend, uiDirectoryPath, "/app");
 
         frontend.WithReference(api)
+            .WithEnvironment("WORKFLOW_BUILDER_API_PROXY_TARGET", api.GetEndpoint("http"))
+            .WithEnvironment("WORKFLOW_BUILDER_SIGNALR_PROXY_TARGET", signalR.GetEndpoint("http"))
             .WaitFor(api);
     }
 

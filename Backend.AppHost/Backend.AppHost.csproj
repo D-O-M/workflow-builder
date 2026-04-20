@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.1.2">
+<Project Sdk="Aspire.AppHost.Sdk/13.1.3">
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <OutputType>Exe</OutputType>
@@ -19,8 +19,11 @@
   <ItemGroup>
     <ProjectReference Include="..\Backend.API\Backend.API.csproj" />
     <ProjectReference Include="..\Backend.Engine\Backend.Engine.csproj" />
+    <ProjectReference Include="..\Backend.Database.MigrationService\Backend.Database.MigrationService.csproj" />
     <ProjectReference Include="..\Backend.Functions.PluginDetector\Backend.Functions.PluginDetector.csproj" />
     <ProjectReference Include="..\Backend.Functions.ProgressBroadcaster\Backend.Functions.ProgressBroadcaster.csproj" />
+    <ProjectReference Include="..\Backend.BlueprintSeeder\Backend.BlueprintSeeder.csproj" />
+    <ProjectReference Include="..\Backend.PluginSeeder\Backend.PluginSeeder.csproj" />
     <ProjectReference Include="..\Backend.SignalR\Backend.SignalR.csproj" />
   </ItemGroup>
 </Project>
