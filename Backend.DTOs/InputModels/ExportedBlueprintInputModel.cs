@@ -13,12 +13,11 @@ public sealed class ExportedBlueprintInputModel
     [Required, MinLength(1)]
     public string DisplayName { get; init; } = null!;
 
-    [Required, MinLength(1)]
-    public string VersionName { get; init; } = null!;
-
     [Required]
     public Guid StartingTaskKey { get; init; }
 
     [Required, MinLength(1)]
     public List<ExportedBlueprintNodeInputModel> Tasks { get; init; } = [];
+
+    public bool IgnoreImportedDisplayNameMismatch { get; init; }
 }

@@ -1,0 +1,34 @@
+{
+  "name": "workflow-builder",
+  "version": "0.1.0",
+  "description": "Repo-local WorkflowBuilder architecture and task-routing context for Codex agents.",
+  "author": {
+    "name": "WorkflowBuilder"
+  },
+  "license": "UNLICENSED",
+  "keywords": [
+    "workflow-builder",
+    "architecture",
+    "dotnet",
+    "aspire",
+    "angular",
+    "plugins",
+    "realtime"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "WorkflowBuilder",
+    "shortDescription": "Repo context for architecture, runtime, plugins, and UI work.",
+    "longDescription": "Single entrypoint plugin for the WorkflowBuilder repo. It teaches the app model, routes agents to the right repo docs, and pulls in the best companion skills for AppHost, Angular, plugin, and realtime work.",
+    "developerName": "WorkflowBuilder",
+    "category": "Development",
+    "capabilities": [
+      "Code",
+      "Docs"
+    ],
+    "defaultPrompt": [
+      "Use $workflow-builder to work inside the WorkflowBuilder repository."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

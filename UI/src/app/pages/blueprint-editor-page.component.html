@@ -4,7 +4,7 @@
       <div class="project-card__avatar">{{ projectInitial() }}</div>
       <div class="project-card__body">
         <h2>{{ selectedBlueprintName() }}</h2>
-        <p>V2.4.0-STABLE</p>
+        <p>{{ selectedBlueprintVersionLabel() }}</p>
       </div>
     </section>
 
@@ -128,10 +128,53 @@
             <mat-icon>zoom_in</mat-icon>
             <span>Zoom In</span>
           </button>
-          <button class="shell-button shell-button--primary" type="button" (click)="save()" [disabled]="saving()">
-            {{ saving() ? 'Saving...' : 'Save Changes' }}
+          <button class="shell-button shell-button--primary" type="button" (click)="save()" [disabled]="!canSave()">
+            {{ saveButtonLabel() }}
           </button>
         </div>
+      </div>
+
+      <div class="canvas-stage__name-overlay" [class.is-readonly]="isBlueprintNameReadonly()">
+        <p class="canvas-stage__name-eyebrow">
+          {{ isBlueprintNameReadonly() ? 'Saved blueprint' : 'Draft blueprint' }}
+        </p>
+
+        @if (isEditingBlueprintName()) {
+          <label class="canvas-stage__name-editor">
+            <span class="sr-only">Blueprint name</span>
+            <input
+              #blueprintNameInput
+              type="text"
+              [attr.maxlength]="blueprintNameMaxLength"
+              [value]="blueprintNameDraft()"
+              placeholder="Click to name blueprint"
+              (input)="updateBlueprintNameDraft($any($event.target).value)"
+              (blur)="commitBlueprintNameEdit()"
+              (keydown)="onBlueprintNameKeydown($event)"
+            />
+          </label>
+        } @else if (isBlueprintNameReadonly()) {
+          <div class="canvas-stage__name-display">
+            <strong>{{ selectedBlueprintName() }}</strong>
+          </div>
+        } @else {
+          <button
+            class="canvas-stage__name-button"
+            type="button"
+            (click)="beginBlueprintNameEdit()"
+            aria-label="Name blueprint"
+          >
+            <span class="canvas-stage__name-button-label" [class.is-placeholder]="!hasBlueprintName()">
+              {{ hasBlueprintName() ? selectedBlueprintName() : 'Click to name blueprint' }}
+            </span>
+          </button>
+        }
+
+        @if (blueprintNameError()) {
+          <p class="canvas-stage__name-error">{{ blueprintNameError() }}</p>
+        } @else {
+          <p class="canvas-stage__name-support">{{ blueprintNameStatus() }}</p>
+        }
       </div>
 
       <app-blueprint-canvas

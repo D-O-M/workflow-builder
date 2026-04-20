@@ -85,7 +85,6 @@ public class BlueprintsController : ControllerBase
 
         var dto = new FullBlueprintVersion
         {
-            Name = model.Name,
             DefinitionId = model.BlueprintDefinitionId,
             Description = model.Description,
             TaskTree = BuildTaskTree(
@@ -159,6 +158,10 @@ public class BlueprintsController : ControllerBase
             var imported = await _blueprintPortabilityService.ImportBlueprintAsync(
                 model,
                 HttpContext.RequestAborted);
+            if (imported.Status == BlueprintImportStatus.DisplayNameConflict)
+            {
+                return Conflict(imported);
+            }
             return Ok(imported);
         }
         catch (BlueprintImportValidationException ex)

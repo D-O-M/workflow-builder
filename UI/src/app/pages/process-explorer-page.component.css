@@ -279,10 +279,25 @@
   align-items: flex-start;
 }
 
+.history-row__title-group {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
 .history-row__top strong {
   min-width: 0;
   font-size: 1rem;
   line-height: 1.3;
+}
+
+.history-row__title-group small {
+  color: var(--app-text-subtle);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .history-row__status,
@@ -498,11 +513,27 @@
   min-width: 0;
 }
 
+.process-surface__canvas-title-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.08rem;
+}
+
 .process-surface__canvas-title-group h2 {
   margin: 0;
   font-size: clamp(1.05rem, 1.6vw, 1.35rem);
   line-height: 1.15;
   letter-spacing: -0.05em;
+}
+
+.process-surface__canvas-title-copy p {
+  margin: 0;
+  color: var(--app-text-subtle);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .process-surface__info-button {

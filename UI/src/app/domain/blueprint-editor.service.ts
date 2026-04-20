@@ -35,6 +35,14 @@ interface BlueprintInputModel {
   tasks: BlueprintNodeInputModel[];
 }
 
+interface BlueprintVersionInputModel {
+  blueprintDefinitionId: number;
+  baseVersion?: number;
+  description?: string | null;
+  startingBlueprintNodeId: string;
+  tasks: BlueprintNodeInputModel[];
+}
+
 interface BlueprintConnectionViewModel {
   channelId?: number | null;
   channelName?: string | null;
@@ -58,7 +66,6 @@ interface BlueprintNodeViewModel {
 export interface BlueprintVersionViewModel {
   blueprintVersionId: number;
   blueprintDefinitionId: number;
-  name: string;
   description?: string | null;
   version: number;
   startingBlueprintNodeId: string;
@@ -86,9 +93,9 @@ export interface BlueprintProcessAcceptedViewModel {
 export interface ProcessSummaryViewModel {
   processId: string;
   blueprintDefinitionId: number;
+  blueprintName: string;
   blueprintVersionId: number;
   blueprintVersionNumber: number;
-  blueprintVersionName: string;
   status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   createdAt: string;
   updatedAt?: string | null;
@@ -117,9 +124,9 @@ export interface BlueprintProcessActivityPageViewModel {
 export interface BlueprintProcessHistoryEntryViewModel {
   processId: string;
   blueprintDefinitionId: number;
+  blueprintName: string;
   blueprintVersionId: number;
   blueprintVersionNumber: number;
-  blueprintVersionName: string;
   status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   createdAt: string;
   updatedAt?: string | null;
@@ -156,7 +163,6 @@ export interface ProcessDetailViewModel {
   blueprintName: string;
   blueprintVersionId: number;
   blueprintVersionNumber: number;
-  blueprintVersionName: string;
   status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   createdAt: string;
   updatedAt?: string | null;
@@ -229,13 +235,53 @@ export class BlueprintEditorService {
     return this.http.get<BlueprintViewModel>(`api/blueprints/${definitionId}`);
   }
 
-  saveBlueprintGraph(
+  createBlueprintGraph(
     name: string,
     startingNodeId: number,
     taskDefinitions: ITaskDefinition[],
     nodes: NodeModel[],
     connections: ConnectionModel[],
   ): Observable<BlueprintViewModel> {
+    const graph = this.buildGraphPayload(startingNodeId, taskDefinitions, nodes, connections);
+    const payload: BlueprintInputModel = {
+      name,
+      description: null,
+      startingBlueprintNodeId: graph.startingBlueprintNodeId,
+      tasks: graph.tasks,
+    };
+
+    return this.http.post<BlueprintViewModel>('api/blueprints', payload);
+  }
+
+  createBlueprintVersion(
+    definitionId: number,
+    baseVersion: number | null,
+    startingNodeId: number,
+    taskDefinitions: ITaskDefinition[],
+    nodes: NodeModel[],
+    connections: ConnectionModel[],
+  ): Observable<BlueprintVersionViewModel> {
+    const graph = this.buildGraphPayload(startingNodeId, taskDefinitions, nodes, connections);
+    const payload: BlueprintVersionInputModel = {
+      blueprintDefinitionId: definitionId,
+      ...(baseVersion ? { baseVersion } : {}),
+      description: null,
+      startingBlueprintNodeId: graph.startingBlueprintNodeId,
+      tasks: graph.tasks,
+    };
+
+    return this.http.post<BlueprintVersionViewModel>(`api/blueprints/${definitionId}/versions`, payload);
+  }
+
+  private buildGraphPayload(
+    startingNodeId: number,
+    taskDefinitions: ITaskDefinition[],
+    nodes: NodeModel[],
+    connections: ConnectionModel[],
+  ): {
+    startingBlueprintNodeId: string;
+    tasks: BlueprintNodeInputModel[];
+  } {
     const instanceIdByNodeId = new Map<number, string>(nodes.map((n) => [n.id, crypto.randomUUID()]));
 
     const tasks: BlueprintNodeInputModel[] = nodes.map((n) => ({
@@ -273,14 +319,10 @@ export class BlueprintEditorService {
       });
     }
 
-    const payload: BlueprintInputModel = {
-      name,
-      description: null,
+    return {
       startingBlueprintNodeId: instanceIdByNodeId.get(startingNodeId)!,
       tasks,
     };
-
-    return this.http.post<BlueprintViewModel>('api/blueprints', payload);
   }
 
   loadBlueprintGraph(definitionId: number, taskDefinitions: ITaskDefinition[]): Observable<BlueprintGraphDocument> {

@@ -53,7 +53,7 @@ public sealed class ProcessProjectionService
                     Guid.Parse(processRecord.ProcessId),
                     cancellationToken);
 
-                summaries.Add(BuildSummary(definition.Id, version, processRecord, tasks));
+                summaries.Add(BuildSummary(definition.Id, definition.DisplayName, version, processRecord, tasks));
             }
         }
 
@@ -166,7 +166,7 @@ public sealed class ProcessProjectionService
             {
                 version.Id,
                 version.Version,
-                version.Name,
+                BlueprintName = version.BlueprintDefinition.DisplayName,
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -181,9 +181,9 @@ public sealed class ProcessProjectionService
         {
             batch.Summaries.Add(BuildSummaryEvent(
                 blueprintDefinitionId,
+                versionMetadata.BlueprintName,
                 versionMetadata.Id,
                 versionMetadata.Version,
-                versionMetadata.Name,
                 processRecord,
                 processSteps));
         }
@@ -286,7 +286,6 @@ public sealed class ProcessProjectionService
             BlueprintName = definition.DisplayName,
             BlueprintVersionId = blueprintVersionEntity.Id,
             BlueprintVersionNumber = blueprintVersionEntity.Version,
-            BlueprintVersionName = blueprintVersionEntity.Name,
             Status = NormalizeProcessStatus(processRecord.Status, processSteps),
             CreatedAt = processRecord.CreatedAt,
             UpdatedAt = processRecord.UpdatedAt,
@@ -420,31 +419,32 @@ public sealed class ProcessProjectionService
 
     private static ProcessSummaryViewModel BuildSummary(
         int blueprintDefinitionId,
+        string blueprintName,
         BlueprintVersion blueprintVersion,
         ProcessInstanceRecord<Dictionary<string, JsonElement>> processRecord,
         IReadOnlyCollection<ProcessStepRecord> processSteps) =>
         BuildSummary(
             blueprintDefinitionId,
+            blueprintName,
             blueprintVersion.Id,
             blueprintVersion.Version,
-            blueprintVersion.Name,
             processRecord,
             processSteps);
 
     private static ProcessSummaryViewModel BuildSummary(
         int blueprintDefinitionId,
+        string blueprintName,
         int blueprintVersionId,
         int blueprintVersionNumber,
-        string blueprintVersionName,
         ProcessInstanceRecord<Dictionary<string, JsonElement>> processRecord,
         IReadOnlyCollection<ProcessStepRecord> processSteps) =>
         new()
         {
             ProcessId = Guid.Parse(processRecord.ProcessId),
             BlueprintDefinitionId = blueprintDefinitionId,
+            BlueprintName = blueprintName,
             BlueprintVersionId = blueprintVersionId,
             BlueprintVersionNumber = blueprintVersionNumber,
-            BlueprintVersionName = blueprintVersionName,
             Status = NormalizeProcessStatus(processRecord.Status, processSteps),
             CreatedAt = processRecord.CreatedAt,
             UpdatedAt = processRecord.UpdatedAt,
@@ -456,18 +456,18 @@ public sealed class ProcessProjectionService
 
     private static ProcessSummaryUpdatedEvent BuildSummaryEvent(
         int blueprintDefinitionId,
+        string blueprintName,
         int blueprintVersionId,
         int blueprintVersionNumber,
-        string blueprintVersionName,
         ProcessInstanceRecord<Dictionary<string, JsonElement>> processRecord,
         IReadOnlyCollection<ProcessStepRecord> processSteps) =>
         new()
         {
             ProcessId = Guid.Parse(processRecord.ProcessId),
             BlueprintDefinitionId = blueprintDefinitionId,
+            BlueprintName = blueprintName,
             BlueprintVersionId = blueprintVersionId,
             BlueprintVersionNumber = blueprintVersionNumber,
-            BlueprintVersionName = blueprintVersionName,
             Status = NormalizeProcessStatus(processRecord.Status, processSteps),
             CreatedAt = processRecord.CreatedAt,
             UpdatedAt = processRecord.UpdatedAt,

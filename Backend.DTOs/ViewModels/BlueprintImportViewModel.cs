@@ -6,4 +6,7 @@ public sealed class BlueprintImportViewModel
     public int BlueprintDefinitionId { get; init; }
     public int BlueprintVersionId { get; init; }
     public required string BlueprintKey { get; init; }
+    public string? StoredDisplayName { get; init; }
+    public string? ImportedDisplayName { get; init; }
+    public bool CanIgnoreImportedDisplayNameMismatch { get; init; }
 }

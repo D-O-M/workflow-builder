@@ -29,18 +29,18 @@ export interface NodeObservabilitySummaryViewModel {
   from: string;
   to: string;
   blueprintDefinitionId: number;
+  blueprintName: string;
   blueprintVersionId: number;
   blueprintVersionNumber: number;
-  blueprintVersionName: string;
   nodes: NodeObservabilitySummaryItemViewModel[];
 }
 
 export interface RecentProcessViewModel {
   processId: string;
   blueprintDefinitionId: number;
+  blueprintName: string;
   blueprintVersionId: number;
   blueprintVersionNumber: number;
-  blueprintVersionName: string;
   status: 'Completed' | 'Failed' | 'InProgress' | 'Pending';
   occurredAt: string;
   failureMessage?: string | null;

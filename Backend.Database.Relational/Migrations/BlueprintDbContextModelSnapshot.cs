@@ -125,10 +125,6 @@ namespace Backend.Database.Relational.Migrations
                     b.Property<int>("BlueprintDefinitionId")
                         .HasColumnType("int");
 
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<Guid?>("StartingBlueprintNodeId")
                         .HasColumnType("uniqueidentifier");
 

@@ -36,7 +36,7 @@ public class JobContext
     public int ExecutableBlueprintId => _message.ExecutableBlueprintId;
     public int BlueprintDefinitionId => _executableBlueprint.DefinitionId;
     public int BlueprintVersionNumber => _executableBlueprint.VersionNumber;
-    public string BlueprintVersionName => _executableBlueprint.Name;
+    public string BlueprintName => _executableBlueprint.Name;
     public Guid BlueprintNodeId => _message.BlueprintNodeId;
     public int ResolvedTaskVersionId => _blueprintNode.Value.ResolvedTaskVersionId;
     public int TaskDefinitionId => _blueprintNode.Value.TaskDefinitionId;

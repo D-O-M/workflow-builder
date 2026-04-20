@@ -196,9 +196,9 @@ public sealed class ProcessQueryService
             {
                 ProcessId = Guid.Parse(nextItem.ProcessId),
                 BlueprintDefinitionId = definition.Id,
+                BlueprintName = definition.DisplayName,
                 BlueprintVersionId = version.Id,
                 BlueprintVersionNumber = version.Version,
-                BlueprintVersionName = version.Name,
                 Status = nextItem.Status.ToString(),
                 CreatedAt = nextItem.CreatedAt,
                 UpdatedAt = nextItem.UpdatedAt,

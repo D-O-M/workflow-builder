@@ -12,9 +12,6 @@ public sealed class BlueprintInputModel
     [Required, MinLength(1)]
     public string Name { get; init; } = null!;
 
-    /// <summary>The initial version name to assign when creating a brand-new blueprint definition.</summary>
-    public string? VersionName { get; init; }
-
     /// <summary>The description of the blueprint.</summary>
     public string? Description { get; init; }
 

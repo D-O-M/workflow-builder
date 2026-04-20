@@ -52,7 +52,6 @@ public class BlueprintDbContext : DbContext
             entity.ToTable("BlueprintVersions");
             entity.HasKey(e => e.Id);
 
-            entity.Property(e => e.Name).IsRequired();
             entity.Property(e => e.Version).IsRequired();
 
             entity.HasIndex(e => new { e.BlueprintDefinitionId, e.Version })

@@ -121,7 +121,10 @@
                   (click)="selectProcess(process)"
                 >
                   <div class="history-row__top">
-                    <strong>{{ process.blueprintVersionName }}</strong>
+                    <div class="history-row__title-group">
+                      <strong>{{ process.blueprintName }}</strong>
+                      <small>Version {{ process.blueprintVersionNumber }}</small>
+                    </div>
                     <span
                       class="history-row__status"
                       [ngClass]="'history-row__status--' + process.status.toLowerCase()"
@@ -179,7 +182,10 @@
                   <div class="process-surface__canvas-summary-main">
                     <div class="process-surface__canvas-title-row">
                       <div class="process-surface__canvas-title-group">
-                        <h2>{{ process.blueprintVersionName }}</h2>
+                        <div class="process-surface__canvas-title-copy">
+                          <h2>{{ process.blueprintName }}</h2>
+                          <p>Version {{ process.blueprintVersionNumber }}</p>
+                        </div>
                         <button
                           #processInfoButton
                           mat-icon-button

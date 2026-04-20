@@ -1,8 +1,7 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "definitionKey": "showcase-town-weekend-recommendation",
   "displayName": "Showcase Town Weekend Recommendation",
-  "versionName": "Seed v1",
   "startingTaskKey": "11111111-1111-1111-1111-111111111111",
   "tasks": [
     {

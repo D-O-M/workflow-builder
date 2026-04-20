@@ -15,6 +15,7 @@ namespace Backend.API.Services;
 
 public sealed class BlueprintPortabilityService
 {
+    private const int CurrentSchemaVersion = 2;
     private static readonly JsonSerializerOptions CanonicalJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly BlueprintDbContext _context;
@@ -69,7 +70,6 @@ public sealed class BlueprintPortabilityService
     {
         var definitionKey = model.DefinitionKey.Trim();
         var displayName = model.DisplayName.Trim();
-        var versionName = model.VersionName.Trim();
 
         var importErrors = await ValidateImportAsync(model, cancellationToken);
         if (importErrors.Count > 0)
@@ -113,7 +113,6 @@ public sealed class BlueprintPortabilityService
         var validationModel = new BlueprintVersionInputModel
         {
             BlueprintDefinitionId = definition?.Id ?? 1,
-            Name = versionName,
             StartingBlueprintNodeId = model.StartingTaskKey,
             Tasks = mappedTasks
         };
@@ -127,14 +126,27 @@ public sealed class BlueprintPortabilityService
 
         if (definition is not null)
         {
-            definition.DisplayName = displayName;
+            if (!string.Equals(definition.DisplayName, displayName, StringComparison.Ordinal) &&
+                !model.IgnoreImportedDisplayNameMismatch)
+            {
+                return new BlueprintImportViewModel
+                {
+                    Status = BlueprintImportStatus.DisplayNameConflict,
+                    BlueprintDefinitionId = definition.Id,
+                    BlueprintVersionId = 0,
+                    BlueprintKey = definition.Key,
+                    StoredDisplayName = definition.DisplayName,
+                    ImportedDisplayName = displayName,
+                    CanIgnoreImportedDisplayNameMismatch = true,
+                };
+            }
+
             var importedSignature = CreateCanonicalSignature(model);
 
             foreach (var existingVersion in definition.Versions.OrderByDescending(version => version.Version))
             {
                 if (CreateCanonicalSignature(MapExportedBlueprint(definition, existingVersion)) == importedSignature)
                 {
-                    await _context.SaveChangesAsync(cancellationToken);
                     return new BlueprintImportViewModel
                     {
                         Status = BlueprintImportStatus.MatchedExistingVersion,
@@ -163,7 +175,6 @@ public sealed class BlueprintPortabilityService
             {
                 Key = definitionKey,
                 Name = displayName,
-                VersionName = versionName,
                 StartingBlueprintNodeId = model.StartingTaskKey,
                 Tasks = mappedTasks
             },
@@ -189,11 +200,11 @@ public sealed class BlueprintPortabilityService
     {
         var errors = new List<BlueprintImportValidationError>();
 
-        if (model.SchemaVersion != 1)
+        if (model.SchemaVersion != CurrentSchemaVersion)
         {
             errors.Add(new BlueprintImportValidationError(
                 BlueprintImportErrorCodes.UnsupportedSchemaVersion,
-                "Only schemaVersion 1 is supported.",
+                $"Only schemaVersion {CurrentSchemaVersion} is supported.",
                 nameof(model.SchemaVersion)));
         }
 
@@ -211,14 +222,6 @@ public sealed class BlueprintPortabilityService
                 BlueprintImportErrorCodes.DisplayNameMissing,
                 "displayName is required.",
                 nameof(model.DisplayName)));
-        }
-
-        if (string.IsNullOrWhiteSpace(model.VersionName))
-        {
-            errors.Add(new BlueprintImportValidationError(
-                BlueprintImportErrorCodes.VersionNameMissing,
-                "versionName is required.",
-                nameof(model.VersionName)));
         }
 
         var tasksByKey = new Dictionary<Guid, ExportedBlueprintNodeInputModel>();
@@ -341,10 +344,9 @@ public sealed class BlueprintPortabilityService
     {
         return new ExportedBlueprintViewModel
         {
-            SchemaVersion = 1,
+            SchemaVersion = CurrentSchemaVersion,
             DefinitionKey = definition.Key,
             DisplayName = definition.DisplayName,
-            VersionName = version.Name,
             StartingTaskKey = version.StartingBlueprintNodeId ?? Guid.Empty,
             Tasks = version.BlueprintNodes
                 .OrderBy(task => task.Id)
@@ -383,7 +385,6 @@ public sealed class BlueprintPortabilityService
         var comparable = new ComparableBlueprint
         {
             DefinitionKey = model.DefinitionKey.Trim(),
-            VersionName = model.VersionName.Trim(),
             StartingTaskKey = model.StartingTaskKey,
             Tasks = model.Tasks
                 .Select(task => new ComparableTask
@@ -422,7 +423,6 @@ public sealed class BlueprintPortabilityService
         var comparable = new ComparableBlueprint
         {
             DefinitionKey = model.DefinitionKey,
-            VersionName = model.VersionName,
             StartingTaskKey = model.StartingTaskKey,
             Tasks = model.Tasks
                 .Select(task => new ComparableTask
@@ -464,7 +464,6 @@ public sealed class BlueprintPortabilityService
         return new FullBlueprintVersion
         {
             DefinitionId = blueprintDefinitionId,
-            Name = model.Name,
             TaskTree = BuildTaskTree(taskModelsByInstanceId[model.StartingBlueprintNodeId], taskModelsByInstanceId)
         };
     }
@@ -506,7 +505,6 @@ public sealed class BlueprintPortabilityService
     private sealed class ComparableBlueprint
     {
         public required string DefinitionKey { get; init; }
-        public required string VersionName { get; init; }
         public required Guid StartingTaskKey { get; init; }
         public required List<ComparableTask> Tasks { get; init; }
     }

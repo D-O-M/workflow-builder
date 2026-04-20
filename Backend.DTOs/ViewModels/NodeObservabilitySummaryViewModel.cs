@@ -6,9 +6,9 @@ public sealed class NodeObservabilitySummaryViewModel
     public required DateTimeOffset From { get; init; }
     public required DateTimeOffset To { get; init; }
     public required int BlueprintDefinitionId { get; init; }
+    public required string BlueprintName { get; init; }
     public required int BlueprintVersionId { get; init; }
     public required int BlueprintVersionNumber { get; init; }
-    public required string BlueprintVersionName { get; init; }
     public List<NodeObservabilitySummaryItemViewModel> Nodes { get; init; } = [];
 }
 

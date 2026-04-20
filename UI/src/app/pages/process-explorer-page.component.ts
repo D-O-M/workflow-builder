@@ -198,9 +198,9 @@ export class ProcessExplorerPageComponent {
         rowsByProcessId.set(update.processId, {
           processId: update.processId,
           blueprintDefinitionId: update.blueprintDefinitionId,
+          blueprintName: update.blueprintName,
           blueprintVersionId: update.blueprintVersionId,
           blueprintVersionNumber: update.blueprintVersionNumber,
-          blueprintVersionName: update.blueprintVersionName,
           status: update.status,
           createdAt: existingRow?.createdAt ?? update.createdAt,
           updatedAt: update.updatedAt ?? existingRow?.updatedAt ?? null,
@@ -268,9 +268,9 @@ export class ProcessExplorerPageComponent {
 
     return {
       ...process,
+      blueprintName: summaryOverride?.blueprintName ?? process.blueprintName,
       blueprintVersionId: summaryOverride?.blueprintVersionId ?? process.blueprintVersionId,
       blueprintVersionNumber: summaryOverride?.blueprintVersionNumber ?? process.blueprintVersionNumber,
-      blueprintVersionName: summaryOverride?.blueprintVersionName ?? process.blueprintVersionName,
       status: summaryOverride?.status ?? process.status,
       updatedAt: summaryOverride?.updatedAt ?? process.updatedAt,
       nodes: process.nodes.map((node) => {

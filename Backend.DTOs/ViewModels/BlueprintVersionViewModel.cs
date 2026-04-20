@@ -8,8 +8,6 @@ public sealed class BlueprintVersionViewModel
     /// <summary>Owning blueprint definition (BlueprintDefinitions.Id).</summary>
     public int BlueprintDefinitionId { get; init; }
 
-    public required string Name { get; init; }
-
     public string? Description { get; init; }
 
     /// <summary>Monotonic version number for the blueprint definition (BlueprintVersions.Version).</summary>

@@ -4,7 +4,6 @@ public class FullBlueprintVersion
 {
     public int Id { get; set; }
     public int DefinitionId { get; set; }
-    public required string Name { get; set; }
     public string? Description { get; set; }
     public int Version { get; set; }
     public int StartingBlueprintNodeId { get; set; }

@@ -62,6 +62,7 @@ public sealed class ObservabilityQueryService
         var latestBlueprintVersion = await _dbContext.BlueprintVersions
             .Where(version => version.BlueprintDefinitionId == blueprintDefinitionId)
             .OrderByDescending(version => version.Version)
+            .Include(version => version.BlueprintDefinition)
             .Include(version => version.BlueprintNodes)
                 .ThenInclude(taskInstance => taskInstance.TaskDefinition)
             .AsNoTracking()
@@ -109,9 +110,9 @@ public sealed class ObservabilityQueryService
             From = range.From,
             To = range.To,
             BlueprintDefinitionId = blueprintDefinitionId,
+            BlueprintName = latestBlueprintVersion.BlueprintDefinition.DisplayName,
             BlueprintVersionId = latestBlueprintVersion.Id,
             BlueprintVersionNumber = latestBlueprintVersion.Version,
-            BlueprintVersionName = latestBlueprintVersion.Name,
             Nodes = summaries,
         };
     }
@@ -141,9 +142,9 @@ public sealed class ObservabilityQueryService
             {
                 ProcessId = entry.ProcessId,
                 BlueprintDefinitionId = entry.BlueprintDefinitionId,
+                BlueprintName = entry.BlueprintName,
                 BlueprintVersionId = entry.BlueprintVersionId,
                 BlueprintVersionNumber = entry.BlueprintVersionNumber,
-                BlueprintVersionName = entry.BlueprintVersionName,
                 Status = entry.Status,
                 OccurredAt = entry.Timestamp,
                 FailureMessage = entry.FailureMessage,
@@ -450,9 +451,9 @@ public sealed class ObservabilityQueryService
         {
             return processLifecycle.EventName switch
             {
-                "process.started" => $"Process started: {processLifecycle.BlueprintVersionName}",
-                "process.completed" => $"Process completed: {processLifecycle.BlueprintVersionName}",
-                "process.failed" => $"Process failed: {processLifecycle.BlueprintVersionName} - {processLifecycle.FailureMessage}",
+                "process.started" => $"Process started: {processLifecycle.BlueprintName}",
+                "process.completed" => $"Process completed: {processLifecycle.BlueprintName}",
+                "process.failed" => $"Process failed: {processLifecycle.BlueprintName} - {processLifecycle.FailureMessage}",
                 _ => rawMessage,
             };
         }
@@ -483,9 +484,9 @@ public sealed class ObservabilityQueryService
                     : timestampFallback ?? DateTimeOffset.UtcNow,
                 ProcessId = GetRequiredGuid(root, "processId"),
                 BlueprintDefinitionId = GetRequiredInt32(root, "blueprintDefinitionId"),
+                BlueprintName = GetRequiredString(root, "blueprintName", "blueprintVersionName"),
                 BlueprintVersionId = GetRequiredInt32(root, "blueprintVersionId"),
                 BlueprintVersionNumber = GetRequiredInt32(root, "blueprintVersionNumber"),
-                BlueprintVersionName = GetRequiredString(root, "blueprintVersionName"),
                 Status = GetRequiredString(root, "status"),
                 ProcessOutcome = GetOptionalString(root, "processOutcome"),
                 FailureMessage = GetOptionalString(root, "failureMessage"),
@@ -522,9 +523,9 @@ public sealed class ObservabilityQueryService
                 ProcessStepId = GetRequiredGuid(root, "processStepId"),
                 BlueprintNodeId = GetRequiredGuid(root, "blueprintNodeId"),
                 BlueprintDefinitionId = GetRequiredInt32(root, "blueprintDefinitionId"),
+                BlueprintName = GetRequiredString(root, "blueprintName", "blueprintVersionName"),
                 BlueprintVersionId = GetRequiredInt32(root, "blueprintVersionId"),
                 BlueprintVersionNumber = GetRequiredInt32(root, "blueprintVersionNumber"),
-                BlueprintVersionName = GetRequiredString(root, "blueprintVersionName"),
                 StepName = GetRequiredString(root, "stepName"),
                 PluginName = GetRequiredString(root, "pluginName"),
                 TaskDefinitionId = GetRequiredInt32(root, "taskDefinitionId"),
@@ -542,10 +543,26 @@ public sealed class ObservabilityQueryService
         }
     }
 
-    private static string GetRequiredString(JsonElement root, string propertyName) =>
-        root.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
-            ? property.GetString() ?? throw new InvalidOperationException($"Property '{propertyName}' is null.")
-            : throw new InvalidOperationException($"Property '{propertyName}' was not present.");
+    private static string GetRequiredString(
+        JsonElement root,
+        string propertyName,
+        string? fallbackPropertyName = null)
+    {
+        if (root.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String)
+        {
+            return property.GetString() ?? throw new InvalidOperationException($"Property '{propertyName}' is null.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(fallbackPropertyName) &&
+            root.TryGetProperty(fallbackPropertyName, out var fallbackProperty) &&
+            fallbackProperty.ValueKind == JsonValueKind.String)
+        {
+            return fallbackProperty.GetString()
+                ?? throw new InvalidOperationException($"Property '{fallbackPropertyName}' is null.");
+        }
+
+        throw new InvalidOperationException($"Property '{propertyName}' was not present.");
+    }
 
     private static string? GetOptionalString(JsonElement root, string propertyName)
     {

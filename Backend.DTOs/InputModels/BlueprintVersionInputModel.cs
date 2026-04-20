@@ -16,10 +16,6 @@ public sealed class BlueprintVersionInputModel
     [Range(1, int.MaxValue)]
     public int? BaseVersion { get; init; }
 
-    /// <summary>The name of the blueprint.</summary>
-    [Required, MinLength(1)]
-    public string Name { get; init; } = null!;
-
     /// <summary>The description of the blueprint.</summary>
     public string? Description { get; init; }
 

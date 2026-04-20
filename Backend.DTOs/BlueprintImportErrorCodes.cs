@@ -5,7 +5,6 @@ public static class BlueprintImportErrorCodes
     public const string UnsupportedSchemaVersion = "blueprint.import.schema.unsupported";
     public const string DefinitionKeyMissing = "blueprint.import.definitionKey.missing";
     public const string DisplayNameMissing = "blueprint.import.displayName.missing";
-    public const string VersionNameMissing = "blueprint.import.versionName.missing";
     public const string StartingTaskMissing = "blueprint.import.start.missing";
     public const string TaskKeyDuplicate = "blueprint.import.taskKey.duplicate";
     public const string TaskDefinitionMissing = "blueprint.import.taskDefinition.missing";

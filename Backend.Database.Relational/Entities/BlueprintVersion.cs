@@ -8,7 +8,6 @@ public class BlueprintVersion
     public BlueprintDefinition BlueprintDefinition { get; set; } = null!;
 
     public int Version { get; set; }
-    public string Name { get; set; } = null!;
 
     public Guid? StartingBlueprintNodeId { get; set; }
     public BlueprintNode? StartingBlueprintNode { get; set; }

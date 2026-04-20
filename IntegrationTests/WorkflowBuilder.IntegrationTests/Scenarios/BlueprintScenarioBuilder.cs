@@ -88,7 +88,6 @@ internal static class BlueprintScenarioBuilder
         {
             BlueprintDefinitionId = createdBlueprint.Id,
             BaseVersion = 1,
-            Name = $"{blueprintName} v2",
             Description = "Versioned integration test blueprint",
             StartingBlueprintNodeId = firstTaskIdV2,
             Tasks =

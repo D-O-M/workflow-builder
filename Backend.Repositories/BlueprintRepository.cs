@@ -31,6 +31,7 @@ public class BlueprintRepository : IBlueprintRepository
     {
         var blueprintVersionEntity = await _context.BlueprintVersions
             .AsNoTracking()
+            .Include(version => version.BlueprintDefinition)
             .FirstOrDefaultAsync(bv => bv.Id == id, cancellationToken);
 
         if (blueprintVersionEntity is null)
@@ -137,7 +138,7 @@ public class BlueprintRepository : IBlueprintRepository
             DefinitionId = blueprintVersionEntity.BlueprintDefinitionId,
             VersionNumber = blueprintVersionEntity.Version,
 
-            Name = blueprintVersionEntity.Name,
+            Name = blueprintVersionEntity.BlueprintDefinition.DisplayName,
 
             // Old code referenced Description; your DBML no longer has it.
             // If DTO requires it, populate empty/placeholder or pull from BlueprintDefinition if you add it.
@@ -228,14 +229,9 @@ public class BlueprintRepository : IBlueprintRepository
             DisplayName = displayName,
         };
 
-        var versionName = string.IsNullOrWhiteSpace(model.VersionName)
-            ? displayName
-            : model.VersionName.Trim();
-
         var blueprintVersion = await AddVersionEntities(
             definition,
             versionNumber: 1,
-            name: versionName,
             startingBlueprintNodeId: model.StartingBlueprintNodeId,
             tasks: model.Tasks,
             cancellationToken);
@@ -291,7 +287,6 @@ public class BlueprintRepository : IBlueprintRepository
         var createdVersion = await AddVersionEntities(
             definition,
             nextVersion,
-            model.Name,
             model.TaskTree.InstanceId,
             tasks,
             cancellationToken);
@@ -316,7 +311,6 @@ public class BlueprintRepository : IBlueprintRepository
     private async Task<BlueprintVersion> AddVersionEntities(
         BlueprintDefinition definition,
         int versionNumber,
-        string name,
         Guid startingBlueprintNodeId,
         List<BlueprintNodeInputModel> tasks,
         CancellationToken cancellationToken)
@@ -325,7 +319,6 @@ public class BlueprintRepository : IBlueprintRepository
         {
             BlueprintDefinition = definition,
             Version = versionNumber,
-            Name = name,
         };
 
         // BlueprintNodes
@@ -453,7 +446,6 @@ public class BlueprintRepository : IBlueprintRepository
         {
             BlueprintVersionId = version.Id,
             BlueprintDefinitionId = version.BlueprintDefinitionId,
-            Name = version.Name,
             Description = null,
             Version = version.Version,
             StartingBlueprintNodeId = version.StartingBlueprintNodeId ?? Guid.Empty,

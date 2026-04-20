@@ -337,6 +337,105 @@
   gap: 0.45rem;
 }
 
+.canvas-stage__name-overlay {
+  position: absolute;
+  top: 6.15rem;
+  left: 1.5rem;
+  z-index: 3;
+  display: flex;
+  width: min(25rem, calc(100% - 3rem));
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem 1.1rem;
+  border-radius: 1.15rem;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 18px 32px rgba(85, 111, 188, 0.12),
+    inset 0 0 0 1px rgba(87, 121, 222, 0.08);
+}
+
+.canvas-stage__name-overlay.is-readonly {
+  background: rgba(246, 248, 255, 0.96);
+}
+
+.canvas-stage__name-eyebrow {
+  margin: 0;
+  color: #3657d6;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.canvas-stage__name-display strong,
+.canvas-stage__name-button-label {
+  display: block;
+  min-width: 0;
+  color: #10234a;
+  font-size: clamp(1.1rem, 1.8vw, 1.45rem);
+  font-weight: 700;
+  letter-spacing: -0.05em;
+  line-height: 1.08;
+  word-break: break-word;
+}
+
+.canvas-stage__name-button,
+.canvas-stage__name-editor {
+  display: flex;
+  width: 100%;
+}
+
+.canvas-stage__name-button {
+  align-items: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.canvas-stage__name-button-label.is-placeholder {
+  color: var(--app-text-subtle);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.canvas-stage__name-editor input {
+  width: 100%;
+  min-height: 3.3rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid rgba(87, 121, 222, 0.18);
+  border-radius: 0.95rem;
+  background: rgba(255, 255, 255, 0.98);
+  color: #10234a;
+  font: inherit;
+  font-size: 1.08rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.canvas-stage__name-editor input:focus {
+  outline: none;
+  border-color: #3556d8;
+  box-shadow: 0 0 0 4px rgba(53, 86, 216, 0.12);
+}
+
+.canvas-stage__name-support,
+.canvas-stage__name-error {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.canvas-stage__name-support {
+  color: var(--app-text-subtle);
+}
+
+.canvas-stage__name-error {
+  color: #b42318;
+  font-weight: 700;
+}
+
 .canvas-stage__hint {
   position: absolute;
   right: 1.5rem;
@@ -569,6 +668,12 @@
   .canvas-stage__hint {
     left: 1.2rem;
     right: auto;
+  }
+
+  .canvas-stage__name-overlay {
+    top: 8rem;
+    left: 1.2rem;
+    width: min(24rem, calc(100% - 2.4rem));
   }
 
   .right-rail {

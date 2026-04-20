@@ -31,7 +31,6 @@ public sealed class BlueprintVersionGraphValidatorTests
         => new()
         {
             BlueprintDefinitionId = 1,
-            Name = "bp",
             StartingBlueprintNodeId = start,
             Tasks = tasks.ToList()
         };

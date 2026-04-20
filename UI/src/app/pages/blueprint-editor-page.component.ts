@@ -1,4 +1,13 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -39,6 +48,8 @@ const SUPPORT_LINKS: SidebarShortcut[] = [
   { icon: 'help', label: 'Support' },
 ];
 
+const BLUEPRINT_NAME_MAX_LENGTH = 100;
+
 @Component({
   selector: 'app-blueprint-editor-page',
   imports: [
@@ -61,12 +72,18 @@ export class BlueprintEditorPageComponent {
   private readonly taskDefinitions = inject(TaskDefinitionsService);
   private readonly builderInput = inject(BuilderInputService);
   private readonly canvasViewport = viewChild(BlueprintCanvasComponent);
+  private readonly blueprintNameInput = viewChild<ElementRef<HTMLInputElement>>('blueprintNameInput');
   private readonly gridSize = 20;
 
+  protected readonly blueprintNameMaxLength = BLUEPRINT_NAME_MAX_LENGTH;
   protected readonly saving = signal(false);
   protected readonly blueprints = signal<BlueprintViewModel[]>([]);
   protected readonly selectedBlueprintId = signal<number | null>(null);
   protected readonly drawerCollapsed = signal(false);
+  protected readonly committedBlueprintName = signal('');
+  protected readonly blueprintNameDraft = signal('');
+  protected readonly isEditingBlueprintName = signal(false);
+  protected readonly blueprintNameTouched = signal(false);
   protected readonly tasks = toSignal(this.taskDefinitions.getTaskDefinitions(), { initialValue: [] as ITaskDefinition[] });
   protected readonly blueprintSearch = new FormControl('', { nonNullable: true });
   protected readonly zoomPercent = computed(() => this.canvasViewport()?.zoomPercent() ?? 100);
@@ -76,11 +93,17 @@ export class BlueprintEditorPageComponent {
   protected readonly taskLibrarySections = computed(() =>
     this.groupTaskDefinitions(this.tasks()),
   );
-  protected readonly selectedBlueprintName = computed(() => {
-    const selectedId = this.selectedBlueprintId();
-    const match = this.blueprints().find((blueprint) => blueprint.id === selectedId);
-    return match?.name ?? 'User Onboarding';
-  });
+  protected readonly selectedBlueprint = computed<BlueprintViewModel | null>(() =>
+    this.blueprints().find((blueprint) => blueprint.id === this.selectedBlueprintId()) ?? null,
+  );
+  protected readonly isBlueprintNameReadonly = computed(() => this.selectedBlueprintId() !== null);
+  protected readonly normalizedBlueprintName = computed(() =>
+    (this.isEditingBlueprintName() ? this.blueprintNameDraft() : this.committedBlueprintName()).trim(),
+  );
+  protected readonly hasBlueprintName = computed(() => this.normalizedBlueprintName().length > 0);
+  protected readonly selectedBlueprintName = computed(() =>
+    this.committedBlueprintName().trim() || 'Untitled Blueprint',
+  );
   protected readonly activeNodeCount = computed(() => this.editorStore.nodes().length);
   protected readonly activeChannelCount = computed(() => this.editorStore.connections().length);
   protected readonly availableChannelCount = computed(() =>
@@ -90,18 +113,80 @@ export class BlueprintEditorPageComponent {
   protected readonly canCopy = this.editorStore.canCopy;
   protected readonly canPaste = this.editorStore.canPaste;
   protected readonly canDelete = this.editorStore.canDelete;
+  protected readonly selectedBlueprintVersionLabel = computed(() => {
+    if (!this.isBlueprintNameReadonly()) {
+      return 'Unsaved draft';
+    }
+
+    const version = this.selectedBlueprint()?.versions[0]?.version;
+    return version ? `Version ${version}` : 'Saved blueprint';
+  });
+  protected readonly blueprintNameStatus = computed(() => {
+    if (this.isBlueprintNameReadonly()) {
+      const version = this.selectedBlueprint()?.versions[0]?.version;
+      return version
+        ? `Version ${version} · Name locked after first save`
+        : 'Name locked after first save';
+    }
+
+    if (this.activeNodeCount() === 0 && !this.hasBlueprintName()) {
+      return 'Name the blueprint and add a node to create it.';
+    }
+
+    if (this.activeNodeCount() === 0) {
+      return 'Add at least one node to create this blueprint.';
+    }
+
+    if (!this.hasBlueprintName()) {
+      return 'Blueprint name is required before the first save.';
+    }
+
+    return 'This name becomes read-only after the first save.';
+  });
+  protected readonly blueprintNameError = computed(() =>
+    this.blueprintNameTouched() && !this.hasBlueprintName()
+      ? 'Blueprint name is required.'
+      : null,
+  );
+  protected readonly saveButtonLabel = computed(() => {
+    if (this.saving()) {
+      return 'Saving...';
+    }
+
+    return this.isBlueprintNameReadonly() ? 'Save New Version' : 'Create Blueprint';
+  });
+  protected readonly canSave = computed(() =>
+    !this.saving() &&
+    this.activeNodeCount() > 0 &&
+    this.hasBlueprintName(),
+  );
   protected readonly projectInitial = computed(() =>
-    this.selectedBlueprintName().trim().charAt(0).toUpperCase() || 'A',
+    this.selectedBlueprintName().trim().charAt(0).toUpperCase() || 'B',
   );
 
   constructor() {
     void this.builderInput;
+    effect(() => {
+      if (!this.isEditingBlueprintName()) {
+        return;
+      }
+
+      this.scheduleUiTask(() => {
+        const input = this.blueprintNameInput()?.nativeElement;
+        input?.focus();
+        input?.select();
+      });
+    });
+
     void this.refreshBlueprints();
   }
 
   protected async save(): Promise<void> {
     const nodes = this.editorStore.nodes();
-    if (nodes.length === 0) {
+    const blueprintName = this.normalizedBlueprintName();
+
+    this.blueprintNameTouched.set(true);
+    if (nodes.length === 0 || !blueprintName) {
       return;
     }
 
@@ -109,19 +194,41 @@ export class BlueprintEditorPageComponent {
     const destinationNodeIds = new Set(connections.map((connection) => connection.to.id));
     const rootNodes = nodes.filter((node) => !destinationNodeIds.has(node.id));
     const startingNodeId = rootNodes[0]?.id ?? nodes[0].id;
-    const blueprintName = `Blueprint ${new Date().toISOString()}`;
+    let persistedDefinitionId = this.selectedBlueprintId();
 
     this.saving.set(true);
     try {
-      const created = await firstValueFrom(this.editor.saveBlueprintGraph(
-        blueprintName,
-        startingNodeId,
-        this.tasks(),
-        nodes,
-        connections,
-      ));
-      this.selectedBlueprintId.set(created.id);
+      if (persistedDefinitionId === null) {
+        const created = await firstValueFrom(this.editor.createBlueprintGraph(
+          blueprintName,
+          startingNodeId,
+          this.tasks(),
+          nodes,
+          connections,
+        ));
+        persistedDefinitionId = created.id;
+        this.selectedBlueprintId.set(created.id);
+      } else {
+        await firstValueFrom(this.editor.createBlueprintVersion(
+          persistedDefinitionId,
+          this.selectedBlueprint()?.versions[0]?.version ?? null,
+          startingNodeId,
+          this.tasks(),
+          nodes,
+          connections,
+        ));
+      }
+
       await this.refreshBlueprints();
+      if (persistedDefinitionId !== null) {
+        const persistedBlueprint = this.blueprints().find((blueprint) => blueprint.id === persistedDefinitionId);
+        this.selectedBlueprintId.set(persistedDefinitionId);
+        this.setBlueprintName(persistedBlueprint?.name ?? blueprintName);
+      }
+
+      this.isEditingBlueprintName.set(false);
+      this.blueprintNameTouched.set(false);
+      this.scheduleUiTask(() => this.canvasViewport()?.focusCanvas());
     } finally {
       this.saving.set(false);
     }
@@ -131,7 +238,10 @@ export class BlueprintEditorPageComponent {
     const graph = await firstValueFrom(this.editor.loadBlueprintGraph(blueprintId, this.tasks()));
     this.editorStore.loadGraph(graph.nodes, graph.connections);
     this.selectedBlueprintId.set(graph.blueprint.id);
-    requestAnimationFrame(() => {
+    this.setBlueprintName(graph.blueprint.name);
+    this.isEditingBlueprintName.set(false);
+    this.blueprintNameTouched.set(false);
+    this.scheduleUiTask(() => {
       this.canvasViewport()?.resetView();
       this.canvasViewport()?.focusCanvas();
     });
@@ -140,7 +250,53 @@ export class BlueprintEditorPageComponent {
   protected newBlueprint(): void {
     this.selectedBlueprintId.set(null);
     this.editorStore.clearGraph();
-    requestAnimationFrame(() => this.canvasViewport()?.focusCanvas());
+    this.clearBlueprintName();
+    this.scheduleUiTask(() => this.canvasViewport()?.focusCanvas());
+  }
+
+  protected beginBlueprintNameEdit(): void {
+    if (this.isBlueprintNameReadonly() || this.saving()) {
+      return;
+    }
+
+    this.blueprintNameDraft.set(this.committedBlueprintName());
+    this.isEditingBlueprintName.set(true);
+  }
+
+  protected commitBlueprintNameEdit(): void {
+    if (this.isBlueprintNameReadonly()) {
+      return;
+    }
+
+    this.setBlueprintName(this.blueprintNameDraft());
+    this.isEditingBlueprintName.set(false);
+    this.blueprintNameTouched.set(true);
+  }
+
+  protected cancelBlueprintNameEdit(): void {
+    if (this.isBlueprintNameReadonly()) {
+      return;
+    }
+
+    this.blueprintNameDraft.set(this.committedBlueprintName());
+    this.isEditingBlueprintName.set(false);
+  }
+
+  protected updateBlueprintNameDraft(value: string): void {
+    this.blueprintNameDraft.set(value.slice(0, this.blueprintNameMaxLength));
+  }
+
+  protected onBlueprintNameKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      this.commitBlueprintNameEdit();
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.cancelBlueprintNameEdit();
+    }
   }
 
   protected toggleDrawer(): void {
@@ -161,7 +317,7 @@ export class BlueprintEditorPageComponent {
         y: viewportCenter.y + stagger * 0.45,
       },
     );
-    requestAnimationFrame(() => {
+    this.scheduleUiTask(() => {
       this.canvasViewport()?.centerOnNode(node.id);
       this.canvasViewport()?.focusCanvas();
     });
@@ -216,6 +372,28 @@ export class BlueprintEditorPageComponent {
   private async refreshBlueprints(): Promise<void> {
     const blueprints = await firstValueFrom(this.editor.getBlueprints());
     this.blueprints.set(blueprints);
+  }
+
+  private setBlueprintName(name: string): void {
+    const normalizedName = name.trim().slice(0, this.blueprintNameMaxLength);
+    this.committedBlueprintName.set(normalizedName);
+    this.blueprintNameDraft.set(normalizedName);
+  }
+
+  private clearBlueprintName(): void {
+    this.committedBlueprintName.set('');
+    this.blueprintNameDraft.set('');
+    this.isEditingBlueprintName.set(false);
+    this.blueprintNameTouched.set(false);
+  }
+
+  private scheduleUiTask(task: () => void): void {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(task);
+      return;
+    }
+
+    queueMicrotask(task);
   }
 
   private filterBlueprints(

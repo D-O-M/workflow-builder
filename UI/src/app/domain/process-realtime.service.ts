@@ -6,9 +6,9 @@ import { RuntimeClientConfigService } from './runtime-client-config.service';
 export interface ProcessSummaryUpdatedEvent {
   processId: string;
   blueprintDefinitionId: number;
+  blueprintName: string;
   blueprintVersionId: number;
   blueprintVersionNumber: number;
-  blueprintVersionName: string;
   status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   createdAt: string;
   updatedAt?: string | null;
