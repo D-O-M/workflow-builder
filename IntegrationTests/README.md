@@ -7,12 +7,10 @@ This folder contains the backend integration test workflows for the workflow run
 `WorkflowBuilder.IntegrationTests/` is the primary integration suite.
 
 It uses:
-- real API and real engine hosted in-process
+- the real `Backend.AppHost` distributed topology through `Aspire.Hosting.Testing`
 - deterministic integration-test plugin bundles from `Plugins/`
-- direct plugin registration through `IPluginBundleProcessingService`
-- SQLite for relational persistence
-- in-memory workflow/task state repositories mirrored to files for plugin-owned hydration
-- an in-memory queue that preserves the engine queue contract
+- blob upload through the real ingestion pipeline
+- real SQL, Cosmos, storage, Service Bus, SignalR, and function wiring from the main AppHost
 
 This lane is the one we expect developers and CI to run by default.
 
@@ -42,16 +40,8 @@ Use `-NoBuild` when you already have a fresh build and want a quicker rerun:
 ./IntegrationTests/scripts/run-integration-tests.ps1 -NoBuild
 ```
 
-## Manual smoke lane
+## Legacy smoke lane
 
-`WorkflowBuilder.IntegrationTests.AppHost/` is kept only as a manual AppHost/emulator smoke path.
+`WorkflowBuilder.IntegrationTests.AppHost/` is a legacy manual smoke path and is no longer the primary integration harness.
 
-It is not the default integration lane and it is not required for normal CI or day-to-day development. Use it only when you want a quick confidence check that the external Aspire wiring still boots.
-
-Run the manual smoke lane with:
-
-```powershell
-./IntegrationTests/scripts/run-apphost-smoke.ps1
-```
-
-This smoke path expects local AppHost-compatible configuration and Docker/emulator support.
+The real `Backend.AppHost` is now the source of truth for distributed test topology.

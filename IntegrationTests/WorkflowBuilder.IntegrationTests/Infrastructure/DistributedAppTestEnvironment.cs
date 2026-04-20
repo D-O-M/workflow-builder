@@ -1,81 +1,72 @@
 using System.Net.Http.Json;
+using System.Diagnostics;
 using System.Text.Json;
-using Backend.Database.Relational;
+using Aspire.Hosting;
+using Aspire.Hosting.ApplicationModel;
+using Aspire.Hosting.Testing;
+using Azure.Storage.Blobs;
 using Backend.Database.State.Objects;
-using Backend.Engine;
-using Backend.Interfaces.Queues;
-using Backend.Interfaces.Repositories;
-using Backend.Interfaces.Utilities;
-using Backend.Models;
 using Backend.Models.ViewModels;
 using Backend.Repositories;
-using Backend.Services;
-using Backend.Utilities;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace WorkflowBuilder.IntegrationTests.Infrastructure;
 
 internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
 {
-    private readonly string _databasePath;
-    private readonly string _pluginStateRootPath;
-    private readonly string _sqliteConnectionString;
-    private readonly InMemoryTaskInstanceRepository _taskRepository;
-    private readonly InMemoryWorkflowInstanceRepository _workflowRepository;
-    private readonly WorkflowApiFactory _factory;
+    private const string CosmosResourceName = "integration-cosmos";
+    private const string CosmosConnectionName = CosmosDatabaseName;
+    private const string CosmosDatabaseName = "enginedb";
+    private const string WorkflowsContainerName = "workflows";
+    private const string TasksContainerName = "tasks";
+    private const string PluginsBlobContainerName = "pluginblob";
+    private static readonly TimeSpan DefaultTimeout = TimeSpan.FromMinutes(2);
+
+    private readonly DistributedApplication _app;
+    private readonly CosmosClient _cosmosClient;
+    private readonly BlobContainerClient _pluginBlobContainer;
+    private readonly TaskInstanceRepository _taskRepository;
+    private readonly WorkflowInstanceRepository<Dictionary<string, JsonElement>> _workflowRepository;
 
     private DistributedAppTestEnvironment(
-        string databasePath,
-        string pluginStateRootPath,
-        string sqliteConnectionString,
+        DistributedApplication app,
+        CosmosClient cosmosClient,
+        BlobContainerClient pluginBlobContainer,
+        TaskInstanceRepository taskRepository,
+        WorkflowInstanceRepository<Dictionary<string, JsonElement>> workflowRepository,
+        HttpClient apiClient,
+        string signalRBaseUrl,
         IntegrationTestSettings settings,
-        PluginBundleCatalog bundleCatalog,
-        InMemoryTaskInstanceRepository taskRepository,
-        InMemoryWorkflowInstanceRepository workflowRepository,
-        InMemoryWorkflowTaskQueue queue,
-        InMemoryPluginReloadQueue pluginReloadQueue,
-        FilePluginBundleSource pluginBundleSource)
+        PluginBundleCatalog bundleCatalog)
     {
-        _databasePath = databasePath;
-        _pluginStateRootPath = pluginStateRootPath;
-        _sqliteConnectionString = sqliteConnectionString;
+        _app = app;
+        _cosmosClient = cosmosClient;
+        _pluginBlobContainer = pluginBlobContainer;
         _taskRepository = taskRepository;
         _workflowRepository = workflowRepository;
 
+        ApiClient = apiClient;
+        SignalRBaseUrl = signalRBaseUrl;
         Settings = settings;
         BundleCatalog = bundleCatalog;
-        Queue = queue;
-        PluginReloadQueue = pluginReloadQueue;
-        PluginBundleSource = pluginBundleSource;
-        _factory = new WorkflowApiFactory(
-            sqliteConnectionString,
-            pluginStateRootPath,
-            taskRepository,
-            workflowRepository,
-            queue,
-            pluginReloadQueue,
-            pluginBundleSource);
     }
 
     public IntegrationTestSettings Settings { get; }
 
     public PluginBundleCatalog BundleCatalog { get; }
 
-    public InMemoryWorkflowTaskQueue Queue { get; }
+    public HttpClient ApiClient { get; }
 
-    public InMemoryPluginReloadQueue PluginReloadQueue { get; }
+    public string SignalRBaseUrl { get; }
 
-    public FilePluginBundleSource PluginBundleSource { get; }
-
-    public HttpClient ApiClient { get; private set; } = null!;
-
-    public static async Task<DistributedAppTestEnvironment> CreateReadyAsync(
-        CancellationToken cancellationToken)
+    public static async Task<DistributedAppTestEnvironment> CreateReadyAsync(CancellationToken cancellationToken)
     {
         var settings = IntegrationTestSettings.Create();
         IntegrationProgressLog.Initialize(settings.RunVersion);
-        IntegrationProgressLog.Write($"[integration] Starting hybrid integration environment for version {settings.RunVersion}.");
+        IntegrationProgressLog.Write($"[integration] Starting Aspire integration environment for version {settings.RunVersion}.");
 
         var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
         IntegrationProgressLog.Write($"[integration] Repository root resolved to {repoRoot}.");
@@ -84,48 +75,141 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         var bundles = await new PluginBundleBuilder(repoRoot).BuildAsync(cancellationToken);
         IntegrationProgressLog.Write($"[integration] Built bundles for {string.Join(", ", bundles.PluginNames)}.");
 
-        var tempRoot = Path.Combine(
-            Path.GetTempPath(),
-            "workflow-builder-integration",
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempRoot);
-        IntegrationProgressLog.Write($"[integration] Using temporary root {tempRoot}.");
+        var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.Backend_AppHost>(
+            [
+                "Frontend:Enabled=false",
+                $"AzureCosmos:ResourceName={CosmosResourceName}",
+                $"AzureCosmos:ConnectionName={CosmosConnectionName}",
+                $"AzureCosmos:DatabaseName={CosmosDatabaseName}",
+                "AzureCosmos:PersistData=false",
+                "AzureStorage:ResourceName=integration-storage",
+                "AzureStorage:BlobContainers:Plugins:ResourceName=plugins",
+                $"AzureStorage:BlobContainers:Plugins:ContainerName={PluginsBlobContainerName}",
+                "AzureStorage:PersistData=false",
+                "AzureServiceBus:ResourceName=integration-servicebus",
+                "AzureServiceBus:Queues:WorkflowTaskQueue:ResourceName=workflow-task-queue",
+                "AzureServiceBus:Queues:WorkflowTaskQueue:ConnectionName=workflow-task-queue",
+                "AzureServiceBus:Queues:WorkflowTaskQueue:Name=workflowtasks",
+                "AzureServiceBus:Queues:PluginControlQueue:ResourceName=plugin-control-queue",
+                "AzureServiceBus:Queues:PluginControlQueue:ConnectionName=plugin-control-queue",
+                "AzureServiceBus:Queues:PluginControlQueue:Name=pluginreloadqueue",
+                "SqlServer:PersistData=false",
+            ],
+            (options, _) =>
+            {
+                options.AllowUnsecuredTransport = true;
+                options.EnableResourceLogging = true;
+            },
+            cancellationToken);
 
-        var databasePath = Path.Combine(tempRoot, "workflow-builder.integration.sqlite");
-        var pluginStateRootPath = Path.Combine(tempRoot, "plugin-state");
-        Directory.CreateDirectory(pluginStateRootPath);
+        builder.Services.AddLogging(logging =>
+        {
+            logging.ClearProviders();
+            logging.SetMinimumLevel(LogLevel.Warning);
+            logging.AddFilter("Aspire.Hosting.Dcp", LogLevel.Warning);
+            logging.AddFilter("Aspire.Hosting.Backchannel", LogLevel.Critical);
+        });
 
-        var sqliteConnectionString = $"Data Source={databasePath}";
-        var queue = new InMemoryWorkflowTaskQueue();
-        var pluginReloadQueue = new InMemoryPluginReloadQueue();
-        var taskRepository = new InMemoryTaskInstanceRepository(pluginStateRootPath);
-        var workflowRepository = new InMemoryWorkflowInstanceRepository(pluginStateRootPath);
-        var pluginBundleSource = new FilePluginBundleSource(bundles);
+        var app = await builder.BuildAsync(cancellationToken)
+            .WaitAsync(DefaultTimeout, cancellationToken);
+        IntegrationProgressLog.Write("[integration] Distributed application built successfully.");
+
+        using var startupLogCapture = BeginStartupLogCapture(app);
+
+        try
+        {
+            IntegrationProgressLog.Write("[integration] Starting distributed application.");
+            await app.StartAsync(cancellationToken)
+                .WaitAsync(DefaultTimeout, cancellationToken);
+            IntegrationProgressLog.Write("[integration] Distributed application start completed.");
+
+            await WaitForHealthyResourceAsync(app, "backend-api", cancellationToken);
+            await WaitForHealthyResourceAsync(app, "backend-engine", cancellationToken);
+            await WaitForHealthyResourceAsync(app, "backend-signalr", cancellationToken);
+            await WaitForHealthyResourceAsync(app, "plugin-detector", cancellationToken);
+            await WaitForHealthyResourceAsync(app, "progress-broadcaster", cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            IntegrationProgressLog.Write($"[integration] Distributed startup failed: {exception}");
+            var diagnostics = await BuildStartupDiagnosticsAsync(
+                app,
+                startupLogCapture,
+                cancellationToken);
+
+            await app.DisposeAsync();
+            throw new InvalidOperationException(
+                $"Failed to start the Aspire integration environment.{Environment.NewLine}Root exception:{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}{diagnostics}",
+                exception);
+        }
+
+        var apiClient = app.CreateHttpClient("backend-api", "http");
+        apiClient.Timeout = TimeSpan.FromSeconds(100);
+        IntegrationProgressLog.Write($"[integration] backend-api base address: {apiClient.BaseAddress}");
+
+        var signalRBaseUrl = app.CreateHttpClient("backend-signalr", "http").BaseAddress?
+            .ToString()
+            .TrimEnd('/');
+        IntegrationProgressLog.Write($"[integration] backend-signalr base address: {signalRBaseUrl}/");
+        if (string.IsNullOrWhiteSpace(signalRBaseUrl))
+        {
+            throw new InvalidOperationException("SignalR base URL was not resolved by the AppHost.");
+        }
+
+        var blobConnectionString = await app.GetConnectionStringAsync("BlobConnection")
+            ?? throw new InvalidOperationException("BlobConnection connection string was not resolved by the AppHost.");
+        var cosmosConnectionString = await app.GetConnectionStringAsync(CosmosConnectionName)
+            ?? throw new InvalidOperationException($"{CosmosConnectionName} connection string was not resolved by the AppHost.");
+
+        var blobContainer = new BlobContainerClient(blobConnectionString, PluginsBlobContainerName);
+        await blobContainer.CreateIfNotExistsAsync(cancellationToken: cancellationToken);
+
+        var cosmosClient = new CosmosClient(
+            cosmosConnectionString,
+            new CosmosClientOptions
+            {
+                ConnectionMode = ConnectionMode.Gateway,
+                UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
+            });
+
+        var taskRepository = new TaskInstanceRepository(cosmosClient.GetContainer(CosmosDatabaseName, TasksContainerName));
+        var workflowRepository = new WorkflowInstanceRepository<Dictionary<string, JsonElement>>(
+            cosmosClient.GetContainer(CosmosDatabaseName, WorkflowsContainerName));
 
         var environment = new DistributedAppTestEnvironment(
-            databasePath,
-            pluginStateRootPath,
-            sqliteConnectionString,
-            settings,
-            bundles,
+            app,
+            cosmosClient,
+            blobContainer,
             taskRepository,
             workflowRepository,
-            queue,
-            pluginReloadQueue,
-            pluginBundleSource);
+            apiClient,
+            signalRBaseUrl,
+            settings,
+            bundles);
 
-        IntegrationProgressLog.Write("[integration] Resetting relational database.");
-        await environment.ResetRelationalStateAsync(cancellationToken);
-        IntegrationProgressLog.Write("[integration] Registering deterministic plugin bundles.");
-        await environment.RegisterAllBundlesAsync(cancellationToken);
+        try
+        {
+            IntegrationProgressLog.Write("[integration] Waiting for /Tasks endpoint.");
+            await environment.WaitForTasksEndpointAsync(cancellationToken);
 
-        IntegrationProgressLog.Write("[integration] Creating in-process API host.");
-        environment.ApiClient = environment._factory.CreateClient();
-        IntegrationProgressLog.Write("[integration] Waiting for /Tasks endpoint.");
-        await environment.WaitForTasksEndpointAsync(cancellationToken);
-        IntegrationProgressLog.Write("[integration] Waiting for engine readiness.");
-        await environment.WaitForEngineReadinessAsync(cancellationToken);
-        IntegrationProgressLog.Write("[integration] Hybrid integration environment is ready.");
+            IntegrationProgressLog.Write("[integration] Uploading deterministic plugin bundles.");
+            await environment.RegisterAllBundlesAsync(cancellationToken);
+            await environment.WaitForPluginRegistrationAsync(cancellationToken);
+            IntegrationProgressLog.Write("[integration] Aspire integration environment is ready.");
+        }
+        catch (Exception exception)
+        {
+            IntegrationProgressLog.Write($"[integration] Runtime readiness failed: {exception}");
+            var diagnostics = await BuildStartupDiagnosticsAsync(
+                app,
+                startupLogCapture,
+                cancellationToken);
+
+            await environment.DisposeAsync();
+            throw new InvalidOperationException(
+                $"Aspire integration environment reached healthy startup but failed during runtime readiness.{Environment.NewLine}Root exception:{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}{diagnostics}",
+                exception);
+        }
 
         return environment;
     }
@@ -147,11 +231,27 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
                ?? [];
     }
 
-    public Task UploadBundleAsync(
+    public HubConnection CreateSignalRConnection() =>
+        new HubConnectionBuilder()
+            .WithUrl($"{SignalRBaseUrl}/hubs/executions")
+            .WithAutomaticReconnect()
+            .Build();
+
+    public async Task UploadBundleAsync(
         string pluginName,
         string version,
-        CancellationToken cancellationToken) =>
-        RegisterBundleAsync(pluginName, version, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        var bundlePath = BundleCatalog[pluginName];
+        var blobName = $"{pluginName}_{version}.zip";
+
+        await using var bundleStream = File.OpenRead(bundlePath);
+        await _pluginBlobContainer
+            .GetBlobClient(blobName)
+            .UploadAsync(bundleStream, overwrite: true, cancellationToken);
+
+        IntegrationProgressLog.Write($"[integration] Uploaded plugin bundle {blobName}.");
+    }
 
     public async Task WaitForPluginRegistrationAsync(CancellationToken cancellationToken)
     {
@@ -186,69 +286,27 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
             timeoutOverride);
     }
 
-    public Task<IReadOnlyList<TaskObject>> GetTaskStateAsync(
+    public async Task<IReadOnlyList<TaskObject>> GetTaskStateAsync(
         Guid workflowInstanceId,
         CancellationToken cancellationToken) =>
-        Task.FromResult((IReadOnlyList<TaskObject>)_taskRepository.GetTasksForWorkflow(workflowInstanceId));
+        await _taskRepository.GetTaskInstancesForWorkflow(workflowInstanceId, cancellationToken);
 
     public Task<WorkflowObject<Dictionary<string, JsonElement>>> GetWorkflowStateAsync(
         Guid workflowInstanceId,
         int blueprintVersionId,
         CancellationToken cancellationToken) =>
-        Task.FromResult(_workflowRepository.GetWorkflow(workflowInstanceId, blueprintVersionId));
+        _workflowRepository.GetWorkflowStateById(workflowInstanceId, blueprintVersionId, cancellationToken);
 
     private async Task RegisterAllBundlesAsync(CancellationToken cancellationToken)
     {
         foreach (var pluginName in BundleCatalog.PluginNames)
         {
-            IntegrationProgressLog.Write($"[integration] Registering plugin {pluginName} {Settings.RunVersion}.");
-            await RegisterBundleAsync(pluginName, Settings.RunVersion, cancellationToken);
-        }
-    }
-
-    private async Task RegisterBundleAsync(
-        string pluginName,
-        string version,
-        CancellationToken cancellationToken)
-    {
-        await using var provider = CreatePluginRegistrationProvider();
-        using var scope = provider.CreateScope();
-        var bundleProcessor = scope.ServiceProvider.GetRequiredService<IPluginBundleProcessingService>();
-
-        await bundleProcessor.ProcessAsync(
-            new PluginBlobInfo(
-                $"{pluginName}_{version}.zip",
+            await UploadBundleAsync(pluginName, Settings.RunVersion, cancellationToken);
+            await WaitForPluginRegistrationAsync(
                 pluginName,
-                Version.Parse(version)),
-            cancellationToken);
-
-        IntegrationProgressLog.Write($"[integration] Registered plugin {pluginName} {version}.");
-    }
-
-    private ServiceProvider CreatePluginRegistrationProvider()
-    {
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddDbContextPool<WorkflowDbContext>(options =>
-            options.UseSqlite(_sqliteConnectionString));
-        services.AddRelationalDataRepositories();
-        services.AddSingleton<IPluginBundleSource>(PluginBundleSource);
-        services.AddSingleton<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
-        services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();
-        services.AddSingleton<IPluginSchemaAggregationUtility, PluginSchemaAggregationUtility>();
-        services.AddSingleton<IPluginReloadQueueWriter>(PluginReloadQueue);
-        services.AddSingleton<IPluginBundleProcessingService, PluginBundleProcessingService>();
-        return services.BuildServiceProvider();
-    }
-
-    private async Task ResetRelationalStateAsync(CancellationToken cancellationToken)
-    {
-        await using var provider = CreatePluginRegistrationProvider();
-        await using var scope = provider.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<WorkflowDbContext>();
-        await dbContext.Database.EnsureDeletedAsync(cancellationToken);
-        await dbContext.Database.EnsureCreatedAsync(cancellationToken);
-        IntegrationProgressLog.Write("[integration] Relational schema recreated.");
+                cancellationToken,
+                timeoutOverride: TimeSpan.FromSeconds(60));
+        }
     }
 
     private async Task WaitForTasksEndpointAsync(CancellationToken cancellationToken)
@@ -261,8 +319,9 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
                     await GetTasksAsync(ct);
                     return true;
                 }
-                catch
+                catch (Exception exception)
                 {
+                    IntegrationProgressLog.Write($"[integration] /Tasks probe failed: {exception.Message}");
                     return false;
                 }
             },
@@ -272,30 +331,15 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         IntegrationProgressLog.Write("[integration] /Tasks endpoint is available.");
     }
 
-    private async Task WaitForEngineReadinessAsync(CancellationToken cancellationToken)
+    private static async Task WaitForHealthyResourceAsync(
+        DistributedApplication app,
+        string resourceName,
+        CancellationToken cancellationToken)
     {
-        var tasks = await GetTasksAsync(cancellationToken);
-        IntegrationProgressLog.Write($"[integration] Retrieved {tasks.Count} task definitions while waiting for engine readiness.");
-        var expectedAgentIds = BundleCatalog.PluginNames
-            .Select(pluginName => tasks
-                .Single(task => task.Name == pluginName)
-                .Versions
-                .Single(taskVersion => VersionsMatch(taskVersion.Version, Settings.RunVersion))
-                .Id)
-            .ToList();
-
-        IntegrationProgressLog.Write($"[integration] Waiting for engine agents {string.Join(", ", expectedAgentIds)}.");
-
-        await WaitForAsync(
-            ct =>
-            {
-                var agentManager = _factory.Services.GetRequiredService<IAgentManager>();
-                return Task.FromResult(expectedAgentIds.All(agentManager.AgentExists));
-            },
-            "the engine to load all registered plugin agents",
-            cancellationToken);
-
-        IntegrationProgressLog.Write("[integration] Engine agents are ready.");
+        IntegrationProgressLog.Write($"[integration] Waiting for resource '{resourceName}' to become healthy.");
+        await app.ResourceNotifications.WaitForResourceHealthyAsync(resourceName, cancellationToken)
+            .WaitAsync(DefaultTimeout, cancellationToken);
+        IntegrationProgressLog.Write($"[integration] Resource '{resourceName}' is healthy.");
     }
 
     private async Task WaitForAsync(
@@ -331,11 +375,198 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        ApiClient?.Dispose();
-        await _factory.DisposeAsync();
+        ApiClient.Dispose();
+        _cosmosClient.Dispose();
+        await _app.StopAsync();
+        await _app.DisposeAsync();
+    }
 
-        TryDeletePath(_databasePath);
-        TryDeletePath(_pluginStateRootPath);
+    private static StartupLogCapture BeginStartupLogCapture(DistributedApplication app)
+    {
+        var loggerService = app.Services.GetRequiredService<ResourceLoggerService>();
+        var cancellationSource = new CancellationTokenSource();
+        var resourceLogs = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        var resourceNames = new[]
+        {
+            "backend-api",
+            "backend-database-migrations",
+            "backend-engine",
+            "backend-signalr",
+            "grafana-alloy",
+            "loki",
+            "prometheus",
+            "progress-broadcaster",
+            "plugin-detector",
+            "sqlserver",
+            "integration-cosmos",
+            "integration-servicebus",
+            "integration-storage"
+        };
+
+        var tasks = resourceNames
+            .Select(resourceName => Task.Run(
+                async () =>
+                {
+                    var lines = new List<string>();
+                    lock (resourceLogs)
+                    {
+                        resourceLogs[resourceName] = lines;
+                    }
+
+                    try
+                    {
+                        await foreach (var entry in loggerService.WatchAsync(resourceName).WithCancellation(cancellationSource.Token))
+                        {
+                            var text = entry?.ToString();
+                            if (string.IsNullOrWhiteSpace(text))
+                            {
+                                continue;
+                            }
+
+                            lock (lines)
+                            {
+                                lines.Add(text);
+                                if (lines.Count > 80)
+                                {
+                                    lines.RemoveRange(0, lines.Count - 80);
+                                }
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                    }
+                    catch (Exception watchException)
+                    {
+                        lock (lines)
+                        {
+                            lines.Add($"<log capture failed: {watchException.Message}>");
+                        }
+                    }
+                },
+                CancellationToken.None))
+            .ToArray();
+
+        return new StartupLogCapture(cancellationSource, resourceLogs, tasks);
+    }
+
+    private static async Task<string> BuildStartupDiagnosticsAsync(
+        DistributedApplication app,
+        StartupLogCapture startupLogCapture,
+        CancellationToken cancellationToken)
+    {
+        startupLogCapture.CancellationSource.Cancel();
+        try
+        {
+            await Task.WhenAll(startupLogCapture.Tasks).WaitAsync(TimeSpan.FromSeconds(2), cancellationToken);
+        }
+        catch
+        {
+        }
+
+        var resourceNames = new[]
+        {
+            "backend-api",
+            "backend-database-migrations",
+            "backend-engine",
+            "backend-signalr",
+            "grafana-alloy",
+            "loki",
+            "prometheus",
+            "progress-broadcaster",
+            "plugin-detector",
+            "sqlserver",
+            "integration-cosmos",
+            "integration-servicebus",
+            "integration-storage"
+        };
+
+        var diagnostics = new List<string>
+        {
+            "Resource state snapshot:"
+        };
+
+        ResourceNotificationService? resourceNotifications = null;
+        try
+        {
+            resourceNotifications = app.ResourceNotifications;
+        }
+        catch (ObjectDisposedException)
+        {
+            diagnostics.Add("- resource notifications unavailable because the distributed application was already disposed");
+        }
+
+        foreach (var resourceName in resourceNames)
+        {
+            if (resourceNotifications is null ||
+                !resourceNotifications.TryGetCurrentState(resourceName, out var resourceEvent))
+            {
+                diagnostics.Add($"- {resourceName}: no state available");
+                continue;
+            }
+
+            var snapshot = resourceEvent.Snapshot;
+            diagnostics.Add(
+                $"- {resourceName}: state={snapshot.State?.Text ?? "<null>"}; health={snapshot.HealthStatus?.ToString() ?? "<null>"}; exitCode={snapshot.ExitCode?.ToString() ?? "<null>"}");
+
+            if (snapshot.Properties.Any())
+            {
+                foreach (var property in snapshot.Properties.OrderBy(property => property.Name))
+                {
+                    diagnostics.Add($"  property[{property.Name}]={property.Value}");
+                }
+            }
+
+            var containerId = snapshot.Properties
+                .FirstOrDefault(property => string.Equals(property.Name, "container.id", StringComparison.OrdinalIgnoreCase))
+                ?.Value?
+                .ToString();
+
+            if (!string.IsNullOrWhiteSpace(containerId))
+            {
+                var dockerLogs = TryRunCommand("docker", $"logs {containerId}");
+                if (!string.IsNullOrWhiteSpace(dockerLogs))
+                {
+                    diagnostics.Add($"  docker logs for {resourceName}:");
+                    diagnostics.AddRange(
+                        dockerLogs
+                            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                            .TakeLast(20)
+                            .Select(line => $"    {line}"));
+                }
+            }
+
+            if (!snapshot.HealthReports.IsDefaultOrEmpty)
+            {
+                foreach (var report in snapshot.HealthReports)
+                {
+                    diagnostics.Add(
+                        $"  health[{report.Name}]: status={report.Status?.ToString() ?? "<null>"}; description={report.Description ?? "<none>"}; exception={report.ExceptionText ?? "<none>"}");
+                }
+            }
+
+            if (!startupLogCapture.ResourceLogs.TryGetValue(resourceName, out var lines))
+            {
+                continue;
+            }
+
+            List<string> capturedLines;
+            lock (lines)
+            {
+                capturedLines = lines.TakeLast(20).ToList();
+            }
+
+            if (capturedLines.Count == 0)
+            {
+                continue;
+            }
+
+            diagnostics.Add($"  recent logs for {resourceName}:");
+            diagnostics.AddRange(capturedLines.Select(line => $"    {line}"));
+        }
+
+        return string.Join(Environment.NewLine, diagnostics);
     }
 
     private static bool VersionsMatch(string left, string right)
@@ -348,24 +579,47 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         return string.Equals(left, right, StringComparison.Ordinal);
     }
 
-    private static void TryDeletePath(string path)
+    private static string? TryRunCommand(string fileName, string arguments)
     {
         try
         {
-            if (File.Exists(path))
+            var startInfo = new ProcessStartInfo
             {
-                File.Delete(path);
-                return;
+                FileName = fileName,
+                Arguments = arguments,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                return null;
             }
 
-            if (Directory.Exists(path))
-            {
-                Directory.Delete(path, recursive: true);
-            }
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit(5000);
+
+            return string.IsNullOrWhiteSpace(output)
+                ? error
+                : string.IsNullOrWhiteSpace(error)
+                    ? output
+                    : $"{output}{Environment.NewLine}{error}";
         }
         catch
         {
-            // Best effort cleanup for test artifacts.
+            return null;
         }
+    }
+
+    private sealed record StartupLogCapture(
+        CancellationTokenSource CancellationSource,
+        Dictionary<string, List<string>> ResourceLogs,
+        Task[] Tasks) : IDisposable
+    {
+        public void Dispose() => CancellationSource.Dispose();
     }
 }

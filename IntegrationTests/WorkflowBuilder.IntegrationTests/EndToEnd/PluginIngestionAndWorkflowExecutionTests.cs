@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Backend.Database.State.Objects;
 using Backend.Models.InputModels;
+using Microsoft.AspNetCore.SignalR.Client;
 using Shouldly;
 using WorkflowBuilder.IntegrationTests.Infrastructure;
 using WorkflowBuilder.IntegrationTests.Scenarios;
@@ -121,6 +122,78 @@ public sealed class PluginIngestionAndWorkflowExecutionTests
     }
 
     [Test]
+    public async Task Execution_progress_is_broadcast_over_signalr_for_the_selected_blueprint_and_workflow(
+        CancellationToken cancellationToken)
+    {
+        var blueprint = await BlueprintScenarioBuilder.CreateHappyPathAsync(
+            _environment,
+            cancellationToken);
+
+        var summaryUpdates = new List<JsonElement>();
+        var nodeUpdates = new List<JsonElement>();
+        var gate = new object();
+
+        await using var connection = _environment.CreateSignalRConnection();
+        connection.On<JsonElement>("executionSummaryUpdated", update =>
+        {
+            lock (gate)
+            {
+                summaryUpdates.Add(update.Clone());
+            }
+        });
+        connection.On<JsonElement>("executionNodesUpdated", update =>
+        {
+            lock (gate)
+            {
+                nodeUpdates.Add(update.Clone());
+            }
+        });
+
+        await connection.StartAsync(cancellationToken);
+        await connection.InvokeAsync("SubscribeBlueprint", blueprint.BlueprintDefinitionId, cancellationToken);
+
+        var response = await _environment.ApiClient.PostAsJsonAsync(
+            $"/api/blueprints/{blueprint.BlueprintDefinitionId}/execute",
+            new BlueprintExecutionInputModel
+            {
+                GlobalState = ToDictionary(new
+                {
+                    runLabel = "signalr-progress",
+                    stepsCompleted = 0,
+                    totalScore = 0,
+                    lastStage = "queued",
+                    shouldFail = false
+                }),
+                InitialTaskInput = ToDictionary(new
+                {
+                    name = "realtime",
+                    baseScore = 3
+                })
+            },
+            cancellationToken);
+
+        response.IsSuccessStatusCode.ShouldBeTrue(await response.Content.ReadAsStringAsync(cancellationToken));
+
+        var accepted = await response.Content.ReadFromJsonAsync<AcceptedExecution>(cancellationToken: cancellationToken);
+        accepted.ShouldNotBeNull();
+
+        await connection.InvokeAsync("SubscribeWorkflow", accepted.WorkflowInstanceId, cancellationToken);
+
+        await WaitForAsync(
+            () =>
+            {
+                lock (gate)
+                {
+                    return summaryUpdates.Any(update =>
+                        update.GetProperty("workflowInstanceId").GetString() == accepted.WorkflowInstanceId.ToString())
+                        && nodeUpdates.Any(update =>
+                            update.GetProperty("workflowInstanceId").GetString() == accepted.WorkflowInstanceId.ToString());
+                }
+            },
+            cancellationToken);
+    }
+
+    [Test]
     public async Task A_failing_plugin_marks_the_workflow_failed_and_does_not_enqueue_children(
         CancellationToken cancellationToken)
     {
@@ -179,6 +252,24 @@ public sealed class PluginIngestionAndWorkflowExecutionTests
         }
 
         return string.Equals(left, right, StringComparison.Ordinal);
+    }
+
+    private static async Task WaitForAsync(Func<bool> predicate, CancellationToken cancellationToken)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(45));
+
+        while (!timeoutCts.IsCancellationRequested)
+        {
+            if (predicate())
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(250), timeoutCts.Token);
+        }
+
+        throw new TimeoutException("Timed out waiting for SignalR execution progress.");
     }
 
     private sealed record AcceptedExecution(Guid WorkflowInstanceId, int BlueprintId, DateTimeOffset AcceptedAt);
