@@ -98,6 +98,39 @@ export interface WorkflowExecutionSummaryViewModel {
   pendingTaskCount: number;
 }
 
+export interface BlueprintExecutionActivityViewModel {
+  blueprintDefinitionId: number;
+  blueprintName: string;
+  recentExecutionCount: number;
+  latestExecutionAt: string;
+}
+
+export interface BlueprintExecutionActivityPageViewModel {
+  items: BlueprintExecutionActivityViewModel[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  hasMore: boolean;
+  rankingWindowHours: number;
+}
+
+export interface BlueprintExecutionHistoryEntryViewModel {
+  workflowInstanceId: string;
+  blueprintDefinitionId: number;
+  blueprintVersionId: number;
+  blueprintVersionNumber: number;
+  blueprintVersionName: string;
+  status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+export interface BlueprintExecutionHistoryPageViewModel {
+  items: BlueprintExecutionHistoryEntryViewModel[];
+  nextCursor?: string | null;
+  hasMore: boolean;
+}
+
 export interface WorkflowExecutionNodeViewModel {
   instanceId: string;
   runtimeTaskInstanceId?: string | null;
@@ -130,6 +163,19 @@ export interface WorkflowExecutionDetailViewModel {
   updatedAt?: string | null;
   startingTaskInstanceId: string;
   nodes: WorkflowExecutionNodeViewModel[];
+}
+
+export interface WorkflowExecutionStepDetailViewModel {
+  blueprintTaskInstanceId: string;
+  name: string;
+  status: 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+  resolvedVersion?: string | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  durationMs?: number | null;
+  failureMessage?: string | null;
+  inputs?: unknown | null;
+  outputs?: unknown | null;
 }
 
 export interface BlueprintGraphDocument {
@@ -313,8 +359,45 @@ export class BlueprintEditorService {
     return this.http.get<WorkflowExecutionSummaryViewModel[]>(`api/blueprints/${definitionId}/executions`);
   }
 
+  getExecutionBlueprintActivities(
+    query: string,
+    page: number,
+    pageSize: number,
+  ): Observable<BlueprintExecutionActivityPageViewModel> {
+    return this.http.get<BlueprintExecutionActivityPageViewModel>('api/executions/blueprints', {
+      params: {
+        query,
+        page,
+        pageSize,
+      },
+    });
+  }
+
+  getBlueprintExecutionHistory(
+    definitionId: number,
+    limit: number,
+    cursor?: string | null,
+  ): Observable<BlueprintExecutionHistoryPageViewModel> {
+    return this.http.get<BlueprintExecutionHistoryPageViewModel>(`api/blueprints/${definitionId}/execution-history`, {
+      params: {
+        limit,
+        ...(cursor ? { cursor } : {}),
+      },
+    });
+  }
+
   getBlueprintExecution(definitionId: number, workflowInstanceId: string): Observable<WorkflowExecutionDetailViewModel> {
     return this.http.get<WorkflowExecutionDetailViewModel>(`api/blueprints/${definitionId}/executions/${workflowInstanceId}`);
+  }
+
+  getExecutionStepDetail(
+    definitionId: number,
+    workflowInstanceId: string,
+    blueprintTaskInstanceId: string,
+  ): Observable<WorkflowExecutionStepDetailViewModel> {
+    return this.http.get<WorkflowExecutionStepDetailViewModel>(
+      `api/blueprints/${definitionId}/executions/${workflowInstanceId}/steps/${blueprintTaskInstanceId}`,
+    );
   }
 
   hasNewerMajorMinorLane(taskDefinition: ITaskDefinition, allowedMajor: number, allowedMinor: number): boolean {

@@ -13,11 +13,11 @@
         <mat-icon>keyboard_double_arrow_right</mat-icon>
       </button>
     } @else {
-      <div class="history-pane__content" (focusout)="closePicker($event)">
+      <div class="history-pane__content">
         <header class="history-pane__header">
           <div>
             <h2>Execution History</h2>
-            <p>{{ executionCountLabel() }}</p>
+            <p>{{ historyPaneSummary() }}</p>
           </div>
 
           <button
@@ -30,331 +30,485 @@
           </button>
         </header>
 
-        <div class="history-pane__picker">
+        @if (historyPanelMode() === 'blueprints') {
           <label class="history-pane__search-field" tabindex="-1">
             <mat-icon>search</mat-icon>
             <input
               type="search"
-              placeholder="Find a blueprint..."
+              placeholder="Find a blueprint with activity..."
               [formControl]="blueprintSearch"
-              (focus)="openPicker()"
             />
           </label>
 
-          @if (pickerOpen()) {
-            <div class="history-pane__picker-menu">
-              @if (filteredBlueprints().length === 0) {
-                <p class="history-pane__empty">No blueprints match that search.</p>
-              } @else {
-                @for (blueprint of filteredBlueprints(); track trackBlueprint($index, blueprint)) {
-                  <button
-                    type="button"
-                    class="history-pane__picker-option"
-                    [class.is-selected]="selectedBlueprint()?.id === blueprint.id"
-                    (click)="selectBlueprint(blueprint)"
-                  >
-                    <strong>{{ blueprint.name }}</strong>
-                    <small>Definition {{ blueprint.id }}</small>
-                  </button>
-                }
-              }
-            </div>
-          }
-        </div>
+          <div class="history-pane__list">
+            @if (loading()) {
+              <p class="history-pane__empty">Loading blueprints...</p>
+            } @else if (blueprintActivityLoading()) {
+              <p class="history-pane__empty">Loading blueprint activity...</p>
+            } @else if (blueprintActivityError()) {
+              <p class="history-pane__empty">{{ blueprintActivityError() }}</p>
+            } @else if (blueprintActivities().length === 0) {
+              <p class="history-pane__empty">No blueprints with executions match that search.</p>
+            } @else {
+              @for (activity of blueprintActivities(); track trackBlueprintActivity($index, activity)) {
+                <button
+                  type="button"
+                  class="history-blueprint-row"
+                  [class.is-selected]="selectedBlueprintId() === activity.blueprintDefinitionId"
+                  (click)="selectBlueprintActivity(activity)"
+                >
+                  <div class="history-blueprint-row__top">
+                    <strong>{{ activity.blueprintName }}</strong>
+                    <span>{{ blueprintActivityCountLabel(activity) }}</span>
+                  </div>
 
-        <div class="history-pane__subhead">
-          <span>{{ selectedBlueprint()?.name ?? 'Select a blueprint' }}</span>
-          <small>
-            {{
-              selectedBlueprint()
-                ? 'Choose a run to inspect on the canvas.'
-                : 'Pick a blueprint first to load its execution history.'
-            }}
-          </small>
-        </div>
-
-        <label class="history-pane__search-field history-pane__search-field--runs">
-          <mat-icon>history</mat-icon>
-          <input
-            type="search"
-            placeholder="Search runs..."
-            [formControl]="executionSearch"
-          />
-        </label>
-
-        <div class="history-pane__list">
-          @if (loading()) {
-            <p class="history-pane__empty">Loading blueprints...</p>
-          } @else if (executionsLoading()) {
-            <p class="history-pane__empty">Loading execution history...</p>
-          } @else if (!selectedBlueprint()) {
-            <p class="history-pane__empty">Select a blueprint to see its runs.</p>
-          } @else if (filteredExecutions().length === 0) {
-            <p class="history-pane__empty">No executions match the current filters.</p>
-          } @else {
-            @for (execution of filteredExecutions(); track trackExecution($index, execution)) {
-              <button
-                type="button"
-                class="history-row"
-                [class.is-active]="activeExecutionId() === execution.workflowInstanceId"
-                (click)="selectExecution(execution)"
-              >
-                <div class="history-row__top">
-                  <strong>{{ execution.blueprintVersionName }}</strong>
-                  <span
-                    class="history-row__status"
-                    [ngClass]="'history-row__status--' + execution.status.toLowerCase()"
-                  >
-                    {{ statusLabel(execution.status) }}
-                  </span>
-                </div>
-
-                <div class="history-row__meta">
-                  <span>
-                    <mat-icon>calendar_today</mat-icon>
-                    {{ execution.createdAt | date: 'dd MMM, HH:mm:ss' }}
-                  </span>
-
-                  @if (execution.updatedAt) {
+                  <div class="history-blueprint-row__meta">
                     <span>
                       <mat-icon>schedule</mat-icon>
-                      {{ execution.updatedAt | date: 'HH:mm:ss' }}
+                      Latest run {{ activity.latestExecutionAt | date: 'dd MMM, HH:mm:ss' }}
                     </span>
-                  }
-                </div>
+                  </div>
+                </button>
+              }
 
-                <div class="history-row__metrics">
-                  <span>{{ execution.completedTaskCount }} done</span>
-                  <span>{{ execution.failedTaskCount }} failed</span>
-                  <span>{{ execution.inProgressTaskCount }} running</span>
-                  <span>{{ execution.pendingTaskCount }} pending</span>
-                </div>
-              </button>
+              @if (blueprintActivityHasMore()) {
+                <button
+                  type="button"
+                  class="history-pane__load-more"
+                  (click)="loadMoreBlueprintActivities()"
+                  [disabled]="blueprintActivityLoadingMore()"
+                >
+                  <mat-icon>{{ blueprintActivityLoadingMore() ? 'hourglass_top' : 'expand_more' }}</mat-icon>
+                  {{ blueprintActivityLoadingMore() ? 'Loading...' : 'Load more blueprints' }}
+                </button>
+              }
             }
-          }
-        </div>
+          </div>
+        } @else {
+          <div class="history-pane__subhead history-pane__subhead--execution-list">
+            <button
+              type="button"
+              class="history-pane__back"
+              (click)="returnToBlueprintPicker()"
+              aria-label="Back to blueprint activity"
+            >
+              <mat-icon>arrow_back</mat-icon>
+            </button>
+
+            <div>
+              <span>{{ selectedBlueprintTitle() }}</span>
+              <small>{{ selectedBlueprintRunCountLabel() }}</small>
+            </div>
+          </div>
+
+          <div class="history-pane__list">
+            @if (loading()) {
+              <p class="history-pane__empty">Loading blueprints...</p>
+            } @else if (executionHistoryLoading()) {
+              <p class="history-pane__empty">Loading execution history...</p>
+            } @else if (executionHistoryError()) {
+              <p class="history-pane__empty">{{ executionHistoryError() }}</p>
+            } @else if (!selectedBlueprintId()) {
+              <p class="history-pane__empty">Select a blueprint to see its runs.</p>
+            } @else if (executionHistoryRows().length === 0) {
+              <p class="history-pane__empty">No executions have been loaded for this blueprint yet.</p>
+            } @else {
+              @for (execution of executionHistoryRows(); track trackExecution($index, execution)) {
+                <button
+                  type="button"
+                  class="history-row"
+                  [class.is-active]="activeExecutionId() === execution.workflowInstanceId"
+                  (click)="selectExecution(execution)"
+                >
+                  <div class="history-row__top">
+                    <strong>{{ execution.blueprintVersionName }}</strong>
+                    <span
+                      class="history-row__status"
+                      [ngClass]="'history-row__status--' + execution.status.toLowerCase()"
+                    >
+                      {{ statusLabel(execution.status) }}
+                    </span>
+                  </div>
+
+                  <div class="history-row__identifier" [attr.title]="execution.workflowInstanceId">
+                    {{ executionIdLabel(execution) }}
+                  </div>
+
+                  <div class="history-row__meta">
+                    <span>
+                      <mat-icon>calendar_today</mat-icon>
+                      {{ execution.createdAt | date: 'dd MMM, HH:mm:ss' }}
+                    </span>
+
+                    @if (execution.updatedAt) {
+                      <span>
+                        <mat-icon>schedule</mat-icon>
+                        {{ execution.updatedAt | date: 'dd MMM, HH:mm:ss' }}
+                      </span>
+                    }
+                  </div>
+                </button>
+              }
+
+              @if (executionHistoryHasMore()) {
+                <button
+                  type="button"
+                  class="history-pane__load-more"
+                  (click)="loadMoreExecutionHistory()"
+                  [disabled]="executionHistoryLoadingMore()"
+                >
+                  <mat-icon>{{ executionHistoryLoadingMore() ? 'hourglass_top' : 'expand_more' }}</mat-icon>
+                  {{ executionHistoryLoadingMore() ? 'Loading...' : 'Load more runs' }}
+                </button>
+              }
+            }
+          </div>
+        }
       </div>
     }
   </aside>
 
   <section class="execution-stage">
     @if (selectedExecution(); as execution) {
-      <header class="execution-stage__header">
-        <div class="execution-stage__title">
-          <div>
-            <h2>{{ execution.blueprintVersionName }}</h2>
-            <div class="execution-stage__meta">
-              <span>
-                <mat-icon>fingerprint</mat-icon>
-                {{ execution.workflowInstanceId }}
-              </span>
-              <span>
-                <mat-icon>calendar_today</mat-icon>
-                {{ execution.createdAt | date: 'dd MMM yyyy, HH:mm:ss' }}
-              </span>
-              @if (execution.updatedAt) {
-                <span>
-                  <mat-icon>update</mat-icon>
-                  {{ execution.updatedAt | date: 'dd MMM yyyy, HH:mm:ss' }}
-                </span>
-              }
-            </div>
-          </div>
-
-          <span
-            class="execution-stage__status"
-            [ngClass]="'execution-stage__status--' + execution.status.toLowerCase()"
-          >
-            <mat-icon>{{ statusIcon(execution.status) }}</mat-icon>
-            {{ statusLabel(execution.status) }}
-          </span>
-        </div>
-
-        <div class="execution-stage__actions">
-          <button
-            mat-stroked-button
-            type="button"
-            class="execution-stage__logs-toggle"
-            (click)="toggleWorkflowLogs()"
-          >
-            <mat-icon>{{ workflowLogPanelOpen() ? 'view_sidebar' : 'article' }}</mat-icon>
-            {{ workflowLogPanelOpen() ? 'Hide Logs' : 'Logs' }}
-          </button>
-
-          <button
-            mat-icon-button
-            type="button"
-            class="execution-stage__icon-button"
-            (click)="zoomOut()"
-            aria-label="Zoom out"
-          >
-            <mat-icon>zoom_out</mat-icon>
-          </button>
-
-          <button
-            mat-icon-button
-            type="button"
-            class="execution-stage__icon-button"
-            (click)="zoomIn()"
-            aria-label="Zoom in"
-          >
-            <mat-icon>zoom_in</mat-icon>
-          </button>
-
-          <button
-            mat-stroked-button
-            type="button"
-            class="execution-stage__icon-button"
-            (click)="resetView()"
-          >
-            <mat-icon>center_focus_strong</mat-icon>
-            Reset View
-          </button>
-        </div>
-      </header>
-
-      <div
-        class="execution-surface__body"
-        [class.has-workflow-log-panel]="workflowLogPanelOpen()"
-      >
+      <div class="execution-surface__body">
         <section class="execution-surface">
-          <div class="execution-surface__hud">
-            <div class="execution-surface__info">
-              <span class="execution-surface__version">
-                Version {{ execution.blueprintVersionNumber }}
-              </span>
-              <span>{{ execution.nodes.length }} nodes</span>
-            </div>
+          <div class="execution-surface__workspace" [class.is-step-drawer-open]="stepDrawerOpen()">
+            <div class="execution-surface__canvas-pane">
+              <div class="execution-surface__canvas-overlay">
+                <div class="execution-surface__canvas-summary">
+                  <div class="execution-surface__canvas-summary-main">
+                    <div class="execution-surface__canvas-title-row">
+                      <div class="execution-surface__canvas-title-group">
+                        <h2>{{ execution.blueprintVersionName }}</h2>
+                        <button
+                          #executionInfoButton
+                          mat-icon-button
+                          type="button"
+                          class="execution-surface__info-button"
+                          [attr.aria-expanded]="executionInfoOpen()"
+                          aria-controls="execution-info-popover"
+                          aria-label="Show execution details"
+                          (click)="toggleExecutionInfo($event)"
+                        >
+                          <mat-icon>info</mat-icon>
+                        </button>
+                      </div>
 
-            <div class="execution-surface__zoom">
-              <mat-icon>fit_screen</mat-icon>
-              <span>{{ zoomPercent() }}%</span>
-            </div>
-          </div>
-
-          <div class="execution-surface__canvas">
-            @if (detailLoading()) {
-              <div class="execution-surface__empty">
-                <p>Loading execution detail...</p>
-              </div>
-            } @else {
-              <app-workflow-canvas
-                [nodes]="executionNodes()"
-                [connections]="executionConnections()"
-                mode="readonly"
-              />
-            }
-          </div>
-
-          <div class="execution-surface__footer">
-            <span class="execution-surface__footer-chip execution-surface__footer-chip--live">
-              <i></i>
-              Live Engine
-            </span>
-            <span class="execution-surface__footer-chip">Readonly graph</span>
-            <span class="execution-surface__footer-chip">Logs on demand</span>
-          </div>
-        </section>
-
-        @if (workflowLogPanelOpen()) {
-          <aside class="workflow-log-panel">
-            <div class="workflow-log-panel__header">
-              <div>
-                <h3>Run Logs</h3>
-                <p>
-                  Merged logs for the selected workflow run, with optional task filtering.
-                </p>
-              </div>
-
-              <button
-                mat-icon-button
-                type="button"
-                class="workflow-log-panel__close"
-                (click)="closeWorkflowLogPanel()"
-                aria-label="Close run logs"
-              >
-                <mat-icon>close</mat-icon>
-              </button>
-            </div>
-
-            <div class="workflow-log-panel__meta">
-              @if (execution.status === 'InProgress') {
-                <span class="workflow-log-panel__stream-state">
-                  {{
-                    workflowLogStreamConnected()
-                      ? 'Streaming live updates'
-                      : 'Waiting for live updates'
-                  }}
-                </span>
-              } @else {
-                <span class="workflow-log-panel__stream-state is-static">Historical logs</span>
-              }
-
-              <div class="workflow-log-panel__links">
-                <a [href]="selectedExecutionGrafanaLogsUrl()" target="_blank" rel="noreferrer">
-                  Loki Explore
-                </a>
-                <a [href]="selectedExecutionGrafanaTraceUrl()" target="_blank" rel="noreferrer">
-                  Tempo Explore
-                </a>
-              </div>
-            </div>
-
-            <div class="workflow-log-panel__filters">
-              <button
-                type="button"
-                class="workflow-log-filter"
-                [class.is-active]="selectedWorkflowLogFilter() === null"
-                (click)="selectWorkflowLogFilter(null)"
-              >
-                All logs
-              </button>
-
-              @for (filter of workflowLogFilterOptions(); track filter.id) {
-                <button
-                  type="button"
-                  class="workflow-log-filter"
-                  [class.is-active]="selectedWorkflowLogFilter() === filter.id"
-                  (click)="selectWorkflowLogFilter(filter.id)"
-                >
-                  {{ workflowLogFilterLabel(filter) }}
-                </button>
-              }
-            </div>
-
-            <div class="workflow-log-list">
-              @if (workflowLogsLoading()) {
-                <p class="workflow-log-panel__empty">Loading run logs...</p>
-              } @else if (workflowLogsError()) {
-                <p class="workflow-log-panel__empty">{{ workflowLogsError() }}</p>
-              } @else if (filteredWorkflowLogs().length === 0) {
-                <p class="workflow-log-panel__empty">No logs match the current filters.</p>
-              } @else {
-                @for (entry of filteredWorkflowLogs(); track trackWorkflowLog($index, entry)) {
-                  <article class="workflow-log-entry">
-                    <div class="workflow-log-entry__meta">
-                      <span>{{ entry.timestamp | date: 'HH:mm:ss.SSS' }}</span>
-                      <span class="workflow-log-entry__badge">
-                        {{ workflowLogLabel(entry) }}
+                      <span
+                        class="execution-stage__status"
+                        [ngClass]="'execution-stage__status--' + execution.status.toLowerCase()"
+                      >
+                        <mat-icon>{{ statusIcon(execution.status) }}</mat-icon>
+                        {{ statusLabel(execution.status) }}
                       </span>
-                      @if (entry.serviceName) {
-                        <span>{{ entry.serviceName }}</span>
-                      }
-                      @if (entry.level) {
-                        <span class="workflow-log-entry__level">
-                          {{ entry.level }}
+                    </div>
+
+                    @if (executionInfoOpen()) {
+                      <div
+                        #executionInfoPopover
+                        id="execution-info-popover"
+                        class="execution-surface__info-popover"
+                        role="dialog"
+                        aria-label="Execution details"
+                      >
+                        <div class="execution-surface__info-popover-grid">
+                          <article class="execution-surface__info-item">
+                            <span>Workflow ID</span>
+                            <strong>{{ execution.workflowInstanceId }}</strong>
+                          </article>
+                          <article class="execution-surface__info-item">
+                            <span>Created</span>
+                            <strong>{{ execution.createdAt | date: 'dd MMM yyyy, HH:mm:ss' }}</strong>
+                          </article>
+                          <article class="execution-surface__info-item">
+                            <span>Updated</span>
+                            <strong>
+                              {{
+                                execution.updatedAt
+                                  ? (execution.updatedAt | date: 'dd MMM yyyy, HH:mm:ss')
+                                  : 'Not updated yet'
+                              }}
+                            </strong>
+                          </article>
+                          <article class="execution-surface__info-item">
+                            <span>Version</span>
+                            <strong>{{ execution.blueprintVersionNumber }}</strong>
+                          </article>
+                          <article class="execution-surface__info-item">
+                            <span>Node count</span>
+                            <strong>{{ execution.nodes.length }}</strong>
+                          </article>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                </div>
+
+                <div class="execution-surface__canvas-actions">
+                  <div class="execution-stage__execution-actions">
+                    <button
+                      mat-stroked-button
+                      type="button"
+                      class="execution-stage__action-menu"
+                      [matMenuTriggerFor]="executionActionsMenu"
+                    >
+                      <mat-icon>more_horiz</mat-icon>
+                      Actions
+                    </button>
+                  </div>
+
+                  <div class="execution-stage__canvas-controls">
+                    <div class="execution-surface__zoom">
+                      <mat-icon>fit_screen</mat-icon>
+                      <span>{{ zoomPercent() }}%</span>
+                    </div>
+
+                    <div class="execution-stage__actions">
+                      <button
+                        mat-icon-button
+                        type="button"
+                        class="execution-stage__icon-button"
+                        (click)="zoomOut()"
+                        aria-label="Zoom out"
+                      >
+                        <mat-icon>zoom_out</mat-icon>
+                      </button>
+
+                      <button
+                        mat-icon-button
+                        type="button"
+                        class="execution-stage__icon-button"
+                        (click)="zoomIn()"
+                        aria-label="Zoom in"
+                      >
+                        <mat-icon>zoom_in</mat-icon>
+                      </button>
+
+                      <button
+                        mat-stroked-button
+                        type="button"
+                        class="execution-stage__icon-button"
+                        (click)="resetView()"
+                      >
+                        <mat-icon>center_focus_strong</mat-icon>
+                        Reset View
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="execution-surface__canvas">
+                @if (detailLoading()) {
+                  <div class="execution-surface__empty">
+                    <p>Loading execution detail...</p>
+                  </div>
+                } @else {
+                  <app-workflow-canvas
+                    [nodes]="executionNodes()"
+                    [connections]="executionConnections()"
+                    [readonlySelectedNodeId]="selectedExecutionCanvasNodeId()"
+                    mode="readonly"
+                    (readonlyNodeActivated)="onReadonlyNodeActivated($event)"
+                  />
+                }
+              </div>
+            </div>
+
+            <aside class="execution-step-drawer right-rail" [class.is-collapsed]="!stepDrawerOpen()">
+              <button
+                type="button"
+                class="drawer-toggle"
+                [attr.aria-expanded]="stepDrawerOpen()"
+                aria-controls="execution-step-drawer-content"
+                [disabled]="!stepDrawerOpen()"
+                (click)="closeStepDrawer()"
+                [attr.aria-label]="stepDrawerOpen() ? 'Close step drawer' : 'Select a step to inspect'"
+              >
+                <mat-icon class="drawer-toggle__icon">
+                  {{ stepDrawerOpen() ? 'right_panel_close' : 'data_object' }}
+                </mat-icon>
+                <span class="drawer-toggle__label">{{ stepDrawerOpen() ? 'Close' : 'Step' }}</span>
+              </button>
+
+              <div class="drawer-content" id="execution-step-drawer-content">
+                <div class="execution-step-drawer__header">
+                  <div class="execution-step-drawer__hero">
+                    <span class="execution-step-drawer__icon">
+                      <mat-icon>data_object</mat-icon>
+                    </span>
+
+                    <div class="execution-step-drawer__hero-copy">
+                      <p class="execution-step-drawer__eyebrow">Execution step</p>
+                      <h3>{{ selectedStepTitle() }}</h3>
+
+                      <div class="execution-step-drawer__hero-meta">
+                        <span
+                          class="execution-step-drawer__status"
+                          [ngClass]="'execution-step-drawer__status--' + selectedStepStatus().toLowerCase()"
+                        >
+                          <mat-icon>{{ statusIcon(selectedStepStatus()) }}</mat-icon>
+                          {{ statusLabel(selectedStepStatus()) }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="execution-step-drawer__meta-grid">
+                    <article class="execution-step-drawer__meta-card">
+                      <span>Duration</span>
+                      <strong>{{ formatDuration(selectedStepDurationMs()) }}</strong>
+                    </article>
+
+                    <article class="execution-step-drawer__meta-card">
+                      <span>Resolved version</span>
+                      <strong>{{ selectedStepResolvedVersion() ?? 'Not resolved yet' }}</strong>
+                    </article>
+
+                    <article class="execution-step-drawer__meta-card">
+                      <span>Start time</span>
+                      <strong>
+                        {{
+                          selectedStepStartedAt()
+                            ? (selectedStepStartedAt() | date: 'dd MMM yyyy, HH:mm:ss')
+                            : 'Not started'
+                        }}
+                      </strong>
+                    </article>
+
+                    <article class="execution-step-drawer__meta-card">
+                      <span>End time</span>
+                      <strong>
+                        {{
+                          selectedStepEndedAt()
+                            ? (selectedStepEndedAt() | date: 'dd MMM yyyy, HH:mm:ss')
+                            : 'Still running'
+                        }}
+                      </strong>
+                    </article>
+                  </div>
+
+                  @if (selectedStepFailureMessage()) {
+                    <article class="execution-step-drawer__alert">
+                      <span>Failure message</span>
+                      <strong>{{ selectedStepFailureMessage() }}</strong>
+                    </article>
+                  }
+                </div>
+
+                <div class="execution-step-drawer__tabs">
+                  <button
+                    type="button"
+                    class="execution-step-drawer__tab"
+                    [class.is-active]="stepInspectorTab() === 'inputs'"
+                    (click)="selectStepInspectorTab('inputs')"
+                  >
+                    Inputs
+                  </button>
+                  <button
+                    type="button"
+                    class="execution-step-drawer__tab"
+                    [class.is-active]="stepInspectorTab() === 'outputs'"
+                    (click)="selectStepInspectorTab('outputs')"
+                  >
+                    Outputs
+                  </button>
+                  <button
+                    type="button"
+                    class="execution-step-drawer__tab"
+                    [class.is-active]="stepInspectorTab() === 'logs'"
+                    (click)="selectStepInspectorTab('logs')"
+                  >
+                    Logs
+                    @if (stepLogCount() > 0) {
+                      <span class="execution-step-drawer__tab-badge">{{ stepLogCount() }}</span>
+                    }
+                  </button>
+                </div>
+
+                <div class="execution-step-drawer__panel">
+                  @if (stepDetailError()) {
+                    <p class="execution-step-drawer__error">{{ stepDetailError() }}</p>
+                  }
+
+                  @if (stepInspectorTab() === 'inputs') {
+                    @if (stepDetailLoading() && !hasStructuredPayload(selectedStepInputs())) {
+                      <p class="execution-step-drawer__empty">Loading step inputs...</p>
+                    } @else if (hasStructuredPayload(selectedStepInputs())) {
+                      <pre class="execution-step-drawer__payload">{{ formatStructuredPayload(selectedStepInputs()) }}</pre>
+                    } @else {
+                      <p class="execution-step-drawer__empty">No inputs were captured for this step.</p>
+                    }
+                  } @else if (stepInspectorTab() === 'outputs') {
+                    @if (stepDetailLoading() && !hasStructuredPayload(selectedStepOutputs())) {
+                      <p class="execution-step-drawer__empty">Loading step outputs...</p>
+                    } @else if (hasStructuredPayload(selectedStepOutputs())) {
+                      <pre class="execution-step-drawer__payload">{{ formatStructuredPayload(selectedStepOutputs()) }}</pre>
+                    } @else {
+                      <p class="execution-step-drawer__empty">No outputs were captured for this step.</p>
+                    }
+                  } @else {
+                    <div class="execution-step-drawer__log-meta">
+                      @if (selectedStepStatus() === 'InProgress') {
+                        <span class="execution-step-drawer__stream-state">
+                          {{
+                            stepLogStreamConnected()
+                              ? 'Streaming live updates'
+                              : 'Waiting for live updates'
+                          }}
+                        </span>
+                      } @else {
+                        <span class="execution-step-drawer__stream-state is-static">
+                          Historical logs
                         </span>
                       }
                     </div>
 
-                    <pre>{{ entry.message }}</pre>
-                  </article>
-                }
-              }
-            </div>
-          </aside>
-        }
+                    <div class="execution-step-drawer__log-list">
+                      @if (stepLogsLoading()) {
+                        <p class="execution-step-drawer__empty">Loading step logs...</p>
+                      } @else if (stepLogsError()) {
+                        <p class="execution-step-drawer__empty">{{ stepLogsError() }}</p>
+                      } @else if (stepLogs().length === 0) {
+                        <p class="execution-step-drawer__empty">No logs are available for this step yet.</p>
+                      } @else {
+                        @for (entry of stepLogs(); track trackStepLog($index, entry)) {
+                          <article class="execution-step-drawer__log-entry">
+                            <div class="execution-step-drawer__log-entry-meta">
+                              <span>{{ entry.timestamp | date: 'HH:mm:ss.SSS' }}</span>
+                              <span class="execution-step-drawer__log-entry-badge">
+                                {{ stepLogLabel(entry) }}
+                              </span>
+                              @if (entry.level) {
+                                <span class="execution-step-drawer__log-entry-level">
+                                  {{ entry.level }}
+                                </span>
+                              }
+                            </div>
+
+                            <pre>{{ entry.message }}</pre>
+                          </article>
+                        }
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
       </div>
+
+      <mat-menu #executionActionsMenu="matMenu" xPosition="before" yPosition="below">
+        <a mat-menu-item [href]="selectedExecutionGrafanaLogsUrl()" target="_blank" rel="noreferrer">
+          <mat-icon>open_in_new</mat-icon>
+          <span>Loki Explore</span>
+        </a>
+        <a mat-menu-item [href]="selectedExecutionGrafanaTraceUrl()" target="_blank" rel="noreferrer">
+          <mat-icon>open_in_new</mat-icon>
+          <span>Tempo Explore</span>
+        </a>
+      </mat-menu>
     } @else {
       <section class="execution-surface execution-surface--empty">
         @if (errorMessage()) {

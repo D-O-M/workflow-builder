@@ -7,6 +7,7 @@ import {
   afterRenderEffect,
   inject,
   input,
+  output,
   signal,
   viewChild,
 } from '@angular/core';
@@ -61,6 +62,8 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
   readonly nodes = input.required<NodeModel[]>();
   readonly connections = input.required<ConnectionModel[]>();
   readonly mode = input<'edit' | 'readonly'>('edit');
+  readonly readonlySelectedNodeId = input<number | null>(null);
+  readonly readonlyNodeActivated = output<number>();
 
   private readonly editorStore = inject(BlueprintEditorStore);
   private readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
@@ -96,6 +99,7 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
       this.dragConnection();
       this.panState();
       this.marqueeState();
+      this.readonlySelectedNodeId();
       this.editorStore.selectedNodeIds();
       this.editorStore.selectedConnectionIds();
       this.editorStore.canvasFocused();
@@ -210,7 +214,7 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
 
     const { canvas: canvasPoint, world } = this.getCoordinates(event);
     const shift = !this.isReadonly() && this.editorStore.modifiers().shift;
-    const node = !this.isReadonly() ? this.getNodeByCoordinates(world) : undefined;
+    const node = this.getNodeByCoordinates(world);
     const connection = !this.isReadonly() && !node ? this.getConnectionByCoordinates(world) : undefined;
 
     if (!this.isReadonly() && node) {
@@ -412,6 +416,9 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
 
   private applyClickSelection(click: PendingClickState): void {
     if (this.isReadonly()) {
+      if (click.nodeId !== null) {
+        this.readonlyNodeActivated.emit(click.nodeId);
+      }
       return;
     }
 
@@ -700,7 +707,7 @@ export class WorkflowCanvasComponent implements AfterViewInit, OnDestroy {
     const nodes = this.nodes();
     const connections = this.connections();
     const selectedNodeIds = this.isReadonly()
-      ? new Set<number>()
+      ? new Set<number>(this.readonlySelectedNodeId() !== null ? [this.readonlySelectedNodeId()!] : [])
       : this.editorStore.selectedNodeIdSet();
     const selectedConnectionIds = this.isReadonly()
       ? new Set<string>()

@@ -146,6 +146,37 @@ export class ObservabilityService {
     );
   }
 
+  getExecutionStepLogs(
+    blueprintDefinitionId: number,
+    workflowInstanceId: string,
+    blueprintTaskInstanceId: string,
+    options: {
+      from?: string | null;
+      to?: string | null;
+      limit?: number;
+      cursor?: string | null;
+    } = {},
+  ): Observable<NodeLogBatchViewModel> {
+    let params = new HttpParams();
+    if (options.from) {
+      params = params.set('from', options.from);
+    }
+    if (options.to) {
+      params = params.set('to', options.to);
+    }
+    if (options.limit) {
+      params = params.set('limit', options.limit);
+    }
+    if (options.cursor) {
+      params = params.set('cursor', options.cursor);
+    }
+
+    return this.http.get<NodeLogBatchViewModel>(
+      `api/blueprints/${blueprintDefinitionId}/executions/${workflowInstanceId}/steps/${blueprintTaskInstanceId}/logs`,
+      { params },
+    );
+  }
+
   createNodeLogStream(
     workflowInstanceId: string,
     runtimeTaskInstanceId: string,
@@ -157,6 +188,33 @@ export class ObservabilityService {
   ): EventSource {
     const url = new URL(
       `${this.runtimeClientConfig.apiBaseUrl}/api/observability/workflows/${workflowInstanceId}/nodes/${runtimeTaskInstanceId}/logs/stream`,
+    );
+
+    if (options.from) {
+      url.searchParams.set('from', options.from);
+    }
+    if (options.to) {
+      url.searchParams.set('to', options.to);
+    }
+    if (options.cursor) {
+      url.searchParams.set('cursor', options.cursor);
+    }
+
+    return new EventSource(url.toString(), { withCredentials: false });
+  }
+
+  createExecutionStepLogStream(
+    blueprintDefinitionId: number,
+    workflowInstanceId: string,
+    blueprintTaskInstanceId: string,
+    options: {
+      from?: string | null;
+      to?: string | null;
+      cursor?: string | null;
+    } = {},
+  ): EventSource {
+    const url = new URL(
+      `${this.runtimeClientConfig.apiBaseUrl}/api/blueprints/${blueprintDefinitionId}/executions/${workflowInstanceId}/steps/${blueprintTaskInstanceId}/logs/stream`,
     );
 
     if (options.from) {

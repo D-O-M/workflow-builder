@@ -2,6 +2,8 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
+  HostListener,
   computed,
   effect,
   inject,
@@ -13,13 +15,26 @@ import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
+import { MatMenuModule } from '@angular/material/menu';
 import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
-import { catchError, distinctUntilChanged, map, of, startWith } from 'rxjs';
+import {
+  catchError,
+  debounceTime,
+  distinctUntilChanged,
+  firstValueFrom,
+  map,
+  of,
+  startWith,
+  switchMap,
+  tap,
+} from 'rxjs';
 import {
   BlueprintEditorService,
+  BlueprintExecutionActivityViewModel,
+  BlueprintExecutionHistoryEntryViewModel,
   BlueprintViewModel,
   WorkflowExecutionDetailViewModel,
-  WorkflowExecutionSummaryViewModel,
+  WorkflowExecutionStepDetailViewModel,
 } from '../domain/blueprint-editor.service';
 import {
   ExecutionNodesUpdatedEvent,
@@ -30,9 +45,9 @@ import { NodeModel } from '../domain/node-model';
 import { ConnectionModel } from '../domain/connection-model';
 import { WorkflowCanvasComponent } from '../components/workflow-canvas.component';
 import {
+  NodeLogBatchViewModel,
+  NodeLogEntryViewModel,
   ObservabilityService,
-  WorkflowLogBatchViewModel,
-  WorkflowLogEntryViewModel,
 } from '../domain/observability.service';
 import {
   createRequestStateStream,
@@ -45,21 +60,21 @@ import {
 } from '../domain/request-state';
 import { RuntimeClientConfigService } from '../domain/runtime-client-config.service';
 
-interface WorkflowLogFilterOption {
-  id: string;
-  label: string;
-}
-
 interface ExecutionRouteSelection {
   blueprintId: number | null;
   workflowInstanceId: string | null;
 }
 
-interface WorkflowLogHistoryRequest {
+interface StepLogHistoryRequest {
+  blueprintDefinitionId: number;
   workflowInstanceId: string;
+  blueprintTaskInstanceId: string;
   from: string;
   to: string | null;
 }
+
+type HistoryPanelMode = 'blueprints' | 'executions';
+type StepInspectorTab = 'inputs' | 'outputs' | 'logs';
 
 @Component({
   selector: 'app-workflow-executions-page',
@@ -67,6 +82,7 @@ interface WorkflowLogHistoryRequest {
     ReactiveFormsModule,
     MatButtonModule,
     MatIconModule,
+    MatMenuModule,
     NgClass,
     DatePipe,
     WorkflowCanvasComponent,
@@ -83,12 +99,14 @@ export class WorkflowExecutionsPageComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
   private readonly canvasViewport = viewChild(WorkflowCanvasComponent);
+  private readonly executionInfoButton = viewChild<ElementRef<HTMLElement>>('executionInfoButton');
+  private readonly executionInfoPopover = viewChild<ElementRef<HTMLElement>>('executionInfoPopover');
   private readonly refreshVersion = signal(0);
   private readonly preferredWorkflowInstanceId = signal<string | null>(null);
   private readonly realtimeSummaryOverrides = signal(new Map<string, ExecutionSummaryUpdatedEvent>());
   private readonly realtimeNodeOverrides = signal(new Map<string, ExecutionNodesUpdatedEvent['nodes'][number]>());
-  private readonly liveWorkflowLogs = signal<WorkflowLogEntryViewModel[]>([]);
-  private workflowLogEventSource: EventSource | null = null;
+  private readonly liveStepLogs = signal<NodeLogEntryViewModel[]>([]);
+  private stepLogEventSource: EventSource | null = null;
   private readonly routeSelection = toSignal(
     this.route.queryParamMap.pipe(
       map((params): ExecutionRouteSelection => {
@@ -111,23 +129,26 @@ export class WorkflowExecutionsPageComponent {
     },
   );
 
-  protected readonly pickerOpen = signal(false);
   protected readonly historyCollapsed = signal(false);
+  protected readonly historyPanelMode = signal<HistoryPanelMode>('blueprints');
   protected readonly selectedBlueprintId = signal<number | null>(null);
   protected readonly selectedExecutionId = signal<string | null>(null);
-  protected readonly workflowLogPanelOpen = signal(false);
-  protected readonly workflowLogStreamConnected = signal(false);
-  protected readonly selectedWorkflowLogFilter = signal<string | null>(null);
+  protected readonly selectedStepInstanceId = signal<string | null>(null);
+  protected readonly stepInspectorTab = signal<StepInspectorTab>('inputs');
+  protected readonly stepLogStreamConnected = signal(false);
+  protected readonly executionInfoOpen = signal(false);
   protected readonly blueprintSearch = new FormControl('', { nonNullable: true });
-  protected readonly executionSearch = new FormControl('', { nonNullable: true });
+
   private readonly blueprintSearchQuery = toSignal(
-    this.blueprintSearch.valueChanges.pipe(startWith(this.blueprintSearch.value)),
-    { initialValue: this.blueprintSearch.value },
+    this.blueprintSearch.valueChanges.pipe(
+      startWith(this.blueprintSearch.value),
+      map((value) => value.trim()),
+      debounceTime(200),
+      distinctUntilChanged(),
+    ),
+    { initialValue: this.blueprintSearch.value.trim() },
   );
-  private readonly executionSearchQuery = toSignal(
-    this.executionSearch.valueChanges.pipe(startWith(this.executionSearch.value)),
-    { initialValue: this.executionSearch.value },
-  );
+
   private readonly blueprintsState = toSignal(
     this.blueprintService.getBlueprints().pipe(
       map((blueprints) => readyRequestState<BlueprintViewModel[]>(blueprints)),
@@ -136,6 +157,22 @@ export class WorkflowExecutionsPageComponent {
     ),
     { initialValue: loadingRequestState<BlueprintViewModel[]>() },
   );
+
+  private readonly blueprintActivityRows = signal<BlueprintExecutionActivityViewModel[]>([]);
+  private readonly blueprintActivityPage = signal(1);
+  private readonly blueprintActivityTotalCount = signal(0);
+  protected readonly blueprintActivityHasMore = signal(false);
+  protected readonly blueprintActivityLoading = signal(false);
+  protected readonly blueprintActivityLoadingMore = signal(false);
+  protected readonly blueprintActivityError = signal<string | null>(null);
+
+  private readonly executionHistoryBaseRows = signal<BlueprintExecutionHistoryEntryViewModel[]>([]);
+  private readonly executionHistoryNextCursor = signal<string | null>(null);
+  private readonly executionHistoryHasMoreState = signal(false);
+  protected readonly executionHistoryLoading = signal(false);
+  protected readonly executionHistoryLoadingMore = signal(false);
+  protected readonly executionHistoryError = signal<string | null>(null);
+
   protected readonly loading = computed(() => this.blueprintsState().status === 'loading');
   protected readonly blueprints = computed<BlueprintViewModel[]>(() => {
     const state = this.blueprintsState();
@@ -144,91 +181,61 @@ export class WorkflowExecutionsPageComponent {
   protected readonly selectedBlueprint = computed<BlueprintViewModel | null>(() =>
     this.blueprints().find((candidate) => candidate.id === this.selectedBlueprintId()) ?? null,
   );
-  private readonly executionSummariesState = toSignal(
-    createRequestStateStream(
-      toObservable(computed(() => {
-        const blueprint = this.selectedBlueprint();
-        if (!blueprint) {
-          return null;
-        }
-
-        return {
-          blueprintId: blueprint.id,
-          refreshVersion: this.refreshVersion(),
-        };
-      })).pipe(
-        distinctUntilChanged((left, right) =>
-          left?.blueprintId === right?.blueprintId &&
-          left?.refreshVersion === right?.refreshVersion,
-        ),
-      ),
-      ({ blueprintId }) => this.blueprintService.getBlueprintExecutions(blueprintId),
-      'Unable to load executions for the selected blueprint.',
-    ),
-    { initialValue: idleRequestState<WorkflowExecutionSummaryViewModel[]>() },
-  );
-  protected readonly executionsLoading = computed(() => this.executionSummariesState().status === 'loading');
-  private readonly fetchedExecutionSummaries = computed<WorkflowExecutionSummaryViewModel[]>(() => {
-    const state = this.executionSummariesState();
-    return isReadyRequestState(state) ? state.data : [];
-  });
-  protected readonly executionSummaries = computed<WorkflowExecutionSummaryViewModel[]>(() => {
-    const selectedBlueprintId = this.selectedBlueprint()?.id;
-    const summariesByWorkflowId = new Map<string, WorkflowExecutionSummaryViewModel>(
-      this.fetchedExecutionSummaries().map((summary) => [summary.workflowInstanceId, summary] as const),
+  protected readonly blueprintActivities = computed(() => this.blueprintActivityRows());
+  protected readonly executionHistoryRows = computed<BlueprintExecutionHistoryEntryViewModel[]>(() => {
+    const selectedBlueprintId = this.selectedBlueprintId();
+    const rowsByWorkflowId = new Map<string, BlueprintExecutionHistoryEntryViewModel>(
+      this.executionHistoryBaseRows().map((row) => [row.workflowInstanceId, row] as const),
     );
 
-    if (selectedBlueprintId !== undefined) {
+    if (selectedBlueprintId !== null) {
       for (const update of this.realtimeSummaryOverrides().values()) {
         if (update.blueprintDefinitionId !== selectedBlueprintId) {
           continue;
         }
 
-        summariesByWorkflowId.set(update.workflowInstanceId, {
+        const existingRow = rowsByWorkflowId.get(update.workflowInstanceId);
+        rowsByWorkflowId.set(update.workflowInstanceId, {
           workflowInstanceId: update.workflowInstanceId,
           blueprintDefinitionId: update.blueprintDefinitionId,
           blueprintVersionId: update.blueprintVersionId,
           blueprintVersionNumber: update.blueprintVersionNumber,
           blueprintVersionName: update.blueprintVersionName,
           status: update.status,
-          createdAt: update.createdAt,
-          updatedAt: update.updatedAt ?? null,
-          completedTaskCount: update.completedTaskCount,
-          failedTaskCount: update.failedTaskCount,
-          inProgressTaskCount: update.inProgressTaskCount,
-          pendingTaskCount: update.pendingTaskCount,
+          createdAt: existingRow?.createdAt ?? update.createdAt,
+          updatedAt: update.updatedAt ?? existingRow?.updatedAt ?? null,
         });
       }
     }
 
-    return [...summariesByWorkflowId.values()]
+    return [...rowsByWorkflowId.values()]
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
   });
+  protected readonly executionHistoryHasMore = computed(() => this.executionHistoryHasMoreState());
   protected readonly activeExecutionId = computed(() => {
     const currentExecutionId = this.selectedExecutionId();
-    const executions = this.executionSummaries();
-    if (currentExecutionId && executions.some((execution) => execution.workflowInstanceId === currentExecutionId)) {
+    if (currentExecutionId) {
       return currentExecutionId;
     }
 
     const preferredExecutionId = this.preferredWorkflowInstanceId();
-    if (preferredExecutionId && executions.some((execution) => execution.workflowInstanceId === preferredExecutionId)) {
+    if (preferredExecutionId) {
       return preferredExecutionId;
     }
 
-    return executions[0]?.workflowInstanceId ?? null;
+    return this.executionHistoryRows()[0]?.workflowInstanceId ?? null;
   });
   private readonly selectedExecutionState = toSignal(
     createRequestStateStream(
       toObservable(computed(() => {
-        const blueprint = this.selectedBlueprint();
+        const blueprintId = this.selectedBlueprintId();
         const workflowInstanceId = this.activeExecutionId();
-        if (!blueprint || !workflowInstanceId) {
+        if (!blueprintId || !workflowInstanceId) {
           return null;
         }
 
         return {
-          blueprintId: blueprint.id,
+          blueprintId,
           workflowInstanceId,
           refreshVersion: this.refreshVersion(),
         };
@@ -286,71 +293,187 @@ export class WorkflowExecutionsPageComponent {
       }),
     };
   });
-  private readonly workflowLogHistoryRequest = computed<WorkflowLogHistoryRequest | null>(() => {
-    const execution = this.selectedExecution();
-    if (!this.workflowLogPanelOpen() || !execution) {
+  private readonly executionNodeViewByCanvasId = computed(() =>
+    new Map(
+      (this.selectedExecution()?.nodes ?? []).map((node, index) => [index + 1, node] as const),
+    ),
+  );
+  private readonly executionCanvasNodeIdByInstanceId = computed(() =>
+    new Map(
+      (this.selectedExecution()?.nodes ?? []).map((node, index) => [node.instanceId, index + 1] as const),
+    ),
+  );
+  protected readonly selectedExecutionCanvasNodeId = computed(() => {
+    const selectedStepInstanceId = this.selectedStepInstanceId();
+    if (!selectedStepInstanceId) {
       return null;
     }
 
+    return this.executionCanvasNodeIdByInstanceId().get(selectedStepInstanceId) ?? null;
+  });
+  protected readonly selectedExecutionStepNode = computed(() => {
+    const selectedStepInstanceId = this.selectedStepInstanceId();
+    if (!selectedStepInstanceId) {
+      return null;
+    }
+
+    return this.selectedExecution()?.nodes.find((node) => node.instanceId === selectedStepInstanceId) ?? null;
+  });
+  protected readonly stepDrawerOpen = computed(() => this.selectedStepInstanceId() !== null);
+  private readonly selectedStepState = toSignal(
+    createRequestStateStream(
+      toObservable(computed(() => {
+        const execution = this.selectedExecution();
+        const blueprintTaskInstanceId = this.selectedStepInstanceId();
+        if (!execution || !blueprintTaskInstanceId) {
+          return null;
+        }
+
+        return {
+          blueprintDefinitionId: execution.blueprintDefinitionId,
+          workflowInstanceId: execution.workflowInstanceId,
+          blueprintTaskInstanceId,
+        };
+      })).pipe(
+        distinctUntilChanged((left, right) =>
+          left?.blueprintDefinitionId === right?.blueprintDefinitionId &&
+          left?.workflowInstanceId === right?.workflowInstanceId &&
+          left?.blueprintTaskInstanceId === right?.blueprintTaskInstanceId,
+        ),
+      ),
+      ({ blueprintDefinitionId, workflowInstanceId, blueprintTaskInstanceId }) =>
+        this.blueprintService.getExecutionStepDetail(
+          blueprintDefinitionId,
+          workflowInstanceId,
+          blueprintTaskInstanceId,
+        ),
+      'Unable to load the selected step.',
+    ),
+    { initialValue: idleRequestState<WorkflowExecutionStepDetailViewModel>() },
+  );
+  protected readonly stepDetailLoading = computed(() => this.selectedStepState().status === 'loading');
+  protected readonly selectedStepDetail = computed<WorkflowExecutionStepDetailViewModel | null>(() => {
+    const state = this.selectedStepState();
+    return isReadyRequestState(state) ? state.data : null;
+  });
+  protected readonly stepDetailError = computed(() => {
+    const state = this.selectedStepState();
+    return isErrorRequestState(state) ? state.message : null;
+  });
+  protected readonly selectedStepTitle = computed(() =>
+    this.selectedStepDetail()?.name
+    ?? this.selectedExecutionStepNode()?.name
+    ?? 'Step details',
+  );
+  protected readonly selectedStepStatus = computed(() =>
+    this.selectedStepDetail()?.status
+    ?? this.selectedExecutionStepNode()?.status
+    ?? 'NotExecuted',
+  );
+  protected readonly selectedStepResolvedVersion = computed(() =>
+    this.selectedStepDetail()?.resolvedVersion
+    ?? this.selectedExecutionStepNode()?.resolvedVersion
+    ?? null,
+  );
+  protected readonly selectedStepStartedAt = computed(() =>
+    this.selectedStepDetail()?.startedAt
+    ?? this.selectedExecutionStepNode()?.startedAt
+    ?? null,
+  );
+  protected readonly selectedStepEndedAt = computed(() =>
+    this.selectedStepDetail()?.endedAt
+    ?? this.selectedExecutionStepNode()?.failedAt
+    ?? this.selectedExecutionStepNode()?.completedAt
+    ?? null,
+  );
+  protected readonly selectedStepDurationMs = computed(() =>
+    this.selectedStepDetail()?.durationMs ?? null,
+  );
+  protected readonly selectedStepFailureMessage = computed(() =>
+    this.selectedStepDetail()?.failureMessage
+    ?? this.selectedExecutionStepNode()?.failureMessage
+    ?? null,
+  );
+  protected readonly selectedStepInputs = computed(() => this.selectedStepDetail()?.inputs ?? null);
+  protected readonly selectedStepOutputs = computed(() => this.selectedStepDetail()?.outputs ?? null);
+  private readonly stepLogHistoryRequest = computed<StepLogHistoryRequest | null>(() => {
+    const execution = this.selectedExecution();
+    const blueprintTaskInstanceId = this.selectedStepInstanceId();
+    if (!execution || !blueprintTaskInstanceId || this.stepInspectorTab() !== 'logs') {
+      return null;
+    }
+
+    const startedAt = this.selectedStepStartedAt() ?? execution.createdAt;
+    const status = this.selectedStepStatus();
+
     return {
+      blueprintDefinitionId: execution.blueprintDefinitionId,
       workflowInstanceId: execution.workflowInstanceId,
-      from: execution.createdAt,
-      to: execution.status === 'InProgress' ? null : execution.updatedAt ?? null,
+      blueprintTaskInstanceId,
+      from: startedAt,
+      to: status === 'InProgress' ? null : this.selectedStepEndedAt() ?? execution.updatedAt ?? null,
     };
   });
-  private readonly workflowLogHistoryState = toSignal(
+  private readonly stepLogHistoryState = toSignal(
     createRequestStateStream(
-      toObservable(this.workflowLogHistoryRequest).pipe(
+      toObservable(this.stepLogHistoryRequest).pipe(
         distinctUntilChanged((left, right) =>
+          left?.blueprintDefinitionId === right?.blueprintDefinitionId &&
           left?.workflowInstanceId === right?.workflowInstanceId &&
+          left?.blueprintTaskInstanceId === right?.blueprintTaskInstanceId &&
           left?.from === right?.from &&
           left?.to === right?.to,
         ),
       ),
-      (request) => this.observabilityService.getWorkflowLogs(request.workflowInstanceId, {
-        from: request.from,
-        to: request.to,
-        limit: 400,
-      }),
-      'Unable to load logs for that execution.',
+      (request) => this.observabilityService.getExecutionStepLogs(
+        request.blueprintDefinitionId,
+        request.workflowInstanceId,
+        request.blueprintTaskInstanceId,
+        {
+          from: request.from,
+          to: request.to,
+          limit: 400,
+        },
+      ),
+      'Unable to load logs for that step.',
     ),
-    { initialValue: idleRequestState<WorkflowLogBatchViewModel>() },
+    { initialValue: idleRequestState<NodeLogBatchViewModel>() },
   );
-  protected readonly workflowLogsLoading = computed(() => this.workflowLogHistoryState().status === 'loading');
-  protected readonly workflowLogsError = computed(() => {
-    const state = this.workflowLogHistoryState();
+  protected readonly stepLogsLoading = computed(() => this.stepLogHistoryState().status === 'loading');
+  protected readonly stepLogsError = computed(() => {
+    const state = this.stepLogHistoryState();
     return isErrorRequestState(state) ? state.message : null;
   });
-  protected readonly workflowLogs = computed<WorkflowLogEntryViewModel[]>(() => {
-    const historyState = this.workflowLogHistoryState();
+  protected readonly stepLogs = computed<NodeLogEntryViewModel[]>(() => {
+    const historyState = this.stepLogHistoryState();
     const historyEntries = isReadyRequestState(historyState)
       ? historyState.data.entries
       : [];
-    const entriesByCursor = new Map<string, WorkflowLogEntryViewModel>();
+    const entriesByCursor = new Map<string, NodeLogEntryViewModel>();
 
     for (const entry of historyEntries) {
       entriesByCursor.set(entry.cursor, entry);
     }
 
-    for (const entry of this.liveWorkflowLogs()) {
+    for (const entry of this.liveStepLogs()) {
       entriesByCursor.set(entry.cursor, entry);
     }
 
-    return [...entriesByCursor.values()]
+      return [...entriesByCursor.values()]
       .sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
   });
-  private readonly workflowLogStreamRequest = computed(() => {
-    const execution = this.selectedExecution();
-    const historyState = this.workflowLogHistoryState();
-    if (!this.workflowLogPanelOpen() || !execution || execution.status !== 'InProgress' || historyState.status !== 'ready') {
+  protected readonly stepLogCount = computed(() => this.stepLogs().length);
+  private readonly stepLogStreamRequest = computed(() => {
+    const request = this.stepLogHistoryRequest();
+    const historyState = this.stepLogHistoryState();
+    if (!request || this.selectedStepStatus() !== 'InProgress' || historyState.status !== 'ready') {
       return null;
     }
 
-    return {
-      workflowInstanceId: execution.workflowInstanceId,
-      from: execution.createdAt,
-      cursor: historyState.data.nextCursor ?? historyState.data.entries.at(-1)?.cursor ?? null,
-    };
+      return {
+        ...request,
+        cursor: historyState.data.nextCursor ?? historyState.data.entries.at(-1)?.cursor ?? null,
+      };
   });
   protected readonly zoomPercent = computed(() => this.canvasViewport()?.zoomPercent() ?? 100);
   protected readonly selectedExecutionGrafanaLogsUrl = computed(() => {
@@ -397,72 +520,34 @@ export class WorkflowExecutionsPageComponent {
 
     return `${this.runtimeClientConfig.grafanaBaseUrl}/explore?orgId=1&left=${left}`;
   });
-  protected readonly workflowLogFilterOptions = computed<WorkflowLogFilterOption[]>(() => {
-    const detail = this.selectedExecution();
-    if (!detail) {
-      return [];
+  protected readonly historyPaneSummary = computed(() => {
+    if (this.historyPanelMode() === 'executions') {
+      return this.selectedBlueprintRunCountLabel();
     }
 
-    const options = detail.nodes.map((node) => ({
-      id: node.instanceId,
-      label: node.name,
-    }));
-
-    if (this.workflowLogs().some((entry) => !entry.blueprintTaskId)) {
-      options.unshift({
-        id: '__workflow__',
-        label: 'Workflow / System',
-      });
+    const count = this.blueprintActivityTotalCount();
+    if (count === 0) {
+      return 'Recent execution activity';
     }
 
-    return options;
+    return count === 1
+      ? '1 blueprint with activity'
+      : `${count} blueprints with activity`;
   });
-  protected readonly filteredWorkflowLogs = computed(() => {
-    const filterId = this.selectedWorkflowLogFilter();
-    if (!filterId) {
-      return this.workflowLogs();
+  protected readonly selectedBlueprintTitle = computed(() =>
+    this.selectedBlueprint()?.name
+    ?? (this.selectedBlueprintId() ? `Blueprint ${this.selectedBlueprintId()}` : 'Execution History'),
+  );
+  protected readonly selectedBlueprintRunCountLabel = computed(() => {
+    const count = this.executionHistoryRows().length;
+    if (count === 0) {
+      return 'No runs loaded yet';
     }
 
-    if (filterId === '__workflow__') {
-      return this.workflowLogs().filter((entry) => !entry.blueprintTaskId);
+    if (this.executionHistoryHasMore()) {
+      return `${count}+ loaded runs`;
     }
 
-    return this.workflowLogs().filter((entry) => entry.blueprintTaskId === filterId);
-  });
-
-  protected readonly filteredBlueprints = computed(() => {
-    const query = this.blueprintSearchQuery().trim().toLocaleLowerCase();
-    const blueprints = [...this.blueprints()].sort((left, right) => left.name.localeCompare(right.name));
-    if (!query) {
-      return blueprints;
-    }
-
-    return blueprints.filter((blueprint) =>
-      blueprint.name.toLocaleLowerCase().includes(query),
-    );
-  });
-
-  protected readonly filteredExecutions = computed(() => {
-    const query = this.executionSearchQuery().trim().toLocaleLowerCase();
-    if (!query) {
-      return this.executionSummaries();
-    }
-
-    return this.executionSummaries().filter((execution) => {
-      const searchHaystack = [
-        execution.blueprintVersionName,
-        execution.blueprintVersionNumber.toString(),
-        execution.workflowInstanceId,
-        execution.status,
-        execution.createdAt,
-      ].join(' ').toLocaleLowerCase();
-
-      return searchHaystack.includes(query);
-    });
-  });
-
-  protected readonly executionCountLabel = computed(() => {
-    const count = this.executionSummaries().length;
     return count === 1 ? '1 run' : `${count} runs`;
   });
   protected readonly errorMessage = computed(() => {
@@ -471,9 +556,12 @@ export class WorkflowExecutionsPageComponent {
       return blueprintsState.message;
     }
 
-    const executionSummariesState = this.executionSummariesState();
-    if (isErrorRequestState(executionSummariesState)) {
-      return executionSummariesState.message;
+    if (this.historyPanelMode() === 'blueprints' && this.blueprintActivityError()) {
+      return this.blueprintActivityError();
+    }
+
+    if (this.historyPanelMode() === 'executions' && this.executionHistoryError()) {
+      return this.executionHistoryError();
     }
 
     const selectedExecutionState = this.selectedExecutionState();
@@ -545,19 +633,11 @@ export class WorkflowExecutionsPageComponent {
     effect(() => {
       this.executionRealtime.setSubscriptions(
         this.selectedBlueprintId() ?? this.routeSelection().blueprintId,
-        this.selectedExecutionId() ??
-        this.preferredWorkflowInstanceId() ??
-        this.routeSelection().workflowInstanceId ??
-        this.activeExecutionId(),
+        this.selectedExecutionId()
+        ?? this.preferredWorkflowInstanceId()
+        ?? this.routeSelection().workflowInstanceId
+        ?? this.activeExecutionId(),
       );
-    });
-
-    effect(() => {
-      const blueprint = this.selectedBlueprint();
-      const nextValue = blueprint?.name ?? '';
-      if (this.blueprintSearch.value !== nextValue) {
-        this.blueprintSearch.setValue(nextValue, { emitEvent: false });
-      }
     });
 
     effect(() => {
@@ -570,15 +650,17 @@ export class WorkflowExecutionsPageComponent {
     });
 
     effect((onCleanup) => {
-      const request = this.workflowLogStreamRequest();
-      this.stopWorkflowLogStream();
+      const request = this.stepLogStreamRequest();
+      this.stopStepLogStream();
 
       if (!request) {
         return;
       }
 
-      const eventSource = this.observabilityService.createWorkflowLogStream(
+      const eventSource = this.observabilityService.createExecutionStepLogStream(
+        request.blueprintDefinitionId,
         request.workflowInstanceId,
+        request.blueprintTaskInstanceId,
         {
           from: request.from,
           cursor: request.cursor,
@@ -587,30 +669,117 @@ export class WorkflowExecutionsPageComponent {
 
       eventSource.addEventListener('logBatch', (event) => {
         const messageEvent = event as MessageEvent<string>;
-        const batch = JSON.parse(messageEvent.data) as WorkflowLogBatchViewModel;
-        this.appendWorkflowLogEntries(batch.entries);
-        this.workflowLogStreamConnected.set(true);
+        const batch = JSON.parse(messageEvent.data) as NodeLogBatchViewModel;
+        this.appendStepLogEntries(batch.entries);
+        this.stepLogStreamConnected.set(true);
       });
 
       eventSource.onerror = () => {
-        this.workflowLogStreamConnected.set(false);
+        this.stepLogStreamConnected.set(false);
       };
 
-      this.workflowLogEventSource = eventSource;
+      this.stepLogEventSource = eventSource;
 
       onCleanup(() => {
         eventSource.close();
-        if (this.workflowLogEventSource === eventSource) {
-          this.workflowLogEventSource = null;
+        if (this.stepLogEventSource === eventSource) {
+          this.stepLogEventSource = null;
         }
-        this.workflowLogStreamConnected.set(false);
+        this.stepLogStreamConnected.set(false);
       });
     });
 
-    this.blueprintSearch.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => {
-        this.pickerOpen.set(true);
+    toObservable(this.blueprintSearchQuery)
+      .pipe(
+        tap(() => {
+          this.blueprintActivityLoading.set(true);
+          this.blueprintActivityLoadingMore.set(false);
+          this.blueprintActivityError.set(null);
+          this.blueprintActivityRows.set([]);
+          this.blueprintActivityPage.set(1);
+          this.blueprintActivityTotalCount.set(0);
+          this.blueprintActivityHasMore.set(false);
+        }),
+        switchMap((query) => this.blueprintService.getExecutionBlueprintActivities(query, 1, 10).pipe(
+          map((page) => ({ page, error: null as string | null })),
+          catchError(() => of({
+            page: null,
+            error: 'Unable to load blueprint activity.',
+          })),
+        )),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(({ page, error }) => {
+        this.blueprintActivityLoading.set(false);
+
+        if (error || !page) {
+          this.blueprintActivityError.set(error ?? 'Unable to load blueprint activity.');
+          return;
+        }
+
+        this.blueprintActivityRows.set(page.items);
+        this.blueprintActivityPage.set(page.page);
+        this.blueprintActivityTotalCount.set(page.totalCount);
+        this.blueprintActivityHasMore.set(page.hasMore);
+      });
+
+    toObservable(computed(() => {
+      const blueprintId = this.selectedBlueprintId();
+      if (!blueprintId) {
+        return null;
+      }
+
+      return {
+        blueprintId,
+        refreshVersion: this.refreshVersion(),
+      };
+    }))
+      .pipe(
+        distinctUntilChanged((left, right) =>
+          left?.blueprintId === right?.blueprintId &&
+          left?.refreshVersion === right?.refreshVersion,
+        ),
+        tap((request) => {
+          this.executionHistoryBaseRows.set([]);
+          this.executionHistoryNextCursor.set(null);
+          this.executionHistoryHasMoreState.set(false);
+          this.executionHistoryError.set(null);
+          this.executionHistoryLoadingMore.set(false);
+          this.executionHistoryLoading.set(request !== null);
+        }),
+        switchMap((request) => {
+          if (!request) {
+            return of({
+              page: null,
+              error: null as string | null,
+            });
+          }
+
+          return this.blueprintService.getBlueprintExecutionHistory(request.blueprintId, 25).pipe(
+            map((page) => ({ page, error: null as string | null })),
+            catchError(() => of({
+              page: null,
+              error: 'Unable to load execution history for the selected blueprint.',
+            })),
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(({ page, error }) => {
+        this.executionHistoryLoading.set(false);
+
+        if (error) {
+          this.executionHistoryError.set(error);
+          return;
+        }
+
+        if (!page) {
+          return;
+        }
+
+        this.executionHistoryBaseRows.set(page.items);
+        this.executionHistoryNextCursor.set(page.nextCursor ?? null);
+        this.executionHistoryHasMoreState.set(page.hasMore);
       });
 
     toObservable(this.routeSelection)
@@ -619,6 +788,7 @@ export class WorkflowExecutionsPageComponent {
         this.applyBlueprintSelection(
           selection.blueprintId,
           selection.workflowInstanceId,
+          selection.blueprintId ? 'executions' : 'blueprints',
         );
       });
 
@@ -636,26 +806,37 @@ export class WorkflowExecutionsPageComponent {
         this.refreshVersion.update((current) => current + 1);
       });
 
-    toObservable(this.workflowLogHistoryRequest)
+    toObservable(this.activeExecutionId)
+      .pipe(
+        distinctUntilChanged(),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(() => {
+        this.closeExecutionInfo();
+        this.closeStepDrawer();
+      });
+
+    toObservable(this.stepLogHistoryRequest)
       .pipe(
         distinctUntilChanged((left, right) =>
+          left?.blueprintDefinitionId === right?.blueprintDefinitionId &&
           left?.workflowInstanceId === right?.workflowInstanceId &&
+          left?.blueprintTaskInstanceId === right?.blueprintTaskInstanceId &&
           left?.from === right?.from &&
           left?.to === right?.to,
         ),
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((request) => {
-        this.liveWorkflowLogs.set([]);
-        this.selectedWorkflowLogFilter.set(null);
+        this.liveStepLogs.set([]);
         if (!request) {
-          this.stopWorkflowLogStream();
+          this.stopStepLogStream();
         }
       });
 
     this.executionRealtime.connect();
     this.destroyRef.onDestroy(() => {
-      this.stopWorkflowLogStream();
+      this.stopStepLogStream();
       void this.executionRealtime.disconnect();
     });
   }
@@ -664,27 +845,119 @@ export class WorkflowExecutionsPageComponent {
     this.historyCollapsed.update((collapsed) => !collapsed);
   }
 
-  protected selectBlueprint(blueprint: BlueprintViewModel): void {
-    this.applyBlueprintSelection(blueprint.id, null);
+  protected selectBlueprintActivity(activity: BlueprintExecutionActivityViewModel): void {
+    this.applyBlueprintSelection(activity.blueprintDefinitionId, null, 'executions');
   }
 
-  protected openPicker(): void {
-    this.pickerOpen.set(true);
+  protected returnToBlueprintPicker(): void {
+    this.historyPanelMode.set('blueprints');
   }
 
-  protected closePicker(event: FocusEvent): void {
-    const currentTarget = event.currentTarget as HTMLElement | null;
-    const nextTarget = event.relatedTarget as Node | null;
-    if (currentTarget && nextTarget && currentTarget.contains(nextTarget)) {
+  protected async loadMoreBlueprintActivities(): Promise<void> {
+    if (!this.blueprintActivityHasMore() || this.blueprintActivityLoadingMore()) {
       return;
     }
 
-    window.setTimeout(() => this.pickerOpen.set(false), 120);
+    const query = this.blueprintSearchQuery();
+    const nextPage = this.blueprintActivityPage() + 1;
+    this.blueprintActivityLoadingMore.set(true);
+    this.blueprintActivityError.set(null);
+
+    try {
+      const response = await firstValueFrom(
+        this.blueprintService.getExecutionBlueprintActivities(query, nextPage, 10),
+      );
+
+      if (query !== this.blueprintSearchQuery() || nextPage <= this.blueprintActivityPage()) {
+        return;
+      }
+
+      this.blueprintActivityRows.update((currentRows) =>
+        this.mergeBlueprintActivities(currentRows, response.items),
+      );
+      this.blueprintActivityPage.set(response.page);
+      this.blueprintActivityTotalCount.set(response.totalCount);
+      this.blueprintActivityHasMore.set(response.hasMore);
+    } catch {
+      if (query === this.blueprintSearchQuery()) {
+        this.blueprintActivityError.set('Unable to load more blueprints.');
+      }
+    } finally {
+      this.blueprintActivityLoadingMore.set(false);
+    }
   }
 
-  protected selectExecution(execution: WorkflowExecutionSummaryViewModel): void {
+  protected selectExecution(execution: BlueprintExecutionHistoryEntryViewModel): void {
+    this.closeExecutionInfo();
     this.selectedExecutionId.set(execution.workflowInstanceId);
     this.preferredWorkflowInstanceId.set(null);
+  }
+
+  protected onReadonlyNodeActivated(nodeId: number): void {
+    const selectedNode = this.executionNodeViewByCanvasId().get(nodeId);
+    if (!selectedNode) {
+      return;
+    }
+
+    if (this.selectedStepInstanceId() !== selectedNode.instanceId) {
+      this.stepInspectorTab.set('inputs');
+    }
+
+    this.selectedStepInstanceId.set(selectedNode.instanceId);
+  }
+
+  protected closeStepDrawer(): void {
+    this.selectedStepInstanceId.set(null);
+    this.stepInspectorTab.set('inputs');
+    this.liveStepLogs.set([]);
+    this.stopStepLogStream();
+  }
+
+  protected toggleExecutionInfo(event: MouseEvent): void {
+    event.stopPropagation();
+    this.executionInfoOpen.update((open) => !open);
+  }
+
+  protected closeExecutionInfo(): void {
+    this.executionInfoOpen.set(false);
+  }
+
+  protected selectStepInspectorTab(tab: StepInspectorTab): void {
+    this.stepInspectorTab.set(tab);
+  }
+
+  protected async loadMoreExecutionHistory(): Promise<void> {
+    const blueprintId = this.selectedBlueprintId();
+    const cursor = this.executionHistoryNextCursor();
+
+    if (!blueprintId || !cursor || this.executionHistoryLoadingMore()) {
+      return;
+    }
+
+    this.executionHistoryLoadingMore.set(true);
+    this.executionHistoryError.set(null);
+
+    try {
+      const response = await firstValueFrom(
+        this.blueprintService.getBlueprintExecutionHistory(blueprintId, 25, cursor),
+      );
+
+      if (blueprintId !== this.selectedBlueprintId() || cursor !== this.executionHistoryNextCursor()) {
+        return;
+      }
+
+      this.executionHistoryBaseRows.update((currentRows) =>
+        this.mergeExecutionHistoryRows(currentRows, response.items),
+      );
+      this.executionHistoryNextCursor.set(response.nextCursor ?? null);
+      this.executionHistoryHasMoreState.set(response.hasMore);
+    } catch {
+      if (blueprintId === this.selectedBlueprintId()) {
+        this.executionHistoryError.set('Unable to load more executions.');
+      }
+    } finally {
+      this.executionHistoryLoadingMore.set(false);
+    }
   }
 
   protected resetView(): void {
@@ -697,27 +970,6 @@ export class WorkflowExecutionsPageComponent {
 
   protected zoomOut(): void {
     this.canvasViewport()?.zoomOut();
-  }
-
-  protected toggleWorkflowLogs(): void {
-    if (!this.selectedExecution()) {
-      return;
-    }
-
-    if (this.workflowLogPanelOpen()) {
-      this.closeWorkflowLogs();
-      return;
-    }
-
-    this.workflowLogPanelOpen.set(true);
-  }
-
-  protected closeWorkflowLogPanel(): void {
-    this.closeWorkflowLogs();
-  }
-
-  protected selectWorkflowLogFilter(filterId: string | null): void {
-    this.selectedWorkflowLogFilter.set(filterId);
   }
 
   protected statusLabel(status: string): string {
@@ -750,43 +1002,121 @@ export class WorkflowExecutionsPageComponent {
     }
   }
 
-  protected workflowLogLabel(entry: WorkflowLogEntryViewModel): string {
-    return entry.taskName ?? entry.pluginName ?? 'Workflow / System';
+  protected stepLogLabel(entry: NodeLogEntryViewModel): string {
+    return entry.serviceName ?? 'Step';
   }
 
-  protected workflowLogFilterLabel(filter: WorkflowLogFilterOption): string {
-    return filter.label;
+  protected blueprintActivityCountLabel(activity: BlueprintExecutionActivityViewModel): string {
+    return activity.recentExecutionCount === 1
+      ? '1 recent run'
+      : `${activity.recentExecutionCount} recent runs`;
   }
 
-  protected trackBlueprint(_: number, blueprint: BlueprintViewModel): number {
-    return blueprint.id;
+  protected executionIdLabel(execution: BlueprintExecutionHistoryEntryViewModel): string {
+    if (execution.workflowInstanceId.length <= 14) {
+      return execution.workflowInstanceId;
+    }
+
+    return `${execution.workflowInstanceId.slice(0, 8)}...${execution.workflowInstanceId.slice(-4)}`;
   }
 
-  protected trackExecution(_: number, execution: WorkflowExecutionSummaryViewModel): string {
+  protected trackBlueprintActivity(
+    _: number,
+    activity: BlueprintExecutionActivityViewModel,
+  ): number {
+    return activity.blueprintDefinitionId;
+  }
+
+  protected trackExecution(
+    _: number,
+    execution: BlueprintExecutionHistoryEntryViewModel,
+  ): string {
     return execution.workflowInstanceId;
   }
 
-  protected trackWorkflowLog(_: number, entry: WorkflowLogEntryViewModel): string {
+  protected trackStepLog(_: number, entry: NodeLogEntryViewModel): string {
     return entry.cursor;
+  }
+
+  protected hasStructuredPayload(payload: unknown | null | undefined): boolean {
+    return payload !== null && payload !== undefined;
+  }
+
+  protected formatStructuredPayload(payload: unknown | null | undefined): string {
+    if (!this.hasStructuredPayload(payload)) {
+      return '';
+    }
+
+    return JSON.stringify(payload, null, 2);
+  }
+
+  protected formatDuration(durationMs: number | null | undefined): string {
+    if (durationMs === null || durationMs === undefined || Number.isNaN(durationMs)) {
+      return 'Not available';
+    }
+
+    if (durationMs < 1_000) {
+      return `${Math.round(durationMs)}ms`;
+    }
+
+    const totalSeconds = durationMs / 1_000;
+    if (totalSeconds < 60) {
+      return `${totalSeconds.toFixed(totalSeconds < 10 ? 1 : 0)}s`;
+    }
+
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}m ${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  }
+
+  @HostListener('document:click', ['$event'])
+  protected onDocumentClick(event: MouseEvent): void {
+    if (!this.executionInfoOpen()) {
+      return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof Node)) {
+      this.closeExecutionInfo();
+      return;
+    }
+
+    const infoButton = this.executionInfoButton()?.nativeElement;
+    if (infoButton?.contains(target)) {
+      return;
+    }
+
+    const infoPopover = this.executionInfoPopover()?.nativeElement;
+    if (infoPopover?.contains(target)) {
+      return;
+    }
+
+    this.closeExecutionInfo();
+  }
+
+  @HostListener('document:keydown.escape')
+  protected onEscapeKey(): void {
+    this.closeExecutionInfo();
   }
 
   private applyBlueprintSelection(
     blueprintId: number | null,
     preferredWorkflowInstanceId: string | null,
+    historyPanelMode: HistoryPanelMode,
   ): void {
+    this.closeExecutionInfo();
     this.selectedBlueprintId.set(blueprintId);
     this.preferredWorkflowInstanceId.set(preferredWorkflowInstanceId);
-    this.executionSearch.setValue('', { emitEvent: false });
-    this.pickerOpen.set(false);
+    this.historyPanelMode.set(historyPanelMode);
     this.selectedExecutionId.set(null);
     this.historyCollapsed.set(false);
-    this.closeWorkflowLogs();
+    this.closeStepDrawer();
     this.realtimeSummaryOverrides.set(new Map());
     this.realtimeNodeOverrides.set(new Map());
   }
 
   private applyRealtimeSummaryUpdates(updates: ExecutionSummaryUpdatedEvent[]): void {
-    const selectedBlueprintId = this.selectedBlueprint()?.id;
+    const selectedBlueprintId = this.selectedBlueprintId();
     if (!selectedBlueprintId) {
       return;
     }
@@ -836,12 +1166,12 @@ export class WorkflowExecutionsPageComponent {
     queueMicrotask(() => this.canvasViewport()?.centerOnNode(nodeIndex + 1));
   }
 
-  private appendWorkflowLogEntries(entries: WorkflowLogEntryViewModel[]): void {
+  private appendStepLogEntries(entries: NodeLogEntryViewModel[]): void {
     if (entries.length === 0) {
       return;
     }
 
-    this.liveWorkflowLogs.update((currentEntries) => {
+    this.liveStepLogs.update((currentEntries) => {
       const entriesByCursor = new Map(currentEntries.map((entry) => [entry.cursor, entry] as const));
       for (const entry of entries) {
         entriesByCursor.set(entry.cursor, entry);
@@ -852,16 +1182,40 @@ export class WorkflowExecutionsPageComponent {
     });
   }
 
-  private closeWorkflowLogs(): void {
-    this.workflowLogPanelOpen.set(false);
-    this.liveWorkflowLogs.set([]);
-    this.selectedWorkflowLogFilter.set(null);
-    this.stopWorkflowLogStream();
+  private stopStepLogStream(): void {
+    this.stepLogEventSource?.close();
+    this.stepLogEventSource = null;
+    this.stepLogStreamConnected.set(false);
   }
 
-  private stopWorkflowLogStream(): void {
-    this.workflowLogEventSource?.close();
-    this.workflowLogEventSource = null;
-    this.workflowLogStreamConnected.set(false);
+  private mergeBlueprintActivities(
+    currentRows: BlueprintExecutionActivityViewModel[],
+    nextRows: BlueprintExecutionActivityViewModel[],
+  ): BlueprintExecutionActivityViewModel[] {
+    const rowsByDefinitionId = new Map<number, BlueprintExecutionActivityViewModel>(
+      currentRows.map((row) => [row.blueprintDefinitionId, row] as const),
+    );
+
+    for (const row of nextRows) {
+      rowsByDefinitionId.set(row.blueprintDefinitionId, row);
+    }
+
+    return [...rowsByDefinitionId.values()];
+  }
+
+  private mergeExecutionHistoryRows(
+    currentRows: BlueprintExecutionHistoryEntryViewModel[],
+    nextRows: BlueprintExecutionHistoryEntryViewModel[],
+  ): BlueprintExecutionHistoryEntryViewModel[] {
+    const rowsByWorkflowId = new Map<string, BlueprintExecutionHistoryEntryViewModel>(
+      currentRows.map((row) => [row.workflowInstanceId, row] as const),
+    );
+
+    for (const row of nextRows) {
+      rowsByWorkflowId.set(row.workflowInstanceId, row);
+    }
+
+    return [...rowsByWorkflowId.values()]
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
   }
 }
