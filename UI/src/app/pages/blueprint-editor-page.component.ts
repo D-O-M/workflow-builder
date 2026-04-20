@@ -9,7 +9,7 @@ import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
 import { BuilderInputService } from '../domain/builder-input.service';
 import { TaskDefinitionsService } from '../domain/task-definitions.service';
 import { ITaskDefinition } from '../interfaces/ITaskDefinition';
-import { WorkflowCanvasComponent } from '../components/workflow-canvas.component';
+import { BlueprintCanvasComponent } from '../components/blueprint-canvas.component';
 
 interface SidebarShortcut {
   icon: string;
@@ -45,7 +45,7 @@ const SUPPORT_LINKS: SidebarShortcut[] = [
     ReactiveFormsModule,
     MatButtonModule,
     MatIconModule,
-    WorkflowCanvasComponent,
+    BlueprintCanvasComponent,
   ],
   templateUrl: './blueprint-editor-page.component.html',
   styleUrl: './blueprint-editor-page.component.css',
@@ -60,7 +60,7 @@ export class BlueprintEditorPageComponent {
   protected readonly editorStore = inject(BlueprintEditorStore);
   private readonly taskDefinitions = inject(TaskDefinitionsService);
   private readonly builderInput = inject(BuilderInputService);
-  private readonly canvasViewport = viewChild(WorkflowCanvasComponent);
+  private readonly canvasViewport = viewChild(BlueprintCanvasComponent);
   private readonly gridSize = 20;
 
   protected readonly saving = signal(false);
@@ -302,7 +302,7 @@ export class BlueprintEditorPageComponent {
         icon: this.getTaskIcon(section, task),
         description:
           task.versions[0]?.description?.trim() ||
-          'Add workflow plugin to canvas',
+          'Add task definition to blueprint',
       });
       sections.set(section, current);
     }

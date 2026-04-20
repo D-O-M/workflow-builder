@@ -15,26 +15,26 @@ namespace Backend.API.Controllers;
 public class BlueprintsController : ControllerBase
 {
     private readonly IBlueprintVersionValidator _blueprintVersionValidator;
-    private readonly BlueprintExecutionService _blueprintExecutionService;
+    private readonly BlueprintProcessService _blueprintProcessService;
     private readonly BlueprintPortabilityService _blueprintPortabilityService;
-    private readonly IWorkflowBlueprintRepository _workflowBlueprintRepository;
+    private readonly IBlueprintRepository _blueprintRepository;
 
     public BlueprintsController(
         IBlueprintVersionValidator blueprintVersionValidator,
-        BlueprintExecutionService blueprintExecutionService,
+        BlueprintProcessService blueprintProcessService,
         BlueprintPortabilityService blueprintPortabilityService,
-        IWorkflowBlueprintRepository workflowBlueprintRepository)
+        IBlueprintRepository blueprintRepository)
     {
         _blueprintVersionValidator = blueprintVersionValidator;
-        _blueprintExecutionService = blueprintExecutionService;
+        _blueprintProcessService = blueprintProcessService;
         _blueprintPortabilityService = blueprintPortabilityService;
-        _workflowBlueprintRepository = workflowBlueprintRepository;
+        _blueprintRepository = blueprintRepository;
     }
 
     [HttpGet]
     public async Task<ActionResult<List<BlueprintViewModel>>> GetAllBlueprints()
     {
-        var items = await _workflowBlueprintRepository.GetAllBlueprints(HttpContext.RequestAborted);
+        var items = await _blueprintRepository.GetAllBlueprints(HttpContext.RequestAborted);
         return Ok(items);
     }
 
@@ -44,7 +44,7 @@ public class BlueprintsController : ControllerBase
     {
         try
         {
-            var blueprint = await _workflowBlueprintRepository.GetBlueprintById(model.Id, HttpContext.RequestAborted);
+            var blueprint = await _blueprintRepository.GetBlueprintById(model.Id, HttpContext.RequestAborted);
             return Ok(blueprint);
         }
         catch (EntityNotFoundException<BlueprintViewModel>)
@@ -62,7 +62,7 @@ public class BlueprintsController : ControllerBase
 
         try
         {
-            var created = await _workflowBlueprintRepository.CreateBlueprint(model, HttpContext.RequestAborted);
+            var created = await _blueprintRepository.CreateBlueprint(model, HttpContext.RequestAborted);
             return CreatedAtAction(nameof(GetBlueprintById), new { Id = created.Id }, created);
         }
         catch (InvalidDataException)
@@ -89,7 +89,7 @@ public class BlueprintsController : ControllerBase
             DefinitionId = model.BlueprintDefinitionId,
             Description = model.Description,
             TaskTree = BuildTaskTree(
-                taskModelsByInstanceId[model.StartingTaskInstanceId],
+                taskModelsByInstanceId[model.StartingBlueprintNodeId],
                 taskModelsByInstanceId)
         };
 
@@ -104,7 +104,7 @@ public class BlueprintsController : ControllerBase
 
         try
         {
-            var created = await _workflowBlueprintRepository.CreateVersion(dto, HttpContext.RequestAborted);
+            var created = await _blueprintRepository.CreateVersion(dto, HttpContext.RequestAborted);
             return Ok(created);
         }
         catch (EntityNotFoundException<BlueprintViewModel>)
@@ -113,16 +113,16 @@ public class BlueprintsController : ControllerBase
         }
     }
 
-    [HttpPost("{Id:int}/execute")]
-    public async Task<ActionResult<object>> ExecuteBlueprint(
+    [HttpPost("{Id:int}/processes")]
+    public async Task<ActionResult<object>> StartProcess(
         [FromRoute] IdInputModel model,
-        [FromBody] BlueprintExecutionInputModel executionModel)
+        [FromBody] BlueprintProcessInputModel processModel)
     {
         try
         {
-            var accepted = await _blueprintExecutionService.ExecuteLatestVersionAsync(
+            var accepted = await _blueprintProcessService.StartLatestVersionAsync(
                 model.Id,
-                executionModel,
+                processModel,
                 HttpContext.RequestAborted);
 
             return Accepted(accepted);
@@ -173,8 +173,8 @@ public class BlueprintsController : ControllerBase
     }
 
     private BlueprintTaskTree BuildTaskTree(
-        BlueprintTaskInputModel model,
-        Dictionary<Guid, BlueprintTaskInputModel> taskModelsByInstanceId)
+        BlueprintNodeInputModel model,
+        Dictionary<Guid, BlueprintNodeInputModel> taskModelsByInstanceId)
     {
         var task = new BlueprintTaskTree
         {
@@ -200,7 +200,7 @@ public class BlueprintsController : ControllerBase
                         Side = connection.Side,
                         Position = connection.Position,
                         Task = BuildTaskTree(
-                            taskModelsByInstanceId[connection.ConnectedTaskInstanceId],
+                            taskModelsByInstanceId[connection.ConnectedBlueprintNodeId],
                             taskModelsByInstanceId)
                     });
             }

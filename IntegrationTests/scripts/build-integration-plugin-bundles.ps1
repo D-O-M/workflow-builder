@@ -17,9 +17,14 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
 $bundleScript = Join-Path $repoRoot "BuildScripts/bundle-plugins.ps1"
+$runtimeIdentifier = [System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier
+if ([string]::IsNullOrWhiteSpace($runtimeIdentifier)) {
+  $runtimeIdentifier = "win-x64"
+}
 
 & $bundleScript `
   -RootDir $pluginRoot `
   -OutputDir $OutputDir `
   -Configuration Release `
+  -RuntimeIdentifier $runtimeIdentifier `
   -Overwrite

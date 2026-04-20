@@ -10,41 +10,41 @@ interface CoordinatesViewModel {
   y: number;
 }
 
-interface BlueprintTaskConnectionInputModel {
+interface BlueprintConnectionInputModel {
   channelId?: number | null;
   channelName?: string | null;
-  connectedTaskInstanceId: string;
+  connectedBlueprintNodeId: string;
   anchor: number;
   side: Side;
   position: number;
 }
 
-interface BlueprintTaskInputModel {
+interface BlueprintNodeInputModel {
   instanceId: string;
   taskDefinitionId: number;
   allowedMajor: number;
   allowedMinor: number;
   position: CoordinatesViewModel;
-  outgoingConnections: BlueprintTaskConnectionInputModel[];
+  outgoingConnections: BlueprintConnectionInputModel[];
 }
 
 interface BlueprintInputModel {
   name: string;
   description?: string | null;
-  startingTaskInstanceId: string;
-  tasks: BlueprintTaskInputModel[];
+  startingBlueprintNodeId: string;
+  tasks: BlueprintNodeInputModel[];
 }
 
-interface BlueprintTaskConnectionViewModel {
+interface BlueprintConnectionViewModel {
   channelId?: number | null;
   channelName?: string | null;
-  taskInstanceId: string;
+  blueprintNodeId: string;
   anchor: number;
   side: Side;
   position: number;
 }
 
-interface BlueprintTaskViewModel {
+interface BlueprintNodeViewModel {
   instanceId: string;
   taskDefinitionId: number;
   allowedMajor: number;
@@ -52,7 +52,7 @@ interface BlueprintTaskViewModel {
   resolvedVersionId: number;
   resolvedVersion?: string | null;
   position: CoordinatesViewModel;
-  outgoingConnections: BlueprintTaskConnectionViewModel[];
+  outgoingConnections: BlueprintConnectionViewModel[];
 }
 
 export interface BlueprintVersionViewModel {
@@ -61,8 +61,8 @@ export interface BlueprintVersionViewModel {
   name: string;
   description?: string | null;
   version: number;
-  startingTaskInstanceId: string;
-  tasks: BlueprintTaskViewModel[];
+  startingBlueprintNodeId: string;
+  tasks: BlueprintNodeViewModel[];
 }
 
 export interface BlueprintViewModel {
@@ -72,19 +72,19 @@ export interface BlueprintViewModel {
   versions: BlueprintVersionViewModel[];
 }
 
-export interface BlueprintExecutionInputModel {
+export interface BlueprintProcessInputModel {
   globalState: Record<string, unknown>;
   initialTaskInput: Record<string, unknown>;
 }
 
-export interface BlueprintExecutionAcceptedViewModel {
-  workflowInstanceId: string;
+export interface BlueprintProcessAcceptedViewModel {
+  processId: string;
   blueprintId: number;
   acceptedAt: string;
 }
 
-export interface WorkflowExecutionSummaryViewModel {
-  workflowInstanceId: string;
+export interface ProcessSummaryViewModel {
+  processId: string;
   blueprintDefinitionId: number;
   blueprintVersionId: number;
   blueprintVersionNumber: number;
@@ -98,15 +98,15 @@ export interface WorkflowExecutionSummaryViewModel {
   pendingTaskCount: number;
 }
 
-export interface BlueprintExecutionActivityViewModel {
+export interface BlueprintProcessActivityViewModel {
   blueprintDefinitionId: number;
   blueprintName: string;
-  recentExecutionCount: number;
-  latestExecutionAt: string;
+  recentProcessCount: number;
+  latestProcessAt: string;
 }
 
-export interface BlueprintExecutionActivityPageViewModel {
-  items: BlueprintExecutionActivityViewModel[];
+export interface BlueprintProcessActivityPageViewModel {
+  items: BlueprintProcessActivityViewModel[];
   page: number;
   pageSize: number;
   totalCount: number;
@@ -114,8 +114,8 @@ export interface BlueprintExecutionActivityPageViewModel {
   rankingWindowHours: number;
 }
 
-export interface BlueprintExecutionHistoryEntryViewModel {
-  workflowInstanceId: string;
+export interface BlueprintProcessHistoryEntryViewModel {
+  processId: string;
   blueprintDefinitionId: number;
   blueprintVersionId: number;
   blueprintVersionNumber: number;
@@ -125,15 +125,14 @@ export interface BlueprintExecutionHistoryEntryViewModel {
   updatedAt?: string | null;
 }
 
-export interface BlueprintExecutionHistoryPageViewModel {
-  items: BlueprintExecutionHistoryEntryViewModel[];
+export interface BlueprintProcessHistoryPageViewModel {
+  items: BlueprintProcessHistoryEntryViewModel[];
   nextCursor?: string | null;
   hasMore: boolean;
 }
 
-export interface WorkflowExecutionNodeViewModel {
+export interface ProcessStepViewModel {
   instanceId: string;
-  runtimeTaskInstanceId?: string | null;
   taskDefinitionId: number;
   allowedMajor: number;
   allowedMinor: number;
@@ -148,11 +147,11 @@ export interface WorkflowExecutionNodeViewModel {
   failureMessage?: string | null;
   inputChannelName?: string | null;
   outputChannelNames: string[];
-  outgoingConnections: BlueprintTaskConnectionViewModel[];
+  outgoingConnections: BlueprintConnectionViewModel[];
 }
 
-export interface WorkflowExecutionDetailViewModel {
-  workflowInstanceId: string;
+export interface ProcessDetailViewModel {
+  processId: string;
   blueprintDefinitionId: number;
   blueprintName: string;
   blueprintVersionId: number;
@@ -161,12 +160,12 @@ export interface WorkflowExecutionDetailViewModel {
   status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   createdAt: string;
   updatedAt?: string | null;
-  startingTaskInstanceId: string;
-  nodes: WorkflowExecutionNodeViewModel[];
+  startingBlueprintNodeId: string;
+  nodes: ProcessStepViewModel[];
 }
 
-export interface WorkflowExecutionStepDetailViewModel {
-  blueprintTaskInstanceId: string;
+export interface ProcessStepDetailViewModel {
+  blueprintNodeId: string;
   name: string;
   status: 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   resolvedVersion?: string | null;
@@ -239,7 +238,7 @@ export class BlueprintEditorService {
   ): Observable<BlueprintViewModel> {
     const instanceIdByNodeId = new Map<number, string>(nodes.map((n) => [n.id, crypto.randomUUID()]));
 
-    const tasks: BlueprintTaskInputModel[] = nodes.map((n) => ({
+    const tasks: BlueprintNodeInputModel[] = nodes.map((n) => ({
       instanceId: instanceIdByNodeId.get(n.id)!,
       taskDefinitionId: n.taskDefinitionId,
       allowedMajor: n.allowedMajor,
@@ -248,7 +247,7 @@ export class BlueprintEditorService {
       outgoingConnections: [],
     }));
 
-    const taskByNodeId = new Map<number, BlueprintTaskInputModel>(nodes.map((n, index) => [n.id, tasks[index]]));
+    const taskByNodeId = new Map<number, BlueprintNodeInputModel>(nodes.map((n, index) => [n.id, tasks[index]]));
     const taskDefinitionByVersionId = new Map<number, ITaskDefinition['versions'][number]>();
     for (const taskDefinition of taskDefinitions) {
       for (const version of taskDefinition.versions) {
@@ -267,7 +266,7 @@ export class BlueprintEditorService {
       source.outgoingConnections.push({
         channelId: null,
         channelName: defaultOutputChannel?.name ?? null,
-        connectedTaskInstanceId: instanceIdByNodeId.get(c.to.id)!,
+        connectedBlueprintNodeId: instanceIdByNodeId.get(c.to.id)!,
         anchor: c.anchor,
         side: c.side,
         position: c.pos,
@@ -277,7 +276,7 @@ export class BlueprintEditorService {
     const payload: BlueprintInputModel = {
       name,
       description: null,
-      startingTaskInstanceId: instanceIdByNodeId.get(startingNodeId)!,
+      startingBlueprintNodeId: instanceIdByNodeId.get(startingNodeId)!,
       tasks,
     };
 
@@ -327,7 +326,7 @@ export class BlueprintEditorService {
         const connections = version.tasks.flatMap((task) =>
           task.outgoingConnections.flatMap((connection) => {
             const fromNodeId = nodeIdByInstanceId.get(task.instanceId);
-            const toNodeId = nodeIdByInstanceId.get(connection.taskInstanceId);
+            const toNodeId = nodeIdByInstanceId.get(connection.blueprintNodeId);
             if (!fromNodeId || !toNodeId) {
               return [];
             }
@@ -351,20 +350,20 @@ export class BlueprintEditorService {
     );
   }
 
-  executeBlueprint(definitionId: number, payload: BlueprintExecutionInputModel): Observable<BlueprintExecutionAcceptedViewModel> {
-    return this.http.post<BlueprintExecutionAcceptedViewModel>(`api/blueprints/${definitionId}/execute`, payload);
+  startProcess(definitionId: number, payload: BlueprintProcessInputModel): Observable<BlueprintProcessAcceptedViewModel> {
+    return this.http.post<BlueprintProcessAcceptedViewModel>(`api/blueprints/${definitionId}/processes`, payload);
   }
 
-  getBlueprintExecutions(definitionId: number): Observable<WorkflowExecutionSummaryViewModel[]> {
-    return this.http.get<WorkflowExecutionSummaryViewModel[]>(`api/blueprints/${definitionId}/executions`);
+  getBlueprintProcesses(definitionId: number): Observable<ProcessSummaryViewModel[]> {
+    return this.http.get<ProcessSummaryViewModel[]>(`api/blueprints/${definitionId}/processes`);
   }
 
-  getExecutionBlueprintActivities(
+  getProcessBlueprintActivities(
     query: string,
     page: number,
     pageSize: number,
-  ): Observable<BlueprintExecutionActivityPageViewModel> {
-    return this.http.get<BlueprintExecutionActivityPageViewModel>('api/executions/blueprints', {
+  ): Observable<BlueprintProcessActivityPageViewModel> {
+    return this.http.get<BlueprintProcessActivityPageViewModel>('api/processes/blueprints', {
       params: {
         query,
         page,
@@ -373,12 +372,12 @@ export class BlueprintEditorService {
     });
   }
 
-  getBlueprintExecutionHistory(
+  getBlueprintProcessHistory(
     definitionId: number,
     limit: number,
     cursor?: string | null,
-  ): Observable<BlueprintExecutionHistoryPageViewModel> {
-    return this.http.get<BlueprintExecutionHistoryPageViewModel>(`api/blueprints/${definitionId}/execution-history`, {
+  ): Observable<BlueprintProcessHistoryPageViewModel> {
+    return this.http.get<BlueprintProcessHistoryPageViewModel>(`api/blueprints/${definitionId}/processes/history`, {
       params: {
         limit,
         ...(cursor ? { cursor } : {}),
@@ -386,17 +385,17 @@ export class BlueprintEditorService {
     });
   }
 
-  getBlueprintExecution(definitionId: number, workflowInstanceId: string): Observable<WorkflowExecutionDetailViewModel> {
-    return this.http.get<WorkflowExecutionDetailViewModel>(`api/blueprints/${definitionId}/executions/${workflowInstanceId}`);
+  getBlueprintProcess(definitionId: number, processId: string): Observable<ProcessDetailViewModel> {
+    return this.http.get<ProcessDetailViewModel>(`api/blueprints/${definitionId}/processes/${processId}`);
   }
 
-  getExecutionStepDetail(
+  getProcessStepDetail(
     definitionId: number,
-    workflowInstanceId: string,
-    blueprintTaskInstanceId: string,
-  ): Observable<WorkflowExecutionStepDetailViewModel> {
-    return this.http.get<WorkflowExecutionStepDetailViewModel>(
-      `api/blueprints/${definitionId}/executions/${workflowInstanceId}/steps/${blueprintTaskInstanceId}`,
+    processId: string,
+    blueprintNodeId: string,
+  ): Observable<ProcessStepDetailViewModel> {
+    return this.http.get<ProcessStepDetailViewModel>(
+      `api/blueprints/${definitionId}/processes/${processId}/steps/${blueprintNodeId}`,
     );
   }
 

@@ -20,5 +20,5 @@ public sealed class ExportedBlueprintInputModel
     public Guid StartingTaskKey { get; init; }
 
     [Required, MinLength(1)]
-    public List<ExportedBlueprintTaskInputModel> Tasks { get; init; } = [];
+    public List<ExportedBlueprintNodeInputModel> Tasks { get; init; } = [];
 }

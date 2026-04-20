@@ -10,7 +10,7 @@ public static class LocalDevelopmentResourceSettings
     private const string LocalServiceBusConnectionString =
         "Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;";
     private const string LocalBlobConnectionString = "UseDevelopmentStorage=true";
-    private const string DefaultWorkflowTaskQueueName = "workflowtaskqueue";
+    private const string DefaultProcessStepQueueName = "processsteps";
     private const string DefaultPluginReloadQueueName = "pluginreloadqueue";
     private const string DefaultPluginsBlobContainerName = "pluginblob";
 
@@ -40,26 +40,26 @@ public static class LocalDevelopmentResourceSettings
             "AzureCosmos:ConnectionName or enginedb",
             environment);
 
-    public static string GetWorkflowTaskQueueConnectionString(
+    public static string GetProcessStepQueueConnectionString(
         IConfiguration configuration,
         IHostEnvironment environment) =>
-        TryGetConfiguredConnectionString(configuration, "AzureServiceBus:Queues:WorkflowTaskQueue:ConnectionName")
-        ?? TryGetConnectionString(configuration, "workflow-task-queue")
+        TryGetConfiguredConnectionString(configuration, "AzureServiceBus:Queues:ProcessStepQueue:ConnectionName")
+        ?? TryGetConnectionString(configuration, "process-step-queue")
         ?? TryGetConnectionString(configuration, "ServiceBus")
         ?? UseDevelopmentFallback(environment, LocalServiceBusConnectionString)
         ?? ThrowMissingConnectionString(
-            "workflow task queue",
-            "AzureServiceBus:Queues:WorkflowTaskQueue:ConnectionName, workflow-task-queue, or ServiceBus",
+            "process step queue",
+            "AzureServiceBus:Queues:ProcessStepQueue:ConnectionName, process-step-queue, or ServiceBus",
             environment);
 
-    public static string GetWorkflowTaskQueueName(
+    public static string GetProcessStepQueueName(
         IConfiguration configuration,
         IHostEnvironment environment) =>
-        TryGetServiceBusEntityPath(GetWorkflowTaskQueueConnectionString(configuration, environment))
-        ?? TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:WorkflowTaskQueue:Name")
-        ?? TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:WorkflowTaskQueue")
-        ?? UseDevelopmentFallback(environment, DefaultWorkflowTaskQueueName)
-        ?? throw new InvalidOperationException("Workflow task queue name is not configured.");
+        TryGetServiceBusEntityPath(GetProcessStepQueueConnectionString(configuration, environment))
+        ?? TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:ProcessStepQueue:Name")
+        ?? TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:ProcessStepQueue")
+        ?? UseDevelopmentFallback(environment, DefaultProcessStepQueueName)
+        ?? throw new InvalidOperationException("Process step queue name is not configured.");
 
     public static string GetPluginReloadQueueConnectionString(
         IConfiguration configuration,

@@ -9,12 +9,12 @@ namespace Backend.API.Observability;
 public sealed class ObservabilityQueryService
 {
     private const int SummaryLogLimit = 20000;
-    private readonly WorkflowDbContext _dbContext;
+    private readonly BlueprintDbContext _dbContext;
     private readonly LokiQueryClient _lokiQueryClient;
     private readonly PrometheusQueryClient _prometheusQueryClient;
 
     public ObservabilityQueryService(
-        WorkflowDbContext dbContext,
+        BlueprintDbContext dbContext,
         LokiQueryClient lokiQueryClient,
         PrometheusQueryClient prometheusQueryClient)
     {
@@ -23,33 +23,33 @@ public sealed class ObservabilityQueryService
         _prometheusQueryClient = prometheusQueryClient;
     }
 
-    public async Task<WorkflowObservabilitySummaryViewModel> GetWorkflowSummaryAsync(
+    public async Task<ProcessObservabilitySummaryViewModel> GetProcessSummaryAsync(
         int? blueprintDefinitionId,
         string? window,
         CancellationToken cancellationToken)
     {
         var range = ResolveWindow(window);
-        var workflowEvents = await GetWorkflowLifecycleEventsAsync(range.From, range.To, cancellationToken);
+        var processEvents = await GetProcessLifecycleEventsAsync(range.From, range.To, cancellationToken);
         if (blueprintDefinitionId.HasValue)
         {
-            workflowEvents = workflowEvents
+            processEvents = processEvents
                 .Where(entry => entry.BlueprintDefinitionId == blueprintDefinitionId.Value)
                 .ToList();
         }
 
-        var terminalRuns = workflowEvents
-            .Where(entry => entry.EventName is "workflow.completed" or "workflow.failed")
-            .GroupBy(entry => entry.WorkflowInstanceId)
+        var terminalProcesses = processEvents
+            .Where(entry => entry.EventName is "process.completed" or "process.failed")
+            .GroupBy(entry => entry.ProcessId)
             .Select(group => group.OrderByDescending(entry => entry.Timestamp).First())
             .ToList();
 
-        return new WorkflowObservabilitySummaryViewModel
+        return new ProcessObservabilitySummaryViewModel
         {
             Window = range.Window,
             From = range.From,
             To = range.To,
-            SuccessfulCount = terminalRuns.Count(entry => entry.EventName == "workflow.completed"),
-            FailedCount = terminalRuns.Count(entry => entry.EventName == "workflow.failed"),
+            SuccessfulCount = terminalProcesses.Count(entry => entry.EventName == "process.completed"),
+            FailedCount = terminalProcesses.Count(entry => entry.EventName == "process.failed"),
         };
     }
 
@@ -62,7 +62,7 @@ public sealed class ObservabilityQueryService
         var latestBlueprintVersion = await _dbContext.BlueprintVersions
             .Where(version => version.BlueprintDefinitionId == blueprintDefinitionId)
             .OrderByDescending(version => version.Version)
-            .Include(version => version.TaskInstances)
+            .Include(version => version.BlueprintNodes)
                 .ThenInclude(taskInstance => taskInstance.TaskDefinition)
             .AsNoTracking()
             .AsSplitQuery()
@@ -73,30 +73,30 @@ public sealed class ObservabilityQueryService
             throw new InvalidOperationException($"Blueprint {blueprintDefinitionId} was not found.");
         }
 
-        var taskEvents = await GetTaskLifecycleEventsAsync(range.From, range.To, cancellationToken);
-        var latestVersionTaskEvents = taskEvents
+        var stepEvents = await GetStepLifecycleEventsAsync(range.From, range.To, cancellationToken);
+        var latestVersionStepEvents = stepEvents
             .Where(entry =>
                 entry.BlueprintDefinitionId == blueprintDefinitionId &&
                 entry.BlueprintVersionId == latestBlueprintVersion.Id &&
-                entry.EventName is "task.completed" or "task.failed")
-            .GroupBy(entry => new { entry.WorkflowTaskInstanceId, entry.EventName })
+                entry.EventName is "step.completed" or "step.failed")
+            .GroupBy(entry => new { entry.ProcessStepId, entry.EventName })
             .Select(group => group.OrderByDescending(entry => entry.Timestamp).First())
             .ToList();
 
-        var summaries = latestBlueprintVersion.TaskInstances
+        var summaries = latestBlueprintVersion.BlueprintNodes
             .Select(task =>
             {
-                var matchingEvents = latestVersionTaskEvents
-                    .Where(entry => entry.BlueprintTaskId == task.Id)
+                var matchingEvents = latestVersionStepEvents
+                    .Where(entry => entry.BlueprintNodeId == task.Id)
                     .ToList();
 
                 return new NodeObservabilitySummaryItemViewModel
                 {
-                    BlueprintTaskId = task.Id,
+                    BlueprintNodeId = task.Id,
                     TaskDefinitionId = task.TaskDefinitionId,
                     TaskName = task.TaskDefinition.Name,
-                    SuccessfulCount = matchingEvents.Count(entry => entry.EventName == "task.completed"),
-                    FailedCount = matchingEvents.Count(entry => entry.EventName == "task.failed"),
+                    SuccessfulCount = matchingEvents.Count(entry => entry.EventName == "step.completed"),
+                    FailedCount = matchingEvents.Count(entry => entry.EventName == "step.failed"),
                 };
             })
             .OrderByDescending(summary => summary.TotalCount)
@@ -116,30 +116,30 @@ public sealed class ObservabilityQueryService
         };
     }
 
-    public async Task<WorkflowRecentRunsViewModel> GetRecentRunsAsync(
+    public async Task<RecentProcessesViewModel> GetRecentProcessesAsync(
         int? blueprintDefinitionId,
         string? window,
         int limit,
         CancellationToken cancellationToken)
     {
         var range = ResolveWindow(window);
-        var workflowEvents = await GetWorkflowLifecycleEventsAsync(range.From, range.To, cancellationToken);
+        var processEvents = await GetProcessLifecycleEventsAsync(range.From, range.To, cancellationToken);
         if (blueprintDefinitionId.HasValue)
         {
-            workflowEvents = workflowEvents
+            processEvents = processEvents
                 .Where(entry => entry.BlueprintDefinitionId == blueprintDefinitionId.Value)
                 .ToList();
         }
 
-        var runs = workflowEvents
-            .Where(entry => entry.EventName is "workflow.completed" or "workflow.failed")
-            .GroupBy(entry => entry.WorkflowInstanceId)
+        var processes = processEvents
+            .Where(entry => entry.EventName is "process.completed" or "process.failed")
+            .GroupBy(entry => entry.ProcessId)
             .Select(group => group.OrderByDescending(entry => entry.Timestamp).First())
             .OrderByDescending(entry => entry.Timestamp)
             .Take(Math.Clamp(limit, 1, 250))
-            .Select(entry => new RecentWorkflowExecutionViewModel
+            .Select(entry => new RecentProcessViewModel
             {
-                WorkflowInstanceId = entry.WorkflowInstanceId,
+                ProcessId = entry.ProcessId,
                 BlueprintDefinitionId = entry.BlueprintDefinitionId,
                 BlueprintVersionId = entry.BlueprintVersionId,
                 BlueprintVersionNumber = entry.BlueprintVersionNumber,
@@ -150,18 +150,18 @@ public sealed class ObservabilityQueryService
             })
             .ToList();
 
-        return new WorkflowRecentRunsViewModel
+        return new RecentProcessesViewModel
         {
             Window = range.Window,
             From = range.From,
             To = range.To,
-            Runs = runs,
+            Processes = processes,
         };
     }
 
-    public async Task<NodeLogBatchViewModel> GetNodeLogsAsync(
-        Guid workflowInstanceId,
-        Guid runtimeTaskInstanceId,
+    public async Task<ProcessStepLogBatchViewModel> GetProcessStepLogsByRuntimeIdAsync(
+        Guid processId,
+        Guid runtimeProcessStepId,
         DateTimeOffset? from,
         DateTimeOffset? to,
         int limit,
@@ -172,7 +172,7 @@ public sealed class ObservabilityQueryService
         var end = to?.ToUniversalTime() ?? DateTimeOffset.UtcNow;
         var normalizedLimit = Math.Clamp(limit, 1, 500);
         var nodeLogs = await _lokiQueryClient.QueryRangeAsync(
-            BuildNodeLogQuery(runtimeTaskInstanceId),
+            BuildProcessStepLogQuery(runtimeProcessStepId),
             start,
             end,
             normalizedLimit,
@@ -182,7 +182,7 @@ public sealed class ObservabilityQueryService
         if (nodeLogs.Count == 0)
         {
             nodeLogs = await _lokiQueryClient.QueryRangeAsync(
-                BuildNodeLogFallbackQuery(runtimeTaskInstanceId),
+                BuildProcessStepLogFallbackQuery(runtimeProcessStepId),
                 start,
                 end,
                 normalizedLimit,
@@ -191,26 +191,26 @@ public sealed class ObservabilityQueryService
         }
 
         var entries = nodeLogs
-            .Where(record => RecordMatchesNode(record, workflowInstanceId, runtimeTaskInstanceId))
+            .Where(record => RecordMatchesProcessStep(record, processId, runtimeProcessStepId))
             .Select(record => new NodeLogEntryViewModel
             {
                 Cursor = record.Cursor,
                 Timestamp = record.Timestamp,
-                Message = FormatNodeLogMessage(record.Message),
+                Message = FormatLogMessage(record.Message),
                 ServiceName = record.Labels.TryGetValue("service_name", out var serviceName) ? serviceName : null,
                 Level = record.Labels.TryGetValue("detected_level", out var level) ? level : null,
             })
             .ToList();
 
-        return new NodeLogBatchViewModel
+        return new ProcessStepLogBatchViewModel
         {
             Entries = entries,
             NextCursor = entries.Count > 0 ? entries[^1].Cursor : cursor,
         };
     }
 
-    public async Task<WorkflowLogBatchViewModel> GetWorkflowLogsAsync(
-        Guid workflowInstanceId,
+    public async Task<ProcessLogBatchViewModel> GetProcessLogsAsync(
+        Guid processId,
         DateTimeOffset? from,
         DateTimeOffset? to,
         int limit,
@@ -220,18 +220,18 @@ public sealed class ObservabilityQueryService
         var start = ResolveLogStart(from, cursor);
         var end = to?.ToUniversalTime() ?? DateTimeOffset.UtcNow;
         var normalizedLimit = Math.Clamp(limit, 1, 500);
-        var workflowLogs = await _lokiQueryClient.QueryRangeAsync(
-            BuildWorkflowLogQuery(workflowInstanceId),
+        var processLogs = await _lokiQueryClient.QueryRangeAsync(
+            BuildProcessLogQuery(processId),
             start,
             end,
             normalizedLimit,
             LokiQueryDirection.Forward,
             cancellationToken);
 
-        if (workflowLogs.Count == 0)
+        if (processLogs.Count == 0)
         {
-            workflowLogs = await _lokiQueryClient.QueryRangeAsync(
-                BuildWorkflowLogFallbackQuery(workflowInstanceId),
+            processLogs = await _lokiQueryClient.QueryRangeAsync(
+                BuildProcessLogFallbackQuery(processId),
                 start,
                 end,
                 normalizedLimit,
@@ -239,12 +239,12 @@ public sealed class ObservabilityQueryService
                 cancellationToken);
         }
 
-        var entries = workflowLogs
-            .Where(record => RecordMatchesWorkflow(record, workflowInstanceId))
-            .Select(MapWorkflowLogEntry)
+        var entries = processLogs
+            .Where(record => RecordMatchesProcess(record, processId))
+            .Select(MapProcessLogEntry)
             .ToList();
 
-        return new WorkflowLogBatchViewModel
+        return new ProcessLogBatchViewModel
         {
             Entries = entries,
             NextCursor = entries.Count > 0 ? entries[^1].Cursor : cursor,
@@ -254,13 +254,13 @@ public sealed class ObservabilityQueryService
     public Task<JsonDocument> QueryPrometheusAsync(string expression, CancellationToken cancellationToken) =>
         _prometheusQueryClient.QueryAsync(expression, cancellationToken);
 
-    private async Task<List<WorkflowLifecycleLogEntry>> GetWorkflowLifecycleEventsAsync(
+    private async Task<List<ProcessLifecycleLogEntry>> GetProcessLifecycleEventsAsync(
         DateTimeOffset from,
         DateTimeOffset to,
         CancellationToken cancellationToken)
     {
         var rawLogs = await _lokiQueryClient.QueryRangeAsync(
-            "{service_name=\"backend-engine\"} |= \"\\\"eventCategory\\\":\\\"workflow.lifecycle\\\"\"",
+            "{service_name=\"backend-engine\"} |= \"\\\"eventCategory\\\":\\\"process.lifecycle\\\"\"",
             from,
             to,
             SummaryLogLimit,
@@ -268,19 +268,19 @@ public sealed class ObservabilityQueryService
             cancellationToken);
 
         return rawLogs
-            .Select(record => TryParseWorkflowLifecycleLogEntry(record.Message, record.Timestamp))
+            .Select(record => TryParseProcessLifecycleLogEntry(record.Message, record.Timestamp))
             .Where(entry => entry is not null)
-            .Cast<WorkflowLifecycleLogEntry>()
+            .Cast<ProcessLifecycleLogEntry>()
             .ToList();
     }
 
-    private async Task<List<TaskLifecycleLogEntry>> GetTaskLifecycleEventsAsync(
+    private async Task<List<ProcessStepLifecycleLogEntry>> GetStepLifecycleEventsAsync(
         DateTimeOffset from,
         DateTimeOffset to,
         CancellationToken cancellationToken)
     {
         var rawLogs = await _lokiQueryClient.QueryRangeAsync(
-            "{service_name=\"backend-engine\"} |= \"\\\"eventCategory\\\":\\\"task.lifecycle\\\"\"",
+            "{service_name=\"backend-engine\"} |= \"\\\"eventCategory\\\":\\\"step.lifecycle\\\"\"",
             from,
             to,
             SummaryLogLimit,
@@ -288,9 +288,9 @@ public sealed class ObservabilityQueryService
             cancellationToken);
 
         return rawLogs
-            .Select(record => TryParseTaskLifecycleLogEntry(record.Message, record.Timestamp))
+            .Select(record => TryParseProcessStepLifecycleLogEntry(record.Message, record.Timestamp))
             .Where(entry => entry is not null)
-            .Cast<TaskLifecycleLogEntry>()
+            .Cast<ProcessStepLifecycleLogEntry>()
             .ToList();
     }
 
@@ -321,95 +321,95 @@ public sealed class ObservabilityQueryService
         return from?.ToUniversalTime() ?? DateTimeOffset.UtcNow.AddMinutes(-15);
     }
 
-    private static string BuildNodeLogQuery(Guid runtimeTaskInstanceId) =>
-        $"{{workflow_task_instance_id=\"{runtimeTaskInstanceId:D}\"}}";
+    private static string BuildProcessStepLogQuery(Guid runtimeProcessStepId) =>
+        $"{{process_step_id=\"{runtimeProcessStepId:D}\"}}";
 
-    private static string BuildNodeLogFallbackQuery(Guid runtimeTaskInstanceId) =>
-        $"{{service_name=~\".+\"}} |= \"{runtimeTaskInstanceId:D}\"";
+    private static string BuildProcessStepLogFallbackQuery(Guid runtimeProcessStepId) =>
+        $"{{service_name=~\".+\"}} |= \"{runtimeProcessStepId:D}\"";
 
-    private static string BuildWorkflowLogQuery(Guid workflowInstanceId) =>
-        $"{{workflow_instance_id=\"{workflowInstanceId:D}\"}}";
+    private static string BuildProcessLogQuery(Guid processId) =>
+        $"{{process_id=\"{processId:D}\"}}";
 
-    private static string BuildWorkflowLogFallbackQuery(Guid workflowInstanceId) =>
-        $"{{service_name=~\".+\"}} |= \"{workflowInstanceId:D}\"";
+    private static string BuildProcessLogFallbackQuery(Guid processId) =>
+        $"{{service_name=~\".+\"}} |= \"{processId:D}\"";
 
-    private static bool RecordMatchesNode(
+    private static bool RecordMatchesProcessStep(
         LokiLogRecord record,
-        Guid workflowInstanceId,
-        Guid runtimeTaskInstanceId)
+        Guid processId,
+        Guid runtimeProcessStepId)
     {
-        if (record.Labels.TryGetValue("workflow_task_instance_id", out var labeledTaskInstanceId) &&
-            Guid.TryParse(labeledTaskInstanceId, out var parsedTaskInstanceId) &&
-            parsedTaskInstanceId == runtimeTaskInstanceId)
+        if (record.Labels.TryGetValue("process_step_id", out var labeledProcessStepId) &&
+            Guid.TryParse(labeledProcessStepId, out var parsedProcessStepId) &&
+            parsedProcessStepId == runtimeProcessStepId)
         {
-            if (!record.Labels.TryGetValue("workflow_instance_id", out var labeledWorkflowInstanceId) ||
-                !Guid.TryParse(labeledWorkflowInstanceId, out var parsedWorkflowInstanceId) ||
-                parsedWorkflowInstanceId == workflowInstanceId)
+            if (!record.Labels.TryGetValue("process_id", out var labeledProcessId) ||
+                !Guid.TryParse(labeledProcessId, out var parsedProcessId) ||
+                parsedProcessId == processId)
             {
                 return true;
             }
         }
 
-        if (record.Message.Contains(runtimeTaskInstanceId.ToString("D"), StringComparison.OrdinalIgnoreCase))
+        if (record.Message.Contains(runtimeProcessStepId.ToString("D"), StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return record.Message.Contains(runtimeTaskInstanceId.ToString("N"), StringComparison.OrdinalIgnoreCase);
+        return record.Message.Contains(runtimeProcessStepId.ToString("N"), StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool RecordMatchesWorkflow(
+    private static bool RecordMatchesProcess(
         LokiLogRecord record,
-        Guid workflowInstanceId)
+        Guid processId)
     {
-        if (record.Labels.TryGetValue("workflow_instance_id", out var labeledWorkflowInstanceId) &&
-            Guid.TryParse(labeledWorkflowInstanceId, out var parsedWorkflowInstanceId) &&
-            parsedWorkflowInstanceId == workflowInstanceId)
+        if (record.Labels.TryGetValue("process_id", out var labeledProcessId) &&
+            Guid.TryParse(labeledProcessId, out var parsedProcessId) &&
+            parsedProcessId == processId)
         {
             return true;
         }
 
-        if (record.Message.Contains(workflowInstanceId.ToString("D"), StringComparison.OrdinalIgnoreCase))
+        if (record.Message.Contains(processId.ToString("D"), StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return record.Message.Contains(workflowInstanceId.ToString("N"), StringComparison.OrdinalIgnoreCase);
+        return record.Message.Contains(processId.ToString("N"), StringComparison.OrdinalIgnoreCase);
     }
 
-    private static WorkflowLogEntryViewModel MapWorkflowLogEntry(LokiLogRecord record)
+    private static ProcessLogEntryViewModel MapProcessLogEntry(LokiLogRecord record)
     {
-        var taskLifecycle = TryParseTaskLifecycleLogEntry(record.Message, record.Timestamp);
-        if (taskLifecycle is not null)
+        var stepLifecycle = TryParseProcessStepLifecycleLogEntry(record.Message, record.Timestamp);
+        if (stepLifecycle is not null)
         {
-            return new WorkflowLogEntryViewModel
+            return new ProcessLogEntryViewModel
             {
                 Cursor = record.Cursor,
                 Timestamp = record.Timestamp,
-                Message = FormatNodeLogMessage(record.Message),
-                WorkflowTaskInstanceId = taskLifecycle.WorkflowTaskInstanceId,
-                BlueprintTaskId = taskLifecycle.BlueprintTaskId,
-                TaskName = taskLifecycle.TaskName,
-                PluginName = taskLifecycle.PluginName,
+                Message = FormatLogMessage(record.Message),
+                ProcessStepId = stepLifecycle.ProcessStepId,
+                BlueprintNodeId = stepLifecycle.BlueprintNodeId,
+                TaskName = stepLifecycle.StepName,
+                PluginName = stepLifecycle.PluginName,
                 ServiceName = record.Labels.TryGetValue("service_name", out var taskServiceName) ? taskServiceName : null,
                 Level = record.Labels.TryGetValue("detected_level", out var taskLevel) ? taskLevel : null,
             };
         }
 
-        var workflowLifecycle = TryParseWorkflowLifecycleLogEntry(record.Message, record.Timestamp);
-        if (workflowLifecycle is not null)
+        var processLifecycle = TryParseProcessLifecycleLogEntry(record.Message, record.Timestamp);
+        if (processLifecycle is not null)
         {
-            return new WorkflowLogEntryViewModel
+            return new ProcessLogEntryViewModel
             {
                 Cursor = record.Cursor,
                 Timestamp = record.Timestamp,
-                Message = FormatNodeLogMessage(record.Message),
-                WorkflowTaskInstanceId = TryGetGuidLabel(record.Labels, "workflow_task_instance_id"),
-                BlueprintTaskId = TryGetGuidLabel(record.Labels, "blueprint_task_id"),
+                Message = FormatLogMessage(record.Message),
+                ProcessStepId = TryGetGuidLabel(record.Labels, "process_step_id"),
+                BlueprintNodeId = TryGetGuidLabel(record.Labels, "blueprint.node_id"),
                 TaskName = null,
                 PluginName = record.Labels.TryGetValue("plugin_name", out var pluginName) ? pluginName : null,
-                ServiceName = record.Labels.TryGetValue("service_name", out var workflowServiceName) ? workflowServiceName : null,
-                Level = record.Labels.TryGetValue("detected_level", out var workflowLevel) ? workflowLevel : null,
+                ServiceName = record.Labels.TryGetValue("service_name", out var processServiceName) ? processServiceName : null,
+                Level = record.Labels.TryGetValue("detected_level", out var processLevel) ? processLevel : null,
             };
         }
 
@@ -417,13 +417,13 @@ public sealed class ObservabilityQueryService
             ? genericPluginName
             : null;
 
-        return new WorkflowLogEntryViewModel
+        return new ProcessLogEntryViewModel
         {
             Cursor = record.Cursor,
             Timestamp = record.Timestamp,
             Message = record.Message,
-            WorkflowTaskInstanceId = TryGetGuidLabel(record.Labels, "workflow_task_instance_id"),
-            BlueprintTaskId = TryGetGuidLabel(record.Labels, "blueprint_task_id"),
+            ProcessStepId = TryGetGuidLabel(record.Labels, "process_step_id"),
+            BlueprintNodeId = TryGetGuidLabel(record.Labels, "blueprint.node_id"),
             TaskName = fallbackPluginName,
             PluginName = fallbackPluginName,
             ServiceName = record.Labels.TryGetValue("service_name", out var fallbackServiceName) ? fallbackServiceName : null,
@@ -431,28 +431,28 @@ public sealed class ObservabilityQueryService
         };
     }
 
-    private static string FormatNodeLogMessage(string rawMessage)
+    private static string FormatLogMessage(string rawMessage)
     {
-        var taskLifecycle = TryParseTaskLifecycleLogEntry(rawMessage, timestampFallback: null);
-        if (taskLifecycle is not null)
+        var stepLifecycle = TryParseProcessStepLifecycleLogEntry(rawMessage, timestampFallback: null);
+        if (stepLifecycle is not null)
         {
-            return taskLifecycle.EventName switch
+            return stepLifecycle.EventName switch
             {
-                "task.started" => $"Task started: {taskLifecycle.TaskName} ({taskLifecycle.TaskVersion})",
-                "task.completed" => $"Task completed: {taskLifecycle.TaskName} ({taskLifecycle.TaskVersion}) in {taskLifecycle.DurationMs?.ToString("0")}ms",
-                "task.failed" => $"Task failed: {taskLifecycle.TaskName} ({taskLifecycle.TaskVersion}) - {taskLifecycle.FailureMessage}",
+                "step.started" => $"Step started: {stepLifecycle.StepName} ({stepLifecycle.TaskVersion})",
+                "step.completed" => $"Step completed: {stepLifecycle.StepName} ({stepLifecycle.TaskVersion}) in {stepLifecycle.DurationMs?.ToString("0")}ms",
+                "step.failed" => $"Step failed: {stepLifecycle.StepName} ({stepLifecycle.TaskVersion}) - {stepLifecycle.FailureMessage}",
                 _ => rawMessage,
             };
         }
 
-        var workflowLifecycle = TryParseWorkflowLifecycleLogEntry(rawMessage, timestampFallback: null);
-        if (workflowLifecycle is not null)
+        var processLifecycle = TryParseProcessLifecycleLogEntry(rawMessage, timestampFallback: null);
+        if (processLifecycle is not null)
         {
-            return workflowLifecycle.EventName switch
+            return processLifecycle.EventName switch
             {
-                "workflow.started" => $"Workflow started: {workflowLifecycle.BlueprintVersionName}",
-                "workflow.completed" => $"Workflow completed: {workflowLifecycle.BlueprintVersionName}",
-                "workflow.failed" => $"Workflow failed: {workflowLifecycle.BlueprintVersionName} - {workflowLifecycle.FailureMessage}",
+                "process.started" => $"Process started: {processLifecycle.BlueprintVersionName}",
+                "process.completed" => $"Process completed: {processLifecycle.BlueprintVersionName}",
+                "process.failed" => $"Process failed: {processLifecycle.BlueprintVersionName} - {processLifecycle.FailureMessage}",
                 _ => rawMessage,
             };
         }
@@ -460,7 +460,7 @@ public sealed class ObservabilityQueryService
         return rawMessage;
     }
 
-    private static WorkflowLifecycleLogEntry? TryParseWorkflowLifecycleLogEntry(
+    private static ProcessLifecycleLogEntry? TryParseProcessLifecycleLogEntry(
         string rawMessage,
         DateTimeOffset? timestampFallback)
     {
@@ -469,25 +469,25 @@ public sealed class ObservabilityQueryService
             using var document = JsonDocument.Parse(rawMessage);
             var root = document.RootElement;
             if (!TryGetString(root, "eventCategory", out var eventCategory) ||
-                !string.Equals(eventCategory, "workflow.lifecycle", StringComparison.Ordinal))
+                !string.Equals(eventCategory, "process.lifecycle", StringComparison.Ordinal))
             {
                 return null;
             }
 
-            return new WorkflowLifecycleLogEntry
+            return new ProcessLifecycleLogEntry
             {
                 EventCategory = eventCategory,
                 EventName = GetRequiredString(root, "eventName"),
                 Timestamp = TryGetDateTimeOffset(root, "timestamp", out var timestamp)
                     ? timestamp
                     : timestampFallback ?? DateTimeOffset.UtcNow,
-                WorkflowInstanceId = GetRequiredGuid(root, "workflowInstanceId"),
+                ProcessId = GetRequiredGuid(root, "processId"),
                 BlueprintDefinitionId = GetRequiredInt32(root, "blueprintDefinitionId"),
                 BlueprintVersionId = GetRequiredInt32(root, "blueprintVersionId"),
                 BlueprintVersionNumber = GetRequiredInt32(root, "blueprintVersionNumber"),
                 BlueprintVersionName = GetRequiredString(root, "blueprintVersionName"),
                 Status = GetRequiredString(root, "status"),
-                ExecutionOutcome = GetOptionalString(root, "executionOutcome"),
+                ProcessOutcome = GetOptionalString(root, "processOutcome"),
                 FailureMessage = GetOptionalString(root, "failureMessage"),
             };
         }
@@ -497,7 +497,7 @@ public sealed class ObservabilityQueryService
         }
     }
 
-    private static TaskLifecycleLogEntry? TryParseTaskLifecycleLogEntry(
+    private static ProcessStepLifecycleLogEntry? TryParseProcessStepLifecycleLogEntry(
         string rawMessage,
         DateTimeOffset? timestampFallback)
     {
@@ -506,32 +506,32 @@ public sealed class ObservabilityQueryService
             using var document = JsonDocument.Parse(rawMessage);
             var root = document.RootElement;
             if (!TryGetString(root, "eventCategory", out var eventCategory) ||
-                !string.Equals(eventCategory, "task.lifecycle", StringComparison.Ordinal))
+                !string.Equals(eventCategory, "step.lifecycle", StringComparison.Ordinal))
             {
                 return null;
             }
 
-            return new TaskLifecycleLogEntry
+            return new ProcessStepLifecycleLogEntry
             {
                 EventCategory = eventCategory,
                 EventName = GetRequiredString(root, "eventName"),
                 Timestamp = TryGetDateTimeOffset(root, "timestamp", out var timestamp)
                     ? timestamp
                     : timestampFallback ?? DateTimeOffset.UtcNow,
-                WorkflowInstanceId = GetRequiredGuid(root, "workflowInstanceId"),
-                WorkflowTaskInstanceId = GetRequiredGuid(root, "workflowTaskInstanceId"),
-                BlueprintTaskId = GetRequiredGuid(root, "blueprintTaskId"),
+                ProcessId = GetRequiredGuid(root, "processId"),
+                ProcessStepId = GetRequiredGuid(root, "processStepId"),
+                BlueprintNodeId = GetRequiredGuid(root, "blueprintNodeId"),
                 BlueprintDefinitionId = GetRequiredInt32(root, "blueprintDefinitionId"),
                 BlueprintVersionId = GetRequiredInt32(root, "blueprintVersionId"),
                 BlueprintVersionNumber = GetRequiredInt32(root, "blueprintVersionNumber"),
                 BlueprintVersionName = GetRequiredString(root, "blueprintVersionName"),
-                TaskName = GetRequiredString(root, "taskName"),
+                StepName = GetRequiredString(root, "stepName"),
                 PluginName = GetRequiredString(root, "pluginName"),
                 TaskDefinitionId = GetRequiredInt32(root, "taskDefinitionId"),
                 TaskVersionId = GetRequiredInt32(root, "taskVersionId"),
                 TaskVersion = GetRequiredString(root, "taskVersion"),
                 Status = GetRequiredString(root, "status"),
-                ExecutionOutcome = GetOptionalString(root, "executionOutcome"),
+                ProcessOutcome = GetOptionalString(root, "processOutcome"),
                 DurationMs = TryGetDouble(root, "durationMs", out var durationMs) ? durationMs : null,
                 FailureMessage = GetOptionalString(root, "failureMessage"),
             };

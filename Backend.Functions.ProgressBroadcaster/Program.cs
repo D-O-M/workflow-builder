@@ -27,7 +27,7 @@ var host = new HostBuilder()
         var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(
             context.Configuration,
             context.HostingEnvironment);
-        services.AddDbContextPool<WorkflowDbContext>(options =>
+        services.AddDbContextPool<BlueprintDbContext>(options =>
             options.UseSqlServer(sqlConnectionString));
 
         var cosmosConnectionString = LocalDevelopmentResourceSettings.GetCosmosConnectionString(
@@ -42,20 +42,20 @@ var host = new HostBuilder()
             }));
 
         services.AddRelationalDataRepositories();
-        services.AddWorkflowExecutionState(
+        services.AddProcessState(
             databaseName: context.Configuration["Realtime:Cosmos:DatabaseName"] ?? "enginedb",
-            workflowsContainerName: context.Configuration["Realtime:Cosmos:WorkflowsContainerName"] ?? "workflows",
-            tasksContainerName: context.Configuration["Realtime:Cosmos:TasksContainerName"] ?? "tasks");
+            processesContainerName: context.Configuration["Realtime:Cosmos:ProcessesContainerName"] ?? "processes",
+            tasksContainerName: context.Configuration["Realtime:Cosmos:TasksContainerName"] ?? "processsteps");
 
         var signalRBaseUrl = context.Configuration["Realtime:SignalRBaseUrl"]
             ?? throw new InvalidOperationException("Realtime:SignalRBaseUrl is not configured.");
-        services.AddHttpClient(SignalRExecutionGateway.HttpClientName, client =>
+        services.AddHttpClient(SignalRProcessGateway.HttpClientName, client =>
         {
             client.BaseAddress = new Uri(EnsureTrailingSlash(signalRBaseUrl), UriKind.Absolute);
             client.Timeout = TimeSpan.FromSeconds(5);
         });
 
-        services.AddSingleton<SignalRExecutionGateway>();
+        services.AddSingleton<SignalRProcessGateway>();
         services.AddSingleton<BlueprintDefinitionLookupCache>();
     })
     .Build();

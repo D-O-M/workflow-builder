@@ -1,0 +1,525 @@
+<div
+  class="process-explorer"
+  [class.is-history-collapsed]="historyCollapsed()"
+>
+  <aside class="history-pane">
+    @if (historyCollapsed()) {
+      <button
+        type="button"
+        class="history-pane__collapsed-button"
+        (click)="toggleHistoryPanel()"
+        aria-label="Expand process history"
+      >
+        <mat-icon>keyboard_double_arrow_right</mat-icon>
+      </button>
+    } @else {
+      <div class="history-pane__content">
+        <header class="history-pane__header">
+          <div>
+            <h2>Process History</h2>
+            <p>{{ historyPaneSummary() }}</p>
+          </div>
+
+          <button
+            type="button"
+            class="history-pane__toggle"
+            (click)="toggleHistoryPanel()"
+            aria-label="Collapse process history"
+          >
+            <mat-icon>keyboard_double_arrow_left</mat-icon>
+          </button>
+        </header>
+
+        @if (historyPanelMode() === 'blueprints') {
+          <label class="history-pane__search-field" tabindex="-1">
+            <mat-icon>search</mat-icon>
+            <input
+              type="search"
+              placeholder="Find a blueprint with activity..."
+              [formControl]="blueprintSearch"
+            />
+          </label>
+
+          <div class="history-pane__list">
+            @if (loading()) {
+              <p class="history-pane__empty">Loading blueprints...</p>
+            } @else if (blueprintActivityLoading()) {
+              <p class="history-pane__empty">Loading blueprint activity...</p>
+            } @else if (blueprintActivityError()) {
+              <p class="history-pane__empty">{{ blueprintActivityError() }}</p>
+            } @else if (blueprintActivities().length === 0) {
+              <p class="history-pane__empty">No blueprints with processes match that search.</p>
+            } @else {
+              @for (activity of blueprintActivities(); track trackBlueprintActivity($index, activity)) {
+                <button
+                  type="button"
+                  class="history-blueprint-row"
+                  [class.is-selected]="selectedBlueprintId() === activity.blueprintDefinitionId"
+                  (click)="selectBlueprintActivity(activity)"
+                >
+                  <div class="history-blueprint-row__top">
+                    <strong>{{ activity.blueprintName }}</strong>
+                    <span>{{ blueprintActivityCountLabel(activity) }}</span>
+                  </div>
+
+                  <div class="history-blueprint-row__meta">
+                    <span>
+                      <mat-icon>schedule</mat-icon>
+                      Latest process {{ activity.latestProcessAt | date: 'dd MMM, HH:mm:ss' }}
+                    </span>
+                  </div>
+                </button>
+              }
+
+              @if (blueprintActivityHasMore()) {
+                <button
+                  type="button"
+                  class="history-pane__load-more"
+                  (click)="loadMoreBlueprintActivities()"
+                  [disabled]="blueprintActivityLoadingMore()"
+                >
+                  <mat-icon>{{ blueprintActivityLoadingMore() ? 'hourglass_top' : 'expand_more' }}</mat-icon>
+                  {{ blueprintActivityLoadingMore() ? 'Loading...' : 'Load more blueprints' }}
+                </button>
+              }
+            }
+          </div>
+        } @else {
+          <div class="history-pane__subhead history-pane__subhead--process-list">
+            <button
+              type="button"
+              class="history-pane__back"
+              (click)="returnToBlueprintPicker()"
+              aria-label="Back to blueprint activity"
+            >
+              <mat-icon>arrow_back</mat-icon>
+            </button>
+
+            <div>
+              <span>{{ selectedBlueprintTitle() }}</span>
+              <small>{{ selectedBlueprintProcessCountLabel() }}</small>
+            </div>
+          </div>
+
+          <div class="history-pane__list">
+            @if (loading()) {
+              <p class="history-pane__empty">Loading blueprints...</p>
+            } @else if (processHistoryLoading()) {
+              <p class="history-pane__empty">Loading process history...</p>
+            } @else if (processHistoryError()) {
+              <p class="history-pane__empty">{{ processHistoryError() }}</p>
+            } @else if (!selectedBlueprintId()) {
+              <p class="history-pane__empty">Select a blueprint to see its processes.</p>
+            } @else if (processHistoryRows().length === 0) {
+              <p class="history-pane__empty">No processes have been loaded for this blueprint yet.</p>
+            } @else {
+              @for (process of processHistoryRows(); track trackProcess($index, process)) {
+                <button
+                  type="button"
+                  class="history-row"
+                  [class.is-active]="activeProcessId() === process.processId"
+                  (click)="selectProcess(process)"
+                >
+                  <div class="history-row__top">
+                    <strong>{{ process.blueprintVersionName }}</strong>
+                    <span
+                      class="history-row__status"
+                      [ngClass]="'history-row__status--' + process.status.toLowerCase()"
+                    >
+                      {{ statusLabel(process.status) }}
+                    </span>
+                  </div>
+
+                  <div class="history-row__identifier" [attr.title]="process.processId">
+                    {{ processIdLabel(process) }}
+                  </div>
+
+                  <div class="history-row__meta">
+                    <span>
+                      <mat-icon>calendar_today</mat-icon>
+                      {{ process.createdAt | date: 'dd MMM, HH:mm:ss' }}
+                    </span>
+
+                    @if (process.updatedAt) {
+                      <span>
+                        <mat-icon>schedule</mat-icon>
+                        {{ process.updatedAt | date: 'dd MMM, HH:mm:ss' }}
+                      </span>
+                    }
+                  </div>
+                </button>
+              }
+
+              @if (processHistoryHasMore()) {
+                <button
+                  type="button"
+                  class="history-pane__load-more"
+                  (click)="loadMoreProcessHistory()"
+                  [disabled]="processHistoryLoadingMore()"
+                >
+                  <mat-icon>{{ processHistoryLoadingMore() ? 'hourglass_top' : 'expand_more' }}</mat-icon>
+                  {{ processHistoryLoadingMore() ? 'Loading...' : 'Load more processes' }}
+                </button>
+              }
+            }
+          </div>
+        }
+      </div>
+    }
+  </aside>
+
+  <section class="process-stage">
+    @if (selectedProcess(); as process) {
+      <div class="process-surface__body">
+        <section class="process-surface">
+          <div class="process-surface__workspace" [class.is-step-drawer-open]="stepDrawerOpen()">
+            <div class="process-surface__canvas-pane">
+              <div class="process-surface__canvas-overlay">
+                <div class="process-surface__canvas-summary">
+                  <div class="process-surface__canvas-summary-main">
+                    <div class="process-surface__canvas-title-row">
+                      <div class="process-surface__canvas-title-group">
+                        <h2>{{ process.blueprintVersionName }}</h2>
+                        <button
+                          #processInfoButton
+                          mat-icon-button
+                          type="button"
+                          class="process-surface__info-button"
+                          [attr.aria-expanded]="processInfoOpen()"
+                          aria-controls="process-info-popover"
+                          aria-label="Show process details"
+                          (click)="toggleProcessInfo($event)"
+                        >
+                          <mat-icon>info</mat-icon>
+                        </button>
+                      </div>
+
+                      <span
+                        class="process-stage__status"
+                        [ngClass]="'process-stage__status--' + process.status.toLowerCase()"
+                      >
+                        <mat-icon>{{ statusIcon(process.status) }}</mat-icon>
+                        {{ statusLabel(process.status) }}
+                      </span>
+                    </div>
+
+                    @if (processInfoOpen()) {
+                      <div
+                        #processInfoPopover
+                        id="process-info-popover"
+                        class="process-surface__info-popover"
+                        role="dialog"
+                        aria-label="Process details"
+                      >
+                        <div class="process-surface__info-popover-grid">
+                          <article class="process-surface__info-item">
+                            <span>Process ID</span>
+                            <strong>{{ process.processId }}</strong>
+                          </article>
+                          <article class="process-surface__info-item">
+                            <span>Created</span>
+                            <strong>{{ process.createdAt | date: 'dd MMM yyyy, HH:mm:ss' }}</strong>
+                          </article>
+                          <article class="process-surface__info-item">
+                            <span>Updated</span>
+                            <strong>
+                              {{
+                                process.updatedAt
+                                  ? (process.updatedAt | date: 'dd MMM yyyy, HH:mm:ss')
+                                  : 'Not updated yet'
+                              }}
+                            </strong>
+                          </article>
+                          <article class="process-surface__info-item">
+                            <span>Version</span>
+                            <strong>{{ process.blueprintVersionNumber }}</strong>
+                          </article>
+                          <article class="process-surface__info-item">
+                            <span>Node count</span>
+                            <strong>{{ process.nodes.length }}</strong>
+                          </article>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                </div>
+
+                <div class="process-surface__canvas-actions">
+                  <div class="process-stage__process-actions">
+                    <button
+                      mat-stroked-button
+                      type="button"
+                      class="process-stage__action-menu"
+                      [matMenuTriggerFor]="processActionsMenu"
+                    >
+                      <mat-icon>more_horiz</mat-icon>
+                      Actions
+                    </button>
+                  </div>
+
+                  <div class="process-stage__canvas-controls">
+                    <div class="process-surface__zoom">
+                      <mat-icon>fit_screen</mat-icon>
+                      <span>{{ zoomPercent() }}%</span>
+                    </div>
+
+                    <div class="process-stage__actions">
+                      <button
+                        mat-icon-button
+                        type="button"
+                        class="process-stage__icon-button"
+                        (click)="zoomOut()"
+                        aria-label="Zoom out"
+                      >
+                        <mat-icon>zoom_out</mat-icon>
+                      </button>
+
+                      <button
+                        mat-icon-button
+                        type="button"
+                        class="process-stage__icon-button"
+                        (click)="zoomIn()"
+                        aria-label="Zoom in"
+                      >
+                        <mat-icon>zoom_in</mat-icon>
+                      </button>
+
+                      <button
+                        mat-stroked-button
+                        type="button"
+                        class="process-stage__icon-button"
+                        (click)="resetView()"
+                      >
+                        <mat-icon>center_focus_strong</mat-icon>
+                        Reset View
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="process-surface__canvas">
+                @if (detailLoading()) {
+                  <div class="process-surface__empty">
+                    <p>Loading process detail...</p>
+                  </div>
+                } @else {
+                  <app-blueprint-canvas
+                    [nodes]="processNodes()"
+                    [connections]="processConnections()"
+                    [readonlySelectedNodeId]="selectedProcessCanvasNodeId()"
+                    mode="readonly"
+                    (readonlyNodeActivated)="onReadonlyNodeActivated($event)"
+                  />
+                }
+              </div>
+            </div>
+
+            <aside class="process-step-drawer right-rail" [class.is-collapsed]="!stepDrawerOpen()">
+              <button
+                type="button"
+                class="drawer-toggle"
+                [attr.aria-expanded]="stepDrawerOpen()"
+                aria-controls="process-step-drawer-content"
+                [disabled]="!stepDrawerOpen()"
+                (click)="closeStepDrawer()"
+                [attr.aria-label]="stepDrawerOpen() ? 'Close step drawer' : 'Select a step to inspect'"
+              >
+                <mat-icon class="drawer-toggle__icon">
+                  {{ stepDrawerOpen() ? 'right_panel_close' : 'data_object' }}
+                </mat-icon>
+                <span class="drawer-toggle__label">{{ stepDrawerOpen() ? 'Close' : 'Step' }}</span>
+              </button>
+
+              <div class="drawer-content" id="process-step-drawer-content">
+                <div class="process-step-drawer__header">
+                  <div class="process-step-drawer__hero">
+                    <span class="process-step-drawer__icon">
+                      <mat-icon>data_object</mat-icon>
+                    </span>
+
+                    <div class="process-step-drawer__hero-copy">
+                      <p class="process-step-drawer__eyebrow">Process step</p>
+                      <h3>{{ selectedStepTitle() }}</h3>
+
+                      <div class="process-step-drawer__hero-meta">
+                        <span
+                          class="process-step-drawer__status"
+                          [ngClass]="'process-step-drawer__status--' + selectedStepStatus().toLowerCase()"
+                        >
+                          <mat-icon>{{ statusIcon(selectedStepStatus()) }}</mat-icon>
+                          {{ statusLabel(selectedStepStatus()) }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="process-step-drawer__meta-grid">
+                    <article class="process-step-drawer__meta-card">
+                      <span>Duration</span>
+                      <strong>{{ formatDuration(selectedStepDurationMs()) }}</strong>
+                    </article>
+
+                    <article class="process-step-drawer__meta-card">
+                      <span>Resolved version</span>
+                      <strong>{{ selectedStepResolvedVersion() ?? 'Not resolved yet' }}</strong>
+                    </article>
+
+                    <article class="process-step-drawer__meta-card">
+                      <span>Start time</span>
+                      <strong>
+                        {{
+                          selectedStepStartedAt()
+                            ? (selectedStepStartedAt() | date: 'dd MMM yyyy, HH:mm:ss')
+                            : 'Not started'
+                        }}
+                      </strong>
+                    </article>
+
+                    <article class="process-step-drawer__meta-card">
+                      <span>End time</span>
+                      <strong>
+                        {{
+                          selectedStepEndedAt()
+                            ? (selectedStepEndedAt() | date: 'dd MMM yyyy, HH:mm:ss')
+                            : 'Still running'
+                        }}
+                      </strong>
+                    </article>
+                  </div>
+
+                  @if (selectedStepFailureMessage()) {
+                    <article class="process-step-drawer__alert">
+                      <span>Failure message</span>
+                      <strong>{{ selectedStepFailureMessage() }}</strong>
+                    </article>
+                  }
+                </div>
+
+                <div class="process-step-drawer__tabs">
+                  <button
+                    type="button"
+                    class="process-step-drawer__tab"
+                    [class.is-active]="stepInspectorTab() === 'inputs'"
+                    (click)="selectStepInspectorTab('inputs')"
+                  >
+                    Inputs
+                  </button>
+                  <button
+                    type="button"
+                    class="process-step-drawer__tab"
+                    [class.is-active]="stepInspectorTab() === 'outputs'"
+                    (click)="selectStepInspectorTab('outputs')"
+                  >
+                    Outputs
+                  </button>
+                  <button
+                    type="button"
+                    class="process-step-drawer__tab"
+                    [class.is-active]="stepInspectorTab() === 'logs'"
+                    (click)="selectStepInspectorTab('logs')"
+                  >
+                    Logs
+                    @if (stepLogCount() > 0) {
+                      <span class="process-step-drawer__tab-badge">{{ stepLogCount() }}</span>
+                    }
+                  </button>
+                </div>
+
+                <div class="process-step-drawer__panel">
+                  @if (stepDetailError()) {
+                    <p class="process-step-drawer__error">{{ stepDetailError() }}</p>
+                  }
+
+                  @if (stepInspectorTab() === 'inputs') {
+                    @if (stepDetailLoading() && !hasStructuredPayload(selectedStepInputs())) {
+                      <p class="process-step-drawer__empty">Loading step inputs...</p>
+                    } @else if (hasStructuredPayload(selectedStepInputs())) {
+                      <pre class="process-step-drawer__payload">{{ formatStructuredPayload(selectedStepInputs()) }}</pre>
+                    } @else {
+                      <p class="process-step-drawer__empty">No inputs were captured for this step.</p>
+                    }
+                  } @else if (stepInspectorTab() === 'outputs') {
+                    @if (stepDetailLoading() && !hasStructuredPayload(selectedStepOutputs())) {
+                      <p class="process-step-drawer__empty">Loading step outputs...</p>
+                    } @else if (hasStructuredPayload(selectedStepOutputs())) {
+                      <pre class="process-step-drawer__payload">{{ formatStructuredPayload(selectedStepOutputs()) }}</pre>
+                    } @else {
+                      <p class="process-step-drawer__empty">No outputs were captured for this step.</p>
+                    }
+                  } @else {
+                    <div class="process-step-drawer__log-meta">
+                      @if (selectedStepStatus() === 'InProgress') {
+                        <span class="process-step-drawer__stream-state">
+                          {{
+                            stepLogStreamConnected()
+                              ? 'Streaming live updates'
+                              : 'Waiting for live updates'
+                          }}
+                        </span>
+                      } @else {
+                        <span class="process-step-drawer__stream-state is-static">
+                          Historical logs
+                        </span>
+                      }
+                    </div>
+
+                    <div class="process-step-drawer__log-list">
+                      @if (stepLogsLoading()) {
+                        <p class="process-step-drawer__empty">Loading step logs...</p>
+                      } @else if (stepLogsError()) {
+                        <p class="process-step-drawer__empty">{{ stepLogsError() }}</p>
+                      } @else if (stepLogs().length === 0) {
+                        <p class="process-step-drawer__empty">No logs are available for this step yet.</p>
+                      } @else {
+                        @for (entry of stepLogs(); track trackStepLog($index, entry)) {
+                          <article class="process-step-drawer__log-entry">
+                            <div class="process-step-drawer__log-entry-meta">
+                              <span>{{ entry.timestamp | date: 'HH:mm:ss.SSS' }}</span>
+                              <span class="process-step-drawer__log-entry-badge">
+                                {{ stepLogLabel(entry) }}
+                              </span>
+                              @if (entry.level) {
+                                <span class="process-step-drawer__log-entry-level">
+                                  {{ entry.level }}
+                                </span>
+                              }
+                            </div>
+
+                            <pre>{{ entry.message }}</pre>
+                          </article>
+                        }
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
+      </div>
+
+      <mat-menu #processActionsMenu="matMenu" xPosition="before" yPosition="below">
+        <a mat-menu-item [href]="selectedProcessGrafanaLogsUrl()" target="_blank" rel="noreferrer">
+          <mat-icon>open_in_new</mat-icon>
+          <span>Loki Explore</span>
+        </a>
+        <a mat-menu-item [href]="selectedProcessGrafanaTraceUrl()" target="_blank" rel="noreferrer">
+          <mat-icon>open_in_new</mat-icon>
+          <span>Tempo Explore</span>
+        </a>
+      </mat-menu>
+    } @else {
+      <section class="process-surface process-surface--empty">
+        @if (errorMessage()) {
+          <p>{{ errorMessage() }}</p>
+        } @else if (loading()) {
+          <p>Loading process explorer...</p>
+        } @else {
+          <p>Select a blueprint and process to inspect its steps.</p>
+        }
+      </section>
+    }
+  </section>
+</div>
+

@@ -5,12 +5,12 @@ namespace Backend.Engine;
 public sealed class PluginReloadConsumer : BackgroundService
 {
     private readonly IPluginReloadQueueReader _pluginReloadQueueReader;
-    private readonly NanoServiceOrchestrator _nanoServiceOrchestrator;
+    private readonly PluginRuntimeOrchestrator _nanoServiceOrchestrator;
     private readonly ILogger<PluginReloadConsumer> _logger;
 
     public PluginReloadConsumer(
         IPluginReloadQueueReader pluginReloadQueueReader,
-        NanoServiceOrchestrator nanoServiceOrchestrator,
+        PluginRuntimeOrchestrator nanoServiceOrchestrator,
         ILogger<PluginReloadConsumer> logger)
     {
         _pluginReloadQueueReader = pluginReloadQueueReader;

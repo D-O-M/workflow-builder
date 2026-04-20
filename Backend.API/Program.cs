@@ -6,7 +6,7 @@ using Backend.API.Infrastructure;
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Repositories;
-using Backend.Services.WorkflowTaskQueue;
+using Backend.Services.ProcessStepQueue;
 using Microsoft.Azure.Cosmos;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
@@ -22,11 +22,11 @@ public class Program
         builder.AddServiceDefaults();
 
         // Add services to the container.
-        builder.Services.AddSingleton<IWorkflowDbContextOptionsConfigurator, SqlServerWorkflowDbContextOptionsConfigurator>();
-        builder.Services.AddDbContextPool<WorkflowDbContext>((serviceProvider, options) =>
+        builder.Services.AddSingleton<IBlueprintDbContextOptionsConfigurator, SqlServerBlueprintDbContextOptionsConfigurator>();
+        builder.Services.AddDbContextPool<BlueprintDbContext>((serviceProvider, options) =>
         {
             serviceProvider
-                .GetRequiredService<IWorkflowDbContextOptionsConfigurator>()
+                .GetRequiredService<IBlueprintDbContextOptionsConfigurator>()
                 .Configure(options, serviceProvider);
         });
 
@@ -40,11 +40,11 @@ public class Program
                 UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
             }));
         builder.Services.AddRelationalDataRepositories();
-        builder.Services.AddWorkflowExecutionState();
-        builder.Services.AddHostedService<WorkflowExecutionStateWarmupHostedService>();
+        builder.Services.AddProcessState();
+        builder.Services.AddHostedService<ProcessStateWarmupHostedService>();
 
         builder.Services.AddSingleton(sp => new ServiceBusClient(
-            LocalDevelopmentResourceSettings.GetWorkflowTaskQueueConnectionString(
+            LocalDevelopmentResourceSettings.GetProcessStepQueueConnectionString(
                 sp.GetRequiredService<IConfiguration>(),
                 sp.GetRequiredService<IHostEnvironment>())));
         builder.Services.AddSingleton(provider =>
@@ -52,14 +52,14 @@ public class Program
             var client = provider.GetRequiredService<ServiceBusClient>();
             var configuration = provider.GetRequiredService<IConfiguration>();
             var environment = provider.GetRequiredService<IHostEnvironment>();
-            return client.CreateSender(LocalDevelopmentResourceSettings.GetWorkflowTaskQueueName(
+            return client.CreateSender(LocalDevelopmentResourceSettings.GetProcessStepQueueName(
                 configuration,
                 environment));
         });
-        builder.Services.AddSingleton<IWorkflowTaskQueueWriter, ServiceBusWorkflowTaskQueueWriter>();
-        builder.Services.AddScoped<BlueprintExecutionService>();
+        builder.Services.AddSingleton<IProcessStepQueueWriter, ServiceBusProcessStepQueueWriter>();
+        builder.Services.AddScoped<BlueprintProcessService>();
         builder.Services.AddScoped<BlueprintPortabilityService>();
-        builder.Services.AddScoped<WorkflowExecutionQueryService>();
+        builder.Services.AddScoped<ProcessQueryService>();
         builder.Services.AddScoped<ObservabilityQueryService>();
         builder.Services.Configure<ClientRuntimeConfigOptions>(
             builder.Configuration.GetSection(ClientRuntimeConfigOptions.SectionName));

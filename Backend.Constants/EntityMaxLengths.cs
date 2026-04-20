@@ -7,6 +7,6 @@ public static class EntityMaxLengths
     public const int MaxChannelParameterTypeLength = 50;
     public const int MaxTaskSchemaNameLength = 100;
     public const int MaxTaskSchemaVersionLength = 11; // ###.###.###
-    public const int MaxWorkflowBlueprintNameLength = 100;
-    public const int MaxWorkflowBlueprintDescriptionLength = 500;
+    public const int MaxExecutableBlueprintNameLength = 100;
+    public const int MaxExecutableBlueprintDescriptionLength = 500;
 }

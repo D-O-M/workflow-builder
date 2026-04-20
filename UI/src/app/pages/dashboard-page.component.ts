@@ -19,8 +19,8 @@ import {
   NodeObservabilitySummaryViewModel,
   ObservabilityService,
   ObservabilityWindow,
-  RecentWorkflowExecutionViewModel,
-  WorkflowObservabilitySummaryViewModel,
+  RecentProcessViewModel,
+  ProcessObservabilitySummaryViewModel,
 } from '../domain/observability.service';
 import {
   createRequestStateStream,
@@ -33,8 +33,8 @@ import {
 import { RuntimeClientConfigService } from '../domain/runtime-client-config.service';
 
 interface DashboardObservabilityData {
-  workflowSummary: WorkflowObservabilitySummaryViewModel;
-  recentRuns: RecentWorkflowExecutionViewModel[];
+  processSummary: ProcessObservabilitySummaryViewModel;
+  recentProcesses: RecentProcessViewModel[];
   nodeSummary: NodeObservabilitySummaryViewModel | null;
 }
 
@@ -81,15 +81,15 @@ export class DashboardPageComponent {
         ),
       ),
       ({ window, blueprintDefinitionId }) => forkJoin({
-        workflowSummary: this.observabilityService.getWorkflowSummary(window, blueprintDefinitionId),
-        recentRuns: this.observabilityService.getRecentRuns(window, blueprintDefinitionId, 8),
+        processSummary: this.observabilityService.getProcessSummary(window, blueprintDefinitionId),
+        recentProcesses: this.observabilityService.getRecentProcesses(window, blueprintDefinitionId, 8),
         nodeSummary: blueprintDefinitionId
           ? this.observabilityService.getNodeSummary(window, blueprintDefinitionId)
           : of(null),
       }).pipe(
         map((data): DashboardObservabilityData => ({
-          workflowSummary: data.workflowSummary,
-          recentRuns: data.recentRuns.runs,
+          processSummary: data.processSummary,
+          recentProcesses: data.recentProcesses.processes,
           nodeSummary: data.nodeSummary,
         })),
       ),
@@ -110,17 +110,17 @@ export class DashboardPageComponent {
   protected readonly selectedBlueprintLabel = computed(() =>
     this.selectedBlueprint()?.name ?? 'All blueprints',
   );
-  protected readonly workflowSummary = computed<WorkflowObservabilitySummaryViewModel | null>(() => {
+  protected readonly processSummary = computed<ProcessObservabilitySummaryViewModel | null>(() => {
     const state = this.observabilityState();
-    return isReadyRequestState(state) ? state.data.workflowSummary : null;
+    return isReadyRequestState(state) ? state.data.processSummary : null;
   });
   protected readonly nodeSummary = computed<NodeObservabilitySummaryViewModel | null>(() => {
     const state = this.observabilityState();
     return isReadyRequestState(state) ? state.data.nodeSummary : null;
   });
-  protected readonly recentRuns = computed<RecentWorkflowExecutionViewModel[]>(() => {
+  protected readonly recentProcesses = computed<RecentProcessViewModel[]>(() => {
     const state = this.observabilityState();
-    return isReadyRequestState(state) ? state.data.recentRuns : [];
+    return isReadyRequestState(state) ? state.data.recentProcesses : [];
   });
   protected readonly errorMessage = computed(() => {
     const blueprintsState = this.blueprintsState();
@@ -178,8 +178,8 @@ export class DashboardPageComponent {
     this.selectedBlueprintId.set(null);
   }
 
-  protected workflowSuccessPercent(): number {
-    const summary = this.workflowSummary();
+  protected processSuccessPercent(): number {
+    const summary = this.processSummary();
     if (!summary || summary.totalCount === 0) {
       return 0;
     }
@@ -197,7 +197,7 @@ export class DashboardPageComponent {
     return `conic-gradient(#12b76a 0 ${successPercent}%, rgba(217, 45, 32, 0.88) ${successPercent}% 100%)`;
   }
 
-  protected recentRunStatusLabel(status: string): string {
+  protected recentProcessStatusLabel(status: string): string {
     switch (status) {
       case 'Completed':
         return 'Succeeded';
@@ -212,7 +212,7 @@ export class DashboardPageComponent {
     }
   }
 
-  protected recentRunStatusClass(status: string): string {
+  protected recentProcessStatusClass(status: string): string {
     switch (status) {
       case 'Completed':
         return 'dashboard-status--success';
@@ -227,17 +227,17 @@ export class DashboardPageComponent {
     }
   }
 
-  protected shortenExecutionId(workflowInstanceId: string): string {
-    if (workflowInstanceId.length <= 16) {
-      return workflowInstanceId;
+  protected shortenProcessId(processId: string): string {
+    if (processId.length <= 16) {
+      return processId;
     }
 
-    return `${workflowInstanceId.slice(0, 8)}...${workflowInstanceId.slice(-4)}`;
+    return `${processId.slice(0, 8)}...${processId.slice(-4)}`;
   }
 
   protected nodeHealthLabel(node: NodeObservabilitySummaryViewModel['nodes'][number]): string {
     if (node.totalCount === 0) {
-      return 'No runs yet';
+      return 'No processes yet';
     }
 
     if (node.failedCount === 0) {
@@ -271,7 +271,7 @@ export class DashboardPageComponent {
     return blueprint.id;
   }
 
-  protected trackRecentRun(_: number, run: RecentWorkflowExecutionViewModel): string {
-    return run.workflowInstanceId;
+  protected trackRecentProcess(_: number, process: RecentProcessViewModel): string {
+    return process.processId;
   }
 }

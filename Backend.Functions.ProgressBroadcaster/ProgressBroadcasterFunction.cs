@@ -1,7 +1,7 @@
 using Backend.Database.State.Objects;
 using Backend.Functions.ProgressBroadcaster.Services;
 using Backend.Models.Realtime;
-using Backend.Repositories.Execution;
+using Backend.Repositories.Processes;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 
@@ -9,15 +9,15 @@ namespace Backend.Functions.ProgressBroadcaster;
 
 public sealed class ProgressBroadcasterFunction
 {
-    private readonly SignalRExecutionGateway _signalRGateway;
+    private readonly SignalRProcessGateway _signalRGateway;
     private readonly BlueprintDefinitionLookupCache _blueprintDefinitionLookupCache;
-    private readonly WorkflowExecutionProjectionService _projectionService;
+    private readonly ProcessProjectionService _projectionService;
     private readonly ILogger<ProgressBroadcasterFunction> _logger;
 
     public ProgressBroadcasterFunction(
-        SignalRExecutionGateway signalRGateway,
+        SignalRProcessGateway signalRGateway,
         BlueprintDefinitionLookupCache blueprintDefinitionLookupCache,
-        WorkflowExecutionProjectionService projectionService,
+        ProcessProjectionService projectionService,
         ILogger<ProgressBroadcasterFunction> logger)
     {
         _signalRGateway = signalRGateway;
@@ -34,7 +34,7 @@ public sealed class ProgressBroadcasterFunction
             Connection = "RealtimeCosmos",
             LeaseContainerName = "%Realtime:Cosmos:LeaseContainerName%",
             CreateLeaseContainerIfNotExists = true)]
-        IReadOnlyList<TaskObject> changedTasks,
+        IReadOnlyList<ProcessStepRecord> changedTasks,
         CancellationToken cancellationToken)
     {
         if (changedTasks.Count == 0)
@@ -46,26 +46,26 @@ public sealed class ProgressBroadcasterFunction
         {
             var subscriptionSnapshot = await _signalRGateway.GetActiveSubscriptionsAsync(cancellationToken);
             if (subscriptionSnapshot.BlueprintDefinitionIds.Count == 0 &&
-                subscriptionSnapshot.WorkflowInstanceIds.Count == 0)
+                subscriptionSnapshot.ProcessIds.Count == 0)
             {
                 return;
             }
 
-            var changesByWorkflow = GroupChangesByWorkflow(changedTasks);
-            if (changesByWorkflow.Count == 0)
+            var changesByProcess = GroupChangesByProcess(changedTasks);
+            if (changesByProcess.Count == 0)
             {
                 return;
             }
 
             var blueprintDefinitionIdsByVersionId = await _blueprintDefinitionLookupCache.GetBlueprintDefinitionIdsAsync(
-                changesByWorkflow.Values.Select(change => change.BlueprintVersionId),
+                changesByProcess.Values.Select(change => change.BlueprintVersionId),
                 cancellationToken);
 
             var subscribedBlueprintIds = subscriptionSnapshot.BlueprintDefinitionIds.ToHashSet();
-            var subscribedWorkflowIds = subscriptionSnapshot.WorkflowInstanceIds.ToHashSet();
-            var realtimeBatch = new ExecutionRealtimeBatch();
+            var subscribedProcessIds = subscriptionSnapshot.ProcessIds.ToHashSet();
+            var realtimeBatch = new ProcessRealtimeBatch();
 
-            foreach (var change in changesByWorkflow.Values)
+            foreach (var change in changesByProcess.Values)
             {
                 if (!blueprintDefinitionIdsByVersionId.TryGetValue(change.BlueprintVersionId, out var blueprintDefinitionId))
                 {
@@ -73,8 +73,8 @@ public sealed class ProgressBroadcasterFunction
                 }
 
                 var includeSummary = subscribedBlueprintIds.Contains(blueprintDefinitionId);
-                var includeNodeUpdates = subscribedWorkflowIds.Contains(change.WorkflowInstanceId) &&
-                    change.ChangedBlueprintTaskIds.Count > 0;
+                var includeNodeUpdates = subscribedProcessIds.Contains(change.ProcessId) &&
+                    change.ChangedBlueprintNodeIds.Count > 0;
 
                 if (!includeSummary && !includeNodeUpdates)
                 {
@@ -83,29 +83,29 @@ public sealed class ProgressBroadcasterFunction
 
                 try
                 {
-                    var workflowBatch = await _projectionService.BuildRealtimeBatchAsync(
+                    var processBatch = await _projectionService.BuildRealtimeBatchAsync(
                         change.BlueprintVersionId,
                         blueprintDefinitionId,
-                        change.WorkflowInstanceId,
-                        change.ChangedBlueprintTaskIds,
+                        change.ProcessId,
+                        change.ChangedBlueprintNodeIds,
                         includeSummary,
                         includeNodeUpdates,
                         cancellationToken);
 
-                    if (workflowBatch is null)
+                    if (processBatch is null)
                     {
                         continue;
                     }
 
-                    realtimeBatch.Summaries.AddRange(workflowBatch.Summaries);
-                    realtimeBatch.NodeUpdates.AddRange(workflowBatch.NodeUpdates);
+                    realtimeBatch.Summaries.AddRange(processBatch.Summaries);
+                    realtimeBatch.NodeUpdates.AddRange(processBatch.NodeUpdates);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(
                         ex,
-                        "Failed to project realtime updates for workflow {WorkflowInstanceId}.",
-                        change.WorkflowInstanceId);
+                        "Failed to project realtime updates for process {ProcessId}.",
+                        change.ProcessId);
                 }
             }
 
@@ -113,49 +113,49 @@ public sealed class ProgressBroadcasterFunction
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to broadcast execution progress updates.");
+            _logger.LogWarning(ex, "Failed to broadcast process progress updates.");
         }
     }
 
-    private static Dictionary<Guid, WorkflowTaskChangeSet> GroupChangesByWorkflow(IReadOnlyList<TaskObject> changedTasks)
+    private static Dictionary<Guid, ProcessStepChangeSet> GroupChangesByProcess(IReadOnlyList<ProcessStepRecord> changedTasks)
     {
-        var changesByWorkflow = new Dictionary<Guid, WorkflowTaskChangeSet>();
+        var changesByProcess = new Dictionary<Guid, ProcessStepChangeSet>();
 
         foreach (var task in changedTasks)
         {
-            if (!Guid.TryParse(task.WorkflowInstanceId, out var workflowInstanceId) ||
+            if (!Guid.TryParse(task.ProcessId, out var processId) ||
                 !int.TryParse(task.BlueprintId, out var blueprintVersionId))
             {
                 continue;
             }
 
-            if (!changesByWorkflow.TryGetValue(workflowInstanceId, out var changeSet))
+            if (!changesByProcess.TryGetValue(processId, out var changeSet))
             {
-                changeSet = new WorkflowTaskChangeSet(workflowInstanceId, blueprintVersionId);
-                changesByWorkflow[workflowInstanceId] = changeSet;
+                changeSet = new ProcessStepChangeSet(processId, blueprintVersionId);
+                changesByProcess[processId] = changeSet;
             }
 
-            if (Guid.TryParse(task.BlueprintTaskId, out var blueprintTaskId) && blueprintTaskId != Guid.Empty)
+            if (Guid.TryParse(task.BlueprintNodeId, out var blueprintNodeId) && blueprintNodeId != Guid.Empty)
             {
-                changeSet.ChangedBlueprintTaskIds.Add(blueprintTaskId);
+                changeSet.ChangedBlueprintNodeIds.Add(blueprintNodeId);
             }
         }
 
-        return changesByWorkflow;
+        return changesByProcess;
     }
 
-    private sealed class WorkflowTaskChangeSet
+    private sealed class ProcessStepChangeSet
     {
-        public WorkflowTaskChangeSet(Guid workflowInstanceId, int blueprintVersionId)
+        public ProcessStepChangeSet(Guid processId, int blueprintVersionId)
         {
-            WorkflowInstanceId = workflowInstanceId;
+            ProcessId = processId;
             BlueprintVersionId = blueprintVersionId;
         }
 
-        public Guid WorkflowInstanceId { get; }
+        public Guid ProcessId { get; }
 
         public int BlueprintVersionId { get; }
 
-        public HashSet<Guid> ChangedBlueprintTaskIds { get; } = [];
+        public HashSet<Guid> ChangedBlueprintNodeIds { get; } = [];
     }
 }

@@ -64,17 +64,17 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
             try
             {
                 _logger.LogInformation(
-                    "Plugin invocation started for workflow instance {WorkflowInstanceId} task {WorkflowTaskInstanceId}.",
-                    envelope.WorkflowInstanceId,
-                    envelope.WorkflowTaskInstanceId);
+                    "Plugin invocation started for process {ProcessId} task {ProcessStepId}.",
+                    envelope.ProcessId,
+                    envelope.ProcessStepId);
                 await PopulateStateAsync(scope.ServiceProvider, plugin, envelope, stoppingToken);
                 await plugin.Execute();
 
                 var completedAt = DateTimeOffset.UtcNow;
                 _logger.LogInformation(
-                    "Plugin invocation completed for workflow instance {WorkflowInstanceId} task {WorkflowTaskInstanceId} in {DurationMs}ms.",
-                    envelope.WorkflowInstanceId,
-                    envelope.WorkflowTaskInstanceId,
+                    "Plugin invocation completed for process {ProcessId} task {ProcessStepId} in {DurationMs}ms.",
+                    envelope.ProcessId,
+                    envelope.ProcessStepId,
                     (completedAt - startedAt).TotalMilliseconds);
                 Console.Out.WriteLine(
                     PluginExecutionResultSerializer.Serialize(
@@ -86,9 +86,9 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
                 activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                 _logger.LogError(
                     ex,
-                    "Plugin execution failed for workflow instance {WorkflowInstanceId} task {WorkflowTaskInstanceId}.",
-                    envelope.WorkflowInstanceId,
-                    envelope.WorkflowTaskInstanceId);
+                    "Plugin execution failed for process {ProcessId} task {ProcessStepId}.",
+                    envelope.ProcessId,
+                    envelope.ProcessStepId);
                 Console.Out.WriteLine(
                     PluginExecutionResultSerializer.Serialize(
                         resultFactory.CreateFailure(plugin, envelope, startedAt, completedAt, ex)));
@@ -121,11 +121,11 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
             return null;
         }
 
-        activity.SetTag("workflow.instance_id", envelope.WorkflowInstanceId.ToString());
-        activity.SetTag("workflow.task_instance_id", envelope.WorkflowTaskInstanceId.ToString());
+        activity.SetTag("workflow.instance_id", envelope.ProcessId.ToString());
+        activity.SetTag("workflow.task_instance_id", envelope.ProcessStepId.ToString());
         activity.SetTag("blueprint.definition_id", envelope.BlueprintDefinitionId);
-        activity.SetTag("blueprint.version_id", envelope.WorkflowBlueprintId);
-        activity.SetTag("blueprint.task_id", envelope.BlueprintTaskId.ToString());
+        activity.SetTag("blueprint.version_id", envelope.ExecutableBlueprintId);
+        activity.SetTag("blueprint.task_id", envelope.BlueprintNodeId.ToString());
         activity.SetTag("task.definition_id", envelope.TaskDefinitionId);
         activity.SetTag("task.version_id", envelope.TaskVersionId);
         activity.SetTag("task.version", envelope.TaskVersion);
@@ -138,11 +138,11 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
     private static Dictionary<string, object?> BuildExecutionScope(InvocationEnvelope envelope, string pluginName) =>
         new(StringComparer.Ordinal)
         {
-            ["workflow.instance_id"] = envelope.WorkflowInstanceId,
-            ["workflow.task_instance_id"] = envelope.WorkflowTaskInstanceId,
+            ["workflow.instance_id"] = envelope.ProcessId,
+            ["workflow.task_instance_id"] = envelope.ProcessStepId,
             ["blueprint.definition_id"] = envelope.BlueprintDefinitionId,
-            ["blueprint.version_id"] = envelope.WorkflowBlueprintId,
-            ["blueprint.task_id"] = envelope.BlueprintTaskId,
+            ["blueprint.version_id"] = envelope.ExecutableBlueprintId,
+            ["blueprint.task_id"] = envelope.BlueprintNodeId,
             ["task.definition_id"] = envelope.TaskDefinitionId,
             ["task.version_id"] = envelope.TaskVersionId,
             ["task.version"] = envelope.TaskVersion,

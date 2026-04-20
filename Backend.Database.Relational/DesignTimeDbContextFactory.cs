@@ -5,9 +5,9 @@ using Microsoft.Extensions.Configuration.UserSecrets;
 
 namespace Backend.Database.Relational; // Adjust to your namespace
 
-public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<WorkflowDbContext>
+public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<BlueprintDbContext>
 {
-    public WorkflowDbContext CreateDbContext(string[] args)
+    public BlueprintDbContext CreateDbContext(string[] args)
     {
         var configuration = new ConfigurationBuilder()
             .AddUserSecrets<DesignTimeDbContextFactory>(optional: false)
@@ -15,9 +15,9 @@ public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<WorkflowDb
 
         var connectionString = configuration.GetConnectionString("SqlServer");
 
-        var optionsBuilder = new DbContextOptionsBuilder<WorkflowDbContext>();
+        var optionsBuilder = new DbContextOptionsBuilder<BlueprintDbContext>();
         optionsBuilder.UseSqlServer(connectionString);
 
-        return new WorkflowDbContext(optionsBuilder.Options);
+        return new BlueprintDbContext(optionsBuilder.Options);
     }
 }

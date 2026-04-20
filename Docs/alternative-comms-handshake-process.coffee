@@ -1,6 +1,6 @@
 sequenceDiagram
     participant E as Engine
-    participant P as NanoService
+    participant P as PluginRuntime
 
     rect rgb(230,230,230)
     note over E,N: Phase 1 – STDIO initialisation

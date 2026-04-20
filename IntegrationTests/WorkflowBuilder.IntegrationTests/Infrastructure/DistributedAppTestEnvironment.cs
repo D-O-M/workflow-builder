@@ -20,23 +20,23 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
     private const string CosmosResourceName = "integration-cosmos";
     private const string CosmosConnectionName = CosmosDatabaseName;
     private const string CosmosDatabaseName = "enginedb";
-    private const string WorkflowsContainerName = "workflows";
-    private const string TasksContainerName = "tasks";
+    private const string ProcessesContainerName = "processes";
+    private const string TasksContainerName = "processsteps";
     private const string PluginsBlobContainerName = "pluginblob";
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromMinutes(2);
 
     private readonly DistributedApplication _app;
     private readonly CosmosClient _cosmosClient;
     private readonly BlobContainerClient _pluginBlobContainer;
-    private readonly TaskInstanceRepository _taskRepository;
-    private readonly WorkflowInstanceRepository<Dictionary<string, JsonElement>> _workflowRepository;
+    private readonly ProcessStepRepository _processStepRepository;
+    private readonly ProcessInstanceRepository<Dictionary<string, JsonElement>> _processRepository;
 
     private DistributedAppTestEnvironment(
         DistributedApplication app,
         CosmosClient cosmosClient,
         BlobContainerClient pluginBlobContainer,
-        TaskInstanceRepository taskRepository,
-        WorkflowInstanceRepository<Dictionary<string, JsonElement>> workflowRepository,
+        ProcessStepRepository processStepRepository,
+        ProcessInstanceRepository<Dictionary<string, JsonElement>> processRepository,
         HttpClient apiClient,
         string signalRBaseUrl,
         IntegrationTestSettings settings,
@@ -45,8 +45,8 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         _app = app;
         _cosmosClient = cosmosClient;
         _pluginBlobContainer = pluginBlobContainer;
-        _taskRepository = taskRepository;
-        _workflowRepository = workflowRepository;
+        _processStepRepository = processStepRepository;
+        _processRepository = processRepository;
 
         ApiClient = apiClient;
         SignalRBaseUrl = signalRBaseUrl;
@@ -68,7 +68,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         IntegrationProgressLog.Initialize(settings.RunVersion);
         IntegrationProgressLog.Write($"[integration] Starting Aspire integration environment for version {settings.RunVersion}.");
 
-        var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        var repoRoot = ResolveRepositoryRoot();
         IntegrationProgressLog.Write($"[integration] Repository root resolved to {repoRoot}.");
 
         IntegrationProgressLog.Write("[integration] Building deterministic plugin bundles.");
@@ -87,9 +87,9 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
                 $"AzureStorage:BlobContainers:Plugins:ContainerName={PluginsBlobContainerName}",
                 "AzureStorage:PersistData=false",
                 "AzureServiceBus:ResourceName=integration-servicebus",
-                "AzureServiceBus:Queues:WorkflowTaskQueue:ResourceName=workflow-task-queue",
-                "AzureServiceBus:Queues:WorkflowTaskQueue:ConnectionName=workflow-task-queue",
-                "AzureServiceBus:Queues:WorkflowTaskQueue:Name=workflowtasks",
+                "AzureServiceBus:Queues:ProcessStepQueue:ResourceName=process-step-queue",
+                "AzureServiceBus:Queues:ProcessStepQueue:ConnectionName=process-step-queue",
+                "AzureServiceBus:Queues:ProcessStepQueue:Name=processsteps",
                 "AzureServiceBus:Queues:PluginControlQueue:ResourceName=plugin-control-queue",
                 "AzureServiceBus:Queues:PluginControlQueue:ConnectionName=plugin-control-queue",
                 "AzureServiceBus:Queues:PluginControlQueue:Name=pluginreloadqueue",
@@ -172,16 +172,16 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
                 UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
             });
 
-        var taskRepository = new TaskInstanceRepository(cosmosClient.GetContainer(CosmosDatabaseName, TasksContainerName));
-        var workflowRepository = new WorkflowInstanceRepository<Dictionary<string, JsonElement>>(
-            cosmosClient.GetContainer(CosmosDatabaseName, WorkflowsContainerName));
+        var processStepRepository = new ProcessStepRepository(cosmosClient.GetContainer(CosmosDatabaseName, TasksContainerName));
+        var processRepository = new ProcessInstanceRepository<Dictionary<string, JsonElement>>(
+            cosmosClient.GetContainer(CosmosDatabaseName, ProcessesContainerName));
 
         var environment = new DistributedAppTestEnvironment(
             app,
             cosmosClient,
             blobContainer,
-            taskRepository,
-            workflowRepository,
+            processStepRepository,
+            processRepository,
             apiClient,
             signalRBaseUrl,
             settings,
@@ -214,6 +214,29 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         return environment;
     }
 
+    private static string ResolveRepositoryRoot()
+    {
+        foreach (var candidateRoot in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+        {
+            var current = new DirectoryInfo(Path.GetFullPath(candidateRoot));
+
+            while (current is not null)
+            {
+                if (File.Exists(Path.Combine(current.FullName, "BuildScripts", "bundle-plugins.ps1")) &&
+                    Directory.Exists(Path.Combine(current.FullName, "Backend.AppHost")) &&
+                    File.Exists(Path.Combine(current.FullName, "Directory.Packages.props")))
+                {
+                    return current.FullName;
+                }
+
+                current = current.Parent;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Could not resolve the repository root from '{Directory.GetCurrentDirectory()}' or '{AppContext.BaseDirectory}'.");
+    }
+
     public async Task<List<TaskDefinitionViewModel>> GetTasksAsync(CancellationToken cancellationToken)
     {
         using var response = await ApiClient.GetAsync("/Tasks", cancellationToken);
@@ -233,7 +256,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
 
     public HubConnection CreateSignalRConnection() =>
         new HubConnectionBuilder()
-            .WithUrl($"{SignalRBaseUrl}/hubs/executions")
+            .WithUrl($"{SignalRBaseUrl}/hubs/processes")
             .WithAutomaticReconnect()
             .Build();
 
@@ -286,16 +309,16 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
             timeoutOverride);
     }
 
-    public async Task<IReadOnlyList<TaskObject>> GetTaskStateAsync(
-        Guid workflowInstanceId,
+    public async Task<IReadOnlyList<ProcessStepRecord>> GetProcessStepStateAsync(
+        Guid processId,
         CancellationToken cancellationToken) =>
-        await _taskRepository.GetTaskInstancesForWorkflow(workflowInstanceId, cancellationToken);
+        await _processStepRepository.GetProcessStepsForProcess(processId, cancellationToken);
 
-    public Task<WorkflowObject<Dictionary<string, JsonElement>>> GetWorkflowStateAsync(
-        Guid workflowInstanceId,
+    public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> GetProcessStateAsync(
+        Guid processId,
         int blueprintVersionId,
         CancellationToken cancellationToken) =>
-        _workflowRepository.GetWorkflowStateById(workflowInstanceId, blueprintVersionId, cancellationToken);
+        _processRepository.GetProcessStateById(processId, blueprintVersionId, cancellationToken);
 
     private async Task RegisterAllBundlesAsync(CancellationToken cancellationToken)
     {

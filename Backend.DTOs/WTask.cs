@@ -6,8 +6,8 @@ namespace Backend.Models;
 
 public sealed class WTask
 {
-    // Node identity (TaskInstance.Id)
-    public Guid TaskInstanceId { get; init; }
+    // Node identity (BlueprintNode.Id)
+    public Guid BlueprintNodeId { get; init; }
 
     // Versioned task identity (TaskVersion)
     public int TaskVersionId { get; init; }

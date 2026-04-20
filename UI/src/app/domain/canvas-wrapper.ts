@@ -246,7 +246,7 @@ export class CanvasWrapper {
 
             this.ctx.fillStyle = CanvasWrapper.theme.nodeTextMuted;
             this.setFont(500, 12);
-            this.ctx.fillText('Route task output between workflow steps', node.x + 24, node.y + 62);
+            this.ctx.fillText('Route task output between process steps', node.x + 24, node.y + 62);
 
             this.ctx.fillStyle = CanvasWrapper.theme.nodeSectionText;
             this.setFont(700, 11);

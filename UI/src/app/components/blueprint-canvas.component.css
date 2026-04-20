@@ -1,0 +1,24 @@
+:host {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.blueprint-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  outline: none;
+}
+
+.blueprint-canvas.is-dragging {
+  cursor: grabbing;
+}
+
+.blueprint-canvas:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.42);
+}

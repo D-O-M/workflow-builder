@@ -17,17 +17,17 @@ public sealed class BlueprintPortabilityService
 {
     private static readonly JsonSerializerOptions CanonicalJsonOptions = new(JsonSerializerDefaults.Web);
 
-    private readonly WorkflowDbContext _context;
-    private readonly IWorkflowBlueprintRepository _workflowBlueprintRepository;
+    private readonly BlueprintDbContext _context;
+    private readonly IBlueprintRepository _blueprintRepository;
     private readonly IBlueprintVersionValidator _blueprintVersionValidator;
 
     public BlueprintPortabilityService(
-        WorkflowDbContext context,
-        IWorkflowBlueprintRepository workflowBlueprintRepository,
+        BlueprintDbContext context,
+        IBlueprintRepository blueprintRepository,
         IBlueprintVersionValidator blueprintVersionValidator)
     {
         _context = context;
-        _workflowBlueprintRepository = workflowBlueprintRepository;
+        _blueprintRepository = blueprintRepository;
         _blueprintVersionValidator = blueprintVersionValidator;
     }
 
@@ -38,10 +38,10 @@ public sealed class BlueprintPortabilityService
         var definition = await _context.BlueprintDefinitions
             .AsNoTracking()
             .Include(candidate => candidate.Versions)
-                .ThenInclude(version => version.TaskInstances)
+                .ThenInclude(version => version.BlueprintNodes)
                     .ThenInclude(taskInstance => taskInstance.TaskDefinition)
             .Include(candidate => candidate.Versions)
-                .ThenInclude(version => version.TaskInstances)
+                .ThenInclude(version => version.BlueprintNodes)
                     .ThenInclude(taskInstance => taskInstance.OutgoingConnections)
             .AsSplitQuery()
             .FirstOrDefaultAsync(candidate => candidate.Id == definitionId, cancellationToken);
@@ -81,16 +81,16 @@ public sealed class BlueprintPortabilityService
 
         var definition = await _context.BlueprintDefinitions
             .Include(candidate => candidate.Versions)
-                .ThenInclude(version => version.TaskInstances)
+                .ThenInclude(version => version.BlueprintNodes)
                     .ThenInclude(taskInstance => taskInstance.TaskDefinition)
             .Include(candidate => candidate.Versions)
-                .ThenInclude(version => version.TaskInstances)
+                .ThenInclude(version => version.BlueprintNodes)
                     .ThenInclude(taskInstance => taskInstance.OutgoingConnections)
             .AsSplitQuery()
             .FirstOrDefaultAsync(candidate => candidate.Key == definitionKey, cancellationToken);
 
         var mappedTasks = model.Tasks
-            .Select(task => new BlueprintTaskInputModel
+            .Select(task => new BlueprintNodeInputModel
             {
                 InstanceId = task.TaskKey,
                 TaskDefinitionId = resolvedTasks[task.TaskKey].TaskDefinitionId,
@@ -98,10 +98,10 @@ public sealed class BlueprintPortabilityService
                 AllowedMinor = task.AllowedMinor,
                 Position = task.Position,
                 OutgoingConnections = task.OutgoingConnections
-                    .Select(connection => new BlueprintTaskConnectionInputModel
+                    .Select(connection => new BlueprintConnectionInputModel
                     {
                         ChannelName = connection.ChannelName,
-                        ConnectedTaskInstanceId = connection.ConnectedTaskKey,
+                        ConnectedBlueprintNodeId = connection.ConnectedTaskKey,
                         Anchor = connection.Anchor,
                         Side = connection.Side,
                         Position = connection.Position
@@ -114,7 +114,7 @@ public sealed class BlueprintPortabilityService
         {
             BlueprintDefinitionId = definition?.Id ?? 1,
             Name = versionName,
-            StartingTaskInstanceId = model.StartingTaskKey,
+            StartingBlueprintNodeId = model.StartingTaskKey,
             Tasks = mappedTasks
         };
 
@@ -145,7 +145,7 @@ public sealed class BlueprintPortabilityService
                 }
             }
 
-            var createdVersion = await _workflowBlueprintRepository.CreateVersion(
+            var createdVersion = await _blueprintRepository.CreateVersion(
                 BuildImportedVersion(definition.Id, validationModel),
                 cancellationToken);
 
@@ -158,13 +158,13 @@ public sealed class BlueprintPortabilityService
             };
         }
 
-        var createdBlueprint = await _workflowBlueprintRepository.CreateBlueprint(
+        var createdBlueprint = await _blueprintRepository.CreateBlueprint(
             new BlueprintInputModel
             {
                 Key = definitionKey,
                 Name = displayName,
                 VersionName = versionName,
-                StartingTaskInstanceId = model.StartingTaskKey,
+                StartingBlueprintNodeId = model.StartingTaskKey,
                 Tasks = mappedTasks
             },
             cancellationToken);
@@ -221,7 +221,7 @@ public sealed class BlueprintPortabilityService
                 nameof(model.VersionName)));
         }
 
-        var tasksByKey = new Dictionary<Guid, ExportedBlueprintTaskInputModel>();
+        var tasksByKey = new Dictionary<Guid, ExportedBlueprintNodeInputModel>();
         for (var index = 0; index < model.Tasks.Count; index++)
         {
             var task = model.Tasks[index];
@@ -345,10 +345,10 @@ public sealed class BlueprintPortabilityService
             DefinitionKey = definition.Key,
             DisplayName = definition.DisplayName,
             VersionName = version.Name,
-            StartingTaskKey = version.StartingTaskInstanceId ?? Guid.Empty,
-            Tasks = version.TaskInstances
+            StartingTaskKey = version.StartingBlueprintNodeId ?? Guid.Empty,
+            Tasks = version.BlueprintNodes
                 .OrderBy(task => task.Id)
-                .Select(task => new ExportedBlueprintTaskViewModel
+                .Select(task => new ExportedBlueprintNodeViewModel
                 {
                     TaskKey = task.Id,
                     TaskDefinitionName = task.TaskDefinition.Name,
@@ -360,14 +360,14 @@ public sealed class BlueprintPortabilityService
                         Y = task.PositionY
                     },
                     OutgoingConnections = task.OutgoingConnections
-                        .Where(connection => connection.DestinationTaskInstanceId.HasValue)
+                        .Where(connection => connection.DestinationBlueprintNodeId.HasValue)
                         .OrderBy(connection => connection.ChannelName)
-                        .ThenBy(connection => connection.DestinationTaskInstanceId)
+                        .ThenBy(connection => connection.DestinationBlueprintNodeId)
                         .ThenBy(connection => connection.Anchor)
                         .Select(connection => new ExportedBlueprintConnectionViewModel
                         {
                             ChannelName = connection.ChannelName,
-                            ConnectedTaskKey = connection.DestinationTaskInstanceId!.Value,
+                            ConnectedTaskKey = connection.DestinationBlueprintNodeId!.Value,
                             Anchor = connection.Anchor,
                             Side = connection.Side,
                             Position = connection.Position
@@ -465,13 +465,13 @@ public sealed class BlueprintPortabilityService
         {
             DefinitionId = blueprintDefinitionId,
             Name = model.Name,
-            TaskTree = BuildTaskTree(taskModelsByInstanceId[model.StartingTaskInstanceId], taskModelsByInstanceId)
+            TaskTree = BuildTaskTree(taskModelsByInstanceId[model.StartingBlueprintNodeId], taskModelsByInstanceId)
         };
     }
 
     private static BlueprintTaskTree BuildTaskTree(
-        BlueprintTaskInputModel model,
-        IReadOnlyDictionary<Guid, BlueprintTaskInputModel> taskModelsByInstanceId)
+        BlueprintNodeInputModel model,
+        IReadOnlyDictionary<Guid, BlueprintNodeInputModel> taskModelsByInstanceId)
     {
         var task = new BlueprintTaskTree
         {
@@ -484,7 +484,7 @@ public sealed class BlueprintPortabilityService
 
         foreach (var connection in model.OutgoingConnections)
         {
-            task.OutgoingConnections.Add(new Backend.Models.DomainModels.TaskConnection
+            task.OutgoingConnections.Add(new Backend.Models.DomainModels.BlueprintConnection
             {
                 ChannelDetails = new ChannelDetails
                 {
@@ -494,7 +494,7 @@ public sealed class BlueprintPortabilityService
                 Anchor = connection.Anchor,
                 Side = connection.Side,
                 Position = connection.Position,
-                Task = BuildTaskTree(taskModelsByInstanceId[connection.ConnectedTaskInstanceId], taskModelsByInstanceId)
+                Task = BuildTaskTree(taskModelsByInstanceId[connection.ConnectedBlueprintNodeId], taskModelsByInstanceId)
             });
         }
 

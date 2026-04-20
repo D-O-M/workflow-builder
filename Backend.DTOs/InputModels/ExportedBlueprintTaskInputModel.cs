@@ -3,7 +3,7 @@ using Backend.Models.ViewModels;
 
 namespace Backend.Models.InputModels;
 
-public sealed class ExportedBlueprintTaskInputModel
+public sealed class ExportedBlueprintNodeInputModel
 {
     [Required]
     public Guid TaskKey { get; init; }

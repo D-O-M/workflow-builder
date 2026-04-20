@@ -38,36 +38,36 @@ html, body {
 }
 
 :root {
-  --flo-0: #f7f9ff;
-  --flo-1: #eef3ff;
-  --flo-2: #e5ecff;
-  --flo-3: #d7e2ff;
-  --flo-4: #c5d4ff;
-  --flo-5: #b4c7ff;
-  --flo-6: #96b1ff;
+  --app-0: #f7f9ff;
+  --app-1: #eef3ff;
+  --app-2: #e5ecff;
+  --app-3: #d7e2ff;
+  --app-4: #c5d4ff;
+  --app-5: #b4c7ff;
+  --app-6: #96b1ff;
 
-  --flo-surface: #ffffff;
-  --flo-surface-2: #f4f7ff;
-  --flo-surface-3: #edf2ff;
-  --flo-app-bg: linear-gradient(180deg, #f7f9ff 0%, #eef3ff 100%);
+  --app-surface: #ffffff;
+  --app-surface-2: #f4f7ff;
+  --app-surface-3: #edf2ff;
+  --app-app-bg: linear-gradient(180deg, #f7f9ff 0%, #eef3ff 100%);
 
-  --flo-text: #0f172a;
-  --flo-text-soft: #3f4f72;
-  --flo-text-subtle: rgba(76, 96, 142, 0.78);
-  --flo-text-muted: rgba(15, 23, 42, 0.7);
-  --flo-border: rgba(70, 98, 170, 0.12);
-  --flo-border-soft: rgba(70, 98, 170, 0.08);
-  --flo-line: rgba(102, 129, 208, 0.16);
+  --app-text: #0f172a;
+  --app-text-soft: #3f4f72;
+  --app-text-subtle: rgba(76, 96, 142, 0.78);
+  --app-text-muted: rgba(15, 23, 42, 0.7);
+  --app-border: rgba(70, 98, 170, 0.12);
+  --app-border-soft: rgba(70, 98, 170, 0.08);
+  --app-line: rgba(102, 129, 208, 0.16);
 
-  --flo-primary: #2d4bdd;
-  --flo-primary-contrast: #ffffff;
-  --flo-focus: rgba(59, 92, 204, 0.24);
-  --flo-ghost: rgba(226, 234, 255, 0.92);
+  --app-primary: #2d4bdd;
+  --app-primary-contrast: #ffffff;
+  --app-focus: rgba(59, 92, 204, 0.24);
+  --app-ghost: rgba(226, 234, 255, 0.92);
 
-  --flo-radius: 18px;
-  --flo-shadow: 0 18px 40px rgba(56, 79, 147, 0.12);
+  --app-radius: 18px;
+  --app-shadow: 0 18px 40px rgba(56, 79, 147, 0.12);
 
-  --flo-font: 'Datatype', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  --app-font: 'Datatype', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
 body {
@@ -75,12 +75,12 @@ body {
     radial-gradient(900px 500px at 10% 0%, rgba(198, 212, 255, 0.55), transparent 60%),
     radial-gradient(900px 500px at 90% 0%, rgba(224, 232, 255, 0.75), transparent 55%),
     linear-gradient(180deg, #f7f9ff, #eef3ff);
-  color: var(--flo-text);
-  font-family: var(--flo-font);
+  color: var(--app-text);
+  font-family: var(--app-font);
 }
 
 html {
-  font-family: var(--flo-font);
+  font-family: var(--app-font);
 }
 
 button,
@@ -91,7 +91,7 @@ textarea {
 }
 
 :focus-visible {
-  outline: 3px solid var(--flo-focus);
+  outline: 3px solid var(--app-focus);
   outline-offset: 2px;
 }
 
@@ -120,9 +120,9 @@ textarea {
 }
 
 .shell-button--ghost {
-  background: var(--flo-ghost);
+  background: var(--app-ghost);
   border-color: rgba(87, 121, 222, 0.14);
-  color: var(--flo-text-soft);
+  color: var(--app-text-soft);
 }
 
 .shell-button--primary {
@@ -140,7 +140,7 @@ textarea {
   border: 0;
   border-radius: 0.85rem;
   background: transparent;
-  color: var(--flo-text-soft);
+  color: var(--app-text-soft);
   cursor: pointer;
 }
 
@@ -182,7 +182,7 @@ textarea {
   border-radius: 0.95rem;
   background: rgba(232, 239, 255, 0.82);
   box-shadow: inset 0 0 0 1px rgba(87, 121, 222, 0.12);
-  color: var(--flo-text-soft);
+  color: var(--app-text-soft);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -199,7 +199,7 @@ textarea {
 }
 
 .nav-drawer-toggle mat-icon {
-  color: var(--flo-primary);
+  color: var(--app-primary);
 }
 
 .nav-drawer-toggle__label {

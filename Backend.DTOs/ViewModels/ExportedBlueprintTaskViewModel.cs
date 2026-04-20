@@ -1,6 +1,6 @@
 namespace Backend.Models.ViewModels;
 
-public sealed class ExportedBlueprintTaskViewModel
+public sealed class ExportedBlueprintNodeViewModel
 {
     public required Guid TaskKey { get; init; }
     public required string TaskDefinitionName { get; init; }

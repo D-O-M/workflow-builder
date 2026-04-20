@@ -2,9 +2,9 @@
   <header class="dashboard-page__hero">
     <div class="dashboard-page__intro">
       <p class="dashboard-page__eyebrow">Observability Overview</p>
-      <h2>Workflow health at a glance</h2>
+      <h2>Process health at a glance</h2>
       <p class="dashboard-page__subtitle">
-        A quick read on workflow outcomes, recent runs, and node-level reliability across the selected window.
+        A quick read on process outcomes, recent processes, and node-level reliability across the selected window.
       </p>
 
       <div class="dashboard-page__links">
@@ -60,7 +60,7 @@
         <article class="dashboard-card dashboard-card--outcome">
           <header class="dashboard-card__header dashboard-card__header--stacked">
             <div>
-              <p class="dashboard-card__eyebrow">Workflow Outcome</p>
+              <p class="dashboard-card__eyebrow">Process Outcome</p>
               <h3>Success vs failure</h3>
             </div>
 
@@ -78,24 +78,24 @@
           <div class="dashboard-outcome">
             <div
               class="dashboard-donut"
-              [style.background]="donutBackground(workflowSummary()?.successfulCount ?? 0, workflowSummary()?.failedCount ?? 0)"
+              [style.background]="donutBackground(processSummary()?.successfulCount ?? 0, processSummary()?.failedCount ?? 0)"
             >
-              <strong>{{ workflowSuccessPercent() }}%</strong>
+              <strong>{{ processSuccessPercent() }}%</strong>
               <span>Success</span>
             </div>
 
             <div class="dashboard-outcome__stats">
               <div class="dashboard-outcome__metric">
                 <span class="dashboard-outcome__metric-label">Succeeded</span>
-                <strong>{{ workflowSummary()?.successfulCount ?? 0 }}</strong>
+                <strong>{{ processSummary()?.successfulCount ?? 0 }}</strong>
               </div>
               <div class="dashboard-outcome__metric">
                 <span class="dashboard-outcome__metric-label">Failed</span>
-                <strong>{{ workflowSummary()?.failedCount ?? 0 }}</strong>
+                <strong>{{ processSummary()?.failedCount ?? 0 }}</strong>
               </div>
               <div class="dashboard-outcome__metric">
-                <span class="dashboard-outcome__metric-label">Total terminal runs</span>
-                <strong>{{ workflowSummary()?.totalCount ?? 0 }}</strong>
+                <span class="dashboard-outcome__metric-label">Total terminal processes</span>
+                <strong>{{ processSummary()?.totalCount ?? 0 }}</strong>
               </div>
             </div>
           </div>
@@ -111,7 +111,7 @@
             </span>
             <span class="dashboard-legend__item">
               <span class="dashboard-legend__dot dashboard-legend__dot--total"></span>
-              <span>{{ workflowSummary()?.totalCount ?? 0 }} total</span>
+              <span>{{ processSummary()?.totalCount ?? 0 }} total</span>
             </span>
           </div>
         </article>
@@ -119,55 +119,55 @@
         <article class="dashboard-card dashboard-card--runs">
           <header class="dashboard-card__header">
             <div>
-              <p class="dashboard-card__eyebrow">Recent Runs</p>
-              <h3>Latest terminal executions</h3>
+              <p class="dashboard-card__eyebrow">Recent Processes</p>
+              <h3>Latest terminal processes</h3>
             </div>
 
             <a
               class="dashboard-card__text-link"
-              [routerLink]="['/executions']"
+              [routerLink]="['/processes']"
               [queryParams]="historyQueryParams()"
             >
               View all history
             </a>
           </header>
 
-          @if (recentRuns().length === 0) {
+          @if (recentProcesses().length === 0) {
             <div class="dashboard-table-empty">
-              <p>No recent runs are available in the selected window yet.</p>
+              <p>No recent processes are available in the selected window yet.</p>
             </div>
           } @else {
             <div class="dashboard-table-wrap">
               <table class="dashboard-table">
                 <thead>
                   <tr>
-                    <th>Execution ID</th>
+                    <th>Process ID</th>
                     <th>Timestamp</th>
                     <th>Status</th>
                     <th class="dashboard-table__action">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  @for (run of recentRuns(); track trackRecentRun($index, run)) {
+                  @for (process of recentProcesses(); track trackRecentProcess($index, process)) {
                     <tr>
                       <td>
                         <div class="dashboard-table__identity">
-                          <strong [title]="run.workflowInstanceId">{{ shortenExecutionId(run.workflowInstanceId) }}</strong>
-                          <small>{{ run.blueprintVersionName }}</small>
+                          <strong [title]="process.processId">{{ shortenProcessId(process.processId) }}</strong>
+                          <small>{{ process.blueprintVersionName }}</small>
                         </div>
                       </td>
-                      <td>{{ run.occurredAt | date: 'yyyy-MM-dd HH:mm:ss' }}</td>
+                      <td>{{ process.occurredAt | date: 'yyyy-MM-dd HH:mm:ss' }}</td>
                       <td>
-                        <span class="dashboard-status" [ngClass]="recentRunStatusClass(run.status)">
-                          {{ recentRunStatusLabel(run.status) }}
+                        <span class="dashboard-status" [ngClass]="recentProcessStatusClass(process.status)">
+                          {{ recentProcessStatusLabel(process.status) }}
                         </span>
                       </td>
                       <td class="dashboard-table__action">
                         <a
                           class="dashboard-action-link"
-                          [routerLink]="['/executions']"
-                          [queryParams]="{ blueprintId: run.blueprintDefinitionId, workflowInstanceId: run.workflowInstanceId }"
-                          [attr.aria-label]="'Open execution ' + run.workflowInstanceId"
+                          [routerLink]="['/processes']"
+                          [queryParams]="{ blueprintId: process.blueprintDefinitionId, processId: process.processId }"
+                          [attr.aria-label]="'Open process ' + process.processId"
                         >
                           <mat-icon>arrow_outward</mat-icon>
                         </a>
@@ -210,7 +210,7 @@
           </div>
         } @else {
           <div class="dashboard-node-grid">
-            @for (node of nodeSummary()!.nodes; track node.blueprintTaskId) {
+            @for (node of nodeSummary()!.nodes; track node.blueprintNodeId) {
               <article class="dashboard-node-card">
                 <div
                   class="dashboard-donut dashboard-donut--small"

@@ -11,25 +11,25 @@ namespace Backend.Services;
 public sealed class PluginDiscoveryService : IPluginDiscoveryService
 {
     private readonly BlobContainerClient _blobContainerClient;
-    private readonly IWorkflowTaskRepository _workflowTaskRepository;
+    private readonly ITaskDefinitionRepository _taskDefinitionRepository;
     private readonly IPluginBlobNameParsingUtility _blobNameParser;
     private readonly ILogger<PluginDiscoveryService> _logger;
 
     public PluginDiscoveryService(
         BlobContainerClient blobContainerClient,
-        IWorkflowTaskRepository workflowTaskRepository,
+        ITaskDefinitionRepository taskDefinitionRepository,
         IPluginBlobNameParsingUtility blobNameParser,
         ILogger<PluginDiscoveryService> logger)
     {
         _blobContainerClient = blobContainerClient;
-        _workflowTaskRepository = workflowTaskRepository;
+        _taskDefinitionRepository = taskDefinitionRepository;
         _blobNameParser = blobNameParser;
         _logger = logger;
     }
 
     public async Task<IReadOnlyList<PluginBlobInfo>> GetNewPluginsAsync(CancellationToken cancellationToken)
     {
-        var workflowTasks = (await _workflowTaskRepository.GetAll(cancellationToken))
+        var registeredTaskDefinitions = (await _taskDefinitionRepository.GetAll(cancellationToken))
             .GroupBy(t => t.Name)
             .ToDictionary(g => g.Key, g => g.Select(t => t.Version).ToHashSet());
 
@@ -43,7 +43,7 @@ public sealed class PluginDiscoveryService : IPluginDiscoveryService
             {
                 var pluginInfo = _blobNameParser.Parse(blob.Name);
 
-                if (!workflowTasks.TryGetValue(pluginInfo.PluginName, out var versions) || !versions.Contains(pluginInfo.Version))
+                if (!registeredTaskDefinitions.TryGetValue(pluginInfo.PluginName, out var versions) || !versions.Contains(pluginInfo.Version))
                 {
                     pendingPlugins.Add(pluginInfo);
                 }

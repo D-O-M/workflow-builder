@@ -42,7 +42,7 @@ public sealed class BlueprintDefinitionLookupCache
         }
 
         using var scope = _scopeFactory.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<WorkflowDbContext>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<BlueprintDbContext>();
         var resolvedIds = await dbContext.BlueprintVersions
             .AsNoTracking()
             .Where(version => missingIds.Contains(version.Id))

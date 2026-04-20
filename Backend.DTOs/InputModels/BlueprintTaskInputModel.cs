@@ -3,10 +3,10 @@ using Backend.Models.ViewModels;
 
 namespace Backend.Models.InputModels;
 
-public sealed class BlueprintTaskInputModel
+public sealed class BlueprintNodeInputModel
 {
     /// <summary>
-    /// Optional persistent ID for the task instance (maps to TaskInstances.Id).
+    /// Optional persistent ID for the task instance (maps to BlueprintNodes.Id).
     /// Usually omitted on create; can be accepted if clients generate GUIDs.
     /// </summary>
     public Guid InstanceId { get; init; }
@@ -31,5 +31,5 @@ public sealed class BlueprintTaskInputModel
     public CoordinatesViewModel Position { get; init; }
 
     /// <summary>Outgoing connections from this task.</summary>
-    public List<BlueprintTaskConnectionInputModel> OutgoingConnections { get; init; } = new();
+    public List<BlueprintConnectionInputModel> OutgoingConnections { get; init; } = new();
 }

@@ -1,8 +1,8 @@
 import { Routes } from '@angular/router';
 import { DashboardPageComponent } from './pages/dashboard-page.component';
 import { BlueprintEditorPageComponent } from './pages/blueprint-editor-page.component';
-import { ExecuteFloPageComponent } from './pages/execute-flo-page.component';
-import { WorkflowExecutionsPageComponent } from './pages/workflow-executions-page.component';
+import { StartProcessPageComponent } from './pages/start-process-page.component';
+import { ProcessExplorerPageComponent } from './pages/process-explorer-page.component';
 
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
@@ -19,23 +19,23 @@ export const routes: Routes = [
     component: BlueprintEditorPageComponent,
     data: {
       shellTitle: 'Blueprint Builder',
-      navId: 'workflows',
+      navId: 'blueprints',
     },
   },
   {
-    path: 'execute',
-    component: ExecuteFloPageComponent,
+    path: 'processes/new',
+    component: StartProcessPageComponent,
     data: {
-      shellTitle: 'Trigger Workflow',
-      navId: 'trigger',
+      shellTitle: 'Start Process',
+      navId: 'start-process',
     },
   },
   {
-    path: 'executions',
-    component: WorkflowExecutionsPageComponent,
+    path: 'processes',
+    component: ProcessExplorerPageComponent,
     data: {
-      shellTitle: 'Execution Explorer',
-      navId: 'executions',
+      shellTitle: 'Process Explorer',
+      navId: 'processes',
     },
   },
 ];

@@ -50,7 +50,7 @@ export interface DynamicFieldDefinition {
       display: flex;
       gap: 0.65rem;
       align-items: center;
-      color: var(--flo-text);
+      color: var(--app-text);
     }
 
     .text-field {
@@ -61,7 +61,7 @@ export interface DynamicFieldDefinition {
 
     input[type='text'],
     input[type='number'] {
-      border: 1px solid var(--flo-border);
+      border: 1px solid var(--app-border);
       border-radius: 10px;
       padding: 0.65rem 0.75rem;
       font: inherit;
@@ -71,7 +71,7 @@ export interface DynamicFieldDefinition {
     input[type='checkbox'] {
       width: 1rem;
       height: 1rem;
-      accent-color: var(--flo-primary);
+      accent-color: var(--app-primary);
     }
 
     .field-error {

@@ -21,6 +21,9 @@ namespace Backend.Plugins.Harness;
 public class PluginBuilder<TPlugin>
     where TPlugin : class, IPlugin
 {
+    private const string ProcessStepsContainerName = "processsteps";
+    private const string ProcessesContainerName = "processes";
+
     private readonly string _displayName;
     private Func<TPlugin, object?>? _globalStateGetter;
     private readonly Dictionary<string, PluginChannel> _inputChannels = new();
@@ -84,7 +87,7 @@ public class PluginBuilder<TPlugin>
 
         _hostAppBuilder.Services.TryAddSingleton(sp =>
         {
-            Func<TaskObject, string, TChannelType> valueExtractionFunction =
+            Func<ProcessStepRecord, string, TChannelType> valueExtractionFunction =
                 (task, channelName) =>
                 {
                     if (string.IsNullOrWhiteSpace(channelName) || task.OutputData is null)
@@ -97,21 +100,21 @@ public class PluginBuilder<TPlugin>
                         json, JsonSerializerOptions.Web)!;
                 };
 
-            return new PluginPropertyHydrationService<TaskObject, TChannelType>(
-                sp.GetRequiredService<IPluginDocumentStore<TaskObject>>(),
+            return new PluginPropertyHydrationService<ProcessStepRecord, TChannelType>(
+                sp.GetRequiredService<IPluginDocumentStore<ProcessStepRecord>>(),
                 valueExtractionFunction);
         });
 
         _hostAppBuilder.Services.AddSingleton<IPluginHydrationStep<TPlugin>>(sp =>
         {
-            var hydrator = sp.GetRequiredService<PluginPropertyHydrationService<TaskObject, TChannelType>>();
+            var hydrator = sp.GetRequiredService<PluginPropertyHydrationService<ProcessStepRecord, TChannelType>>();
             var setter = sp.GetRequiredService<PropertySetterUtility<TPlugin, TChannelType>>();
             Func<InvocationEnvelope, string> documentIdSelector =
-                env => env.PreviousTaskDetails.PreviousTaskInstanceId.ToString();
+                env => env.PreviousTaskDetails.PreviousBlueprintNodeId.ToString();
             Func<InvocationEnvelope, string> partitionKeySelector =
-                env => env.WorkflowInstanceId.ToString();
+                env => env.ProcessId.ToString();
 
-            return new PluginHydrationStep<TPlugin, TaskObject, TChannelType>(
+            return new PluginHydrationStep<TPlugin, ProcessStepRecord, TChannelType>(
                 name,
                 hydrator,
                 setter,
@@ -160,20 +163,20 @@ public class PluginBuilder<TPlugin>
         EnsureWorkflowDocumentStoreRegistered<TGlobalState>();
 
         _hostAppBuilder.Services.TryAddSingleton(sp =>
-            new PluginPropertyHydrationService<WorkflowObject<TGlobalState>, TGlobalState>(
-                sp.GetRequiredService<IPluginDocumentStore<WorkflowObject<TGlobalState>>>(),
+            new PluginPropertyHydrationService<ProcessInstanceRecord<TGlobalState>, TGlobalState>(
+                sp.GetRequiredService<IPluginDocumentStore<ProcessInstanceRecord<TGlobalState>>>(),
                 (workflow, _) => workflow.GlobalState));
 
         _hostAppBuilder.Services.AddSingleton<IPluginHydrationStep<TPlugin>>(sp =>
         {
-            var hydrator = sp.GetRequiredService<PluginPropertyHydrationService<WorkflowObject<TGlobalState>, TGlobalState>>();
+            var hydrator = sp.GetRequiredService<PluginPropertyHydrationService<ProcessInstanceRecord<TGlobalState>, TGlobalState>>();
             var setter = sp.GetRequiredService<PropertySetterUtility<TPlugin, TGlobalState>>();
             Func<InvocationEnvelope, string> documentIdSelector =
-                env => env.WorkflowInstanceId.ToString();
+                env => env.ProcessId.ToString();
             Func<InvocationEnvelope, string> partitionKeySelector =
-                env => env.WorkflowBlueprintId.ToString();
+                env => env.ExecutableBlueprintId.ToString();
 
-            return new GlobalStateHydrationStep<TPlugin, WorkflowObject<TGlobalState>, TGlobalState>(
+            return new GlobalStateHydrationStep<TPlugin, ProcessInstanceRecord<TGlobalState>, TGlobalState>(
                 hydrator,
                 setter,
                 documentIdSelector,
@@ -325,21 +328,21 @@ public class PluginBuilder<TPlugin>
     {
         if (UseFileStateStore())
         {
-            _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<TaskObject>>(
-                _ => new FilePluginDocumentStore<TaskObject>(GetFileStateRootPath(), "tasks"));
+            _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<ProcessStepRecord>>(
+                _ => new FilePluginDocumentStore<ProcessStepRecord>(GetFileStateRootPath(), ProcessStepsContainerName));
             return;
         }
 
         EnsureCosmosClientRegistered();
         var databaseName = GetCosmosDatabaseName();
         _hostAppBuilder.Services.TryAddSingleton(sp =>
-            new CosmosRepository<TaskObject>(
-                sp.GetRequiredService<CosmosClient>().GetContainer(databaseName, "tasks"),
+            new CosmosRepository<ProcessStepRecord>(
+                sp.GetRequiredService<CosmosClient>().GetContainer(databaseName, ProcessStepsContainerName),
                 task => task.Id,
-                task => new PartitionKey(task.WorkflowInstanceId)));
-        _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<TaskObject>>(sp =>
-            new CosmosPluginDocumentStore<TaskObject>(
-                sp.GetRequiredService<CosmosRepository<TaskObject>>()));
+                task => new PartitionKey(task.ProcessId)));
+        _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<ProcessStepRecord>>(sp =>
+            new CosmosPluginDocumentStore<ProcessStepRecord>(
+                sp.GetRequiredService<CosmosRepository<ProcessStepRecord>>()));
     }
 
     private void EnsureWorkflowDocumentStoreRegistered<TGlobalState>()
@@ -347,21 +350,21 @@ public class PluginBuilder<TPlugin>
     {
         if (UseFileStateStore())
         {
-            _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<WorkflowObject<TGlobalState>>>(
-                _ => new FilePluginDocumentStore<WorkflowObject<TGlobalState>>(GetFileStateRootPath(), "workflows"));
+            _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<ProcessInstanceRecord<TGlobalState>>>(
+                _ => new FilePluginDocumentStore<ProcessInstanceRecord<TGlobalState>>(GetFileStateRootPath(), ProcessesContainerName));
             return;
         }
 
         EnsureCosmosClientRegistered();
         var databaseName = GetCosmosDatabaseName();
         _hostAppBuilder.Services.TryAddSingleton(sp =>
-            new CosmosRepository<WorkflowObject<TGlobalState>>(
-                sp.GetRequiredService<CosmosClient>().GetContainer(databaseName, "workflows"),
-                workflow => workflow.WorkflowInstanceId,
+            new CosmosRepository<ProcessInstanceRecord<TGlobalState>>(
+                sp.GetRequiredService<CosmosClient>().GetContainer(databaseName, ProcessesContainerName),
+                workflow => workflow.ProcessId,
                 workflow => new PartitionKey(workflow.BlueprintId)));
-        _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<WorkflowObject<TGlobalState>>>(sp =>
-            new CosmosPluginDocumentStore<WorkflowObject<TGlobalState>>(
-                sp.GetRequiredService<CosmosRepository<WorkflowObject<TGlobalState>>>()));
+        _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<ProcessInstanceRecord<TGlobalState>>>(sp =>
+            new CosmosPluginDocumentStore<ProcessInstanceRecord<TGlobalState>>(
+                sp.GetRequiredService<CosmosRepository<ProcessInstanceRecord<TGlobalState>>>()));
     }
 
     /// <summary>

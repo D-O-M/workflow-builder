@@ -8,7 +8,7 @@ using Backend.Interfaces.Utilities;
 using Backend.Repositories;
 using Backend.Services.PluginReloadQueue;
 using Backend.Services.PluginBundles;
-using Backend.Services.WorkflowTaskQueue;
+using Backend.Services.ProcessStepQueue;
 using Backend.Utilities;
 using Backend.Interfaces.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -18,7 +18,7 @@ using System.Text.Json;
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddOpenTelemetry()
-    .WithMetrics(metrics => metrics.AddMeter("WorkflowBuilder.Engine.Execution"));
+    .WithMetrics(metrics => metrics.AddMeter("WorkflowBuilder.Engine.Processes"));
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -30,7 +30,7 @@ builder.Services.Configure<DebuggerAutoAttachOptions>(
 var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(
     builder.Configuration,
     builder.Environment);
-builder.Services.AddDbContextPool<WorkflowDbContext>(options =>
+builder.Services.AddDbContextPool<BlueprintDbContext>(options =>
     options.UseSqlServer(sqlConnectionString));
 
 var cosmosConnectionString = LocalDevelopmentResourceSettings.GetCosmosConnectionString(
@@ -45,8 +45,8 @@ builder.Services.AddSingleton(_ => new CosmosClient(
         UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
     }));
 builder.Services.AddRelationalDataRepositories();
-builder.Services.AddWorkflowExecutionState();
-builder.Services.AddHostedService<WorkflowExecutionStateWarmupHostedService>();
+builder.Services.AddProcessState();
+builder.Services.AddHostedService<ProcessStateWarmupHostedService>();
 
 builder.Services.AddSingleton(_ =>
 {
@@ -66,48 +66,48 @@ builder.Services.AddSingleton(_ =>
 
 builder.Services.AddSingleton<IAgentManager, AgentManager>();
 builder.Services.AddSingleton<IChildProcessTracker, ChildProcessTracker>();
-builder.Services.AddSingleton<NanoServiceOrchestrator>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<NanoServiceOrchestrator>());
+builder.Services.AddSingleton<PluginRuntimeOrchestrator>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
 builder.Services.AddSingleton<IAsyncDelay, DefaultAsyncDelay>();
 builder.Services.AddSingleton<IDebuggerAttachmentGuard, DebuggerAttachmentGuard>();
 builder.Services.AddSingleton<IOperatingSystemInformation, OperatingSystemInformation>();
 builder.Services.AddSingleton<IVisualStudioInstanceProvider, RotVisualStudioInstanceProvider>();
-builder.Services.AddTransient<NanoServiceAgent>();
+builder.Services.AddTransient<PluginRuntimeAgent>();
 builder.Services.AddSingleton<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
 builder.Services.AddScoped<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
 builder.Services.AddSingleton<IPluginBundleSource, BlobPluginBundleSource>();
 
-var serviceBusConnectionString = LocalDevelopmentResourceSettings.GetWorkflowTaskQueueConnectionString(
+var serviceBusConnectionString = LocalDevelopmentResourceSettings.GetProcessStepQueueConnectionString(
     builder.Configuration,
     builder.Environment);
 var pluginReloadConnectionString = LocalDevelopmentResourceSettings.GetPluginReloadQueueConnectionString(
     builder.Configuration,
     builder.Environment);
 
-var workflowTaskQueueName = LocalDevelopmentResourceSettings.GetWorkflowTaskQueueName(
+var processStepQueueName = LocalDevelopmentResourceSettings.GetProcessStepQueueName(
     builder.Configuration,
     builder.Environment);
 var pluginReloadQueueName = LocalDevelopmentResourceSettings.GetPluginReloadQueueName(
     builder.Configuration,
     builder.Environment);
 
-builder.Services.AddSingleton(_ => new WorkflowTaskQueueBinding(
+builder.Services.AddSingleton(_ => new ProcessStepQueueBinding(
     new ServiceBusClient(serviceBusConnectionString),
-    workflowTaskQueueName));
+    processStepQueueName));
 builder.Services.AddSingleton(_ => new PluginReloadQueueBinding(
     new ServiceBusClient(pluginReloadConnectionString),
     pluginReloadQueueName));
-builder.Services.AddSingleton<IWorkflowTaskQueueReader>(provider =>
+builder.Services.AddSingleton<IProcessStepQueueReader>(provider =>
 {
-    var binding = provider.GetRequiredService<WorkflowTaskQueueBinding>();
-    return new ServiceBusWorkflowTaskQueueReader(binding.Client.CreateReceiver(binding.QueueName));
+    var binding = provider.GetRequiredService<ProcessStepQueueBinding>();
+    return new ServiceBusProcessStepQueueReader(binding.Client.CreateReceiver(binding.QueueName));
 });
-builder.Services.AddSingleton<IWorkflowTaskQueueWriter>(provider =>
+builder.Services.AddSingleton<IProcessStepQueueWriter>(provider =>
 {
-    var binding = provider.GetRequiredService<WorkflowTaskQueueBinding>();
-    return new ServiceBusWorkflowTaskQueueWriter(
+    var binding = provider.GetRequiredService<ProcessStepQueueBinding>();
+    return new ServiceBusProcessStepQueueWriter(
         binding.Client.CreateSender(binding.QueueName),
-        provider.GetRequiredService<ILogger<ServiceBusWorkflowTaskQueueWriter>>());
+        provider.GetRequiredService<ILogger<ServiceBusProcessStepQueueWriter>>());
 });
 builder.Services.AddSingleton<IPluginReloadQueueReader>(provider =>
 {
@@ -116,7 +116,7 @@ builder.Services.AddSingleton<IPluginReloadQueueReader>(provider =>
 });
 
 builder.Services.AddTransient<JobFinalizationService>();
-builder.Services.AddSingleton<ExecutionLifecycleTelemetry>();
+builder.Services.AddSingleton<ProcessLifecycleTelemetry>();
 builder.Services.AddSingleton<JobManager>();
 
 builder.Services.AddHostedService<QueueConsumer>();
@@ -135,7 +135,7 @@ app.MapControllers();
 
 app.Run();
 
-internal sealed class WorkflowTaskQueueBinding(ServiceBusClient client, string queueName)
+internal sealed class ProcessStepQueueBinding(ServiceBusClient client, string queueName)
     : IAsyncDisposable
 {
     public ServiceBusClient Client { get; } = client;

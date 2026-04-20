@@ -20,12 +20,12 @@ public sealed class BlueprintInputModel
 
     /// <summary>The task instance ID of the starting task within this payload (entry point).</summary>
     [Required]
-    public Guid StartingTaskInstanceId { get; init; }
+    public Guid StartingBlueprintNodeId { get; init; }
 
     /// <summary>
     /// The blueprint tasks for this immutable version.
     /// NOTE: VersionId values must be unique within this array (enforce in service layer).
     /// </summary>
     [Required, MinLength(1)]
-    public List<BlueprintTaskInputModel> Tasks { get; init; } = new();
+    public List<BlueprintNodeInputModel> Tasks { get; init; } = new();
 }

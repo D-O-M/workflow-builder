@@ -58,14 +58,14 @@ public class VisualStudioDebuggerAttacher
 
         if (process.HasExited)
         {
-            _logger.LogWarning("Debugger auto-attach skipped because the nano-service process has already exited.");
+            _logger.LogWarning("Debugger auto-attach skipped because the plugin runtime process has already exited.");
             return;
         }
 
         if (_attachmentGuard.IsDebuggerAttached(process))
         {
             _logger.LogInformation(
-                "Debugger auto-attach skipped because the nano-service process {ProcessId} already has a debugger.",
+                "Debugger auto-attach skipped because the plugin runtime process {ProcessId} already has a debugger.",
                 process.Id);
             return;
         }
@@ -98,24 +98,24 @@ public class VisualStudioDebuggerAttacher
                 {
                     case AttachResult.AlreadyAttached:
                         _logger.LogInformation(
-                            "Debugger auto-attach skipped because Visual Studio already attached to nano-service {ProcessId}.",
+                            "Debugger auto-attach skipped because Visual Studio already attached to plugin runtime process {ProcessId}.",
                             process.Id);
                         return;
                     case AttachResult.Attached:
                         _logger.LogInformation(
-                            "Attached Visual Studio debugger to nano-service process {ProcessId} using solution {Solution}.",
+                            "Attached Visual Studio debugger to plugin runtime process {ProcessId} using solution {Solution}.",
                             process.Id,
                             matchingInstance.SolutionPath);
                         return;
                     case AttachResult.ProcessNotFound:
                         _logger.LogDebug(
-                            "Nano-service process {ProcessId} not yet visible to Visual Studio instance for solution {Solution}.",
+                            "Plugin runtime process {ProcessId} not yet visible to Visual Studio instance for solution {Solution}.",
                             process.Id,
                             matchingInstance.SolutionPath);
                         break;
                     case AttachResult.Failed:
                         _logger.LogWarning(
-                            "Visual Studio instance for solution {Solution} could not attach to nano-service process {ProcessId}.",
+                            "Visual Studio instance for solution {Solution} could not attach to plugin runtime process {ProcessId}.",
                             matchingInstance.SolutionPath,
                             process.Id);
                         break;
@@ -145,7 +145,7 @@ public class VisualStudioDebuggerAttacher
         }
 
         _logger.LogWarning(
-            "Debugger auto-attach to nano-service process {ProcessId} timed out or was unavailable.",
+            "Debugger auto-attach to plugin runtime process {ProcessId} timed out or was unavailable.",
             process.Id);
     }
 

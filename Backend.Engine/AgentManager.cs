@@ -3,9 +3,9 @@ namespace Backend.Engine;
 public interface IAgentManager
 {
     bool AgentExists(int agentId);
-    void RegisterAgent(int agentId, NanoServiceAgent agent);
+    void RegisterAgent(int agentId, PluginRuntimeAgent agent);
     void UnregisterAgent(int agentId);
-    NanoServiceAgent GetAgent(int agentId);
+    PluginRuntimeAgent GetAgent(int agentId);
     bool TryAcquireJobSlot(int agentId);
     void ReleaseJobSlot(int agentId);
     int GetActiveJobCount(int agentId);
@@ -13,11 +13,11 @@ public interface IAgentManager
 
 public class AgentManager : IAgentManager
 {
-    private readonly Dictionary<int, NanoServiceAgent> _agents = new();
+    private readonly Dictionary<int, PluginRuntimeAgent> _agents = new();
     private readonly Dictionary<int, int> _activeJobCounts = new();
     private readonly Lock _sync = new();
 
-    public void RegisterAgent(int agentId, NanoServiceAgent agent)
+    public void RegisterAgent(int agentId, PluginRuntimeAgent agent)
     {
         lock (_sync)
         {
@@ -39,7 +39,7 @@ public class AgentManager : IAgentManager
         }
     }
 
-    public NanoServiceAgent GetAgent(int agentId)
+    public PluginRuntimeAgent GetAgent(int agentId)
     {
         lock (_sync)
         {

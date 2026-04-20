@@ -1,6 +1,6 @@
 using Backend.Interfaces.Repositories;
 using Backend.Database.State.Objects;
-using Backend.Repositories.Execution;
+using Backend.Repositories.Processes;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
@@ -10,38 +10,38 @@ public static class ServiceExtensions
 {
     public static IServiceCollection AddRelationalDataRepositories(this IServiceCollection services)
     {
-        services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
-        services.AddScoped<IWorkflowBlueprintRepository, WorkflowBlueprintRepository>();
-        services.AddScoped<WorkflowExecutionProjectionService>();
+        services.AddScoped<ITaskDefinitionRepository, TaskDefinitionRepository>();
+        services.AddScoped<IBlueprintRepository, BlueprintRepository>();
+        services.AddScoped<ProcessProjectionService>();
 
         return services;
     }
 
-    public static IServiceCollection AddWorkflowExecutionState(
+    public static IServiceCollection AddProcessState(
         this IServiceCollection services,
         string databaseName = "enginedb",
-        string workflowsContainerName = "workflows",
-        string tasksContainerName = "tasks")
+        string processesContainerName = "processes",
+        string tasksContainerName = "processsteps")
     {
-        services.AddSingleton(new WorkflowExecutionStateInitializationOptions
+        services.AddSingleton(new ProcessStateInitializationOptions
         {
             DatabaseName = databaseName,
-            WorkflowsContainerName = workflowsContainerName,
+            ProcessesContainerName = processesContainerName,
             TasksContainerName = tasksContainerName
         });
-        services.AddHostedService<WorkflowExecutionStateInitializerHostedService>();
+        services.AddHostedService<ProcessStateInitializerHostedService>();
 
-        services.AddSingleton<ITaskInstanceRepository>(sp =>
+        services.AddSingleton<IProcessStepRepository>(sp =>
         {
             var client = sp.GetRequiredService<CosmosClient>();
-            return new TaskInstanceRepository(client.GetContainer(databaseName, tasksContainerName));
+            return new ProcessStepRepository(client.GetContainer(databaseName, tasksContainerName));
         });
 
-        services.AddSingleton<IWorkflowInstanceRepository<Dictionary<string, JsonElement>>>(sp =>
+        services.AddSingleton<IProcessInstanceRepository<Dictionary<string, JsonElement>>>(sp =>
         {
             var client = sp.GetRequiredService<CosmosClient>();
-            return new WorkflowInstanceRepository<Dictionary<string, JsonElement>>(
-                client.GetContainer(databaseName, workflowsContainerName));
+            return new ProcessInstanceRepository<Dictionary<string, JsonElement>>(
+                client.GetContainer(databaseName, processesContainerName));
         });
 
         return services;

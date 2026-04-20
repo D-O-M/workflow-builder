@@ -34,7 +34,7 @@ var host = new HostBuilder()
             context.HostingEnvironment.ApplicationName);
 
         var sqlConnectionString = context.Configuration.GetConnectionString("TasksDB");
-        services.AddDbContextPool<WorkflowDbContext>(options =>
+        services.AddDbContextPool<BlueprintDbContext>(options =>
             options.UseSqlServer(sqlConnectionString));
 
         services.AddSingleton(_ =>
@@ -63,7 +63,7 @@ var host = new HostBuilder()
         });
         services.AddSingleton<IPluginReloadQueueWriter, ServiceBusPluginReloadQueueWriter>();
 
-        services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
+        services.AddScoped<ITaskDefinitionRepository, TaskDefinitionRepository>();
         services.AddScoped<IPluginDiscoveryService, PluginDiscoveryService>();
         services.AddSingleton<IPluginBlobNameParsingUtility, PluginBlobNameParsingUtility>();
         services.AddSingleton<IPluginBundleSource, BlobPluginBundleSource>();

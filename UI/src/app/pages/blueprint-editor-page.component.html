@@ -8,9 +8,9 @@
       </div>
     </section>
 
-    <button class="new-workflow-button" type="button" (click)="newBlueprint()">
+    <button class="new-blueprint-button" type="button" (click)="newBlueprint()">
       <mat-icon>add</mat-icon>
-      <span>New Workflow</span>
+      <span>New Blueprint</span>
     </button>
 
     <section class="rail-section">
@@ -21,7 +21,7 @@
       <label class="search-field">
         <span class="sr-only">Search blueprints</span>
         <mat-icon>search</mat-icon>
-        <input type="search" [formControl]="blueprintSearch" placeholder="Search workflows" />
+        <input type="search" [formControl]="blueprintSearch" placeholder="Search blueprints" />
       </label>
 
       <div class="blueprint-list" aria-label="Blueprint list">
@@ -134,7 +134,7 @@
         </div>
       </div>
 
-      <app-workflow-canvas
+      <app-blueprint-canvas
         [nodes]="editorStore.nodes()"
         [connections]="editorStore.connections()"
         mode="edit"

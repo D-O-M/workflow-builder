@@ -14,7 +14,7 @@ public sealed class NodeObservabilitySummaryViewModel
 
 public sealed class NodeObservabilitySummaryItemViewModel
 {
-    public required Guid BlueprintTaskId { get; init; }
+    public required Guid BlueprintNodeId { get; init; }
     public required string TaskName { get; init; }
     public required int TaskDefinitionId { get; init; }
     public int SuccessfulCount { get; init; }

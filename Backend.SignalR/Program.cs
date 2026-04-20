@@ -7,7 +7,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 
 builder.Services.AddSignalR();
-builder.Services.AddSingleton<ExecutionSubscriptionRegistry>();
+builder.Services.AddSingleton<ProcessSubscriptionRegistry>();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngularDevClient", policy =>
@@ -24,15 +24,15 @@ var app = builder.Build();
 app.MapDefaultEndpoints();
 app.UseCors("AllowAngularDevClient");
 
-app.MapHub<ExecutionProgressHub>("/hubs/executions");
-app.MapGet("/internal/subscriptions/snapshot", (ExecutionSubscriptionRegistry registry) =>
+app.MapHub<ProcessProgressHub>("/hubs/processes");
+app.MapGet("/internal/subscriptions/snapshot", (ProcessSubscriptionRegistry registry) =>
     Results.Ok(registry.GetSnapshot()));
 app.MapPost(
-    "/internal/execution-events",
+    "/internal/process-events",
     async Task<IResult> (
-        ExecutionRealtimeBatch batch,
-        ExecutionSubscriptionRegistry registry,
-        IHubContext<ExecutionProgressHub> hubContext,
+        ProcessRealtimeBatch batch,
+        ProcessSubscriptionRegistry registry,
+        IHubContext<ProcessProgressHub> hubContext,
         CancellationToken cancellationToken) =>
     {
         if (batch.Summaries.Count == 0 && batch.NodeUpdates.Count == 0)
@@ -48,20 +48,20 @@ app.MapPost(
             }
 
             await hubContext.Clients
-                .Group(ExecutionHubGroups.Blueprint(summary.BlueprintDefinitionId))
-                .SendAsync("executionSummaryUpdated", summary, cancellationToken);
+                .Group(ProcessHubGroups.Blueprint(summary.BlueprintDefinitionId))
+                .SendAsync("processSummaryUpdated", summary, cancellationToken);
         }
 
         foreach (var nodeUpdate in batch.NodeUpdates.Where(update => update.Nodes.Count > 0))
         {
-            if (!registry.HasWorkflowSubscribers(nodeUpdate.WorkflowInstanceId))
+            if (!registry.HasProcessSubscribers(nodeUpdate.ProcessId))
             {
                 continue;
             }
 
             await hubContext.Clients
-                .Group(ExecutionHubGroups.Workflow(nodeUpdate.WorkflowInstanceId))
-                .SendAsync("executionNodesUpdated", nodeUpdate, cancellationToken);
+                .Group(ProcessHubGroups.Process(nodeUpdate.ProcessId))
+                .SendAsync("processStepsUpdated", nodeUpdate, cancellationToken);
         }
 
         return Results.Accepted();

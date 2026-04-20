@@ -38,7 +38,7 @@ public sealed class BlueprintVersionValidatorPipelineTests
         {
             BlueprintDefinitionId = 1,
             Name = "bp",
-            StartingTaskInstanceId = Guid.NewGuid(),
+            StartingBlueprintNodeId = Guid.NewGuid(),
             Tasks = new()
         };
 

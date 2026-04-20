@@ -10,8 +10,8 @@
   min-height: 100vh;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(242, 246, 255, 0.98)),
-    var(--flo-app-bg);
-  color: var(--flo-text);
+    var(--app-app-bg);
+  color: var(--app-text);
 }
 
 .app-shell__topbar {
@@ -21,7 +21,7 @@
   gap: 1rem;
   padding: 0 1.25rem 0 1rem;
   background: rgba(255, 255, 255, 0.92);
-  border-bottom: 1px solid var(--flo-line);
+  border-bottom: 1px solid var(--app-line);
   box-shadow: 0 4px 18px rgba(65, 90, 160, 0.04);
   backdrop-filter: blur(14px);
 }
@@ -46,7 +46,7 @@
   border: 0;
   border-radius: 0.95rem;
   background: transparent;
-  color: var(--flo-text-soft);
+  color: var(--app-text-soft);
   cursor: pointer;
   transition: background-color 120ms ease, transform 120ms ease;
 }
@@ -57,7 +57,7 @@
 }
 
 .app-shell__menu-button mat-icon {
-  color: var(--flo-primary);
+  color: var(--app-primary);
 }
 
 .app-shell__title-wrap {
@@ -117,7 +117,7 @@
   min-height: 3.25rem;
   padding: 0 0.95rem;
   border-radius: 1rem;
-  color: var(--flo-text-soft);
+  color: var(--app-text-soft);
   text-decoration: none;
   font-weight: 600;
   transition: background-color 120ms ease, color 120ms ease, transform 120ms ease;
@@ -125,7 +125,7 @@
 
 .app-shell__nav-link:hover {
   background: rgba(255, 255, 255, 0.84);
-  color: var(--flo-primary);
+  color: var(--app-primary);
   transform: translateY(-1px);
 }
 
@@ -134,7 +134,7 @@
   box-shadow:
     0 16px 26px rgba(85, 111, 188, 0.08),
     inset 0 0 0 1px rgba(87, 121, 222, 0.08);
-  color: var(--flo-primary);
+  color: var(--app-primary);
 }
 
 .app-shell__nav-link mat-icon {

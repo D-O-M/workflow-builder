@@ -8,14 +8,14 @@ var sqlPassword = builder.AddParameter("SqlServerPassword", secret: true);
 var sqlServer = AddSqlServer(builder, sqlPassword);
 var sqlDatabase = sqlServer.AddDatabase("TasksDB");
 var (storage, blobs, blobContainer) = AddStorage(builder);
-var (serviceBus, workflowTaskQueue) = AddServiceBus(builder);
+var (serviceBus, processStepQueue) = AddServiceBus(builder);
 
 var cosmosConnectionName = GetRequiredConfigurationValue(
     builder.Configuration,
     "AzureCosmos:ConnectionName");
-var workflowTaskQueueConnectionName = GetRequiredConfigurationValue(
+var processStepQueueConnectionName = GetRequiredConfigurationValue(
     builder.Configuration,
-    "AzureServiceBus:Queues:WorkflowTaskQueue:ConnectionName");
+    "AzureServiceBus:Queues:ProcessStepQueue:ConnectionName");
 var startEngine = builder.Configuration.GetValue("IntegrationTests:StartEngine", true);
 
 builder.AddProject<Projects.Backend_API>("backend-api")
@@ -23,7 +23,7 @@ builder.AddProject<Projects.Backend_API>("backend-api")
     .WaitFor(cosmos)
     .WithReference(blobs)
     .WaitFor(blobContainer)
-    .WithReference(workflowTaskQueue, connectionName: workflowTaskQueueConnectionName)
+    .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
     .WaitFor(serviceBus)
     .WithReference(sqlDatabase)
     .WaitFor(sqlDatabase);
@@ -35,7 +35,7 @@ if (startEngine)
         .WaitFor(cosmos)
         .WithReference(blobs)
         .WaitFor(blobContainer)
-        .WithReference(workflowTaskQueue, connectionName: workflowTaskQueueConnectionName)
+        .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
         .WaitFor(serviceBus)
         .WithReference(sqlDatabase)
         .WaitFor(sqlDatabase);
@@ -99,27 +99,27 @@ static (
 }
 
 static (IResourceBuilder<AzureServiceBusResource> serviceBus,
-    IResourceBuilder<AzureServiceBusQueueResource> workflowTaskQueue)
+    IResourceBuilder<AzureServiceBusQueueResource> processStepQueue)
     AddServiceBus(IDistributedApplicationBuilder builder)
 {
     var serviceBusResourceName = GetRequiredConfigurationValue(
         builder.Configuration,
         "AzureServiceBus:ResourceName");
-    var workflowTaskQueueResourceName = GetRequiredConfigurationValue(
+    var processStepQueueResourceName = GetRequiredConfigurationValue(
         builder.Configuration,
-        "AzureServiceBus:Queues:WorkflowTaskQueue:ResourceName");
-    var workflowTaskQueueName = GetRequiredConfigurationValue(
+        "AzureServiceBus:Queues:ProcessStepQueue:ResourceName");
+    var processStepQueueName = GetRequiredConfigurationValue(
         builder.Configuration,
-        "AzureServiceBus:Queues:WorkflowTaskQueue:Name");
+        "AzureServiceBus:Queues:ProcessStepQueue:Name");
 
     var serviceBus = builder.AddAzureServiceBus(serviceBusResourceName)
         .RunAsEmulator();
 
-    var workflowTaskQueue = serviceBus.AddServiceBusQueue(
-        workflowTaskQueueResourceName,
-        workflowTaskQueueName);
+    var processStepQueue = serviceBus.AddServiceBusQueue(
+        processStepQueueResourceName,
+        processStepQueueName);
 
-    return (serviceBus, workflowTaskQueue);
+    return (serviceBus, processStepQueue);
 }
 
 static string GetRequiredConfigurationValue(

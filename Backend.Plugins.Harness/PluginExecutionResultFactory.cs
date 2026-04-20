@@ -24,7 +24,7 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
         DateTimeOffset completedAt)
     {
         return new PluginExecutionResult(
-            envelope.WorkflowTaskInstanceId,
+            envelope.ProcessStepId,
             true,
             BuildOutputData(plugin),
             BuildGlobalState(plugin),
@@ -41,7 +41,7 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
         Exception exception)
     {
         return new PluginExecutionResult(
-            envelope.WorkflowTaskInstanceId,
+            envelope.ProcessStepId,
             false,
             BuildOutputData(plugin),
             BuildGlobalState(plugin),

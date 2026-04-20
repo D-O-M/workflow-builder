@@ -15,14 +15,14 @@ internal sealed class DatabaseMigrationWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var activity = ActivitySource.StartActivity("Apply workflow database migrations", ActivityKind.Client);
+        using var activity = ActivitySource.StartActivity("Apply blueprint database migrations", ActivityKind.Client);
 
         try
         {
-            logger.LogInformation("Applying workflow database migrations.");
+            logger.LogInformation("Applying blueprint database migrations.");
 
             await using var scope = serviceProvider.CreateAsyncScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<WorkflowDbContext>();
+            var dbContext = scope.ServiceProvider.GetRequiredService<BlueprintDbContext>();
 
             var executionStrategy = dbContext.Database.CreateExecutionStrategy();
             await executionStrategy.ExecuteAsync(async () =>
@@ -30,13 +30,13 @@ internal sealed class DatabaseMigrationWorker(
                 await dbContext.Database.MigrateAsync(stoppingToken);
             });
 
-            logger.LogInformation("Workflow database migrations completed successfully.");
+            logger.LogInformation("Blueprint database migrations completed successfully.");
             activity?.SetStatus(ActivityStatusCode.Ok);
         }
         catch (Exception exception)
         {
             activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
-            logger.LogError(exception, "Applying workflow database migrations failed.");
+            logger.LogError(exception, "Applying blueprint database migrations failed.");
             throw;
         }
         finally

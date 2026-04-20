@@ -11,9 +11,9 @@ internal static class BlueprintScenarioBuilder
     public sealed record BlueprintScenario(
         int BlueprintDefinitionId,
         int BlueprintVersionId,
-        Guid FirstTaskInstanceId,
-        Guid MiddleTaskInstanceId,
-        Guid FinalTaskInstanceId);
+        Guid FirstBlueprintNodeId,
+        Guid MiddleBlueprintNodeId,
+        Guid FinalBlueprintNodeId);
 
     public static Task<BlueprintScenario> CreateHappyPathAsync(
         DistributedAppTestEnvironment environment,
@@ -61,7 +61,7 @@ internal static class BlueprintScenarioBuilder
         {
             Name = blueprintName,
             Description = "Integration test blueprint",
-            StartingTaskInstanceId = firstTaskIdV1,
+            StartingBlueprintNodeId = firstTaskIdV1,
             Tasks =
             [
                 CreateTask(firstTaskIdV1, firstTaskVersion.TaskDefinitionId, firstTaskVersion.Version, 100, 120, middleTaskIdV1),
@@ -90,7 +90,7 @@ internal static class BlueprintScenarioBuilder
             BaseVersion = 1,
             Name = $"{blueprintName} v2",
             Description = "Versioned integration test blueprint",
-            StartingTaskInstanceId = firstTaskIdV2,
+            StartingBlueprintNodeId = firstTaskIdV2,
             Tasks =
             [
                 CreateTask(firstTaskIdV2, firstTaskVersion.TaskDefinitionId, firstTaskVersion.Version, 120, 160, middleTaskIdV2),
@@ -117,16 +117,16 @@ internal static class BlueprintScenarioBuilder
             finalTaskIdV2);
     }
 
-    private static BlueprintTaskInputModel CreateTask(
+    private static BlueprintNodeInputModel CreateTask(
         Guid instanceId,
         int taskDefinitionId,
         string version,
         int x,
         int y,
-        Guid? nextTaskInstanceId = null)
+        Guid? nextBlueprintNodeId = null)
     {
         var (allowedMajor, allowedMinor) = GetVersionLane(version);
-        var task = new BlueprintTaskInputModel
+        var task = new BlueprintNodeInputModel
         {
             InstanceId = instanceId,
             TaskDefinitionId = taskDefinitionId,
@@ -135,12 +135,12 @@ internal static class BlueprintScenarioBuilder
             Position = new CoordinatesViewModel { X = x, Y = y }
         };
 
-        if (nextTaskInstanceId is not null)
+        if (nextBlueprintNodeId is not null)
         {
-            task.OutgoingConnections.Add(new BlueprintTaskConnectionInputModel
+            task.OutgoingConnections.Add(new BlueprintConnectionInputModel
             {
                 ChannelName = "Success",
-                ConnectedTaskInstanceId = nextTaskInstanceId.Value,
+                ConnectedBlueprintNodeId = nextBlueprintNodeId.Value,
                 Anchor = 0,
                 Side = "right",
                 Position = 0

@@ -14,7 +14,7 @@ public sealed class BlueprintVersionGraphValidator : IBlueprintVersionValidator
             return Task.FromResult(result);
         }
 
-        var tasksByInstanceId = new Dictionary<Guid, BlueprintTaskInputModel>();
+        var tasksByInstanceId = new Dictionary<Guid, BlueprintNodeInputModel>();
         for (var i = 0; i < model.Tasks.Count; i++)
         {
             var t = model.Tasks[i];
@@ -28,10 +28,10 @@ public sealed class BlueprintVersionGraphValidator : IBlueprintVersionValidator
                 result.Add("task.instanceId.duplicate", "Task instanceId must be unique.", $"tasks[{i}].instanceId");
         }
 
-        if (model.StartingTaskInstanceId == Guid.Empty)
-            result.Add("graph.start.empty", "startingTaskInstanceId must be a non-empty GUID.", "startingTaskInstanceId");
-        else if (!tasksByInstanceId.ContainsKey(model.StartingTaskInstanceId))
-            result.Add("graph.start.missing", "startingTaskInstanceId must reference a task in tasks[].", "startingTaskInstanceId");
+        if (model.StartingBlueprintNodeId == Guid.Empty)
+            result.Add("graph.start.empty", "startingBlueprintNodeId must be a non-empty GUID.", "startingBlueprintNodeId");
+        else if (!tasksByInstanceId.ContainsKey(model.StartingBlueprintNodeId))
+            result.Add("graph.start.missing", "startingBlueprintNodeId must reference a task in tasks[].", "startingBlueprintNodeId");
 
         if (!result.IsValid)
             return Task.FromResult(result);
@@ -59,10 +59,10 @@ public sealed class BlueprintVersionGraphValidator : IBlueprintVersionValidator
             var task = tasksByInstanceId[id];
             foreach (var c in task.OutgoingConnections)
             {
-                if (c.ConnectedTaskInstanceId == Guid.Empty)
+                if (c.ConnectedBlueprintNodeId == Guid.Empty)
                     continue;
 
-                if (!tasksByInstanceId.ContainsKey(c.ConnectedTaskInstanceId))
+                if (!tasksByInstanceId.ContainsKey(c.ConnectedBlueprintNodeId))
                 {
                     result.Add(
                         "graph.connection.missingTarget",
@@ -71,7 +71,7 @@ public sealed class BlueprintVersionGraphValidator : IBlueprintVersionValidator
                     continue;
                 }
 
-                if (Dfs(c.ConnectedTaskInstanceId))
+                if (Dfs(c.ConnectedBlueprintNodeId))
                     return true;
             }
 
@@ -79,13 +79,13 @@ public sealed class BlueprintVersionGraphValidator : IBlueprintVersionValidator
             return false;
         }
 
-        if (Dfs(model.StartingTaskInstanceId))
+        if (Dfs(model.StartingBlueprintNodeId))
             result.Add("graph.cycle", "Task graph must be acyclic (no cycles).", "tasks");
 
         foreach (var task in model.Tasks)
         {
             if (!reachable.Contains(task.InstanceId))
-                result.Add("graph.unreachable", "All tasks must be reachable from startingTaskInstanceId.", $"tasks[{nodeIndex[task.InstanceId]}]");
+                result.Add("graph.unreachable", "All tasks must be reachable from startingBlueprintNodeId.", $"tasks[{nodeIndex[task.InstanceId]}]");
         }
 
         // Enforce: from-task output channel can connect to many nodes, but each destination task must have <= 1 incoming edge.
@@ -95,20 +95,20 @@ public sealed class BlueprintVersionGraphValidator : IBlueprintVersionValidator
         {
             foreach (var conn in task.OutgoingConnections)
             {
-                if (!tasksByInstanceId.ContainsKey(conn.ConnectedTaskInstanceId))
+                if (!tasksByInstanceId.ContainsKey(conn.ConnectedBlueprintNodeId))
                     continue;
 
-                incomingCounts.TryGetValue(conn.ConnectedTaskInstanceId, out var count);
-                incomingCounts[conn.ConnectedTaskInstanceId] = count + 1;
+                incomingCounts.TryGetValue(conn.ConnectedBlueprintNodeId, out var count);
+                incomingCounts[conn.ConnectedBlueprintNodeId] = count + 1;
             }
         }
 
         foreach (var (destId, count) in incomingCounts)
         {
-            if (destId == model.StartingTaskInstanceId)
+            if (destId == model.StartingBlueprintNodeId)
             {
                 if (count > 0)
-                    result.Add("graph.start.incoming", "Starting task must not have any incoming connections.", "startingTaskInstanceId");
+                    result.Add("graph.start.incoming", "Starting task must not have any incoming connections.", "startingBlueprintNodeId");
                 continue;
             }
 

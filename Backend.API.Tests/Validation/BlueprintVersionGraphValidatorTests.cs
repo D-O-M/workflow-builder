@@ -10,7 +10,7 @@ namespace Backend.API.Tests.Validation;
 
 public sealed class BlueprintVersionGraphValidatorTests
 {
-    private static BlueprintTaskInputModel Task(Guid id, params Guid[] outgoing)
+    private static BlueprintNodeInputModel Task(Guid id, params Guid[] outgoing)
         => new()
         {
             InstanceId = id,
@@ -19,20 +19,20 @@ public sealed class BlueprintVersionGraphValidatorTests
             AllowedMinor = 0,
             Position = new CoordinatesViewModel { X = 0, Y = 0 },
             OutgoingConnections = outgoing
-                .Select(o => new BlueprintTaskConnectionInputModel
+                .Select(o => new BlueprintConnectionInputModel
                 {
-                    ConnectedTaskInstanceId = o,
+                    ConnectedBlueprintNodeId = o,
                     ChannelName = "out"
                 })
                 .ToList()
         };
 
-    private static BlueprintVersionInputModel Version(Guid start, params BlueprintTaskInputModel[] tasks)
+    private static BlueprintVersionInputModel Version(Guid start, params BlueprintNodeInputModel[] tasks)
         => new()
         {
             BlueprintDefinitionId = 1,
             Name = "bp",
-            StartingTaskInstanceId = start,
+            StartingBlueprintNodeId = start,
             Tasks = tasks.ToList()
         };
 

@@ -11,7 +11,7 @@ var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionS
     builder.Configuration,
     builder.Environment);
 
-builder.Services.AddDbContextPool<WorkflowDbContext>(options =>
+builder.Services.AddDbContextPool<BlueprintDbContext>(options =>
     options.UseSqlServer(sqlConnectionString));
 builder.Services.AddHostedService<DatabaseMigrationWorker>();
 

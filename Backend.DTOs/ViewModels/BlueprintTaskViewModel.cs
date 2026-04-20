@@ -1,8 +1,8 @@
 namespace Backend.Models.ViewModels;
 
-public sealed class BlueprintTaskViewModel
+public sealed class BlueprintNodeViewModel
 {
-    /// <summary>Persistent task instance id (TaskInstances.Id).</summary>
+    /// <summary>Persistent task instance id (BlueprintNodes.Id).</summary>
     public Guid InstanceId { get; init; }
 
     public int TaskDefinitionId { get; init; }
@@ -13,5 +13,5 @@ public sealed class BlueprintTaskViewModel
 
     public CoordinatesViewModel Position { get; init; }
 
-    public List<BlueprintTaskConnectionViewModel> OutgoingConnections { get; init; } = new();
+    public List<BlueprintConnectionViewModel> OutgoingConnections { get; init; } = new();
 }

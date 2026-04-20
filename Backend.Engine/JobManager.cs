@@ -6,18 +6,18 @@ public class JobManager
 {
     private readonly IAgentManager _agentManager;
     private readonly Dictionary<Guid, JobContext> _jobs = new();
-    private readonly ExecutionLifecycleTelemetry _executionLifecycleTelemetry;
+    private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
     private readonly JobFinalizationService _jobFinalizationService;
     private readonly ILogger<JobManager> _logger;
 
     public JobManager(
         IAgentManager agentManager,
-        ExecutionLifecycleTelemetry executionLifecycleTelemetry,
+        ProcessLifecycleTelemetry processLifecycleTelemetry,
         JobFinalizationService jobFinalizationService,
         ILogger<JobManager> logger)
     {
         _agentManager = agentManager;
-        _executionLifecycleTelemetry = executionLifecycleTelemetry;
+        _processLifecycleTelemetry = processLifecycleTelemetry;
         _jobFinalizationService = jobFinalizationService;
         _logger = logger;
     }
@@ -55,14 +55,14 @@ public class JobManager
 
         try
         {
-            var workflowStarted = await job.MarkInProgressAsync(cancellationToken);
-            _executionLifecycleTelemetry.LogTaskStarted(
+            var processStarted = await job.MarkInProgressAsync(cancellationToken);
+            _processLifecycleTelemetry.LogStepStarted(
                 job,
                 job.StartedAt ?? DateTimeOffset.UtcNow);
 
-            if (workflowStarted)
+            if (processStarted)
             {
-                _executionLifecycleTelemetry.LogWorkflowStarted(
+                _processLifecycleTelemetry.LogProcessStarted(
                     job,
                     job.StartedAt ?? DateTimeOffset.UtcNow);
             }
@@ -71,9 +71,9 @@ public class JobManager
         {
             _logger.LogError(
                 ex,
-                "Queued workflow task {BlueprintTaskId} for workflow instance {WorkflowInstanceId} but failed to mark it in progress.",
-                job.BlueprintTaskId,
-                job.WorkflowInstanceId);
+                "Queued process step {BlueprintNodeId} for process {ProcessId} but failed to mark it in progress.",
+                job.BlueprintNodeId,
+                job.ProcessId);
         }
 
         return true;
@@ -110,9 +110,9 @@ public class JobManager
         {
             _logger.LogError(
                 ex,
-                "Failed to finalize workflow task {BlueprintTaskId} for workflow instance {WorkflowInstanceId}.",
-                job.BlueprintTaskId,
-                job.WorkflowInstanceId);
+                "Failed to finalize process step {BlueprintNodeId} for process {ProcessId}.",
+                job.BlueprintNodeId,
+                job.ProcessId);
 
             try
             {
@@ -122,8 +122,8 @@ public class JobManager
             {
                 _logger.LogError(
                     abandonEx,
-                    "Failed to abandon queue message for workflow task {BlueprintTaskId} after finalization failure.",
-                    job.BlueprintTaskId);
+                    "Failed to abandon queue message for process step {BlueprintNodeId} after finalization failure.",
+                    job.BlueprintNodeId);
             }
         }
         finally

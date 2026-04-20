@@ -65,7 +65,7 @@ internal sealed class PluginBundleBuilder
     private static string GetPluginNameFromBundlePath(string bundlePath)
     {
         var fileName = Path.GetFileNameWithoutExtension(bundlePath);
-        var firstDot = fileName.IndexOf('.', StringComparison.Ordinal);
-        return firstDot > 0 ? fileName[..firstDot] : fileName;
+        var versionSeparator = fileName.LastIndexOf('_');
+        return versionSeparator > 0 ? fileName[..versionSeparator] : fileName;
     }
 }

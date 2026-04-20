@@ -5,18 +5,18 @@ namespace Backend.Engine;
 
 public class JobFinalizationService
 {
-    private readonly ExecutionLifecycleTelemetry _executionLifecycleTelemetry;
+    private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
     private readonly ILogger<JobFinalizationService> _logger;
-    private readonly IWorkflowTaskQueueWriter _workflowTaskQueueWriter;
+    private readonly IProcessStepQueueWriter _processStepQueueWriter;
 
     public JobFinalizationService(
-        ExecutionLifecycleTelemetry executionLifecycleTelemetry,
+        ProcessLifecycleTelemetry processLifecycleTelemetry,
         ILogger<JobFinalizationService> logger,
-        IWorkflowTaskQueueWriter workflowTaskQueueWriter)
+        IProcessStepQueueWriter processStepQueueWriter)
     {
-        _executionLifecycleTelemetry = executionLifecycleTelemetry;
+        _processLifecycleTelemetry = processLifecycleTelemetry;
         _logger = logger;
-        _workflowTaskQueueWriter = workflowTaskQueueWriter;
+        _processStepQueueWriter = processStepQueueWriter;
     }
 
     public async Task FinalizeSuccess(
@@ -30,12 +30,12 @@ public class JobFinalizationService
             executionResult.CompletedAt,
             cancellationToken);
 
-        await EnqueueNextTasksAsync(context, executionResult, cancellationToken);
-        _executionLifecycleTelemetry.LogTaskCompleted(context, executionResult);
+        await EnqueueNextStepsAsync(context, executionResult, cancellationToken);
+        _processLifecycleTelemetry.LogStepCompleted(context, executionResult);
 
-        if (await context.CompleteWorkflowIfTerminalAsync(cancellationToken))
+        if (await context.CompleteProcessIfTerminalAsync(cancellationToken))
         {
-            _executionLifecycleTelemetry.LogWorkflowCompleted(
+            _processLifecycleTelemetry.LogProcessCompleted(
                 context,
                 executionResult.CompletedAt);
         }
@@ -53,8 +53,8 @@ public class JobFinalizationService
             executionResult.ErrorMessage,
             executionResult.CompletedAt,
             cancellationToken);
-        _executionLifecycleTelemetry.LogTaskFailed(context, executionResult);
-        _executionLifecycleTelemetry.LogWorkflowFailed(
+        _processLifecycleTelemetry.LogStepFailed(context, executionResult);
+        _processLifecycleTelemetry.LogProcessFailed(
             context,
             executionResult.CompletedAt,
             executionResult.ErrorMessage);
@@ -63,19 +63,19 @@ public class JobFinalizationService
         if (!string.IsNullOrWhiteSpace(executionResult.ErrorMessage))
         {
             _logger.LogError(
-                "Workflow task {BlueprintTaskId} for workflow instance {WorkflowInstanceId} failed: {ErrorMessage}",
-                context.BlueprintTaskId,
-                context.WorkflowInstanceId,
+                "Process step {BlueprintNodeId} for process {ProcessId} failed: {ErrorMessage}",
+                context.BlueprintNodeId,
+                context.ProcessId,
                 executionResult.ErrorMessage);
         }
     }
 
-    private async Task EnqueueNextTasksAsync(
+    private async Task EnqueueNextStepsAsync(
         JobContext context,
         PluginExecutionResult executionResult,
         CancellationToken cancellationToken)
     {
-        foreach (var outputChannel in context.WorkflowTask.OutputChannels.Values)
+        foreach (var outputChannel in context.BlueprintNode.OutputChannels.Values)
         {
             if (!executionResult.OutputData.ContainsKey(outputChannel.Name) ||
                 outputChannel.Destination is null)
@@ -83,29 +83,29 @@ public class JobFinalizationService
                 continue;
             }
 
-            var downstreamTaskInstanceId = Guid.NewGuid();
-            await context.CreatePendingTaskAsync(
-                downstreamTaskInstanceId,
+            var downstreamProcessStepId = Guid.NewGuid();
+            await context.CreatePendingStepAsync(
+                downstreamProcessStepId,
                 outputChannel.Destination.Id,
                 executionResult.CompletedAt,
                 cancellationToken);
 
-            var job = new WorkflowTaskInitialisationMessage
+            var job = new ProcessStepInitialisationMessage
             {
-                WorkflowInstanceId = context.WorkflowInstanceId,
-                WorkflowBlueprintId = context.WorkflowBlueprintId,
-                WorkflowTaskInstanceId = downstreamTaskInstanceId,
-                BlueprintTaskId = outputChannel.Destination.Id,
-                PreviousWorkflowTaskInstanceId = context.WorkflowTaskInstanceId,
+                ProcessId = context.ProcessId,
+                ExecutableBlueprintId = context.ExecutableBlueprintId,
+                ProcessStepId = downstreamProcessStepId,
+                BlueprintNodeId = outputChannel.Destination.Id,
+                PreviousProcessStepId = context.ProcessStepId,
                 LinkedOutputChannelName = outputChannel.Name
             };
 
-            await _workflowTaskQueueWriter.EnqueueAsync(job, cancellationToken);
+            await _processStepQueueWriter.EnqueueAsync(job, cancellationToken);
             _logger.LogInformation(
-                "Enqueued downstream task {TaskId} from output channel {OutputChannelName} for workflow instance {WorkflowInstanceId}",
+                "Enqueued downstream step {BlueprintNodeId} from output channel {OutputChannelName} for process {ProcessId}",
                 outputChannel.Destination.Id,
                 outputChannel.Name,
-                context.WorkflowInstanceId);
+                context.ProcessId);
         }
     }
 }

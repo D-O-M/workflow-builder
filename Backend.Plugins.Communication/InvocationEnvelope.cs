@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace Backend.Plugins.Communication;
 
 public sealed record PreviousTaskDetails(
-    Guid PreviousTaskInstanceId,
+    Guid PreviousBlueprintNodeId,
     string LinkedOutputChannelName);
 
 /// <summary>
@@ -12,15 +12,15 @@ public sealed record PreviousTaskDetails(
 /// The envelope omits payload data and instead conveys the identifiers needed
 /// for the recipient to hydrate state locally.
 /// </summary>
-/// <param name="WorkflowBlueprintId">Identifier of the blueprint version being executed.</param>
-/// <param name="WorkflowInstanceId">Identifier of the workflow instance being executed.</param>
-/// <param name="WorkflowTaskInstanceId">Identifier of the task instance within the workflow.</param>
+/// <param name="ExecutableBlueprintId">Identifier of the blueprint version being executed.</param>
+/// <param name="ProcessId">Identifier of the process being executed.</param>
+/// <param name="ProcessStepId">Identifier of the task instance within the workflow.</param>
 public sealed record InvocationEnvelope(
-    int WorkflowBlueprintId,
+    int ExecutableBlueprintId,
     int BlueprintDefinitionId,
-    Guid WorkflowInstanceId,
-    Guid WorkflowTaskInstanceId,
-    Guid BlueprintTaskId,
+    Guid ProcessId,
+    Guid ProcessStepId,
+    Guid BlueprintNodeId,
     int TaskDefinitionId,
     int TaskVersionId,
     string TaskVersion,

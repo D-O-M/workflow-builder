@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Backend.Models.InputModels;
 
-public sealed class BlueprintTaskConnectionInputModel : IValidatableObject
+public sealed class BlueprintConnectionInputModel : IValidatableObject
 {
     /// <summary>Optional: the ID of the output channel this connection represents (maps to Channels.Id).</summary>
     public int? ChannelId { get; init; }
@@ -14,7 +14,7 @@ public sealed class BlueprintTaskConnectionInputModel : IValidatableObject
     /// The task instance ID of the destination task within this payload.
     /// </summary>
     [Required]
-    public Guid ConnectedTaskInstanceId { get; init; }
+    public Guid ConnectedBlueprintNodeId { get; init; }
 
     [Range(0, 11)]
     public int Anchor { get; init; }

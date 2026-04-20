@@ -3,7 +3,7 @@ using Newtonsoft.Json;
 
 namespace Backend.Database.State.Objects;
 
-public sealed class WorkflowStateSummary
+public sealed class ProcessStateSummary
 {
     private string _id = null!;
 
@@ -17,7 +17,7 @@ public sealed class WorkflowStateSummary
 
     [System.Text.Json.Serialization.JsonIgnore]
     [Newtonsoft.Json.JsonIgnore]
-    public string WorkflowInstanceId
+    public string ProcessId
     {
         get => _id;
         init => _id = value;
@@ -38,5 +38,5 @@ public sealed class WorkflowStateSummary
     [JsonPropertyName("status")]
     [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
     [JsonProperty(PropertyName = "status")]
-    public WorkflowExecutionStatus Status { get; init; }
+    public ProcessStatus Status { get; init; }
 }

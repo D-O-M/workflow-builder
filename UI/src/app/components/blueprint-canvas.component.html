@@ -1,0 +1,15 @@
+<canvas
+  #canvas
+  class="blueprint-canvas"
+  [class.is-readonly]="mode() === 'readonly'"
+  [class.is-dragging]="dragNode() !== null || panState() !== null || dragConnection() !== null"
+  tabindex="0"
+  (focus)="onFocus()"
+  (blur)="onBlur()"
+  (pointermove)="onPointerMove($event)"
+  (pointerdown)="onPointerDown($event)"
+  (pointerup)="onPointerUp($event)"
+  (pointercancel)="onPointerCancel($event)"
+  (pointerleave)="onPointerLeave()"
+  (wheel)="onWheel($event)"
+></canvas>

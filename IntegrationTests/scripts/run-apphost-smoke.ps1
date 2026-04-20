@@ -16,17 +16,30 @@ $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $stdoutPath = Join-Path $liveRunsPath "apphost-smoke-stdout-$timestamp.log"
 $stderrPath = Join-Path $liveRunsPath "apphost-smoke-stderr-$timestamp.log"
 
-$env:AzureCosmos__ResourceName = $env:AzureCosmos__ResourceName ?? "integration-cosmos"
-$env:AzureCosmos__ConnectionName = $env:AzureCosmos__ConnectionName ?? "enginedb"
-$env:AzureStorage__ResourceName = $env:AzureStorage__ResourceName ?? "integration-storage"
-$env:AzureStorage__BlobContainers__Plugins__ResourceName = $env:AzureStorage__BlobContainers__Plugins__ResourceName ?? "plugins"
-$env:AzureStorage__BlobContainers__Plugins__ContainerName = $env:AzureStorage__BlobContainers__Plugins__ContainerName ?? "plugins"
-$env:AzureServiceBus__ResourceName = $env:AzureServiceBus__ResourceName ?? "integration-servicebus"
-$env:AzureServiceBus__Queues__WorkflowTaskQueue__ResourceName = $env:AzureServiceBus__Queues__WorkflowTaskQueue__ResourceName ?? "workflow-task-queue"
-$env:AzureServiceBus__Queues__WorkflowTaskQueue__ConnectionName = $env:AzureServiceBus__Queues__WorkflowTaskQueue__ConnectionName ?? "workflow-task-queue"
-$env:AzureServiceBus__Queues__WorkflowTaskQueue__Name = $env:AzureServiceBus__Queues__WorkflowTaskQueue__Name ?? "workflowtasks"
-$env:Parameters__SqlServerPassword = $env:Parameters__SqlServerPassword ?? "IntegrationTests_password_123!"
-$env:SqlServerPassword = $env:SqlServerPassword ?? $env:Parameters__SqlServerPassword
+function Set-EnvironmentDefault {
+    param(
+        [string]$Name,
+        [string]$DefaultValue
+    )
+
+    $currentValue = [Environment]::GetEnvironmentVariable($Name)
+    if ([string]::IsNullOrWhiteSpace($currentValue))
+    {
+        [Environment]::SetEnvironmentVariable($Name, $DefaultValue)
+    }
+}
+
+Set-EnvironmentDefault -Name "AzureCosmos__ResourceName" -DefaultValue "integration-cosmos"
+Set-EnvironmentDefault -Name "AzureCosmos__ConnectionName" -DefaultValue "enginedb"
+Set-EnvironmentDefault -Name "AzureStorage__ResourceName" -DefaultValue "integration-storage"
+Set-EnvironmentDefault -Name "AzureStorage__BlobContainers__Plugins__ResourceName" -DefaultValue "plugins"
+Set-EnvironmentDefault -Name "AzureStorage__BlobContainers__Plugins__ContainerName" -DefaultValue "plugins"
+Set-EnvironmentDefault -Name "AzureServiceBus__ResourceName" -DefaultValue "integration-servicebus"
+Set-EnvironmentDefault -Name "AzureServiceBus__Queues__ProcessStepQueue__ResourceName" -DefaultValue "process-step-queue"
+Set-EnvironmentDefault -Name "AzureServiceBus__Queues__ProcessStepQueue__ConnectionName" -DefaultValue "process-step-queue"
+Set-EnvironmentDefault -Name "AzureServiceBus__Queues__ProcessStepQueue__Name" -DefaultValue "processsteps"
+Set-EnvironmentDefault -Name "Parameters__SqlServerPassword" -DefaultValue "IntegrationTests_password_123!"
+Set-EnvironmentDefault -Name "SqlServerPassword" -DefaultValue ([Environment]::GetEnvironmentVariable("Parameters__SqlServerPassword"))
 $env:IntegrationTests__StartEngine = if ($StartEngine) { "true" } else { "false" }
 
 $arguments = @(

@@ -6,9 +6,9 @@ using System.Net;
 
 internal class Program
 {
-    private const string WorkflowsContainerName = "workflows";
-    private const string TasksContainerName = "tasks";
-    private const string TaskProgressLeaseContainerName = "taskprogressleases";
+    private const string ProcessesContainerName = "processes";
+    private const string TasksContainerName = "processsteps";
+    private const string TaskProgressLeaseContainerName = "processstepprogressleases";
 
     private static void Main(string[] args)
     {
@@ -38,19 +38,19 @@ internal class Program
             pluginsBlobResourceName,
             pluginsBlobContainerName);
 
-        var (serviceBus, workflowTaskQueue, pluginControlQueue) = AddServiceBus(builder);
+        var (serviceBus, processStepQueue, pluginControlQueue) = AddServiceBus(builder);
         var (alloy, grafana, loki, tempo, prometheus) = AddObservability(
             builder,
             observabilityRoot);
         var cosmosConnectionName =
             TryGetConfigurationValue(builder.Configuration, "AzureCosmos:ConnectionName")
             ?? "enginedb";
-        var workflowTaskQueueConnectionName = GetRequiredConfigurationValue(
+        var processStepQueueConnectionName = GetRequiredConfigurationValue(
             builder.Configuration,
-            "AzureServiceBus:Queues:WorkflowTaskQueue:ConnectionName");
-        var workflowTaskQueueName = GetRequiredConfigurationValue(
+            "AzureServiceBus:Queues:ProcessStepQueue:ConnectionName");
+        var processStepQueueName = GetRequiredConfigurationValue(
             builder.Configuration,
-            "AzureServiceBus:Queues:WorkflowTaskQueue:Name");
+            "AzureServiceBus:Queues:ProcessStepQueue:Name");
         var pluginControlQueueConnectionName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureServiceBus:Queues:PluginControlQueue:ConnectionName");
@@ -88,7 +88,7 @@ internal class Program
             .WithReference(cosmos, connectionName: cosmosConnectionName)
             .WithReference(blobs)
             .WaitFor(blobContainer)
-            .WithReference(workflowTaskQueue, connectionName: workflowTaskQueueConnectionName)
+            .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
             .WaitFor(sqlDb)
@@ -100,8 +100,8 @@ internal class Program
             .WithEnvironment("AzureCosmos__ConnectionString", cosmos.Resource.ConnectionStringExpression)
             .WithEnvironment("ConnectionStrings__enginedb", cosmos.Resource.ConnectionStringExpression)
             .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
-            .WithEnvironment("AzureServiceBus__Queues__WorkflowTaskQueue__ConnectionName", workflowTaskQueueConnectionName)
-            .WithEnvironment("AzureServiceBus__Queues__WorkflowTaskQueue__Name", workflowTaskQueueName);
+            .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__ConnectionName", processStepQueueConnectionName)
+            .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__Name", processStepQueueName);
 
         var signalR = builder.AddProject<Projects.Backend_SignalR>(
                 "backend-signalr",
@@ -135,7 +135,7 @@ internal class Program
             .WithReference(cosmos, connectionName: cosmosConnectionName)
             .WithReference(blobs)
             .WaitFor(blobContainer)
-            .WithReference(workflowTaskQueue, connectionName: workflowTaskQueueConnectionName)
+            .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
             .WithReference(pluginControlQueue, connectionName: pluginControlQueueConnectionName)
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
@@ -147,8 +147,8 @@ internal class Program
             .WithEnvironment("ConnectionStrings__enginedb", cosmos.Resource.ConnectionStringExpression)
             .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
             .WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName)
-            .WithEnvironment("AzureServiceBus__Queues__WorkflowTaskQueue__ConnectionName", workflowTaskQueueConnectionName)
-            .WithEnvironment("AzureServiceBus__Queues__WorkflowTaskQueue__Name", workflowTaskQueueName)
+            .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__ConnectionName", processStepQueueConnectionName)
+            .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__Name", processStepQueueName)
             .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__ConnectionName", pluginControlQueueConnectionName)
             .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__Name", pluginControlQueueName);
         ConfigureTelemetryAndObservability(
@@ -162,7 +162,7 @@ internal class Program
         /*builder.AddProject<Projects.Backend_PluginLoader>("plugin-loader")
             .WithReference(blobs)
             .WaitFor(blobContainer)
-            .WithReference(workflowTaskQueue)
+            .WithReference(processStepQueue)
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
             .WaitFor(sqlDb);*/
@@ -200,12 +200,13 @@ internal class Program
             .WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
             .WithEnvironment("AzureCosmos__ConnectionString", cosmos.Resource.ConnectionStringExpression)
             .WithEnvironment("ConnectionStrings__enginedb", cosmos.Resource.ConnectionStringExpression)
+            .WithEnvironment("AzureWebJobsRealtimeCosmos", cosmos.Resource.ConnectionStringExpression)
             .WithEnvironment("RealtimeCosmos", cosmos.Resource.ConnectionStringExpression)
             .WithEnvironment("ConnectionStrings__RealtimeCosmos", cosmos.Resource.ConnectionStringExpression)
             .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
             .WithEnvironment("Realtime__SignalRBaseUrl", signalRHttpEndpoint)
             .WithEnvironment("Realtime__Cosmos__DatabaseName", cosmosDatabaseName)
-            .WithEnvironment("Realtime__Cosmos__WorkflowsContainerName", WorkflowsContainerName)
+            .WithEnvironment("Realtime__Cosmos__ProcessesContainerName", ProcessesContainerName)
             .WithEnvironment("Realtime__Cosmos__TasksContainerName", TasksContainerName)
             .WithEnvironment("Realtime__Cosmos__LeaseContainerName", TaskProgressLeaseContainerName);
         ConfigureTelemetryAndObservability(
@@ -384,8 +385,8 @@ internal class Program
 #pragma warning restore ASPIRECOSMOSDB001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
         var database = cosmos.AddCosmosDatabase(cosmosDatabaseName);
-        database.AddContainer(WorkflowsContainerName, "/blueprintId");
-        database.AddContainer(TasksContainerName, "/workflowId");
+        database.AddContainer(ProcessesContainerName, "/blueprintId");
+        database.AddContainer(TasksContainerName, "/processId");
         database.AddContainer(TaskProgressLeaseContainerName, "/id");
 
         return (cosmos, database);
@@ -445,19 +446,19 @@ internal class Program
     }
 
     static (IResourceBuilder<AzureServiceBusResource> serviceBus,
-        IResourceBuilder<AzureServiceBusQueueResource> workflowTaskQueue,
+        IResourceBuilder<AzureServiceBusQueueResource> processStepQueue,
         IResourceBuilder<AzureServiceBusQueueResource> pluginControlQueue)
         AddServiceBus(IDistributedApplicationBuilder builder)
     {
         var serviceBusResourceName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureServiceBus:ResourceName");
-        var workflowTaskQueueResourceName = GetRequiredConfigurationValue(
+        var processStepQueueResourceName = GetRequiredConfigurationValue(
             builder.Configuration,
-            "AzureServiceBus:Queues:WorkflowTaskQueue:ResourceName");
-        var workflowTaskQueueName = GetRequiredConfigurationValue(
+            "AzureServiceBus:Queues:ProcessStepQueue:ResourceName");
+        var processStepQueueName = GetRequiredConfigurationValue(
             builder.Configuration,
-            "AzureServiceBus:Queues:WorkflowTaskQueue:Name");
+            "AzureServiceBus:Queues:ProcessStepQueue:Name");
         var pluginControlQueueResourceName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureServiceBus:Queues:PluginControlQueue:ResourceName");
@@ -472,14 +473,14 @@ internal class Program
             serviceBus.RunAsEmulator();
         }
 
-        var workflowTaskQueue = serviceBus.AddServiceBusQueue(
-            workflowTaskQueueResourceName,
-            workflowTaskQueueName);
+        var processStepQueue = serviceBus.AddServiceBusQueue(
+            processStepQueueResourceName,
+            processStepQueueName);
         var pluginControlQueue = serviceBus.AddServiceBusQueue(
             pluginControlQueueResourceName,
             pluginControlQueueName);
 
-        return (serviceBus, workflowTaskQueue, pluginControlQueue);
+        return (serviceBus, processStepQueue, pluginControlQueue);
     }
 
     static string GetRequiredConfigurationValue(

@@ -7,7 +7,7 @@ public class FullBlueprintVersion
     public required string Name { get; set; }
     public string? Description { get; set; }
     public int Version { get; set; }
-    public int StartingTaskInstanceId { get; set; }
+    public int StartingBlueprintNodeId { get; set; }
     public required BlueprintTaskTree TaskTree { get; set; }
 
     public Dictionary<Guid, BlueprintTaskTree> TasksByInstanceId
@@ -55,7 +55,7 @@ public class BlueprintTaskTree
     public int AllowedMajor { get; set; }
     public int AllowedMinor { get; set; }
     public Coordinates Position { get; set; }
-    public List<TaskConnection> OutgoingConnections { get; set; } = new();
+    public List<BlueprintConnection> OutgoingConnections { get; set; } = new();
 }
 
 public readonly record struct Coordinates(int X, int Y);
@@ -66,7 +66,7 @@ public class ChannelDetails
     public string? ChannelName { get; set; }
 }
 
-public class TaskConnection
+public class BlueprintConnection
 {
     public required ChannelDetails ChannelDetails { get; set; }
     public int Anchor { get; set; }

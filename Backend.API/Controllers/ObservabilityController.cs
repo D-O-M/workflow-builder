@@ -16,13 +16,13 @@ public sealed class ObservabilityController : ControllerBase
         _observabilityQueryService = observabilityQueryService;
     }
 
-    [HttpGet("workflows/summary")]
-    public async Task<ActionResult<WorkflowObservabilitySummaryViewModel>> GetWorkflowSummary(
+    [HttpGet("processes/summary")]
+    public async Task<ActionResult<ProcessObservabilitySummaryViewModel>> GetProcessSummary(
         [FromQuery] int? blueprintDefinitionId,
         [FromQuery] string? window,
         CancellationToken cancellationToken)
     {
-        return Ok(await _observabilityQueryService.GetWorkflowSummaryAsync(
+        return Ok(await _observabilityQueryService.GetProcessSummaryAsync(
             blueprintDefinitionId,
             window,
             cancellationToken));
@@ -40,31 +40,31 @@ public sealed class ObservabilityController : ControllerBase
             cancellationToken));
     }
 
-    [HttpGet("workflows/recent")]
-    public async Task<ActionResult<WorkflowRecentRunsViewModel>> GetRecentRuns(
+    [HttpGet("processes/recent")]
+    public async Task<ActionResult<RecentProcessesViewModel>> GetRecentProcesses(
         [FromQuery] int? blueprintDefinitionId,
         [FromQuery] string? window,
         [FromQuery] int limit = 20,
         CancellationToken cancellationToken = default)
     {
-        return Ok(await _observabilityQueryService.GetRecentRunsAsync(
+        return Ok(await _observabilityQueryService.GetRecentProcessesAsync(
             blueprintDefinitionId,
             window,
             limit,
             cancellationToken));
     }
 
-    [HttpGet("workflows/{workflowInstanceId:guid}/logs")]
-    public async Task<ActionResult<WorkflowLogBatchViewModel>> GetWorkflowLogs(
-        Guid workflowInstanceId,
+    [HttpGet("processes/{processId:guid}/logs")]
+    public async Task<ActionResult<ProcessLogBatchViewModel>> GetProcessLogs(
+        Guid processId,
         [FromQuery] DateTimeOffset? from,
         [FromQuery] DateTimeOffset? to,
         [FromQuery] int limit = 250,
         [FromQuery] string? cursor = null,
         CancellationToken cancellationToken = default)
     {
-        return Ok(await _observabilityQueryService.GetWorkflowLogsAsync(
-            workflowInstanceId,
+        return Ok(await _observabilityQueryService.GetProcessLogsAsync(
+            processId,
             from,
             to,
             limit,
@@ -72,9 +72,9 @@ public sealed class ObservabilityController : ControllerBase
             cancellationToken));
     }
 
-    [HttpGet("workflows/{workflowInstanceId:guid}/logs/stream")]
-    public async Task StreamWorkflowLogs(
-        Guid workflowInstanceId,
+    [HttpGet("processes/{processId:guid}/logs/stream")]
+    public async Task StreamProcessLogs(
+        Guid processId,
         [FromQuery] DateTimeOffset? from,
         [FromQuery] DateTimeOffset? to,
         [FromQuery] string? cursor = null,
@@ -88,8 +88,8 @@ public sealed class ObservabilityController : ControllerBase
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            var batch = await _observabilityQueryService.GetWorkflowLogsAsync(
-                workflowInstanceId,
+            var batch = await _observabilityQueryService.GetProcessLogsAsync(
+                processId,
                 from,
                 to,
                 250,
@@ -111,19 +111,19 @@ public sealed class ObservabilityController : ControllerBase
         }
     }
 
-    [HttpGet("workflows/{workflowInstanceId:guid}/nodes/{runtimeTaskInstanceId:guid}/logs")]
-    public async Task<ActionResult<NodeLogBatchViewModel>> GetNodeLogs(
-        Guid workflowInstanceId,
-        Guid runtimeTaskInstanceId,
+    [HttpGet("processes/{processId:guid}/steps/{runtimeProcessStepId:guid}/logs")]
+    public async Task<ActionResult<ProcessStepLogBatchViewModel>> GetProcessStepLogs(
+        Guid processId,
+        Guid runtimeProcessStepId,
         [FromQuery] DateTimeOffset? from,
         [FromQuery] DateTimeOffset? to,
         [FromQuery] int limit = 250,
         [FromQuery] string? cursor = null,
         CancellationToken cancellationToken = default)
     {
-        return Ok(await _observabilityQueryService.GetNodeLogsAsync(
-            workflowInstanceId,
-            runtimeTaskInstanceId,
+        return Ok(await _observabilityQueryService.GetProcessStepLogsByRuntimeIdAsync(
+            processId,
+            runtimeProcessStepId,
             from,
             to,
             limit,
@@ -131,10 +131,10 @@ public sealed class ObservabilityController : ControllerBase
             cancellationToken));
     }
 
-    [HttpGet("workflows/{workflowInstanceId:guid}/nodes/{runtimeTaskInstanceId:guid}/logs/stream")]
-    public async Task StreamNodeLogs(
-        Guid workflowInstanceId,
-        Guid runtimeTaskInstanceId,
+    [HttpGet("processes/{processId:guid}/steps/{runtimeProcessStepId:guid}/logs/stream")]
+    public async Task StreamProcessStepLogs(
+        Guid processId,
+        Guid runtimeProcessStepId,
         [FromQuery] DateTimeOffset? from,
         [FromQuery] DateTimeOffset? to,
         [FromQuery] string? cursor = null,
@@ -148,9 +148,9 @@ public sealed class ObservabilityController : ControllerBase
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            var batch = await _observabilityQueryService.GetNodeLogsAsync(
-                workflowInstanceId,
-                runtimeTaskInstanceId,
+            var batch = await _observabilityQueryService.GetProcessStepLogsByRuntimeIdAsync(
+                processId,
+                runtimeProcessStepId,
                 from,
                 to,
                 250,

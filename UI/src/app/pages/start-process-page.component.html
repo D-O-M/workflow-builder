@@ -1,0 +1,162 @@
+<div class="trigger-page">
+  <aside class="trigger-sidepanel">
+    <div class="trigger-sidepanel__project">
+      <h2>Project Workspace</h2>
+      <p>v2.4.0-stable</p>
+    </div>
+
+    <nav class="trigger-sidepanel__nav" aria-label="Workspace">
+      @for (link of workspaceLinks; track link.label) {
+        <button class="workspace-link" type="button">
+          <mat-icon>{{ link.icon }}</mat-icon>
+          <span>{{ link.label }}</span>
+        </button>
+      }
+    </nav>
+
+    <button class="create-node-button" type="button" [routerLink]="['/blueprints']">
+      <mat-icon>add</mat-icon>
+      <span>Create New Node</span>
+    </button>
+  </aside>
+
+  <section class="trigger-content">
+    <header class="trigger-hero">
+      <h1>Start Process</h1>
+      <p>Configure inputs and start a new process for the selected blueprint.</p>
+    </header>
+
+    @if (loading()) {
+      <section class="surface-card state-card">
+        <p>Loading blueprints and task definitions...</p>
+      </section>
+    } @else {
+      <form id="trigger-form" class="trigger-form" [formGroup]="form" (ngSubmit)="execute()">
+        <section class="surface-card blueprint-picker">
+          <label class="picker-field">
+            <mat-icon>search</mat-icon>
+            <div class="picker-field__body">
+              <span class="picker-field__label">Select a Blueprint</span>
+              <select [formControl]="form.controls.blueprintId">
+                <option [ngValue]="null">Select a Blueprint</option>
+                @for (blueprint of blueprints(); track blueprint.id) {
+                  <option [ngValue]="blueprint.id">{{ blueprint.name }}</option>
+                }
+              </select>
+            </div>
+            <mat-icon class="picker-field__chevron">expand_more</mat-icon>
+          </label>
+        </section>
+
+        <div class="parameter-grid">
+          <section class="parameter-card">
+            <div class="parameter-card__header">
+              <mat-icon>tune</mat-icon>
+              <div>
+                <h2>First Node Parameters</h2>
+                <p>Entrypoint task configuration for {{ firstTaskName() ?? 'selected blueprint' }}.</p>
+              </div>
+            </div>
+
+            @if (blueprintLoading()) {
+              <p class="empty-state">Loading blueprint details...</p>
+            } @else if (firstTaskFields().length === 0) {
+              <p class="empty-state">The starting task has no input properties.</p>
+            } @else {
+              <div class="field-grid" [formGroup]="form.controls.initialTaskInput">
+                @for (field of firstTaskFields(); track field.key) {
+                  <app-dynamic-form-field [group]="form.controls.initialTaskInput" [field]="field" />
+                }
+              </div>
+            }
+          </section>
+
+          <section class="parameter-card">
+            <div class="parameter-card__header">
+              <mat-icon>public</mat-icon>
+              <div>
+                <h2>Global State</h2>
+                <p>Runtime context and environment values applied before the process starts.</p>
+              </div>
+            </div>
+
+            @if (blueprintLoading()) {
+              <p class="empty-state">Loading global state requirements...</p>
+            } @else if (globalStateFields().length === 0) {
+              <p class="empty-state">No required global state properties.</p>
+            } @else {
+              <div class="field-grid" [formGroup]="form.controls.globalState">
+                @for (field of globalStateFields(); track field.key) {
+                  <app-dynamic-form-field [group]="form.controls.globalState" [field]="field" />
+                }
+              </div>
+            }
+          </section>
+        </div>
+
+        <section class="surface-card overrides-card">
+          <div class="overrides-card__header">
+            <div class="overrides-card__title">
+              <mat-icon>segment</mat-icon>
+              <h2>Advanced Overrides</h2>
+              <span class="override-badge">{{ overrideCount() }} Overrides Available</span>
+            </div>
+            <mat-icon>expand_more</mat-icon>
+          </div>
+
+          <div class="override-timeline">
+            @for (preview of overridePreviews(); track preview.title) {
+              <article class="override-item">
+                <div class="override-item__rail">
+                  <span class="override-item__dot"></span>
+                </div>
+                <div class="override-item__content">
+                  <div class="override-item__meta">
+                    <div>
+                      <h3>{{ preview.title }}</h3>
+                      <p>{{ preview.subtitle }}</p>
+                    </div>
+                    <mat-icon>info</mat-icon>
+                  </div>
+
+                  <div class="override-item__values">
+                    @for (value of preview.values; track value.label) {
+                      <div class="value-card">
+                        <span>{{ value.label }}</span>
+                        <strong>{{ value.value }}</strong>
+                      </div>
+                    }
+                  </div>
+                </div>
+              </article>
+            }
+          </div>
+        </section>
+
+        <div class="trigger-form__footer">
+          <div class="trigger-form__feedback">
+            @if (errorMessage()) {
+              <p class="feedback feedback--error">{{ errorMessage() }}</p>
+            }
+
+            @if (successMessage()) {
+              <p class="feedback feedback--success">{{ successMessage() }}</p>
+            }
+          </div>
+
+          <div class="trigger-form__actions">
+            <button class="secondary-link" type="button">Discard Configuration</button>
+            <button
+              class="shell-button shell-button--primary trigger-submit"
+              type="submit"
+              [disabled]="executing() || blueprintLoading() || loading()"
+            >
+              <mat-icon>rocket_launch</mat-icon>
+              <span>{{ executing() ? 'Starting...' : 'Start Process' }}</span>
+            </button>
+          </div>
+        </div>
+      </form>
+    }
+  </section>
+</div>

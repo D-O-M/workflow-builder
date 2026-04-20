@@ -64,7 +64,7 @@ export class AppShellComponent {
 
     return {
       title: current.data['shellTitle'] as string ?? 'Workflow Builder',
-      navId: current.data['navId'] as string ?? 'workflows',
+      navId: current.data['navId'] as string ?? 'dashboard',
     };
   }
 

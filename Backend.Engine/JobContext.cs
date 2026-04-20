@@ -20,73 +20,73 @@ public class JobContext
     };
 
     private readonly CancellationTokenSource _cts = new();
-    private readonly WorkflowTaskInitialisationMessage _message;
+    private readonly ProcessStepInitialisationMessage _message;
     private readonly ILogger _logger;
-    private readonly IWorkflowTaskQueueMessage _messageContainer;
-    private readonly ITaskInstanceRepository _taskInstanceRepository;
-    private readonly WorkflowBlueprint _workflowBlueprint;
-    private readonly IWorkflowInstanceRepository<Dictionary<string, JsonElement>> _workflowInstanceRepository;
-    private readonly Lazy<WorkflowTask> _workflowTask;
+    private readonly IProcessStepQueueMessage _messageContainer;
+    private readonly IProcessStepRepository _processStepRepository;
+    private readonly ExecutableBlueprint _executableBlueprint;
+    private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly Lazy<ExecutableBlueprintNode> _blueprintNode;
 
     public Guid Guid { get; private set; }
-    public WorkflowTaskInitialisationMessage Job => _message;
-    public WorkflowBlueprint WorkflowBlueprint => _workflowBlueprint;
-    public Guid WorkflowInstanceId => _message.WorkflowInstanceId;
-    public Guid WorkflowTaskInstanceId => _message.WorkflowTaskInstanceId;
-    public int WorkflowBlueprintId => _message.WorkflowBlueprintId;
-    public int BlueprintDefinitionId => _workflowBlueprint.DefinitionId;
-    public int BlueprintVersionNumber => _workflowBlueprint.VersionNumber;
-    public string BlueprintVersionName => _workflowBlueprint.Name;
-    public Guid BlueprintTaskId => _message.BlueprintTaskId;
-    public int ResolvedTaskVersionId => _workflowTask.Value.ResolvedTaskVersionId;
-    public int TaskDefinitionId => _workflowTask.Value.TaskDefinitionId;
-    public int AllowedMajor => _workflowTask.Value.AllowedMajor;
-    public int AllowedMinor => _workflowTask.Value.AllowedMinor;
-    public string TaskName => _workflowTask.Value.Name;
-    public string PluginName => _workflowTask.Value.Name;
-    public string InputChannelName => _workflowTask.Value.InputChannel.Name;
+    public ProcessStepInitialisationMessage Job => _message;
+    public ExecutableBlueprint ExecutableBlueprint => _executableBlueprint;
+    public Guid ProcessId => _message.ProcessId;
+    public Guid ProcessStepId => _message.ProcessStepId;
+    public int ExecutableBlueprintId => _message.ExecutableBlueprintId;
+    public int BlueprintDefinitionId => _executableBlueprint.DefinitionId;
+    public int BlueprintVersionNumber => _executableBlueprint.VersionNumber;
+    public string BlueprintVersionName => _executableBlueprint.Name;
+    public Guid BlueprintNodeId => _message.BlueprintNodeId;
+    public int ResolvedTaskVersionId => _blueprintNode.Value.ResolvedTaskVersionId;
+    public int TaskDefinitionId => _blueprintNode.Value.TaskDefinitionId;
+    public int AllowedMajor => _blueprintNode.Value.AllowedMajor;
+    public int AllowedMinor => _blueprintNode.Value.AllowedMinor;
+    public string TaskName => _blueprintNode.Value.Name;
+    public string PluginName => _blueprintNode.Value.Name;
+    public string InputChannelName => _blueprintNode.Value.InputChannel.Name;
     public string LinkedOutputChannelName => _message.LinkedOutputChannelName;
-    public Guid PreviousTaskInstanceId => _message.PreviousWorkflowTaskInstanceId;
+    public Guid PreviousBlueprintNodeId => _message.PreviousProcessStepId;
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public string[] OutputChannelsPopulated { get; set; } = [];
-    public WorkflowTask WorkflowTask => _workflowTask.Value;
+    public ExecutableBlueprintNode BlueprintNode => _blueprintNode.Value;
 
     public DateTimeOffset ProcessingWindowExpiresAt => _messageContainer.LockedUntil;
 
     public JobContext(
-        WorkflowTaskInitialisationMessage job,
+        ProcessStepInitialisationMessage job,
         ILogger<JobContext> logger,
-        IWorkflowTaskQueueMessage message,
-        ITaskInstanceRepository taskInstanceRepository,
-        IWorkflowInstanceRepository<Dictionary<string, JsonElement>> workflowInstanceRepository,
-        WorkflowBlueprint workflowBlueprint)
+        IProcessStepQueueMessage message,
+        IProcessStepRepository processStepRepository,
+        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        ExecutableBlueprint executableBlueprint)
     {
         _message = job;
         _logger = logger;
         _messageContainer = message;
-        _taskInstanceRepository = taskInstanceRepository;
-        _workflowBlueprint = workflowBlueprint;
-        _workflowInstanceRepository = workflowInstanceRepository;
-        _workflowTask = new Lazy<WorkflowTask>(
-            () => _workflowBlueprint.AllTasks.First(task => task.Id == job.BlueprintTaskId));
+        _processStepRepository = processStepRepository;
+        _executableBlueprint = executableBlueprint;
+        _processInstanceRepository = processInstanceRepository;
+        _blueprintNode = new Lazy<ExecutableBlueprintNode>(
+            () => _executableBlueprint.AllNodes.First(node => node.Id == job.BlueprintNodeId));
 
-        Guid = job.WorkflowTaskInstanceId;
+        Guid = job.ProcessStepId;
     }
 
     public InvocationEnvelope ToInvocationEnvelope() =>
         new(
-            WorkflowBlueprintId,
+            ExecutableBlueprintId,
             BlueprintDefinitionId,
-            WorkflowInstanceId,
-            WorkflowTaskInstanceId,
-            BlueprintTaskId,
+            ProcessId,
+            ProcessStepId,
+            BlueprintNodeId,
             TaskDefinitionId,
             ResolvedTaskVersionId,
-            WorkflowTask.ResolvedVersion.ToString(),
+            BlueprintNode.ResolvedVersion.ToString(),
             PluginName,
             new PreviousTaskDetails(
-                PreviousTaskInstanceId,
+                PreviousBlueprintNodeId,
                 LinkedOutputChannelName));
 
     public async Task<bool> ExtendProcessingWindow()
@@ -94,20 +94,20 @@ public class JobContext
         try
         {
             _logger.LogInformation(
-                "Renewing lock on message {MessageId} for task {BlueprintTaskId} of Workflow Instance {WorkflowInstanceId} of Workflow Blueprint {WorkflowBlueprintId}",
+                "Renewing lock on message {MessageId} for step {BlueprintNodeId} of process {ProcessId} of blueprint version {ExecutableBlueprintId}",
                 _messageContainer.MessageId,
-                _message.BlueprintTaskId,
-                _message.WorkflowInstanceId,
-                _message.WorkflowBlueprintId);
+                _message.BlueprintNodeId,
+                _message.ProcessId,
+                _message.ExecutableBlueprintId);
 
             await _messageContainer.RenewLockAsync(_cts.Token);
 
             _logger.LogInformation(
-                "Successfully renewed lock on message {MessageId} for task {BlueprintTaskId} of Workflow Instance {WorkflowInstanceId} of Workflow Blueprint {WorkflowBlueprintId}",
+                "Successfully renewed lock on message {MessageId} for step {BlueprintNodeId} of process {ProcessId} of blueprint version {ExecutableBlueprintId}",
                 _messageContainer.MessageId,
-                _message.BlueprintTaskId,
-                _message.WorkflowInstanceId,
-                _message.WorkflowBlueprintId);
+                _message.BlueprintNodeId,
+                _message.ProcessId,
+                _message.ExecutableBlueprintId);
 
             return true;
         }
@@ -115,11 +115,11 @@ public class JobContext
         {
             _logger.LogError(
                 ex,
-                "Failed to renew lock on message {MessageId} for task {BlueprintTaskId} of Workflow Instance {WorkflowInstanceId} of Workflow Blueprint {WorkflowBlueprintId}",
+                "Failed to renew lock on message {MessageId} for step {BlueprintNodeId} of process {ProcessId} of blueprint version {ExecutableBlueprintId}",
                 _messageContainer.MessageId,
-                _message.BlueprintTaskId,
-                _message.WorkflowInstanceId,
-                _message.WorkflowBlueprintId);
+                _message.BlueprintNodeId,
+                _message.ProcessId,
+                _message.ExecutableBlueprintId);
 
             return false;
         }
@@ -129,32 +129,32 @@ public class JobContext
     {
         var now = DateTimeOffset.UtcNow;
 
-        var taskState = await _taskInstanceRepository.GetTaskInstanceById(
-            WorkflowTaskInstanceId,
-            WorkflowInstanceId,
+        var taskState = await _processStepRepository.GetProcessStepById(
+            ProcessStepId,
+            ProcessId,
             cancellationToken);
 
-        taskState.Status = TaskExecutionStatus.InProgress;
+        taskState.Status = ProcessStepStatus.InProgress;
         taskState.TaskDefinitionId = TaskDefinitionId;
         taskState.AllowedMajor = AllowedMajor;
         taskState.AllowedMinor = AllowedMinor;
         taskState.ResolvedTaskVersionId = ResolvedTaskVersionId;
-        taskState.ResolvedTaskVersion = WorkflowTask.ResolvedVersion.ToString();
+        taskState.ResolvedTaskVersion = BlueprintNode.ResolvedVersion.ToString();
         taskState.UpdatedAt = now;
         taskState.StartedAt ??= now;
-        await _taskInstanceRepository.UpdateTaskInstance(taskState, cancellationToken);
+        await _processStepRepository.UpdateProcessStep(taskState, cancellationToken);
         StartedAt = taskState.StartedAt;
 
-        var workflowState = await _workflowInstanceRepository.GetWorkflowStateById(
-            WorkflowInstanceId,
-            WorkflowBlueprintId,
+        var processState = await _processInstanceRepository.GetProcessStateById(
+            ProcessId,
+            ExecutableBlueprintId,
             cancellationToken);
 
-        if (workflowState.Status is WorkflowExecutionStatus.Pending)
+        if (processState.Status is ProcessStatus.Pending)
         {
-            workflowState.Status = WorkflowExecutionStatus.InProgress;
-            workflowState.UpdatedAt = now;
-            await _workflowInstanceRepository.UpdateWorkflowState(workflowState, cancellationToken);
+            processState.Status = ProcessStatus.InProgress;
+            processState.UpdatedAt = now;
+            await _processInstanceRepository.UpdateProcessState(processState, cancellationToken);
             return true;
         }
 
@@ -167,27 +167,27 @@ public class JobContext
         DateTimeOffset completedAt,
         CancellationToken cancellationToken)
     {
-        var taskState = await _taskInstanceRepository.GetTaskInstanceById(
-            WorkflowTaskInstanceId,
-            WorkflowInstanceId,
+        var taskState = await _processStepRepository.GetProcessStepById(
+            ProcessStepId,
+            ProcessId,
             cancellationToken);
 
-        taskState.Status = TaskExecutionStatus.Completed;
+        taskState.Status = ProcessStepStatus.Completed;
         taskState.UpdatedAt = completedAt;
         taskState.CompletedAt = completedAt;
         taskState.FailedAt = null;
         taskState.OutputData = NormalizeJsonMap(outputData);
-        await _taskInstanceRepository.UpdateTaskInstance(taskState, cancellationToken);
+        await _processStepRepository.UpdateProcessStep(taskState, cancellationToken);
 
-        var workflowState = await _workflowInstanceRepository.GetWorkflowStateById(
-            WorkflowInstanceId,
-            WorkflowBlueprintId,
+        var processState = await _processInstanceRepository.GetProcessStateById(
+            ProcessId,
+            ExecutableBlueprintId,
             cancellationToken);
 
-        workflowState.Status = WorkflowExecutionStatus.InProgress;
-        workflowState.UpdatedAt = completedAt;
-        workflowState.GlobalState = NormalizeJsonMap(globalState);
-        await _workflowInstanceRepository.UpdateWorkflowState(workflowState, cancellationToken);
+        processState.Status = ProcessStatus.InProgress;
+        processState.UpdatedAt = completedAt;
+        processState.GlobalState = NormalizeJsonMap(globalState);
+        await _processInstanceRepository.UpdateProcessState(processState, cancellationToken);
     }
 
     public async Task PersistFailureAsync(
@@ -196,49 +196,49 @@ public class JobContext
         DateTimeOffset failedAt,
         CancellationToken cancellationToken)
     {
-        var taskState = await _taskInstanceRepository.GetTaskInstanceById(
-            WorkflowTaskInstanceId,
-            WorkflowInstanceId,
+        var taskState = await _processStepRepository.GetProcessStepById(
+            ProcessStepId,
+            ProcessId,
             cancellationToken);
 
-        taskState.Status = TaskExecutionStatus.Failed;
+        taskState.Status = ProcessStepStatus.Failed;
         taskState.UpdatedAt = failedAt;
         taskState.FailedAt = failedAt;
         taskState.ErrorMessage = errorMessage;
-        await _taskInstanceRepository.UpdateTaskInstance(taskState, cancellationToken);
+        await _processStepRepository.UpdateProcessStep(taskState, cancellationToken);
 
-        var workflowState = await _workflowInstanceRepository.GetWorkflowStateById(
-            WorkflowInstanceId,
-            WorkflowBlueprintId,
+        var processState = await _processInstanceRepository.GetProcessStateById(
+            ProcessId,
+            ExecutableBlueprintId,
             cancellationToken);
 
-        workflowState.Status = WorkflowExecutionStatus.Failed;
-        workflowState.UpdatedAt = failedAt;
-        workflowState.GlobalState = NormalizeJsonMap(globalState);
-        await _workflowInstanceRepository.UpdateWorkflowState(workflowState, cancellationToken);
+        processState.Status = ProcessStatus.Failed;
+        processState.UpdatedAt = failedAt;
+        processState.GlobalState = NormalizeJsonMap(globalState);
+        await _processInstanceRepository.UpdateProcessState(processState, cancellationToken);
     }
 
-    public async Task CreatePendingTaskAsync(
-        Guid taskInstanceId,
-        Guid blueprintTaskId,
+    public async Task CreatePendingStepAsync(
+        Guid processStepId,
+        Guid blueprintNodeId,
         DateTimeOffset createdAt,
         CancellationToken cancellationToken)
     {
-        var downstreamTask = _workflowBlueprint.AllTasks.First(task => task.Id == blueprintTaskId);
+        var downstreamNode = _executableBlueprint.AllNodes.First(node => node.Id == blueprintNodeId);
 
-        await _taskInstanceRepository.CreateTaskInstance(
-            new TaskObject
+        await _processStepRepository.CreateProcessStep(
+            new ProcessStepRecord
             {
-                Id = taskInstanceId.ToString(),
-                BlueprintTaskId = blueprintTaskId.ToString(),
-                TaskDefinitionId = downstreamTask.TaskDefinitionId,
-                AllowedMajor = downstreamTask.AllowedMajor,
-                AllowedMinor = downstreamTask.AllowedMinor,
-                WorkflowInstanceId = WorkflowInstanceId.ToString(),
-                BlueprintId = WorkflowBlueprintId.ToString(),
+                Id = processStepId.ToString(),
+                BlueprintNodeId = blueprintNodeId.ToString(),
+                TaskDefinitionId = downstreamNode.TaskDefinitionId,
+                AllowedMajor = downstreamNode.AllowedMajor,
+                AllowedMinor = downstreamNode.AllowedMinor,
+                ProcessId = ProcessId.ToString(),
+                BlueprintId = ExecutableBlueprintId.ToString(),
                 CreatedAt = createdAt,
                 UpdatedAt = createdAt,
-                Status = TaskExecutionStatus.Pending
+                Status = ProcessStepStatus.Pending
             },
             cancellationToken);
     }
@@ -253,34 +253,34 @@ public class JobContext
         await _messageContainer.AbandonAsync(cancellationToken);
     }
 
-    public async Task<bool> CompleteWorkflowIfTerminalAsync(CancellationToken cancellationToken)
+    public async Task<bool> CompleteProcessIfTerminalAsync(CancellationToken cancellationToken)
     {
-        var tasks = await _taskInstanceRepository.GetTaskInstancesForWorkflow(
-            WorkflowInstanceId,
+        var steps = await _processStepRepository.GetProcessStepsForProcess(
+            ProcessId,
             cancellationToken);
 
-        var realTasks = tasks
-            .Where(task => Guid.TryParse(task.BlueprintTaskId, out var blueprintTaskId) && blueprintTaskId != Guid.Empty)
+        var realSteps = steps
+            .Where(step => Guid.TryParse(step.BlueprintNodeId, out var blueprintNodeId) && blueprintNodeId != Guid.Empty)
             .ToList();
 
-        if (realTasks.Count == 0 || realTasks.Any(task => task.Status != TaskExecutionStatus.Completed))
+        if (realSteps.Count == 0 || realSteps.Any(step => step.Status != ProcessStepStatus.Completed))
         {
             return false;
         }
 
-        var workflowState = await _workflowInstanceRepository.GetWorkflowStateById(
-            WorkflowInstanceId,
-            WorkflowBlueprintId,
+        var processState = await _processInstanceRepository.GetProcessStateById(
+            ProcessId,
+            ExecutableBlueprintId,
             cancellationToken);
 
-        if (workflowState.Status == WorkflowExecutionStatus.Completed)
+        if (processState.Status == ProcessStatus.Completed)
         {
             return false;
         }
 
-        workflowState.Status = WorkflowExecutionStatus.Completed;
-        workflowState.UpdatedAt = CompletedAt ?? DateTimeOffset.UtcNow;
-        await _workflowInstanceRepository.UpdateWorkflowState(workflowState, cancellationToken);
+        processState.Status = ProcessStatus.Completed;
+        processState.UpdatedAt = CompletedAt ?? DateTimeOffset.UtcNow;
+        await _processInstanceRepository.UpdateProcessState(processState, cancellationToken);
         return true;
     }
 

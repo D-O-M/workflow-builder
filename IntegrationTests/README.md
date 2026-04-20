@@ -1,6 +1,6 @@
 # Integration Tests
 
-This folder contains the backend integration test workflows for the workflow runtime.
+This folder contains the backend integration tests for the blueprint and process runtime.
 
 ## Default lane
 
@@ -18,8 +18,8 @@ Scenarios currently covered:
 - plugin registration happy path
 - duplicate bundle idempotency
 - blueprint authoring + versioning
-- end-to-end workflow happy path
-- end-to-end workflow failure path
+- end-to-end process happy path
+- end-to-end process failure path
 - in-memory queue abandon/renew/complete behavior
 
 Run it locally with:

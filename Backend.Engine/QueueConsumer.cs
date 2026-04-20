@@ -7,23 +7,23 @@ public class QueueConsumer : BackgroundService
 {
     private readonly IAgentManager _agentManager;
     private readonly JobManager _jobManager;
-    private readonly NanoServiceOrchestrator _nanoServiceOrchestrator;
-    private readonly IWorkflowTaskQueueReader _workflowTaskQueueReader;
+    private readonly PluginRuntimeOrchestrator _pluginRuntimeOrchestrator;
+    private readonly IProcessStepQueueReader _processStepQueueReader;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger _logger;
 
     public QueueConsumer(
         IAgentManager agentManager,
         JobManager jobManager,
-        NanoServiceOrchestrator nanoServiceOrchestrator,
-        IWorkflowTaskQueueReader workflowTaskQueueReader,
+        PluginRuntimeOrchestrator pluginRuntimeOrchestrator,
+        IProcessStepQueueReader processStepQueueReader,
         IServiceScopeFactory serviceScopeFactory,
         ILogger<QueueConsumer> logger)
     {
         _agentManager = agentManager;
         _jobManager = jobManager;
-        _nanoServiceOrchestrator = nanoServiceOrchestrator;
-        _workflowTaskQueueReader = workflowTaskQueueReader;
+        _pluginRuntimeOrchestrator = pluginRuntimeOrchestrator;
+        _processStepQueueReader = processStepQueueReader;
         _serviceScopeFactory = serviceScopeFactory;
         _logger = logger;
     }
@@ -32,7 +32,7 @@ public class QueueConsumer : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            var message = await _workflowTaskQueueReader.ReceiveAsync(stoppingToken);
+            var message = await _processStepQueueReader.ReceiveAsync(stoppingToken);
 
             if (message is null)
             {
@@ -45,33 +45,33 @@ public class QueueConsumer : BackgroundService
 
                 await using var scope = _serviceScopeFactory.CreateAsyncScope();
 
-                var workflowBlueprintRepository = scope.ServiceProvider
-                    .GetRequiredService<IWorkflowBlueprintRepository>();
+                var blueprintRepository = scope.ServiceProvider
+                    .GetRequiredService<IBlueprintRepository>();
 
-                var blueprint = await workflowBlueprintRepository
-                    .GetFullBlueprintById(job.WorkflowBlueprintId, stoppingToken);
+                var executableBlueprint = await blueprintRepository
+                    .GetFullBlueprintById(job.ExecutableBlueprintId, stoppingToken);
 
-                var task = blueprint.AllTasks
-                    .FirstOrDefault(t => t.Id == job.BlueprintTaskId);
+                var blueprintNode = executableBlueprint.AllNodes
+                    .FirstOrDefault(node => node.Id == job.BlueprintNodeId);
 
-                if (task is null)
+                if (blueprintNode is null)
                 {
                     await message.AbandonAsync(stoppingToken);
                     continue;
                 }
 
-                if (!_nanoServiceOrchestrator.TryResolveTaskVersion(
-                        task.TaskDefinitionId,
-                        task.AllowedMajor,
-                        task.AllowedMinor,
+                if (!_pluginRuntimeOrchestrator.TryResolveTaskVersion(
+                        blueprintNode.TaskDefinitionId,
+                        blueprintNode.AllowedMajor,
+                        blueprintNode.AllowedMinor,
                         out var runtimeVersion))
                 {
-                    await _nanoServiceOrchestrator.ReloadAsync(stoppingToken);
+                    await _pluginRuntimeOrchestrator.ReloadAsync(stoppingToken);
 
-                    if (!_nanoServiceOrchestrator.TryResolveTaskVersion(
-                            task.TaskDefinitionId,
-                            task.AllowedMajor,
-                            task.AllowedMinor,
+                    if (!_pluginRuntimeOrchestrator.TryResolveTaskVersion(
+                            blueprintNode.TaskDefinitionId,
+                            blueprintNode.AllowedMajor,
+                            blueprintNode.AllowedMinor,
                             out runtimeVersion))
                     {
                         await message.AbandonAsync(stoppingToken);
@@ -79,10 +79,10 @@ public class QueueConsumer : BackgroundService
                     }
                 }
 
-                task.ResolvedTaskVersionId = runtimeVersion.Id;
-                task.ResolvedVersion = runtimeVersion.Version;
+                blueprintNode.ResolvedTaskVersionId = runtimeVersion.Id;
+                blueprintNode.ResolvedVersion = runtimeVersion.Version;
 
-                if (!_agentManager.AgentExists(task.ResolvedTaskVersionId))
+                if (!_agentManager.AgentExists(blueprintNode.ResolvedTaskVersionId))
                 {
                     await message.AbandonAsync(stoppingToken);
                     continue;
@@ -92,7 +92,7 @@ public class QueueConsumer : BackgroundService
                     scope.ServiceProvider,
                     job,
                     message,
-                    blueprint);
+                    executableBlueprint);
 
                 var started = await _jobManager.StartJob(context, stoppingToken);
 
@@ -103,7 +103,7 @@ public class QueueConsumer : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to process workflow task message {MessageId}", message.MessageId);
+                _logger.LogError(ex, "Failed to process process-step message {MessageId}", message.MessageId);
                 await message.AbandonAsync(stoppingToken);
             }
         }

@@ -17,13 +17,13 @@
       "y": 591.763171144653
     },
     {
-      "name": "TaskInstances",
+      "name": "BlueprintNodes",
       "schemaName": "public",
       "x": 386.1071590607293,
       "y": -55.96758255134566
     },
     {
-      "name": "TaskConnections",
+      "name": "BlueprintConnections",
       "schemaName": "public",
       "x": 838.9482228222379,
       "y": -49.38316107471675
@@ -75,11 +75,11 @@
       "firstFieldNames": [
         "Id"
       ],
-      "firstTableName": "TaskInstances",
+      "firstTableName": "BlueprintNodes",
       "firstSchemaName": "public",
       "firstRelation": "1",
       "secondFieldNames": [
-        "StartingTaskInstanceId"
+        "StartingBlueprintNodeId"
       ],
       "secondTableName": "BlueprintVersions",
       "secondSchemaName": "public",
@@ -96,7 +96,7 @@
       "secondFieldNames": [
         "BlueprintVersionId"
       ],
-      "secondTableName": "TaskInstances",
+      "secondTableName": "BlueprintNodes",
       "secondSchemaName": "public",
       "secondRelation": "*",
       "checkPoints": []
@@ -111,7 +111,7 @@
       "secondFieldNames": [
         "TaskVersionId"
       ],
-      "secondTableName": "TaskInstances",
+      "secondTableName": "BlueprintNodes",
       "secondSchemaName": "public",
       "secondRelation": "*",
       "checkPoints": []
@@ -120,13 +120,13 @@
       "firstFieldNames": [
         "Id"
       ],
-      "firstTableName": "TaskInstances",
+      "firstTableName": "BlueprintNodes",
       "firstSchemaName": "public",
       "firstRelation": "1",
       "secondFieldNames": [
-        "SourceTaskInstanceId"
+        "SourceBlueprintNodeId"
       ],
-      "secondTableName": "TaskConnections",
+      "secondTableName": "BlueprintConnections",
       "secondSchemaName": "public",
       "secondRelation": "*",
       "checkPoints": []
@@ -135,13 +135,13 @@
       "firstFieldNames": [
         "Id"
       ],
-      "firstTableName": "TaskInstances",
+      "firstTableName": "BlueprintNodes",
       "firstSchemaName": "public",
       "firstRelation": "1",
       "secondFieldNames": [
-        "DestinationTaskInstanceId"
+        "DestinationBlueprintNodeId"
       ],
-      "secondTableName": "TaskConnections",
+      "secondTableName": "BlueprintConnections",
       "secondSchemaName": "public",
       "secondRelation": "*",
       "checkPoints": []
@@ -156,7 +156,7 @@
       "secondFieldNames": [
         "ChannelId"
       ],
-      "secondTableName": "TaskConnections",
+      "secondTableName": "BlueprintConnections",
       "secondSchemaName": "public",
       "secondRelation": "*",
       "checkPoints": []

@@ -2,19 +2,19 @@ table Blueprints as BP {
     Id int [primary key]
     Name string
     Version int
-    StartingTaskInstanceId guid [ref: > TI.Id]
+    StartingBlueprintNodeId guid [ref: > TI.Id]
 }
 
-table TaskInstances as TI {
+table BlueprintNodes as TI {
     Id guid [primary key]
     BlueprintId int [ref: > BP.Id]
     TaskId int [ref: > T.Id]
 }
 
-table TaskConnections as TC {
+table BlueprintConnections as TC {
     Id guid [primary key]
-    SourceTaskInstanceId guid [ref: > TI.Id, null]
-    DestinationTaskInstanceId guid [ref: > TI.Id, null]
+    SourceBlueprintNodeId guid [ref: > TI.Id, null]
+    DestinationBlueprintNodeId guid [ref: > TI.Id, null]
     ChannelId int [ref: > C.Id]
 }
 
