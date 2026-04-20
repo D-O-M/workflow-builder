@@ -17,6 +17,8 @@ using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics => metrics.AddMeter("WorkflowBuilder.Engine.Execution"));
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -44,6 +46,7 @@ builder.Services.AddSingleton(_ => new CosmosClient(
     }));
 builder.Services.AddRelationalDataRepositories();
 builder.Services.AddWorkflowExecutionState();
+builder.Services.AddHostedService<WorkflowExecutionStateWarmupHostedService>();
 
 builder.Services.AddSingleton(_ =>
 {
@@ -102,7 +105,9 @@ builder.Services.AddSingleton<IWorkflowTaskQueueReader>(provider =>
 builder.Services.AddSingleton<IWorkflowTaskQueueWriter>(provider =>
 {
     var binding = provider.GetRequiredService<WorkflowTaskQueueBinding>();
-    return new ServiceBusWorkflowTaskQueueWriter(binding.Client.CreateSender(binding.QueueName));
+    return new ServiceBusWorkflowTaskQueueWriter(
+        binding.Client.CreateSender(binding.QueueName),
+        provider.GetRequiredService<ILogger<ServiceBusWorkflowTaskQueueWriter>>());
 });
 builder.Services.AddSingleton<IPluginReloadQueueReader>(provider =>
 {
@@ -111,6 +116,7 @@ builder.Services.AddSingleton<IPluginReloadQueueReader>(provider =>
 });
 
 builder.Services.AddTransient<JobFinalizationService>();
+builder.Services.AddSingleton<ExecutionLifecycleTelemetry>();
 builder.Services.AddSingleton<JobManager>();
 
 builder.Services.AddHostedService<QueueConsumer>();
@@ -124,6 +130,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.MapDefaultEndpoints();
 app.MapControllers();
 
 app.Run();

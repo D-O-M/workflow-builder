@@ -7,12 +7,19 @@ namespace Backend.Engine;
 
 public class NanoServiceOrchestrator : BackgroundService
 {
+    private readonly record struct PluginLane(
+        int TaskDefinitionId,
+        int Major,
+        int Minor);
+
     private readonly IAgentManager _agentManager;
     private readonly ILogger _logger;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly Lock _sync = new();
 
     private readonly Dictionary<int, NanoServiceAgent> _agents = [];
+    private readonly Dictionary<int, WorkflowTaskInfo> _knownVersions = [];
+    private readonly Dictionary<PluginLane, int> _laneRoutes = [];
     private readonly SemaphoreSlim _reloadGate = new(1, 1);
 
     public NanoServiceOrchestrator(
@@ -61,66 +68,149 @@ public class NanoServiceOrchestrator : BackgroundService
         await base.StopAsync(cancellationToken);
     }
 
+    public bool TryResolveTaskVersion(
+        int taskDefinitionId,
+        int allowedMajor,
+        int allowedMinor,
+        out WorkflowTaskInfo taskVersion)
+    {
+        lock (_sync)
+        {
+            if (_laneRoutes.TryGetValue(
+                    new PluginLane(taskDefinitionId, allowedMajor, allowedMinor),
+                    out var taskVersionId) &&
+                _knownVersions.TryGetValue(taskVersionId, out var resolvedTaskVersion) &&
+                _agents.ContainsKey(taskVersionId))
+            {
+                taskVersion = resolvedTaskVersion;
+                return true;
+            }
+        }
+
+        taskVersion = null!;
+        return false;
+    }
+
     private async Task ReloadCoreAsync(CancellationToken cancellationToken)
     {
         await using var scope = _serviceScopeFactory.CreateAsyncScope();
         var workflowTaskRepository = scope.ServiceProvider.GetRequiredService<IWorkflowTaskRepository>();
 
         var allVersions = await workflowTaskRepository.GetAll(cancellationToken);
+        lock (_sync)
+        {
+            _knownVersions.Clear();
+            foreach (var version in allVersions)
+            {
+                _knownVersions[version.Id] = version;
+            }
+        }
+
+        var desiredVersionIds = new HashSet<int>();
+        var encounteredLanes = new HashSet<PluginLane>();
 
         foreach (var lane in allVersions
                      .GroupBy(version => (version.TaskDefinitionId, version.Version.Major, version.Version.Minor)))
         {
+            var laneKey = new PluginLane(
+                lane.Key.TaskDefinitionId,
+                lane.Key.Major,
+                lane.Key.Minor);
+            encounteredLanes.Add(laneKey);
+
             var ordered = lane
                 .OrderByDescending(version => version.Version)
                 .ToList();
 
-            var active = ordered.FirstOrDefault(version => version.State == TaskVersionState.Active);
-            var highestRegistered = ordered.FirstOrDefault(version => version.State == TaskVersionState.Registered);
-
-            if (highestRegistered is not null)
+            WorkflowTaskInfo? routedVersion = null;
+            foreach (var candidate in ordered)
             {
-                if (active is null || highestRegistered.Version > active.Version)
+                if (await TryEnsureAgentAvailableAsync(candidate, scope, cancellationToken))
                 {
-                    if (await TryStartAgentAsync(highestRegistered, scope, cancellationToken))
-                    {
-                        await workflowTaskRepository.PromoteVersionAsync(highestRegistered.Id, cancellationToken);
-                        _logger.LogInformation(
-                            "Promoted task version {TaskName} {Version} to active lane {Major}.{Minor}.",
-                            highestRegistered.Name,
-                            highestRegistered.Version,
-                            highestRegistered.Version.Major,
-                            highestRegistered.Version.Minor);
-                    }
+                    routedVersion = candidate;
+                    break;
                 }
-                else
+            }
+
+            if (routedVersion is null)
+            {
+                lock (_sync)
                 {
-                    foreach (var staleRegistered in ordered.Where(version => version.State == TaskVersionState.Registered))
-                    {
-                        await workflowTaskRepository.MarkVersionSupersededAsync(staleRegistered.Id, cancellationToken);
-                    }
+                    _laneRoutes.Remove(laneKey);
                 }
+
+                _logger.LogWarning(
+                    "No runnable plugin version is currently available for lane {TaskDefinitionId} {Major}.{Minor}.",
+                    laneKey.TaskDefinitionId,
+                    laneKey.Major,
+                    laneKey.Minor);
+                continue;
+            }
+
+            desiredVersionIds.Add(routedVersion.Id);
+
+            int? previousVersionId = null;
+            lock (_sync)
+            {
+                if (_laneRoutes.TryGetValue(laneKey, out var existingVersionId))
+                {
+                    previousVersionId = existingVersionId;
+                }
+
+                _laneRoutes[laneKey] = routedVersion.Id;
+            }
+
+            if (previousVersionId != routedVersion.Id)
+            {
+                _logger.LogInformation(
+                    "Routing lane {TaskDefinitionId} {Major}.{Minor} to task version {TaskVersionId} ({TaskName} {Version}).",
+                    laneKey.TaskDefinitionId,
+                    laneKey.Major,
+                    laneKey.Minor,
+                    routedVersion.Id,
+                    routedVersion.Name,
+                    routedVersion.Version);
+            }
+
+            foreach (var staleVersion in ordered.Where(version => version.Id != routedVersion.Id))
+            {
+                await StopAgentIfIdleAsync(staleVersion.Id, cancellationToken);
             }
         }
 
-        allVersions = await workflowTaskRepository.GetAll(cancellationToken);
-
-        foreach (var version in allVersions.Where(version =>
-                     version.State is TaskVersionState.Active or TaskVersionState.Draining))
+        List<PluginLane> obsoleteLanes;
+        lock (_sync)
         {
-            await TryStartAgentAsync(version, scope, cancellationToken);
+            obsoleteLanes = [.. _laneRoutes.Keys.Where(lane => !encounteredLanes.Contains(lane))];
+            foreach (var obsoleteLane in obsoleteLanes)
+            {
+                _laneRoutes.Remove(obsoleteLane);
+            }
         }
 
-        foreach (var drainingVersion in allVersions.Where(version => version.State == TaskVersionState.Draining))
+        List<int> staleAgentIds;
+        lock (_sync)
         {
-            await TryRetireVersionAsync(drainingVersion.Id, workflowTaskRepository, cancellationToken);
+            staleAgentIds = [.. _agents.Keys.Where(taskVersionId => !desiredVersionIds.Contains(taskVersionId))];
         }
 
-        foreach (var stoppedVersion in allVersions.Where(version =>
-                     version.State is TaskVersionState.Superseded or TaskVersionState.Failed))
+        foreach (var staleAgentId in staleAgentIds)
         {
-            await StopAgentIfIdleAsync(stoppedVersion.Id, cancellationToken);
+            await StopAgentIfIdleAsync(staleAgentId, cancellationToken);
         }
+    }
+
+    private async Task<bool> TryEnsureAgentAvailableAsync(
+        WorkflowTaskInfo taskInfo,
+        AsyncServiceScope scope,
+        CancellationToken cancellationToken)
+    {
+        if (_agentManager.AgentExists(taskInfo.Id))
+        {
+            return true;
+        }
+
+        return await TryStartAgentAsync(taskInfo, scope, cancellationToken);
     }
 
     private async Task<bool> TryStartAgentAsync(
@@ -173,9 +263,6 @@ public class NanoServiceOrchestrator : BackgroundService
                 taskInfo.Id,
                 taskInfo.Name,
                 taskInfo.Version);
-
-            var workflowTaskRepository = scope.ServiceProvider.GetRequiredService<IWorkflowTaskRepository>();
-            await workflowTaskRepository.MarkVersionFailedAsync(taskInfo.Id, cancellationToken);
             return false;
         }
     }
@@ -213,20 +300,6 @@ public class NanoServiceOrchestrator : BackgroundService
             cancellationToken);
 
         return new FileInfo(Path.Combine(workspaceDirectory, entryPoint));
-    }
-
-    private async Task TryRetireVersionAsync(
-        int taskVersionId,
-        IWorkflowTaskRepository workflowTaskRepository,
-        CancellationToken cancellationToken)
-    {
-        if (_agentManager.GetActiveJobCount(taskVersionId) > 0)
-        {
-            return;
-        }
-
-        await StopAgentIfIdleAsync(taskVersionId, cancellationToken);
-        await workflowTaskRepository.MarkVersionSupersededAsync(taskVersionId, cancellationToken);
     }
 
     private async Task StopAgentIfIdleAsync(int taskVersionId, CancellationToken cancellationToken)

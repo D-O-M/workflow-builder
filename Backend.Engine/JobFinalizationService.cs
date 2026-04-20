@@ -5,13 +5,16 @@ namespace Backend.Engine;
 
 public class JobFinalizationService
 {
+    private readonly ExecutionLifecycleTelemetry _executionLifecycleTelemetry;
     private readonly ILogger<JobFinalizationService> _logger;
     private readonly IWorkflowTaskQueueWriter _workflowTaskQueueWriter;
 
     public JobFinalizationService(
+        ExecutionLifecycleTelemetry executionLifecycleTelemetry,
         ILogger<JobFinalizationService> logger,
         IWorkflowTaskQueueWriter workflowTaskQueueWriter)
     {
+        _executionLifecycleTelemetry = executionLifecycleTelemetry;
         _logger = logger;
         _workflowTaskQueueWriter = workflowTaskQueueWriter;
     }
@@ -28,6 +31,15 @@ public class JobFinalizationService
             cancellationToken);
 
         await EnqueueNextTasksAsync(context, executionResult, cancellationToken);
+        _executionLifecycleTelemetry.LogTaskCompleted(context, executionResult);
+
+        if (await context.CompleteWorkflowIfTerminalAsync(cancellationToken))
+        {
+            _executionLifecycleTelemetry.LogWorkflowCompleted(
+                context,
+                executionResult.CompletedAt);
+        }
+
         await context.CompleteMessageAsync(cancellationToken);
     }
 
@@ -41,6 +53,11 @@ public class JobFinalizationService
             executionResult.ErrorMessage,
             executionResult.CompletedAt,
             cancellationToken);
+        _executionLifecycleTelemetry.LogTaskFailed(context, executionResult);
+        _executionLifecycleTelemetry.LogWorkflowFailed(
+            context,
+            executionResult.CompletedAt,
+            executionResult.ErrorMessage);
         await context.CompleteMessageAsync(cancellationToken);
 
         if (!string.IsNullOrWhiteSpace(executionResult.ErrorMessage))

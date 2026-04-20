@@ -7,6 +7,7 @@ public class QueueConsumer : BackgroundService
 {
     private readonly IAgentManager _agentManager;
     private readonly JobManager _jobManager;
+    private readonly NanoServiceOrchestrator _nanoServiceOrchestrator;
     private readonly IWorkflowTaskQueueReader _workflowTaskQueueReader;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger _logger;
@@ -14,12 +15,14 @@ public class QueueConsumer : BackgroundService
     public QueueConsumer(
         IAgentManager agentManager,
         JobManager jobManager,
+        NanoServiceOrchestrator nanoServiceOrchestrator,
         IWorkflowTaskQueueReader workflowTaskQueueReader,
         IServiceScopeFactory serviceScopeFactory,
         ILogger<QueueConsumer> logger)
     {
         _agentManager = agentManager;
         _jobManager = jobManager;
+        _nanoServiceOrchestrator = nanoServiceOrchestrator;
         _workflowTaskQueueReader = workflowTaskQueueReader;
         _serviceScopeFactory = serviceScopeFactory;
         _logger = logger;
@@ -51,7 +54,35 @@ public class QueueConsumer : BackgroundService
                 var task = blueprint.AllTasks
                     .FirstOrDefault(t => t.Id == job.BlueprintTaskId);
 
-                if (task is null || !_agentManager.AgentExists(task.ResolvedTaskVersionId))
+                if (task is null)
+                {
+                    await message.AbandonAsync(stoppingToken);
+                    continue;
+                }
+
+                if (!_nanoServiceOrchestrator.TryResolveTaskVersion(
+                        task.TaskDefinitionId,
+                        task.AllowedMajor,
+                        task.AllowedMinor,
+                        out var runtimeVersion))
+                {
+                    await _nanoServiceOrchestrator.ReloadAsync(stoppingToken);
+
+                    if (!_nanoServiceOrchestrator.TryResolveTaskVersion(
+                            task.TaskDefinitionId,
+                            task.AllowedMajor,
+                            task.AllowedMinor,
+                            out runtimeVersion))
+                    {
+                        await message.AbandonAsync(stoppingToken);
+                        continue;
+                    }
+                }
+
+                task.ResolvedTaskVersionId = runtimeVersion.Id;
+                task.ResolvedVersion = runtimeVersion.Version;
+
+                if (!_agentManager.AgentExists(task.ResolvedTaskVersionId))
                 {
                     await message.AbandonAsync(stoppingToken);
                     continue;

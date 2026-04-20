@@ -29,10 +29,10 @@ public sealed class ProgressBroadcasterFunction
     [Function("ProgressBroadcasterFunction")]
     public async Task Run(
         [CosmosDBTrigger(
-            databaseName: "%Realtime__Cosmos__DatabaseName%",
-            containerName: "%Realtime__Cosmos__TasksContainerName%",
+            databaseName: "%Realtime:Cosmos:DatabaseName%",
+            containerName: "%Realtime:Cosmos:TasksContainerName%",
             Connection = "RealtimeCosmos",
-            LeaseContainerName = "%Realtime__Cosmos__LeaseContainerName%",
+            LeaseContainerName = "%Realtime:Cosmos:LeaseContainerName%",
             CreateLeaseContainerIfNotExists = true)]
         IReadOnlyList<TaskObject> changedTasks,
         CancellationToken cancellationToken)

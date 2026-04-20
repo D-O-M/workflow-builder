@@ -53,6 +53,7 @@ public class PluginBuilder<TPlugin>
             .WithTracing(tracing =>
             {
                 tracing.AddSource(displayName)
+                    .AddSource(PluginExecutionTelemetry.ActivitySourceName)
                     .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation();
             })
@@ -291,7 +292,8 @@ public class PluginBuilder<TPlugin>
         ?? "enginedb";
 
     private string GetCosmosConnectionString() =>
-        _hostAppBuilder.Configuration.GetConnectionString(
+        _hostAppBuilder.Configuration["AzureCosmos:ConnectionString"]
+        ?? _hostAppBuilder.Configuration.GetConnectionString(
             _hostAppBuilder.Configuration["AzureCosmos:ConnectionName"]
             ?? "enginedb")
         ?? _hostAppBuilder.Configuration.GetConnectionString("enginedb")

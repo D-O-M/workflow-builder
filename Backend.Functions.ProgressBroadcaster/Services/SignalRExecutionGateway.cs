@@ -27,7 +27,9 @@ public sealed class SignalRExecutionGateway
     {
         lock (_gate)
         {
-            if (_cachedSnapshot is not null && DateTimeOffset.UtcNow < _cachedSnapshotExpiresAt)
+            if (_cachedSnapshot is not null &&
+                DateTimeOffset.UtcNow < _cachedSnapshotExpiresAt &&
+                HasActiveSubscriptions(_cachedSnapshot))
             {
                 return Clone(_cachedSnapshot);
             }
@@ -95,4 +97,7 @@ public sealed class SignalRExecutionGateway
             BlueprintDefinitionIds = [.. snapshot.BlueprintDefinitionIds],
             WorkflowInstanceIds = [.. snapshot.WorkflowInstanceIds],
         };
+
+    private static bool HasActiveSubscriptions(ExecutionSubscriptionSnapshotViewModel snapshot) =>
+        snapshot.BlueprintDefinitionIds.Count > 0 || snapshot.WorkflowInstanceIds.Count > 0;
 }

@@ -23,6 +23,14 @@ public static class ServiceExtensions
         string workflowsContainerName = "workflows",
         string tasksContainerName = "tasks")
     {
+        services.AddSingleton(new WorkflowExecutionStateInitializationOptions
+        {
+            DatabaseName = databaseName,
+            WorkflowsContainerName = workflowsContainerName,
+            TasksContainerName = tasksContainerName
+        });
+        services.AddHostedService<WorkflowExecutionStateInitializerHostedService>();
+
         services.AddSingleton<ITaskInstanceRepository>(sp =>
         {
             var client = sp.GetRequiredService<CosmosClient>();

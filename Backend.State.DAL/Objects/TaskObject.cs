@@ -72,6 +72,10 @@ public class TaskObject
     [JsonProperty(PropertyName = "updatedAt")]
     public DateTimeOffset? UpdatedAt { get; set; }
 
+    [JsonPropertyName("startedAt")]
+    [JsonProperty(PropertyName = "startedAt")]
+    public DateTimeOffset? StartedAt { get; set; }
+
     [JsonPropertyName("completedAt")]
     [JsonProperty(PropertyName = "completedAt")]
     public DateTimeOffset? CompletedAt { get; set; }

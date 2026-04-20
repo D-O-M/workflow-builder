@@ -12,7 +12,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngularDevClient", policy =>
     {
-        policy.WithOrigins("http://localhost:4200")
+        policy.SetIsOriginAllowed(IsAllowedDevelopmentOrigin)
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
@@ -68,3 +68,14 @@ app.MapPost(
     });
 
 app.Run();
+
+static bool IsAllowedDevelopmentOrigin(string origin)
+{
+    if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+    {
+        return false;
+    }
+
+    return uri.IsLoopback
+        || string.Equals(uri.Host, "host.docker.internal", StringComparison.OrdinalIgnoreCase);
+}

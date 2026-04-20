@@ -6,15 +6,18 @@ public class JobManager
 {
     private readonly IAgentManager _agentManager;
     private readonly Dictionary<Guid, JobContext> _jobs = new();
+    private readonly ExecutionLifecycleTelemetry _executionLifecycleTelemetry;
     private readonly JobFinalizationService _jobFinalizationService;
     private readonly ILogger<JobManager> _logger;
 
     public JobManager(
         IAgentManager agentManager,
+        ExecutionLifecycleTelemetry executionLifecycleTelemetry,
         JobFinalizationService jobFinalizationService,
         ILogger<JobManager> logger)
     {
         _agentManager = agentManager;
+        _executionLifecycleTelemetry = executionLifecycleTelemetry;
         _jobFinalizationService = jobFinalizationService;
         _logger = logger;
     }
@@ -52,7 +55,17 @@ public class JobManager
 
         try
         {
-            await job.MarkInProgressAsync(cancellationToken);
+            var workflowStarted = await job.MarkInProgressAsync(cancellationToken);
+            _executionLifecycleTelemetry.LogTaskStarted(
+                job,
+                job.StartedAt ?? DateTimeOffset.UtcNow);
+
+            if (workflowStarted)
+            {
+                _executionLifecycleTelemetry.LogWorkflowStarted(
+                    job,
+                    job.StartedAt ?? DateTimeOffset.UtcNow);
+            }
         }
         catch (Exception ex)
         {

@@ -1,5 +1,6 @@
 using Azure.Messaging.ServiceBus;
 using Backend.Database.Relational;
+using Backend.API.Observability;
 using Backend.API.Services;
 using Backend.API.Infrastructure;
 using Backend.Interfaces.Queues;
@@ -40,6 +41,7 @@ public class Program
             }));
         builder.Services.AddRelationalDataRepositories();
         builder.Services.AddWorkflowExecutionState();
+        builder.Services.AddHostedService<WorkflowExecutionStateWarmupHostedService>();
 
         builder.Services.AddSingleton(sp => new ServiceBusClient(
             LocalDevelopmentResourceSettings.GetWorkflowTaskQueueConnectionString(
@@ -56,7 +58,27 @@ public class Program
         });
         builder.Services.AddSingleton<IWorkflowTaskQueueWriter, ServiceBusWorkflowTaskQueueWriter>();
         builder.Services.AddScoped<BlueprintExecutionService>();
+        builder.Services.AddScoped<BlueprintPortabilityService>();
         builder.Services.AddScoped<WorkflowExecutionQueryService>();
+        builder.Services.AddScoped<ObservabilityQueryService>();
+        builder.Services.Configure<ClientRuntimeConfigOptions>(
+            builder.Configuration.GetSection(ClientRuntimeConfigOptions.SectionName));
+        builder.Services.Configure<ObservabilityOptions>(
+            builder.Configuration.GetSection(ObservabilityOptions.SectionName));
+        builder.Services.AddHttpClient<LokiQueryClient>((serviceProvider, client) =>
+        {
+            var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+            var baseUrl = GetRequiredConfigurationValue(configuration, "Observability:LokiBaseUrl");
+            client.BaseAddress = new Uri(EnsureTrailingSlash(baseUrl), UriKind.Absolute);
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        builder.Services.AddHttpClient<PrometheusQueryClient>((serviceProvider, client) =>
+        {
+            var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+            var baseUrl = GetRequiredConfigurationValue(configuration, "Observability:PrometheusBaseUrl");
+            client.BaseAddress = new Uri(EnsureTrailingSlash(baseUrl), UriKind.Absolute);
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
 
         builder.Services.AddControllers();
 
@@ -73,10 +95,10 @@ builder.Services.AddScoped<Backend.API.Validation.Blueprints.IBlueprintVersionVa
         {
             options.AddPolicy("AllowAngularDevClient", policy =>
             {
-                policy.WithOrigins("http://localhost:4200") // Angular dev server
+                policy.SetIsOriginAllowed(IsAllowedDevelopmentOrigin)
                       .AllowAnyHeader()
                       .AllowAnyMethod()
-                      .AllowCredentials(); // optional, if you're using cookies/auth
+                      .AllowCredentials();
             });
         });
 
@@ -99,5 +121,25 @@ builder.Services.AddScoped<Backend.API.Validation.Blueprints.IBlueprintVersionVa
         app.MapControllers();
 
         app.Run();
+    }
+
+    private static string EnsureTrailingSlash(string baseUrl) =>
+        baseUrl.EndsWith("/", StringComparison.Ordinal)
+            ? baseUrl
+            : $"{baseUrl}/";
+
+    private static string GetRequiredConfigurationValue(IConfiguration configuration, string key) =>
+        configuration[key]
+        ?? throw new InvalidOperationException($"Configuration value '{key}' is not configured.");
+
+    private static bool IsAllowedDevelopmentOrigin(string origin)
+    {
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        return uri.IsLoopback
+            || string.Equals(uri.Host, "host.docker.internal", StringComparison.OrdinalIgnoreCase);
     }
 }

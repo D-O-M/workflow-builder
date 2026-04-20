@@ -20,6 +20,9 @@ var host = new HostBuilder()
     {
         services.AddApplicationInsightsTelemetryWorkerService();
         services.ConfigureFunctionsApplicationInsights();
+        services.AddCommonWorkerOpenTelemetry(
+            context.Configuration,
+            context.HostingEnvironment.ApplicationName);
 
         var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(
             context.Configuration,
@@ -27,10 +30,9 @@ var host = new HostBuilder()
         services.AddDbContextPool<WorkflowDbContext>(options =>
             options.UseSqlServer(sqlConnectionString));
 
-        var cosmosConnectionString = context.Configuration.GetConnectionString("RealtimeCosmos")
-            ?? LocalDevelopmentResourceSettings.GetCosmosConnectionString(
-                context.Configuration,
-                context.HostingEnvironment);
+        var cosmosConnectionString = LocalDevelopmentResourceSettings.GetCosmosConnectionString(
+            context.Configuration,
+            context.HostingEnvironment);
         services.AddSingleton(_ => new CosmosClient(
             cosmosConnectionString,
             new CosmosClientOptions
@@ -46,7 +48,7 @@ var host = new HostBuilder()
             tasksContainerName: context.Configuration["Realtime:Cosmos:TasksContainerName"] ?? "tasks");
 
         var signalRBaseUrl = context.Configuration["Realtime:SignalRBaseUrl"]
-            ?? "http://localhost:5181";
+            ?? throw new InvalidOperationException("Realtime:SignalRBaseUrl is not configured.");
         services.AddHttpClient(SignalRExecutionGateway.HttpClientName, client =>
         {
             client.BaseAddress = new Uri(EnsureTrailingSlash(signalRBaseUrl), UriKind.Absolute);

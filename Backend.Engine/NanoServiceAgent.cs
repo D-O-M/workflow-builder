@@ -81,7 +81,8 @@ public class NanoServiceAgent
                 _configuration["AzureCosmos:ConnectionName"]
                 ?? "enginedb";
             var cosmosConnectionString =
-                _configuration.GetConnectionString(cosmosConnectionName)
+                _configuration["AzureCosmos:ConnectionString"]
+                ?? _configuration.GetConnectionString(cosmosConnectionName)
                 ?? _configuration.GetConnectionString("enginedb");
             var environmentVariables = new Dictionary<string, string?>
             {
@@ -109,6 +110,8 @@ public class NanoServiceAgent
 
             if (!string.IsNullOrWhiteSpace(cosmosConnectionString))
             {
+                environmentVariables["AzureCosmos__ConnectionString"] = cosmosConnectionString;
+                environmentVariables["AzureCosmos__ConnectionName"] = cosmosConnectionName;
                 environmentVariables["ConnectionStrings__enginedb"] = cosmosConnectionString;
                 environmentVariables[$"ConnectionStrings__{cosmosConnectionName}"] = cosmosConnectionString;
             }

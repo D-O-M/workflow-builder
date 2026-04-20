@@ -34,11 +34,16 @@ public class JobContext
     public Guid WorkflowInstanceId => _message.WorkflowInstanceId;
     public Guid WorkflowTaskInstanceId => _message.WorkflowTaskInstanceId;
     public int WorkflowBlueprintId => _message.WorkflowBlueprintId;
+    public int BlueprintDefinitionId => _workflowBlueprint.DefinitionId;
+    public int BlueprintVersionNumber => _workflowBlueprint.VersionNumber;
+    public string BlueprintVersionName => _workflowBlueprint.Name;
     public Guid BlueprintTaskId => _message.BlueprintTaskId;
     public int ResolvedTaskVersionId => _workflowTask.Value.ResolvedTaskVersionId;
     public int TaskDefinitionId => _workflowTask.Value.TaskDefinitionId;
     public int AllowedMajor => _workflowTask.Value.AllowedMajor;
     public int AllowedMinor => _workflowTask.Value.AllowedMinor;
+    public string TaskName => _workflowTask.Value.Name;
+    public string PluginName => _workflowTask.Value.Name;
     public string InputChannelName => _workflowTask.Value.InputChannel.Name;
     public string LinkedOutputChannelName => _message.LinkedOutputChannelName;
     public Guid PreviousTaskInstanceId => _message.PreviousWorkflowTaskInstanceId;
@@ -72,8 +77,14 @@ public class JobContext
     public InvocationEnvelope ToInvocationEnvelope() =>
         new(
             WorkflowBlueprintId,
+            BlueprintDefinitionId,
             WorkflowInstanceId,
             WorkflowTaskInstanceId,
+            BlueprintTaskId,
+            TaskDefinitionId,
+            ResolvedTaskVersionId,
+            WorkflowTask.ResolvedVersion.ToString(),
+            PluginName,
             new PreviousTaskDetails(
                 PreviousTaskInstanceId,
                 LinkedOutputChannelName));
@@ -114,7 +125,7 @@ public class JobContext
         }
     }
 
-    public async Task MarkInProgressAsync(CancellationToken cancellationToken)
+    public async Task<bool> MarkInProgressAsync(CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
 
@@ -130,7 +141,9 @@ public class JobContext
         taskState.ResolvedTaskVersionId = ResolvedTaskVersionId;
         taskState.ResolvedTaskVersion = WorkflowTask.ResolvedVersion.ToString();
         taskState.UpdatedAt = now;
+        taskState.StartedAt ??= now;
         await _taskInstanceRepository.UpdateTaskInstance(taskState, cancellationToken);
+        StartedAt = taskState.StartedAt;
 
         var workflowState = await _workflowInstanceRepository.GetWorkflowStateById(
             WorkflowInstanceId,
@@ -142,7 +155,10 @@ public class JobContext
             workflowState.Status = WorkflowExecutionStatus.InProgress;
             workflowState.UpdatedAt = now;
             await _workflowInstanceRepository.UpdateWorkflowState(workflowState, cancellationToken);
+            return true;
         }
+
+        return false;
     }
 
     public async Task PersistSuccessAsync(
@@ -235,6 +251,37 @@ public class JobContext
     public async Task AbandonMessageAsync(CancellationToken cancellationToken)
     {
         await _messageContainer.AbandonAsync(cancellationToken);
+    }
+
+    public async Task<bool> CompleteWorkflowIfTerminalAsync(CancellationToken cancellationToken)
+    {
+        var tasks = await _taskInstanceRepository.GetTaskInstancesForWorkflow(
+            WorkflowInstanceId,
+            cancellationToken);
+
+        var realTasks = tasks
+            .Where(task => Guid.TryParse(task.BlueprintTaskId, out var blueprintTaskId) && blueprintTaskId != Guid.Empty)
+            .ToList();
+
+        if (realTasks.Count == 0 || realTasks.Any(task => task.Status != TaskExecutionStatus.Completed))
+        {
+            return false;
+        }
+
+        var workflowState = await _workflowInstanceRepository.GetWorkflowStateById(
+            WorkflowInstanceId,
+            WorkflowBlueprintId,
+            cancellationToken);
+
+        if (workflowState.Status == WorkflowExecutionStatus.Completed)
+        {
+            return false;
+        }
+
+        workflowState.Status = WorkflowExecutionStatus.Completed;
+        workflowState.UpdatedAt = CompletedAt ?? DateTimeOffset.UtcNow;
+        await _workflowInstanceRepository.UpdateWorkflowState(workflowState, cancellationToken);
+        return true;
     }
 
     private static Dictionary<string, JsonElement> NormalizeJsonMap(

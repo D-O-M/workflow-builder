@@ -256,7 +256,7 @@ public sealed class WorkflowExecutionProjectionService
         {
             WorkflowInstanceId = Guid.Parse(workflow.WorkflowInstanceId),
             BlueprintDefinitionId = definition.Id,
-            BlueprintName = definition.Key,
+            BlueprintName = definition.DisplayName,
             BlueprintVersionId = blueprintVersionEntity.Id,
             BlueprintVersionNumber = blueprintVersionEntity.Version,
             BlueprintVersionName = blueprintVersionEntity.Name,
@@ -337,6 +337,9 @@ public sealed class WorkflowExecutionProjectionService
         return new WorkflowExecutionNodeViewModel
         {
             InstanceId = taskInstance.Id,
+            RuntimeTaskInstanceId = taskState is not null && Guid.TryParse(taskState.Id, out var taskInstanceId)
+                ? taskInstanceId
+                : null,
             TaskDefinitionId = taskInstance.TaskDefinitionId,
             AllowedMajor = taskInstance.AllowedMajor,
             AllowedMinor = taskInstance.AllowedMinor,
@@ -346,6 +349,9 @@ public sealed class WorkflowExecutionProjectionService
             Status = taskState is not null
                 ? MapTaskStatus(taskState.Status)
                 : "NotExecuted",
+            StartedAt = taskState?.StartedAt,
+            CompletedAt = taskState?.CompletedAt,
+            FailedAt = taskState?.FailedAt,
             FailureMessage = taskState?.ErrorMessage,
             Position = new CoordinatesViewModel
             {
@@ -390,6 +396,9 @@ public sealed class WorkflowExecutionProjectionService
             Status = MapTaskStatus(taskState.Status),
             ResolvedVersionId = taskState.ResolvedTaskVersionId ?? actualResolvedVersion.Id,
             ResolvedVersion = taskState.ResolvedTaskVersion ?? actualResolvedVersion.Version.ToString(),
+            StartedAt = taskState.StartedAt,
+            CompletedAt = taskState.CompletedAt,
+            FailedAt = taskState.FailedAt,
             FailureMessage = taskState.ErrorMessage,
             UpdatedAt = taskState.UpdatedAt,
         };
@@ -455,16 +464,7 @@ public sealed class WorkflowExecutionProjectionService
                 $"No task version exists for task definition {taskInstance.TaskDefinitionId} lane {taskInstance.AllowedMajor}.{taskInstance.AllowedMinor}.");
         }
 
-        if (requireActive)
-        {
-            return laneVersions.FirstOrDefault(version => version.State == TaskVersionState.Active)
-                ?? throw new InvalidOperationException(
-                    $"No active task version exists for task definition {taskInstance.TaskDefinitionId} lane {taskInstance.AllowedMajor}.{taskInstance.AllowedMinor}.");
-        }
-
-        return laneVersions.FirstOrDefault(version => version.State == TaskVersionState.Active)
-            ?? laneVersions.FirstOrDefault(version => version.State == TaskVersionState.Draining)
-            ?? laneVersions.FirstOrDefault(version => version.State == TaskVersionState.Registered)
-            ?? laneVersions.First();
+        _ = requireActive;
+        return laneVersions.First();
     }
 }

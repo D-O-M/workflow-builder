@@ -17,8 +17,14 @@ public sealed record PreviousTaskDetails(
 /// <param name="WorkflowTaskInstanceId">Identifier of the task instance within the workflow.</param>
 public sealed record InvocationEnvelope(
     int WorkflowBlueprintId,
+    int BlueprintDefinitionId,
     Guid WorkflowInstanceId,
     Guid WorkflowTaskInstanceId,
+    Guid BlueprintTaskId,
+    int TaskDefinitionId,
+    int TaskVersionId,
+    string TaskVersion,
+    string PluginName,
     PreviousTaskDetails PreviousTaskDetails);
 
 /// <summary>
