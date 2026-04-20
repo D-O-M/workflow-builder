@@ -145,63 +145,6 @@ public class WorkflowTaskRepository : IWorkflowTaskRepository
             versionEntity.Version,
             changeKind);
     }
-
-    public async Task PromoteVersionAsync(int taskVersionId, CancellationToken cancellationToken)
-    {
-        var targetVersion = await _context.TaskVersions
-            .FirstOrDefaultAsync(version => version.Id == taskVersionId, cancellationToken)
-            ?? throw new EntityNotFoundException<WorkflowTaskInfo>(taskVersionId);
-
-        var laneVersions = await _context.TaskVersions
-            .Where(version => version.TaskDefinitionId == targetVersion.TaskDefinitionId)
-            .ToListAsync(cancellationToken);
-
-        laneVersions = laneVersions
-            .Where(version =>
-                version.Version.Major == targetVersion.Version.Major &&
-                version.Version.Minor == targetVersion.Version.Minor)
-            .ToList();
-
-        foreach (var version in laneVersions)
-        {
-            if (version.Id == targetVersion.Id)
-            {
-                version.State = TaskVersionState.Active;
-                continue;
-            }
-
-            version.State = version.State switch
-            {
-                TaskVersionState.Active => TaskVersionState.Draining,
-                TaskVersionState.Draining => TaskVersionState.Draining,
-                TaskVersionState.Failed => TaskVersionState.Failed,
-                _ => TaskVersionState.Superseded
-            };
-        }
-
-        await _context.SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task MarkVersionSupersededAsync(int taskVersionId, CancellationToken cancellationToken)
-    {
-        var version = await _context.TaskVersions
-            .FirstOrDefaultAsync(item => item.Id == taskVersionId, cancellationToken)
-            ?? throw new EntityNotFoundException<WorkflowTaskInfo>(taskVersionId);
-
-        version.State = TaskVersionState.Superseded;
-        await _context.SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task MarkVersionFailedAsync(int taskVersionId, CancellationToken cancellationToken)
-    {
-        var version = await _context.TaskVersions
-            .FirstOrDefaultAsync(item => item.Id == taskVersionId, cancellationToken)
-            ?? throw new EntityNotFoundException<WorkflowTaskInfo>(taskVersionId);
-
-        version.State = TaskVersionState.Failed;
-        await _context.SaveChangesAsync(cancellationToken);
-    }
-
     public async System.Threading.Tasks.Task CreateTaskSchema(Manifest manifest, CancellationToken cancellationToken)
     {
         /*Channel? inputChannelSpec = null;

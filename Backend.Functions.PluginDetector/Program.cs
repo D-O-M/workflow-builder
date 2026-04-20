@@ -2,6 +2,7 @@ using Azure.Messaging.ServiceBus;
 using Azure.Storage.Blobs;
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
+using Backend.Interfaces.Services;
 using Backend.Interfaces.Utilities;
 using Backend.Database.Relational;
 using Backend.Repositories;
@@ -15,6 +16,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Backend.PluginLoader.Services;
+using Backend.Functions.PluginDetector;
 
 var host = new HostBuilder()
     .ConfigureFunctionsWorkerDefaults()
@@ -27,6 +29,9 @@ var host = new HostBuilder()
     {
         services.AddApplicationInsightsTelemetryWorkerService();
         services.ConfigureFunctionsApplicationInsights();
+        services.AddCommonWorkerOpenTelemetry(
+            context.Configuration,
+            context.HostingEnvironment.ApplicationName);
 
         var sqlConnectionString = context.Configuration.GetConnectionString("TasksDB");
         services.AddDbContextPool<WorkflowDbContext>(options =>
@@ -59,6 +64,7 @@ var host = new HostBuilder()
         services.AddSingleton<IPluginReloadQueueWriter, ServiceBusPluginReloadQueueWriter>();
 
         services.AddScoped<IWorkflowTaskRepository, WorkflowTaskRepository>();
+        services.AddScoped<IPluginDiscoveryService, PluginDiscoveryService>();
         services.AddSingleton<IPluginBlobNameParsingUtility, PluginBlobNameParsingUtility>();
         services.AddSingleton<IPluginBundleSource, BlobPluginBundleSource>();
         services.AddSingleton<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
@@ -66,6 +72,7 @@ var host = new HostBuilder()
         services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();
         services.AddSingleton<IPluginSchemaAggregationUtility, PluginSchemaAggregationUtility>();
         services.AddSingleton<IPluginBundleProcessingService, PluginBundleProcessingService>();
+        services.AddHostedService<PluginBlobReconciliationHostedService>();
     })
     .Build();
 

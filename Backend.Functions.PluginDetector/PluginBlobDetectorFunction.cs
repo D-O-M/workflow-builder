@@ -23,7 +23,7 @@ public class PluginBlobDetectorFunction
 
     [Function(nameof(PluginBlobDetectorFunction))]
     public async Task Run(
-        [BlobTrigger("pluginblob/{name}", Connection = "AzureWebJobsStorage")] Stream stream,
+        [BlobTrigger("%PluginsBlobContainerName%/{name}", Connection = "AzureWebJobsStorage")] Stream stream,
         string name,
         CancellationToken cancellationToken)
     {
