@@ -35,6 +35,7 @@ public class WorkflowDbContext : DbContext
             entity.HasKey(e => e.Id);
 
             entity.Property(e => e.Key).IsRequired();
+            entity.Property(e => e.DisplayName).IsRequired();
             entity.HasIndex(e => e.Key).IsUnique();
 
             entity.HasMany(e => e.Versions)

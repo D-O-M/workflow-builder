@@ -3,6 +3,8 @@ namespace Backend.Models;
 public record WorkflowBlueprint
 {
     public int Id { get; set; }
+    public int DefinitionId { get; set; }
+    public int VersionNumber { get; set; }
     public string Name { get; set; } = null!;
     public string? Description { get; set; }
     public required WorkflowTask InitialTask { get; set; }

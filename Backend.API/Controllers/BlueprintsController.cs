@@ -1,4 +1,5 @@
 using Backend.API.Services;
+using Backend.Models;
 using Backend.Models.DomainModels;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
@@ -15,15 +16,18 @@ public class BlueprintsController : ControllerBase
 {
     private readonly IBlueprintVersionValidator _blueprintVersionValidator;
     private readonly BlueprintExecutionService _blueprintExecutionService;
+    private readonly BlueprintPortabilityService _blueprintPortabilityService;
     private readonly IWorkflowBlueprintRepository _workflowBlueprintRepository;
 
     public BlueprintsController(
         IBlueprintVersionValidator blueprintVersionValidator,
         BlueprintExecutionService blueprintExecutionService,
+        BlueprintPortabilityService blueprintPortabilityService,
         IWorkflowBlueprintRepository workflowBlueprintRepository)
     {
         _blueprintVersionValidator = blueprintVersionValidator;
         _blueprintExecutionService = blueprintExecutionService;
+        _blueprintPortabilityService = blueprintPortabilityService;
         _workflowBlueprintRepository = workflowBlueprintRepository;
     }
 
@@ -126,6 +130,45 @@ public class BlueprintsController : ControllerBase
         catch (EntityNotFoundException<BlueprintViewModel>)
         {
             return NotFound();
+        }
+    }
+
+    [HttpGet("{Id:int}/export")]
+    public async Task<ActionResult<ExportedBlueprintViewModel>> ExportBlueprint(
+        [FromRoute] IdInputModel model)
+    {
+        try
+        {
+            var exported = await _blueprintPortabilityService.ExportLatestBlueprintAsync(
+                model.Id,
+                HttpContext.RequestAborted);
+            return Ok(exported);
+        }
+        catch (EntityNotFoundException<BlueprintViewModel>)
+        {
+            return NotFound();
+        }
+    }
+
+    [HttpPost("import")]
+    public async Task<ActionResult<BlueprintImportViewModel>> ImportBlueprint(
+        [FromBody] ExportedBlueprintInputModel model)
+    {
+        try
+        {
+            var imported = await _blueprintPortabilityService.ImportBlueprintAsync(
+                model,
+                HttpContext.RequestAborted);
+            return Ok(imported);
+        }
+        catch (BlueprintImportValidationException ex)
+        {
+            return ValidationProblem(new ValidationProblemDetails
+            {
+                Title = "Blueprint import validation failed.",
+                Status = StatusCodes.Status400BadRequest,
+                Extensions = { ["errors"] = ex.Errors }
+            });
         }
     }
 

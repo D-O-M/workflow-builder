@@ -1,15 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
-using System.Text;
-
 namespace Backend.Models.InputModels;
 
 public sealed class BlueprintInputModel
 {
+    /// <summary>The stable blueprint key. Optional on create; generated from Name when omitted.</summary>
+    public string? Key { get; init; }
+
     /// <summary>The name of the blueprint.</summary>
     [Required, MinLength(1)]
     public string Name { get; init; } = null!;
+
+    /// <summary>The initial version name to assign when creating a brand-new blueprint definition.</summary>
+    public string? VersionName { get; init; }
 
     /// <summary>The description of the blueprint.</summary>
     public string? Description { get; init; }

@@ -7,6 +7,7 @@ using Backend.Database.Relational;
 using Backend.Database.Relational.Entities;
 using Microsoft.EntityFrameworkCore;
 using Backend.Models.Versioning;
+using System.Text.RegularExpressions;
 
 namespace Backend.Repositories;
 
@@ -28,28 +29,29 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
     public async Task<WorkflowBlueprint> GetFullBlueprintById(
         int id, CancellationToken cancellationToken)
     {
-        // id == BlueprintVersion.Id (BV.Id)
         var blueprintVersionEntity = await _context.BlueprintVersions
-            .Include(bv => bv.TaskInstances)
-                .ThenInclude(ti => ti.TaskDefinition)
-                    .ThenInclude(td => td.Versions)
-            .Include(bv => bv.TaskInstances)
-                .ThenInclude(ti => ti.TaskDefinition)
-                    .ThenInclude(td => td.Versions)
-                        .ThenInclude(tv => tv.Channels)
-                        .ThenInclude(c => c.Properties)
-            .Include(bv => bv.TaskInstances)
-                .ThenInclude(ti => ti.OutgoingConnections)
-            // If you later want to traverse destinations in-memory without extra queries:
-            .Include(bv => bv.TaskInstances)
-                .ThenInclude(ti => ti.OutgoingConnections)
-                    .ThenInclude(tc => tc.DestinationTaskInstance)
             .AsNoTracking()
-            .AsSplitQuery()
             .FirstOrDefaultAsync(bv => bv.Id == id, cancellationToken);
 
         if (blueprintVersionEntity is null)
             throw new EntityNotFoundException<WorkflowBlueprint>(id);
+
+        // Load the task graph separately using the same include shape that backs blueprint reads.
+        // This avoids partial task-definition version materialization during execution-time resolution.
+        var taskInstances = await _context.TaskInstances
+            .Where(taskInstance => taskInstance.BlueprintVersionId == id)
+            .Include(taskInstance => taskInstance.TaskDefinition)
+                .ThenInclude(taskDefinition => taskDefinition.Versions)
+                    .ThenInclude(taskVersion => taskVersion.Channels)
+                        .ThenInclude(channel => channel.Properties)
+            .Include(taskInstance => taskInstance.OutgoingConnections)
+            .Include(taskInstance => taskInstance.OutgoingConnections)
+                .ThenInclude(connection => connection.DestinationTaskInstance)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .ToListAsync(cancellationToken);
+
+        blueprintVersionEntity.TaskInstances = taskInstances;
 
         // Build DTOs for each node (TaskInstance)
         var taskDtosById = new Dictionary<Guid, WorkflowTask>(capacity: blueprintVersionEntity.TaskInstances.Count);
@@ -132,6 +134,8 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
         {
             // Since you asked for “singular version of a blueprint”, this is BV.Id.
             Id = blueprintVersionEntity.Id,
+            DefinitionId = blueprintVersionEntity.BlueprintDefinitionId,
+            VersionNumber = blueprintVersionEntity.Version,
 
             Name = blueprintVersionEntity.Name,
 
@@ -186,7 +190,8 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
         return new BlueprintViewModel
         {
             Id = entity.Id,
-            Name = entity.Key,
+            Key = entity.Key,
+            Name = entity.DisplayName,
             Description = string.Empty,
             Versions = versions
         };
@@ -194,17 +199,44 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
 
     public async Task<BlueprintViewModel> CreateBlueprint(BlueprintInputModel model, CancellationToken cancellationToken)
     {
+        var displayName = model.Name.Trim();
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            throw new InvalidDataException("Blueprint name is required.");
+        }
+
+        string key;
+        if (string.IsNullOrWhiteSpace(model.Key))
+        {
+            key = await GenerateUniqueBlueprintKey(displayName, cancellationToken);
+        }
+        else
+        {
+            key = model.Key.Trim();
+            var keyExists = await _context.BlueprintDefinitions
+                .AnyAsync(definition => definition.Key == key, cancellationToken);
+            if (keyExists)
+            {
+                throw new InvalidDataException($"Blueprint key '{key}' already exists.");
+            }
+        }
+
         // Definition "Key" is currently required and unique; use a deterministic key.
         // If you later add a dedicated "Name" column, change this mapping.
         var definition = new BlueprintDefinition
         {
-            Key = model.Name,
+            Key = key,
+            DisplayName = displayName,
         };
+
+        var versionName = string.IsNullOrWhiteSpace(model.VersionName)
+            ? displayName
+            : model.VersionName.Trim();
 
         var blueprintVersion = await AddVersionEntities(
             definition,
             versionNumber: 1,
-            name: model.Name,
+            name: versionName,
             startingTaskInstanceId: model.StartingTaskInstanceId,
             tasks: model.Tasks,
             cancellationToken);
@@ -363,11 +395,53 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
         return blueprintVersion;
     }
 
+    private async Task<string> GenerateUniqueBlueprintKey(string displayName, CancellationToken cancellationToken)
+    {
+        var baseKey = SlugifyBlueprintKey(displayName);
+        if (string.IsNullOrWhiteSpace(baseKey))
+        {
+            baseKey = "blueprint";
+        }
+
+        var existingKeys = await _context.BlueprintDefinitions
+            .AsNoTracking()
+            .Where(definition => definition.Key == baseKey || definition.Key.StartsWith(baseKey + "-"))
+            .Select(definition => definition.Key)
+            .ToListAsync(cancellationToken);
+
+        if (!existingKeys.Contains(baseKey, StringComparer.Ordinal))
+        {
+            return baseKey;
+        }
+
+        var suffix = 2;
+        while (existingKeys.Contains($"{baseKey}-{suffix}", StringComparer.Ordinal))
+        {
+            suffix++;
+        }
+
+        return $"{baseKey}-{suffix}";
+    }
+
+    private static string SlugifyBlueprintKey(string value)
+    {
+        var normalized = value.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        normalized = Regex.Replace(normalized, @"[^a-z0-9]+", "-");
+        normalized = normalized.Trim('-');
+        return normalized;
+    }
+
     private BlueprintViewModel MapBlueprintDefinition(BlueprintDefinition entity, bool includeTaskDetails = false)
         => new BlueprintViewModel
         {
             Id = entity.Id,
-            Name = entity.Key,
+            Key = entity.Key,
+            Name = entity.DisplayName,
             Description = string.Empty,
             Versions = entity.Versions
                 .OrderByDescending(v => v.Version)
@@ -450,16 +524,7 @@ public class WorkflowBlueprintRepository : IWorkflowBlueprintRepository
                 $"No task version exists for task definition {taskInstance.TaskDefinitionId} lane {taskInstance.AllowedMajor}.{taskInstance.AllowedMinor}.");
         }
 
-        if (requireActive)
-        {
-            return laneVersions.FirstOrDefault(version => version.State == TaskVersionState.Active)
-                ?? throw new InvalidOperationException(
-                    $"No active task version exists for task definition {taskInstance.TaskDefinitionId} lane {taskInstance.AllowedMajor}.{taskInstance.AllowedMinor}.");
-        }
-
-        return laneVersions.FirstOrDefault(version => version.State == TaskVersionState.Active)
-            ?? laneVersions.FirstOrDefault(version => version.State == TaskVersionState.Draining)
-            ?? laneVersions.FirstOrDefault(version => version.State == TaskVersionState.Registered)
-            ?? laneVersions.First();
+        _ = requireActive;
+        return laneVersions.First();
     }
 }
