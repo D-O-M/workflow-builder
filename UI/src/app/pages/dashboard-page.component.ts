@@ -107,6 +107,9 @@ export class DashboardPageComponent {
   protected readonly selectedBlueprint = computed<BlueprintViewModel | null>(() =>
     this.blueprints().find((blueprint) => blueprint.id === this.selectedBlueprintId()) ?? null,
   );
+  protected readonly selectedBlueprintLabel = computed(() =>
+    this.selectedBlueprint()?.name ?? 'All blueprints',
+  );
   protected readonly workflowSummary = computed<WorkflowObservabilitySummaryViewModel | null>(() => {
     const state = this.observabilityState();
     return isReadyRequestState(state) ? state.data.workflowSummary : null;
@@ -157,6 +160,10 @@ export class DashboardPageComponent {
   protected readonly grafanaTraceUrl = computed(() =>
     `${this.runtimeClientConfig.grafanaBaseUrl}/explore?orgId=1`,
   );
+  protected readonly historyQueryParams = computed(() => {
+    const blueprintId = this.selectedBlueprintId();
+    return blueprintId ? { blueprintId } : {};
+  });
 
   protected selectWindow(window: ObservabilityWindow): void {
     this.observabilityWindow.set(window);
@@ -203,6 +210,61 @@ export class DashboardPageComponent {
       default:
         return 'Unknown';
     }
+  }
+
+  protected recentRunStatusClass(status: string): string {
+    switch (status) {
+      case 'Completed':
+        return 'dashboard-status--success';
+      case 'Failed':
+        return 'dashboard-status--failed';
+      case 'InProgress':
+        return 'dashboard-status--running';
+      case 'Pending':
+        return 'dashboard-status--pending';
+      default:
+        return 'dashboard-status--unknown';
+    }
+  }
+
+  protected shortenExecutionId(workflowInstanceId: string): string {
+    if (workflowInstanceId.length <= 16) {
+      return workflowInstanceId;
+    }
+
+    return `${workflowInstanceId.slice(0, 8)}...${workflowInstanceId.slice(-4)}`;
+  }
+
+  protected nodeHealthLabel(node: NodeObservabilitySummaryViewModel['nodes'][number]): string {
+    if (node.totalCount === 0) {
+      return 'No runs yet';
+    }
+
+    if (node.failedCount === 0) {
+      return 'Healthy';
+    }
+
+    if (node.successfulCount === 0) {
+      return 'Failing';
+    }
+
+    return 'Degraded';
+  }
+
+  protected nodeHealthClass(node: NodeObservabilitySummaryViewModel['nodes'][number]): string {
+    if (node.totalCount === 0) {
+      return 'node-health--idle';
+    }
+
+    if (node.failedCount === 0) {
+      return 'node-health--healthy';
+    }
+
+    if (node.successfulCount === 0) {
+      return 'node-health--failed';
+    }
+
+    return 'node-health--degraded';
   }
 
   protected trackBlueprint(_: number, blueprint: BlueprintViewModel): number {

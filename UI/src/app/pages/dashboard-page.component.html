@@ -1,42 +1,41 @@
 <section class="dashboard-page">
-  <header class="dashboard-page__header">
-    <div>
+  <header class="dashboard-page__hero">
+    <div class="dashboard-page__intro">
       <p class="dashboard-page__eyebrow">Observability Overview</p>
       <h2>Workflow health at a glance</h2>
       <p class="dashboard-page__subtitle">
-        Grafana-backed summaries for workflow outcomes, recent runs, and node-level success rates.
+        A quick read on workflow outcomes, recent runs, and node-level reliability across the selected window.
       </p>
+
+      <div class="dashboard-page__links">
+        <a class="dashboard-link" [href]="grafanaLogsUrl()" target="_blank" rel="noreferrer">
+          <mat-icon>travel_explore</mat-icon>
+          <span>Logs</span>
+        </a>
+        <a class="dashboard-link" [href]="grafanaTraceUrl()" target="_blank" rel="noreferrer">
+          <mat-icon>timeline</mat-icon>
+          <span>Trace Explore</span>
+        </a>
+      </div>
     </div>
 
-    <div class="dashboard-page__actions">
-      <a class="shell-button shell-button--ghost" [href]="grafanaLogsUrl()" target="_blank" rel="noreferrer">
-        <mat-icon>travel_explore</mat-icon>
-        <span>Open Logs in Grafana</span>
-      </a>
-      <a class="shell-button shell-button--ghost" [href]="grafanaTraceUrl()" target="_blank" rel="noreferrer">
-        <mat-icon>timeline</mat-icon>
-        <span>Open Trace Explore</span>
-      </a>
-    </div>
-  </header>
+    <div class="dashboard-page__controls">
+      <div class="dashboard-window-picker" aria-label="Observability window">
+        @for (window of windowPresets; track window) {
+          <button
+            type="button"
+            class="dashboard-window-picker__chip"
+            [class.is-active]="observabilityWindow() === window"
+            (click)="selectWindow(window)"
+          >
+            {{ window }}
+          </button>
+        }
+      </div>
 
-  <section class="dashboard-toolbar">
-    <div class="dashboard-toolbar__windows">
-      @for (window of windowPresets; track window) {
-        <button
-          type="button"
-          class="window-chip"
-          [class.is-active]="observabilityWindow() === window"
-          (click)="selectWindow(window)"
-        >
-          {{ window }}
-        </button>
-      }
-    </div>
-
-    <div class="dashboard-toolbar__filters">
-      <label class="dashboard-toolbar__select">
-        <span>Blueprint</span>
+      <label class="dashboard-blueprint-picker">
+        <mat-icon>search</mat-icon>
+        <span class="dashboard-blueprint-picker__label">{{ selectedBlueprintLabel() }}</span>
         <select [value]="selectedBlueprintId() ?? ''" (change)="selectBlueprint($any($event.target).value)">
           <option value="">All blueprints</option>
           @for (blueprint of blueprints(); track trackBlueprint($index, blueprint)) {
@@ -44,12 +43,8 @@
           }
         </select>
       </label>
-
-      @if (selectedBlueprint()) {
-        <button class="shell-button shell-button--ghost" type="button" (click)="clearBlueprint()">Clear Filter</button>
-      }
     </div>
-  </section>
+  </header>
 
   @if (loading()) {
     <section class="dashboard-empty">
@@ -60,100 +55,181 @@
       <p>{{ errorMessage() }}</p>
     </section>
   } @else {
-    <section class="dashboard-grid" [class.is-loading]="observabilityLoading()">
-      <article class="metric-card metric-card--hero">
-        <div class="metric-card__header">
-          <div>
-            <span class="metric-card__eyebrow">Workflow Outcome</span>
-            <h3>Success vs failure</h3>
-          </div>
-        </div>
-
-        <div class="metric-card__hero">
-          <div
-            class="donut-chart"
-            [style.background]="donutBackground(workflowSummary()?.successfulCount ?? 0, workflowSummary()?.failedCount ?? 0)"
-          >
-            <strong>{{ workflowSuccessPercent() }}%</strong>
-            <span>success</span>
-          </div>
-
-          <div class="metric-card__stats">
+    <section class="dashboard-layout" [class.is-loading]="observabilityLoading()">
+      <div class="dashboard-layout__top">
+        <article class="dashboard-card dashboard-card--outcome">
+          <header class="dashboard-card__header dashboard-card__header--stacked">
             <div>
-              <span>Succeeded</span>
-              <strong>{{ workflowSummary()?.successfulCount ?? 0 }}</strong>
+              <p class="dashboard-card__eyebrow">Workflow Outcome</p>
+              <h3>Success vs failure</h3>
             </div>
-            <div>
-              <span>Failed</span>
-              <strong>{{ workflowSummary()?.failedCount ?? 0 }}</strong>
-            </div>
-            <div>
-              <span>Total terminal runs</span>
-              <strong>{{ workflowSummary()?.totalCount ?? 0 }}</strong>
-            </div>
-          </div>
-        </div>
-      </article>
 
-      <article class="metric-card">
-        <div class="metric-card__header">
-          <div>
-            <span class="metric-card__eyebrow">Recent Runs</span>
-            <h3>Latest terminal executions</h3>
-          </div>
-        </div>
-
-        @if (recentRuns().length === 0) {
-          <p class="metric-card__empty">No recent runs are available in the selected window yet.</p>
-        } @else {
-          <div class="recent-runs">
-            @for (run of recentRuns(); track trackRecentRun($index, run)) {
-              <a
-                class="recent-run"
-                [routerLink]="['/executions']"
-                [queryParams]="{ blueprintId: run.blueprintDefinitionId, workflowInstanceId: run.workflowInstanceId }"
+            @if (selectedBlueprint()) {
+              <button
+                type="button"
+                class="dashboard-card__ghost-link"
+                (click)="clearBlueprint()"
               >
-                <div class="recent-run__top">
-                  <strong>{{ run.blueprintVersionName }}</strong>
-                  <span class="run-status" [ngClass]="'run-status--' + run.status.toLowerCase()">
-                    {{ recentRunStatusLabel(run.status) }}
-                  </span>
-                </div>
-                <small>{{ run.occurredAt | date: 'dd MMM, HH:mm' }}</small>
-              </a>
+                Clear filter
+              </button>
             }
-          </div>
-        }
-      </article>
+          </header>
 
-      <article class="metric-card metric-card--nodes">
-        <div class="metric-card__header">
-          <div>
-            <span class="metric-card__eyebrow">Node Outcomes</span>
-            <h3>{{ selectedBlueprint() ? selectedBlueprint()!.name : 'Choose a blueprint' }}</h3>
+          <div class="dashboard-outcome">
+            <div
+              class="dashboard-donut"
+              [style.background]="donutBackground(workflowSummary()?.successfulCount ?? 0, workflowSummary()?.failedCount ?? 0)"
+            >
+              <strong>{{ workflowSuccessPercent() }}%</strong>
+              <span>Success</span>
+            </div>
+
+            <div class="dashboard-outcome__stats">
+              <div class="dashboard-outcome__metric">
+                <span class="dashboard-outcome__metric-label">Succeeded</span>
+                <strong>{{ workflowSummary()?.successfulCount ?? 0 }}</strong>
+              </div>
+              <div class="dashboard-outcome__metric">
+                <span class="dashboard-outcome__metric-label">Failed</span>
+                <strong>{{ workflowSummary()?.failedCount ?? 0 }}</strong>
+              </div>
+              <div class="dashboard-outcome__metric">
+                <span class="dashboard-outcome__metric-label">Total terminal runs</span>
+                <strong>{{ workflowSummary()?.totalCount ?? 0 }}</strong>
+              </div>
+            </div>
           </div>
-        </div>
+
+          <div class="dashboard-legend">
+            <span class="dashboard-legend__item">
+              <span class="dashboard-legend__dot dashboard-legend__dot--success"></span>
+              <span>Succeeded</span>
+            </span>
+            <span class="dashboard-legend__item">
+              <span class="dashboard-legend__dot dashboard-legend__dot--failed"></span>
+              <span>Failed</span>
+            </span>
+            <span class="dashboard-legend__item">
+              <span class="dashboard-legend__dot dashboard-legend__dot--total"></span>
+              <span>{{ workflowSummary()?.totalCount ?? 0 }} total</span>
+            </span>
+          </div>
+        </article>
+
+        <article class="dashboard-card dashboard-card--runs">
+          <header class="dashboard-card__header">
+            <div>
+              <p class="dashboard-card__eyebrow">Recent Runs</p>
+              <h3>Latest terminal executions</h3>
+            </div>
+
+            <a
+              class="dashboard-card__text-link"
+              [routerLink]="['/executions']"
+              [queryParams]="historyQueryParams()"
+            >
+              View all history
+            </a>
+          </header>
+
+          @if (recentRuns().length === 0) {
+            <div class="dashboard-table-empty">
+              <p>No recent runs are available in the selected window yet.</p>
+            </div>
+          } @else {
+            <div class="dashboard-table-wrap">
+              <table class="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Execution ID</th>
+                    <th>Timestamp</th>
+                    <th>Status</th>
+                    <th class="dashboard-table__action">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (run of recentRuns(); track trackRecentRun($index, run)) {
+                    <tr>
+                      <td>
+                        <div class="dashboard-table__identity">
+                          <strong [title]="run.workflowInstanceId">{{ shortenExecutionId(run.workflowInstanceId) }}</strong>
+                          <small>{{ run.blueprintVersionName }}</small>
+                        </div>
+                      </td>
+                      <td>{{ run.occurredAt | date: 'yyyy-MM-dd HH:mm:ss' }}</td>
+                      <td>
+                        <span class="dashboard-status" [ngClass]="recentRunStatusClass(run.status)">
+                          {{ recentRunStatusLabel(run.status) }}
+                        </span>
+                      </td>
+                      <td class="dashboard-table__action">
+                        <a
+                          class="dashboard-action-link"
+                          [routerLink]="['/executions']"
+                          [queryParams]="{ blueprintId: run.blueprintDefinitionId, workflowInstanceId: run.workflowInstanceId }"
+                          [attr.aria-label]="'Open execution ' + run.workflowInstanceId"
+                        >
+                          <mat-icon>arrow_outward</mat-icon>
+                        </a>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </article>
+      </div>
+
+      <article class="dashboard-card dashboard-card--nodes">
+        <header class="dashboard-card__header">
+          <div>
+            <p class="dashboard-card__eyebrow">Node Outcomes</p>
+            <h3>{{ selectedBlueprint() ? selectedBlueprint()!.name : 'Select a blueprint to inspect nodes' }}</h3>
+            <p class="dashboard-card__supporting">
+              Success and failure rates per blueprint node for the current time window.
+            </p>
+          </div>
+        </header>
 
         @if (!selectedBlueprint()) {
-          <p class="metric-card__empty">Select a blueprint to inspect per-node success and failure rates.</p>
+          <div class="dashboard-empty-state">
+            <mat-icon>account_tree</mat-icon>
+            <div>
+              <strong>Choose a blueprint</strong>
+              <p>Select a blueprint above to view node-level success rates and recent reliability.</p>
+            </div>
+          </div>
         } @else if (!nodeSummary() || nodeSummary()!.nodes.length === 0) {
-          <p class="metric-card__empty">No node outcome data is available for the selected window yet.</p>
+          <div class="dashboard-empty-state">
+            <mat-icon>analytics</mat-icon>
+            <div>
+              <strong>No node data yet</strong>
+              <p>No node outcomes are available for the selected blueprint and time window yet.</p>
+            </div>
+          </div>
         } @else {
-          <div class="node-summary-grid">
+          <div class="dashboard-node-grid">
             @for (node of nodeSummary()!.nodes; track node.blueprintTaskId) {
-              <div class="node-summary-card">
+              <article class="dashboard-node-card">
                 <div
-                  class="donut-chart donut-chart--small"
+                  class="dashboard-donut dashboard-donut--small"
                   [style.background]="donutBackground(node.successfulCount, node.failedCount)"
                 >
                   <strong>{{ nodeSuccessPercent(node.successRate, node.totalCount) }}%</strong>
                 </div>
 
-                <div class="node-summary-card__body">
-                  <strong>{{ node.taskName }}</strong>
-                  <small>{{ node.successfulCount }} success · {{ node.failedCount }} failed</small>
+                <div class="dashboard-node-card__body">
+                  <div class="dashboard-node-card__heading">
+                    <strong>{{ node.taskName }}</strong>
+                    <span class="node-health" [ngClass]="nodeHealthClass(node)">
+                      {{ nodeHealthLabel(node) }}
+                    </span>
+                  </div>
+
+                  <p>{{ node.successfulCount }} success · {{ node.failedCount }} failed</p>
                 </div>
-              </div>
+              </article>
             }
           </div>
         }
