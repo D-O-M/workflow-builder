@@ -79,6 +79,7 @@ public class Program
             client.BaseAddress = new Uri(EnsureTrailingSlash(baseUrl), UriKind.Absolute);
             client.Timeout = TimeSpan.FromSeconds(30);
         });
+        builder.Services.AddMemoryCache();
 
         builder.Services.AddControllers();
 

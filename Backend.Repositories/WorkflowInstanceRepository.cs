@@ -55,6 +55,69 @@ public class WorkflowInstanceRepository<TGlobalState>
             });
     }
 
+    public async Task<WorkflowStateSummary?> GetLatestWorkflowStateForBlueprint(
+        int workflowBlueprintId,
+        CancellationToken cancellationToken)
+    {
+        var query = new QueryDefinition(
+            "SELECT TOP 1 c.id, c.blueprintId, c.createdAt, c.updatedAt, c.status " +
+            "FROM c WHERE c.blueprintId = @blueprintId ORDER BY c.createdAt DESC")
+            .WithParameter("@blueprintId", workflowBlueprintId.ToString());
+
+        using var iterator = Container.GetItemQueryIterator<WorkflowStateSummary>(
+            query,
+            requestOptions: new QueryRequestOptions
+            {
+                PartitionKey = new PartitionKey(workflowBlueprintId.ToString()),
+                MaxItemCount = 1,
+            });
+
+        if (!iterator.HasMoreResults)
+        {
+            return null;
+        }
+
+        var response = await iterator.ReadNextAsync(cancellationToken);
+        return response.Resource.FirstOrDefault();
+    }
+
+    public async Task<WorkflowStateSummaryPage> GetWorkflowStateSummaryPageForBlueprint(
+        int workflowBlueprintId,
+        string? continuationToken,
+        int maxItemCount,
+        CancellationToken cancellationToken)
+    {
+        var query = new QueryDefinition(
+            "SELECT c.id, c.blueprintId, c.createdAt, c.updatedAt, c.status " +
+            "FROM c WHERE c.blueprintId = @blueprintId ORDER BY c.createdAt DESC")
+            .WithParameter("@blueprintId", workflowBlueprintId.ToString());
+
+        using var iterator = Container.GetItemQueryIterator<WorkflowStateSummary>(
+            query,
+            continuationToken,
+            new QueryRequestOptions
+            {
+                PartitionKey = new PartitionKey(workflowBlueprintId.ToString()),
+                MaxItemCount = maxItemCount,
+            });
+
+        if (!iterator.HasMoreResults)
+        {
+            return new WorkflowStateSummaryPage
+            {
+                Items = [],
+                ContinuationToken = null,
+            };
+        }
+
+        var response = await iterator.ReadNextAsync(cancellationToken);
+        return new WorkflowStateSummaryPage
+        {
+            Items = response.Resource.ToList(),
+            ContinuationToken = response.ContinuationToken,
+        };
+    }
+
     public async Task<WorkflowObject<TGlobalState>> UpdateWorkflowState(
         WorkflowObject<TGlobalState> state,
         CancellationToken cancellationToken)

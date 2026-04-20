@@ -11,16 +11,16 @@ using Microsoft.Azure.Cosmos;
 /// </summary>
 public class CosmosRepository<T> where T : class
 {
-    private readonly Container _container;
     private readonly Func<T, string> _idSelector;
     private readonly Func<T, PartitionKey> _partitionKeySelector;
+    protected Container Container { get; }
 
     public CosmosRepository(
         Container container,
         Func<T, string> idSelector,
         Func<T, PartitionKey> partitionKeySelector)
     {
-        _container = container ?? throw new ArgumentNullException(nameof(container));
+        Container = container ?? throw new ArgumentNullException(nameof(container));
         _idSelector = idSelector ?? throw new ArgumentNullException(nameof(idSelector));
         _partitionKeySelector = partitionKeySelector ?? throw new ArgumentNullException(nameof(partitionKeySelector));
     }
@@ -32,7 +32,7 @@ public class CosmosRepository<T> where T : class
         ItemRequestOptions? options = null)
     {
         if (item is null) throw new ArgumentNullException(nameof(item));
-        return await _container.CreateItemAsync(item, _partitionKeySelector(item), options, cancellationToken)
+        return await Container.CreateItemAsync(item, _partitionKeySelector(item), options, cancellationToken)
                                .ConfigureAwait(false);
     }
 
@@ -46,7 +46,7 @@ public class CosmosRepository<T> where T : class
         ItemRequestOptions? options = null)
     {
         if (item is null) throw new ArgumentNullException(nameof(item));
-        return await _container.UpsertItemAsync(item, _partitionKeySelector(item), options, cancellationToken)
+        return await Container.UpsertItemAsync(item, _partitionKeySelector(item), options, cancellationToken)
                                .ConfigureAwait(false);
     }
 
@@ -64,7 +64,7 @@ public class CosmosRepository<T> where T : class
 
         try
         {
-            var resp = await _container.ReadItemAsync<T>(
+            var resp = await Container.ReadItemAsync<T>(
                 id, partitionKey, options, cancellationToken);
             return resp.Resource;
         }
@@ -89,7 +89,7 @@ public class CosmosRepository<T> where T : class
         if (!string.IsNullOrWhiteSpace(ifMatchEtag))
             options.IfMatchEtag = ifMatchEtag;
 
-        return await _container.ReplaceItemAsync(
+        return await Container.ReplaceItemAsync(
                 item: item,
                 id: _idSelector(item),
                 partitionKey: _partitionKeySelector(item),
@@ -107,7 +107,7 @@ public class CosmosRepository<T> where T : class
     {
         if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException("id is required.", nameof(id));
 
-        return await _container.DeleteItemAsync<T>(id, partitionKey, options, cancellationToken)
+        return await Container.DeleteItemAsync<T>(id, partitionKey, options, cancellationToken)
                                .ConfigureAwait(false);
     }
 
@@ -121,7 +121,7 @@ public class CosmosRepository<T> where T : class
     {
         if (query is null) throw new ArgumentNullException(nameof(query));
 
-        using var feed = _container.GetItemQueryIterator<T>(query, requestOptions: options);
+        using var feed = Container.GetItemQueryIterator<T>(query, requestOptions: options);
 
         while (feed.HasMoreResults)
         {
@@ -161,5 +161,5 @@ public class CosmosRepository<T> where T : class
     /// Bulk transactional batch within a single logical partition key.
     /// </summary>
     public TransactionalBatch CreateBatch(PartitionKey partitionKey) =>
-        _container.CreateTransactionalBatch(partitionKey);
+        Container.CreateTransactionalBatch(partitionKey);
 }

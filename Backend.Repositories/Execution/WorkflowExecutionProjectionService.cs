@@ -67,49 +67,74 @@ public sealed class WorkflowExecutionProjectionService
         Guid workflowInstanceId,
         CancellationToken cancellationToken)
     {
-        var definition = await _dbContext.BlueprintDefinitions
-            .Include(d => d.Versions)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(d => d.Id == blueprintDefinitionId, cancellationToken);
-
-        if (definition is null)
-        {
-            throw new EntityNotFoundException<BlueprintViewModel>(blueprintDefinitionId);
-        }
-
-        WorkflowObject<Dictionary<string, JsonElement>>? workflow = null;
-        BlueprintVersion? blueprintVersion = null;
-
-        foreach (var version in definition.Versions.OrderByDescending(v => v.Version))
-        {
-            try
-            {
-                workflow = await _workflowInstanceRepository.GetWorkflowStateById(
-                    workflowInstanceId,
-                    version.Id,
-                    cancellationToken);
-                blueprintVersion = version;
-                break;
-            }
-            catch (EntityNotFoundException<WorkflowObject<Dictionary<string, JsonElement>>>)
-            {
-                // Continue searching across blueprint versions.
-            }
-        }
-
-        if (workflow is null || blueprintVersion is null)
-        {
-            throw new EntityNotFoundException<WorkflowExecutionDetailViewModel>(workflowInstanceId.ToString());
-        }
-
-        var blueprintVersionEntity = await LoadExecutionBlueprintGraphAsync(blueprintVersion.Id, cancellationToken)
-            ?? throw new EntityNotFoundException<BlueprintVersionViewModel>(blueprintVersion.Id);
-
-        var executionTasks = await _taskInstanceRepository.GetTaskInstancesForWorkflow(
+        var context = await LoadExecutionContextAsync(
+            blueprintDefinitionId,
             workflowInstanceId,
             cancellationToken);
 
-        return BuildDetail(definition, blueprintVersionEntity, workflow, executionTasks);
+        return BuildDetail(
+            context.Definition,
+            context.BlueprintVersion,
+            context.Workflow,
+            context.ExecutionTasks);
+    }
+
+    public async Task<WorkflowExecutionStepDetailViewModel> GetExecutionStepDetailAsync(
+        int blueprintDefinitionId,
+        Guid workflowInstanceId,
+        Guid blueprintTaskInstanceId,
+        CancellationToken cancellationToken)
+    {
+        var context = await LoadExecutionContextAsync(
+            blueprintDefinitionId,
+            workflowInstanceId,
+            cancellationToken);
+        var taskInstance = context.BlueprintVersion.TaskInstances
+            .FirstOrDefault(candidate => candidate.Id == blueprintTaskInstanceId)
+            ?? throw new EntityNotFoundException<WorkflowExecutionStepDetailViewModel>(blueprintTaskInstanceId.ToString());
+        context.ExecutionTasksByBlueprintTaskId.TryGetValue(taskInstance.Id, out var taskState);
+        var actualResolvedVersion = ResolveActualVersion(taskInstance, taskState);
+        var endedAt = taskState?.FailedAt ?? taskState?.CompletedAt;
+
+        return new WorkflowExecutionStepDetailViewModel
+        {
+            BlueprintTaskInstanceId = taskInstance.Id,
+            Name = taskInstance.TaskDefinition.Name,
+            Status = taskState is not null
+                ? MapTaskStatus(taskState.Status)
+                : "NotExecuted",
+            ResolvedVersion = taskState?.ResolvedTaskVersion ?? actualResolvedVersion.Version.ToString(),
+            StartedAt = taskState?.StartedAt,
+            EndedAt = endedAt,
+            DurationMs = CalculateDurationMs(taskState?.StartedAt, endedAt),
+            FailureMessage = taskState?.ErrorMessage,
+            Inputs = ResolveStepInputs(taskInstance, actualResolvedVersion, context),
+            Outputs = SerializePayloads(taskState?.OutputData),
+        };
+    }
+
+    public async Task<Guid?> GetRuntimeTaskInstanceIdAsync(
+        int blueprintDefinitionId,
+        Guid workflowInstanceId,
+        Guid blueprintTaskInstanceId,
+        CancellationToken cancellationToken)
+    {
+        var context = await LoadExecutionContextAsync(
+            blueprintDefinitionId,
+            workflowInstanceId,
+            cancellationToken);
+        var taskInstance = context.BlueprintVersion.TaskInstances
+            .FirstOrDefault(candidate => candidate.Id == blueprintTaskInstanceId)
+            ?? throw new EntityNotFoundException<WorkflowExecutionStepDetailViewModel>(blueprintTaskInstanceId.ToString());
+
+        if (!context.ExecutionTasksByBlueprintTaskId.TryGetValue(taskInstance.Id, out var taskState))
+        {
+            return null;
+        }
+
+        return Guid.TryParse(taskState.Id, out var runtimeTaskInstanceId)
+            ? runtimeTaskInstanceId
+            : null;
     }
 
     public async Task<ExecutionRealtimeBatch?> BuildRealtimeBatchAsync(
@@ -210,6 +235,8 @@ public sealed class WorkflowExecutionProjectionService
                         .ThenInclude(taskVersion => taskVersion.Channels)
             .Include(version => version.TaskInstances)
                 .ThenInclude(taskInstance => taskInstance.OutgoingConnections)
+            .Include(version => version.TaskInstances)
+                .ThenInclude(taskInstance => taskInstance.IncomingConnections)
             .AsNoTracking()
             .AsSplitQuery()
             .FirstOrDefaultAsync(version => version.Id == blueprintVersionId, cancellationToken);
@@ -266,6 +293,129 @@ public sealed class WorkflowExecutionProjectionService
             StartingTaskInstanceId = blueprintVersionEntity.StartingTaskInstanceId ?? Guid.Empty,
             Nodes = nodes,
         };
+    }
+
+    private async Task<ExecutionProjectionContext> LoadExecutionContextAsync(
+        int blueprintDefinitionId,
+        Guid workflowInstanceId,
+        CancellationToken cancellationToken)
+    {
+        var definition = await _dbContext.BlueprintDefinitions
+            .Include(candidate => candidate.Versions)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == blueprintDefinitionId, cancellationToken);
+
+        if (definition is null)
+        {
+            throw new EntityNotFoundException<BlueprintViewModel>(blueprintDefinitionId);
+        }
+
+        WorkflowObject<Dictionary<string, JsonElement>>? workflow = null;
+        BlueprintVersion? blueprintVersion = null;
+
+        foreach (var version in definition.Versions.OrderByDescending(candidate => candidate.Version))
+        {
+            try
+            {
+                workflow = await _workflowInstanceRepository.GetWorkflowStateById(
+                    workflowInstanceId,
+                    version.Id,
+                    cancellationToken);
+                blueprintVersion = version;
+                break;
+            }
+            catch (EntityNotFoundException<WorkflowObject<Dictionary<string, JsonElement>>>)
+            {
+                // Continue searching across blueprint versions.
+            }
+        }
+
+        if (workflow is null || blueprintVersion is null)
+        {
+            throw new EntityNotFoundException<WorkflowExecutionDetailViewModel>(workflowInstanceId.ToString());
+        }
+
+        var blueprintVersionEntity = await LoadExecutionBlueprintGraphAsync(blueprintVersion.Id, cancellationToken)
+            ?? throw new EntityNotFoundException<BlueprintVersionViewModel>(blueprintVersion.Id);
+        var executionTasks = await _taskInstanceRepository.GetTaskInstancesForWorkflow(
+            workflowInstanceId,
+            cancellationToken);
+        var executionTasksByBlueprintTaskId = executionTasks
+            .Where(task => Guid.TryParse(task.BlueprintTaskId, out var parsedId) && parsedId != Guid.Empty)
+            .ToDictionary(task => Guid.Parse(task.BlueprintTaskId), task => task);
+
+        return new ExecutionProjectionContext(
+            definition,
+            blueprintVersionEntity,
+            workflow,
+            executionTasks,
+            executionTasksByBlueprintTaskId);
+    }
+
+    private static JsonElement? ResolveStepInputs(
+        TaskInstance taskInstance,
+        TaskVersion resolvedVersion,
+        ExecutionProjectionContext context)
+    {
+        var inputChannelName = resolvedVersion.InputChannels.SingleOrDefault()?.Name;
+        var incomingConnection = taskInstance.IncomingConnections
+            .FirstOrDefault(connection => connection.SourceTaskInstanceId.HasValue);
+
+        if (incomingConnection is not null)
+        {
+            if (!context.ExecutionTasksByBlueprintTaskId.TryGetValue(incomingConnection.SourceTaskInstanceId!.Value, out var sourceTaskState))
+            {
+                return null;
+            }
+
+            return TryBuildNamedPayload(
+                sourceTaskState.OutputData,
+                incomingConnection.ChannelName,
+                inputChannelName ?? incomingConnection.ChannelName);
+        }
+
+        var seedTask = context.ExecutionTasks
+            .FirstOrDefault(task => string.Equals(task.BlueprintTaskId, Guid.Empty.ToString(), StringComparison.OrdinalIgnoreCase));
+
+        return seedTask is null || string.IsNullOrWhiteSpace(inputChannelName)
+            ? null
+            : TryBuildNamedPayload(seedTask.OutputData, inputChannelName, inputChannelName);
+    }
+
+    private static JsonElement? TryBuildNamedPayload(
+        IReadOnlyDictionary<string, JsonElement>? payloads,
+        string payloadKey,
+        string propertyName)
+    {
+        if (payloads is null || !payloads.TryGetValue(payloadKey, out var payload))
+        {
+            return null;
+        }
+
+        return JsonSerializer.SerializeToElement(new Dictionary<string, JsonElement>
+        {
+            [propertyName] = payload,
+        });
+    }
+
+    private static JsonElement? SerializePayloads(IReadOnlyDictionary<string, JsonElement>? payloads)
+    {
+        if (payloads is null || payloads.Count == 0)
+        {
+            return null;
+        }
+
+        return JsonSerializer.SerializeToElement(payloads);
+    }
+
+    private static double? CalculateDurationMs(DateTimeOffset? startedAt, DateTimeOffset? endedAt)
+    {
+        if (!startedAt.HasValue || !endedAt.HasValue)
+        {
+            return null;
+        }
+
+        return Math.Max(0, (endedAt.Value - startedAt.Value).TotalMilliseconds);
     }
 
     private static WorkflowExecutionSummaryViewModel BuildSummary(
@@ -467,4 +617,11 @@ public sealed class WorkflowExecutionProjectionService
         _ = requireActive;
         return laneVersions.First();
     }
+
+    private sealed record ExecutionProjectionContext(
+        BlueprintDefinition Definition,
+        BlueprintVersion BlueprintVersion,
+        WorkflowObject<Dictionary<string, JsonElement>> Workflow,
+        IReadOnlyCollection<TaskObject> ExecutionTasks,
+        IReadOnlyDictionary<Guid, TaskObject> ExecutionTasksByBlueprintTaskId);
 }

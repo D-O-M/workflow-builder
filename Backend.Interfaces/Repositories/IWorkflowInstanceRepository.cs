@@ -17,6 +17,16 @@ public interface IWorkflowInstanceRepository<TGlobalState>
         int workflowBlueprintId,
         CancellationToken cancellationToken);
 
+    Task<WorkflowStateSummary?> GetLatestWorkflowStateForBlueprint(
+        int workflowBlueprintId,
+        CancellationToken cancellationToken);
+
+    Task<WorkflowStateSummaryPage> GetWorkflowStateSummaryPageForBlueprint(
+        int workflowBlueprintId,
+        string? continuationToken,
+        int maxItemCount,
+        CancellationToken cancellationToken);
+
     Task<WorkflowObject<TGlobalState>> UpdateWorkflowState(
         WorkflowObject<TGlobalState> state,
         CancellationToken cancellationToken);
