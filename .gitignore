@@ -489,3 +489,11 @@ FodyWeavers.xsd
 *.msp
 
 /Backend.Plugins/_bundles/*
+
+# Local-only Codex and validation artifacts
+/.artifacts/
+**/.artifacts/
+/.github/skills/
+/IntegrationTests/WorkflowBuilder.IntegrationTests/LiveRuns/
+/UI/Codex Installer.exe
+/UI/Microsoft.Services.Store.winmd
