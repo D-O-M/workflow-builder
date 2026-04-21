@@ -8,6 +8,10 @@ public interface IProcessStepRepository
         ProcessStepRecord state,
         CancellationToken cancellationToken);
 
+    Task<(bool Created, ProcessStepRecord State)> CreateProcessStepIfNotExists(
+        ProcessStepRecord state,
+        CancellationToken cancellationToken);
+
     Task<ProcessStepRecord> GetProcessStepById(
         Guid taskInstanceId,
         Guid processId,
@@ -18,6 +22,10 @@ public interface IProcessStepRepository
         CancellationToken cancellationToken);
 
     Task<ProcessStepRecord> UpdateProcessStep(
+        ProcessStepRecord state,
+        CancellationToken cancellationToken);
+
+    Task<bool> TryUpdateProcessStep(
         ProcessStepRecord state,
         CancellationToken cancellationToken);
 }

@@ -89,22 +89,22 @@ public sealed class BlueprintVersionGraphValidatorTests
     }
 
     [Test]
-    public async Task ValidateAsync_returns_error_when_node_has_multiple_incoming_edges()
+    public async Task ValidateAsync_allows_multiple_incoming_edges_when_graph_is_acyclic()
     {
         var a = Guid.NewGuid();
         var b = Guid.NewGuid();
         var c = Guid.NewGuid();
 
         var model = Version(a,
-            Task(a, c),
+            Task(a, b, c),
             Task(b, c),
             Task(c));
 
         var sut = new BlueprintVersionGraphValidator();
         var result = await sut.ValidateAsync(model);
 
-        result.IsValid.ShouldBeFalse();
-        result.Errors.ShouldContain(e => e.Code == "graph.node.multipleIncoming");
+        result.IsValid.ShouldBeTrue();
+        result.Errors.Count.ShouldBe(0);
     }
 
     [Test]

@@ -45,8 +45,6 @@ public class JobContext
     public string TaskName => _blueprintNode.Value.Name;
     public string PluginName => _blueprintNode.Value.Name;
     public string InputChannelName => _blueprintNode.Value.InputChannel.Name;
-    public string LinkedOutputChannelName => _message.LinkedOutputChannelName;
-    public Guid PreviousBlueprintNodeId => _message.PreviousProcessStepId;
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public string[] OutputChannelsPopulated { get; set; } = [];
@@ -69,7 +67,7 @@ public class JobContext
         _executableBlueprint = executableBlueprint;
         _processInstanceRepository = processInstanceRepository;
         _blueprintNode = new Lazy<ExecutableBlueprintNode>(
-            () => _executableBlueprint.AllNodes.First(node => node.Id == job.BlueprintNodeId));
+            () => _executableBlueprint.NodesById[job.BlueprintNodeId]);
 
         Guid = job.ProcessStepId;
     }
@@ -84,10 +82,7 @@ public class JobContext
             TaskDefinitionId,
             ResolvedTaskVersionId,
             BlueprintNode.ResolvedVersion.ToString(),
-            PluginName,
-            new PreviousTaskDetails(
-                PreviousBlueprintNodeId,
-                LinkedOutputChannelName));
+            PluginName);
 
     public async Task<bool> ExtendProcessingWindow()
     {
@@ -125,7 +120,7 @@ public class JobContext
         }
     }
 
-    public async Task<bool> MarkInProgressAsync(CancellationToken cancellationToken)
+    public async Task<(bool StepClaimed, bool ProcessStarted)> TryMarkInProgressAsync(CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
 
@@ -133,6 +128,11 @@ public class JobContext
             ProcessStepId,
             ProcessId,
             cancellationToken);
+
+        if (taskState.Status is not ProcessStepStatus.Pending)
+        {
+            return (false, false);
+        }
 
         taskState.Status = ProcessStepStatus.InProgress;
         taskState.TaskDefinitionId = TaskDefinitionId;
@@ -142,7 +142,12 @@ public class JobContext
         taskState.ResolvedTaskVersion = BlueprintNode.ResolvedVersion.ToString();
         taskState.UpdatedAt = now;
         taskState.StartedAt ??= now;
-        await _processStepRepository.UpdateProcessStep(taskState, cancellationToken);
+
+        if (!await _processStepRepository.TryUpdateProcessStep(taskState, cancellationToken))
+        {
+            return (false, false);
+        }
+
         StartedAt = taskState.StartedAt;
 
         var processState = await _processInstanceRepository.GetProcessStateById(
@@ -155,10 +160,28 @@ public class JobContext
             processState.Status = ProcessStatus.InProgress;
             processState.UpdatedAt = now;
             await _processInstanceRepository.UpdateProcessState(processState, cancellationToken);
-            return true;
+            return (true, true);
         }
 
-        return false;
+        return (true, false);
+    }
+
+    public async Task ResetToPendingAsync(CancellationToken cancellationToken)
+    {
+        var taskState = await _processStepRepository.GetProcessStepById(
+            ProcessStepId,
+            ProcessId,
+            cancellationToken);
+
+        if (taskState.Status is not ProcessStepStatus.InProgress)
+        {
+            return;
+        }
+
+        taskState.Status = ProcessStepStatus.Pending;
+        taskState.UpdatedAt = DateTimeOffset.UtcNow;
+        taskState.StartedAt = null;
+        await _processStepRepository.UpdateProcessStep(taskState, cancellationToken);
     }
 
     public async Task PersistSuccessAsync(
@@ -218,31 +241,6 @@ public class JobContext
         await _processInstanceRepository.UpdateProcessState(processState, cancellationToken);
     }
 
-    public async Task CreatePendingStepAsync(
-        Guid processStepId,
-        Guid blueprintNodeId,
-        DateTimeOffset createdAt,
-        CancellationToken cancellationToken)
-    {
-        var downstreamNode = _executableBlueprint.AllNodes.First(node => node.Id == blueprintNodeId);
-
-        await _processStepRepository.CreateProcessStep(
-            new ProcessStepRecord
-            {
-                Id = processStepId.ToString(),
-                BlueprintNodeId = blueprintNodeId.ToString(),
-                TaskDefinitionId = downstreamNode.TaskDefinitionId,
-                AllowedMajor = downstreamNode.AllowedMajor,
-                AllowedMinor = downstreamNode.AllowedMinor,
-                ProcessId = ProcessId.ToString(),
-                BlueprintId = ExecutableBlueprintId.ToString(),
-                CreatedAt = createdAt,
-                UpdatedAt = createdAt,
-                Status = ProcessStepStatus.Pending
-            },
-            cancellationToken);
-    }
-
     public async Task CompleteMessageAsync(CancellationToken cancellationToken)
     {
         await _messageContainer.CompleteAsync(cancellationToken);
@@ -263,7 +261,8 @@ public class JobContext
             .Where(step => Guid.TryParse(step.BlueprintNodeId, out var blueprintNodeId) && blueprintNodeId != Guid.Empty)
             .ToList();
 
-        if (realSteps.Count == 0 || realSteps.Any(step => step.Status != ProcessStepStatus.Completed))
+        if (realSteps.Count != _executableBlueprint.AllNodes.Count ||
+            realSteps.Any(step => step.Status != ProcessStepStatus.Completed))
         {
             return false;
         }

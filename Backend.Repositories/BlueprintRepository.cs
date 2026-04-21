@@ -1,18 +1,19 @@
-using Backend.Models;
-using Backend.Models.DomainModels;
-using Backend.Models.InputModels;
-using Backend.Models.ViewModels;
-using Backend.Interfaces.Repositories;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Backend.Database.Relational;
 using Backend.Database.Relational.Entities;
-using Microsoft.EntityFrameworkCore;
+using Backend.Interfaces.Repositories;
+using Backend.Models;
+using Backend.Models.InputModels;
 using Backend.Models.Versioning;
-using System.Text.RegularExpressions;
+using Backend.Models.ViewModels;
+using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Repositories;
 
 public class BlueprintRepository : IBlueprintRepository
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly BlueprintDbContext _context;
 
     public BlueprintRepository(BlueprintDbContext context)
@@ -20,151 +21,151 @@ public class BlueprintRepository : IBlueprintRepository
         _context = context;
     }
 
-    /// <summary>
-    /// Loads a single Blueprint *version* (BV) by id, including:
-    /// - BlueprintNodes (TI) (nodes)
-    /// - TaskVersion (TV) + its Input/Output Channels + ChannelProperties
-    /// - BlueprintConnections (TC) + their Channel + ChannelProperties
-    /// </summary>
     public async Task<ExecutableBlueprint> GetFullBlueprintById(
-        int id, CancellationToken cancellationToken)
+        int id,
+        CancellationToken cancellationToken)
     {
         var blueprintVersionEntity = await _context.BlueprintVersions
             .AsNoTracking()
             .Include(version => version.BlueprintDefinition)
-            .FirstOrDefaultAsync(bv => bv.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(version => version.Id == id, cancellationToken);
 
         if (blueprintVersionEntity is null)
+        {
             throw new EntityNotFoundException<ExecutableBlueprint>(id);
+        }
 
-        // Load the task graph separately using the same include shape that backs blueprint reads.
-        // This avoids partial task-definition version materialization during process-time resolution.
-        var taskInstances = await _context.BlueprintNodes
-            .Where(taskInstance => taskInstance.BlueprintVersionId == id)
-            .Include(taskInstance => taskInstance.TaskDefinition)
+        var nodeEntities = await _context.BlueprintNodes
+            .Where(node => node.BlueprintVersionId == id)
+            .Include(node => node.TaskDefinition)
                 .ThenInclude(taskDefinition => taskDefinition.Versions)
                     .ThenInclude(taskVersion => taskVersion.Channels)
                         .ThenInclude(channel => channel.Properties)
-            .Include(taskInstance => taskInstance.OutgoingConnections)
-            .Include(taskInstance => taskInstance.OutgoingConnections)
-                .ThenInclude(connection => connection.DestinationBlueprintNode)
+            .Include(node => node.OutgoingConnections)
             .AsNoTracking()
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
 
-        blueprintVersionEntity.BlueprintNodes = taskInstances;
+        blueprintVersionEntity.BlueprintNodes = nodeEntities;
 
-        // Build DTOs for each node (BlueprintNode)
-        var blueprintNodeDtosById = new Dictionary<Guid, ExecutableBlueprintNode>(capacity: blueprintVersionEntity.BlueprintNodes.Count);
-
-        foreach (var nodeEntity in blueprintVersionEntity.BlueprintNodes)
+        var nodesById = new Dictionary<Guid, ExecutableBlueprintNode>(nodeEntities.Count);
+        foreach (var nodeEntity in nodeEntities)
         {
             var taskVersion = ResolveConcreteVersion(nodeEntity, requireActive: true);
-
-            // Your new schema supports multiple input channels; if your domain expects exactly one,
-            // keep Single(). If it can be 0/1+, adjust the DTO accordingly.
             var inputChannelEntity = taskVersion.InputChannels.Single();
 
-            // Build input channel DTO
-            var inputChannelDto = new ExecutableBlueprintChannel
+            var inputChannel = new ExecutableBlueprintChannel
             {
                 Id = inputChannelEntity.Id,
                 Name = inputChannelEntity.Name,
-                Criterion = inputChannelEntity.Properties.ToDictionary(p => p.Name, p => p.Type.ToString())
+                Properties = inputChannelEntity.Properties.ToDictionary(
+                    property => property.Name,
+                    property => property.Type.ToString(),
+                    StringComparer.Ordinal),
+                OutboundBindings = []
             };
 
-            // Build output channel DTOs keyed by channel name (matches your old style)
-            var outputChannelDtos = taskVersion.OutputChannels.ToDictionary(
-                oc => oc.Name,
-                oc => new ExecutableBlueprintChannel
+            var outputChannels = taskVersion.OutputChannels.ToDictionary(
+                channel => channel.Name,
+                channel => new ExecutableBlueprintChannel
                 {
-                    Id = oc.Id,
-                    Name = oc.Name,
-                    Criterion = oc.Properties.ToDictionary(p => p.Name, p => p.Type.ToString())
-                });
+                    Id = channel.Id,
+                    Name = channel.Name,
+                    Properties = channel.Properties.ToDictionary(
+                        property => property.Name,
+                        property => property.Type.ToString(),
+                        StringComparer.Ordinal),
+                    OutboundBindings = []
+                },
+                StringComparer.Ordinal);
 
-            // Node DTO (ExecutableBlueprintNode) – Id becomes BlueprintNode.Id (Guid)
-            var blueprintNodeDto = new ExecutableBlueprintNode
+            nodesById[nodeEntity.Id] = new ExecutableBlueprintNode
             {
                 Id = nodeEntity.Id,
+                Name = taskVersion.TaskDefinition!.Name,
                 TaskDefinitionId = nodeEntity.TaskDefinitionId,
                 AllowedMajor = nodeEntity.AllowedMajor,
                 AllowedMinor = nodeEntity.AllowedMinor,
-                Name = taskVersion.TaskDefinition!.Name,
                 ResolvedVersion = taskVersion.Version,
-
                 ResolvedTaskVersionId = taskVersion.Id,
-
-                InputChannel = inputChannelDto,
-                OutputChannels = outputChannelDtos
+                ExecutionOrder = 0,
+                InputChannel = inputChannel,
+                OutputChannels = outputChannels,
+                InboundBindings = [],
+                DesignTimeInputOverrides = DeserializeJsonMap(nodeEntity.DesignTimeInputOverridesJson)
             };
-
-            blueprintNodeDtosById.Add(blueprintNodeDto.Id, blueprintNodeDto);
         }
 
-        foreach (var nodeEntity in blueprintVersionEntity.BlueprintNodes)
+        var executionOrderByNodeId = ComputeExecutionOrder(blueprintVersionEntity, nodeEntities);
+        foreach (var (nodeId, order) in executionOrderByNodeId)
         {
-            var sourceBlueprintNodeDto = blueprintNodeDtosById[nodeEntity.Id];
-            var outputChannelDtosByName = sourceBlueprintNodeDto.OutputChannels;
+            nodesById[nodeId].ExecutionOrder = order;
+        }
+
+        foreach (var nodeEntity in nodeEntities)
+        {
+            var sourceNode = nodesById[nodeEntity.Id];
 
             foreach (var connection in nodeEntity.OutgoingConnections)
             {
-                if (connection.DestinationBlueprintNodeId is null)
+                if (connection.DestinationBlueprintNodeId is not Guid destinationNodeId ||
+                    !nodesById.TryGetValue(destinationNodeId, out var destinationNode) ||
+                    !sourceNode.OutputChannels.TryGetValue(connection.ChannelName, out var outputChannel))
                 {
                     continue;
                 }
 
-                if (!blueprintNodeDtosById.TryGetValue(connection.DestinationBlueprintNodeId.Value, out var destinationBlueprintNodeDto))
-                {
-                    continue;
-                }
+                var explicitMappings = DeserializePropertyMappings(connection.PropertyMappingsJson);
+                var effectiveMappings = explicitMappings.Count > 0
+                    ? explicitMappings
+                    : BuildDefaultPropertyMappings(outputChannel.Properties, destinationNode.InputChannel.Properties);
 
-                if (!outputChannelDtosByName.TryGetValue(connection.ChannelName, out var outputChannelDto))
+                var binding = new ExecutableBlueprintBinding
                 {
-                    continue;
-                }
+                    Id = connection.Id.ToString("N"),
+                    SourceBlueprintNodeId = sourceNode.Id,
+                    SourceChannelName = outputChannel.Name,
+                    DestinationBlueprintNodeId = destinationNode.Id,
+                    PropertyMappings = effectiveMappings
+                };
 
-                outputChannelDto.Source = sourceBlueprintNodeDto;
-                outputChannelDto.Destination = destinationBlueprintNodeDto;
+                outputChannel.OutboundBindings.Add(binding);
+                destinationNode.InboundBindings.Add(binding);
             }
         }
 
-        var allNodes = blueprintNodeDtosById.Values.ToList();
+        var allNodes = nodesById.Values
+            .OrderBy(node => node.ExecutionOrder)
+            .ThenBy(node => node.Id)
+            .ToList();
 
-        var executableBlueprint = new ExecutableBlueprint
+        return new ExecutableBlueprint
         {
-            // Since you asked for “singular version of a blueprint”, this is BV.Id.
             Id = blueprintVersionEntity.Id,
             DefinitionId = blueprintVersionEntity.BlueprintDefinitionId,
             VersionNumber = blueprintVersionEntity.Version,
-
             Name = blueprintVersionEntity.BlueprintDefinition.DisplayName,
-
-            // Old code referenced Description; your DBML no longer has it.
-            // If DTO requires it, populate empty/placeholder or pull from BlueprintDefinition if you add it.
             Description = string.Empty,
-
-            InitialNode = blueprintNodeDtosById[blueprintVersionEntity.StartingBlueprintNodeId!.Value],
+            InitialNode = nodesById[blueprintVersionEntity.StartingBlueprintNodeId!.Value],
             AllNodes = allNodes
         };
-
-        return executableBlueprint;
     }
 
     public async Task<List<BlueprintViewModel>> GetAllBlueprints(CancellationToken cancellationToken)
     {
         var items = await _context.BlueprintDefinitions
-            .Include(d => d.Versions)
+            .Include(definition => definition.Versions)
                 .ThenInclude(version => version.BlueprintNodes)
-                    .ThenInclude(taskInstance => taskInstance.TaskDefinition)
+                    .ThenInclude(node => node.TaskDefinition)
                         .ThenInclude(taskDefinition => taskDefinition.Versions)
                             .ThenInclude(taskVersion => taskVersion.Channels)
-            .Include(d => d.Versions)
+                                .ThenInclude(channel => channel.Properties)
+            .Include(definition => definition.Versions)
                 .ThenInclude(version => version.BlueprintNodes)
-                    .ThenInclude(taskInstance => taskInstance.OutgoingConnections)
+                    .ThenInclude(node => node.OutgoingConnections)
             .AsNoTracking()
             .AsSplitQuery()
-            .OrderBy(d => d.Id)
+            .OrderBy(definition => definition.Id)
             .ToListAsync(cancellationToken);
 
         return items.Select(item => MapBlueprintDefinition(item, includeTaskDetails: true)).ToList();
@@ -173,16 +174,18 @@ public class BlueprintRepository : IBlueprintRepository
     public async Task<BlueprintViewModel> GetBlueprintById(int id, CancellationToken cancellationToken)
     {
         var entity = await _context.BlueprintDefinitions
-            .Include(d => d.Versions)
+            .Include(definition => definition.Versions)
             .AsNoTracking()
             .AsSplitQuery()
-            .FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(definition => definition.Id == id, cancellationToken);
 
         if (entity is null)
+        {
             throw new EntityNotFoundException<BlueprintViewModel>(id);
+        }
 
         var versions = new List<BlueprintVersionViewModel>(entity.Versions.Count);
-        foreach (var versionId in entity.Versions.OrderByDescending(v => v.Version).Select(v => v.Id))
+        foreach (var versionId in entity.Versions.OrderByDescending(version => version.Version).Select(version => version.Id))
         {
             versions.Add(await GetBlueprintVersionViewModel(versionId, cancellationToken));
         }
@@ -221,8 +224,6 @@ public class BlueprintRepository : IBlueprintRepository
             }
         }
 
-        // Definition "Key" is currently required and unique; use a deterministic key.
-        // If you later add a dedicated "Name" column, change this mapping.
         var definition = new BlueprintDefinition
         {
             Key = key,
@@ -249,46 +250,28 @@ public class BlueprintRepository : IBlueprintRepository
                 cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        // Reload for a consistent view model (including generated ids)
         return await GetBlueprintById(definition.Id, cancellationToken);
     }
 
-    public async Task<BlueprintVersionViewModel> CreateVersion(FullBlueprintVersion model, CancellationToken cancellationToken)
+    public async Task<BlueprintVersionViewModel> CreateVersion(
+        BlueprintVersionInputModel model,
+        CancellationToken cancellationToken)
     {
         var definition = await _context.BlueprintDefinitions
-            .Include(d => d.Versions)
-            .FirstOrDefaultAsync(d => d.Id == model.DefinitionId, cancellationToken);
+            .Include(candidate => candidate.Versions)
+            .FirstOrDefaultAsync(candidate => candidate.Id == model.BlueprintDefinitionId, cancellationToken);
 
         if (definition is null)
-            throw new EntityNotFoundException<BlueprintViewModel>(model.DefinitionId);
+        {
+            throw new EntityNotFoundException<BlueprintViewModel>(model.BlueprintDefinitionId);
+        }
 
-        var nextVersion = definition.Versions.Count == 0 ? 1 : definition.Versions.Max(v => v.Version) + 1;
-
-            var tasks = model.TasksByInstanceId.Values
-            .Select(t => new BlueprintNodeInputModel
-            {
-                InstanceId = t.InstanceId,
-                TaskDefinitionId = t.TaskDefinitionId,
-                AllowedMajor = t.AllowedMajor,
-                AllowedMinor = t.AllowedMinor,
-                Position = new CoordinatesViewModel { X = t.Position.X, Y = t.Position.Y },
-                OutgoingConnections = t.OutgoingConnections.Select(c => new BlueprintConnectionInputModel
-                {
-                    ChannelId = c.ChannelDetails.ChannelId,
-                    ChannelName = c.ChannelDetails.ChannelName,
-                    ConnectedBlueprintNodeId = c.Task?.InstanceId ?? Guid.Empty,
-                    Anchor = c.Anchor,
-                    Side = c.Side,
-                    Position = c.Position
-                }).Where(c => c.ConnectedBlueprintNodeId != Guid.Empty).ToList()
-            })
-            .ToList();
-
+        var nextVersion = definition.Versions.Count == 0 ? 1 : definition.Versions.Max(version => version.Version) + 1;
         var createdVersion = await AddVersionEntities(
             definition,
             nextVersion,
-            model.TaskTree.InstanceId,
-            tasks,
+            model.StartingBlueprintNodeId,
+            model.Tasks,
             cancellationToken);
 
         _context.BlueprintVersions.Add(createdVersion);
@@ -301,7 +284,7 @@ public class BlueprintRepository : IBlueprintRepository
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(
                     version => version.StartingBlueprintNodeId,
-                    model.TaskTree.InstanceId),
+                    model.StartingBlueprintNodeId),
                 cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -321,20 +304,20 @@ public class BlueprintRepository : IBlueprintRepository
             Version = versionNumber,
         };
 
-        // BlueprintNodes
         var instancesById = new Dictionary<Guid, BlueprintNode>(tasks.Count);
-        foreach (var t in tasks)
+        foreach (var task in tasks)
         {
-            var instanceId = t.InstanceId == Guid.Empty ? Guid.NewGuid() : t.InstanceId;
+            var instanceId = task.InstanceId == Guid.Empty ? Guid.NewGuid() : task.InstanceId;
             var entity = new BlueprintNode
             {
                 Id = instanceId,
                 BlueprintVersion = blueprintVersion,
-                TaskDefinitionId = t.TaskDefinitionId,
-                AllowedMajor = t.AllowedMajor,
-                AllowedMinor = t.AllowedMinor,
-                PositionX = t.Position.X,
-                PositionY = t.Position.Y,
+                TaskDefinitionId = task.TaskDefinitionId,
+                AllowedMajor = task.AllowedMajor,
+                AllowedMinor = task.AllowedMinor,
+                PositionX = task.Position.X,
+                PositionY = task.Position.Y,
+                DesignTimeInputOverridesJson = SerializeJsonMap(task.DesignTimeInputOverrides),
             };
 
             blueprintVersion.BlueprintNodes.Add(entity);
@@ -342,43 +325,48 @@ public class BlueprintRepository : IBlueprintRepository
         }
 
         if (!instancesById.ContainsKey(startingBlueprintNodeId))
-            throw new InvalidDataException("StartingBlueprintNodeId must reference a task in tasks[].");
-
-        // Connections
-        foreach (var t in tasks)
         {
-            var sourceId = t.InstanceId;
-            if (sourceId == Guid.Empty) continue;
+            throw new InvalidDataException("StartingBlueprintNodeId must reference a task in tasks[].");
+        }
 
-            if (!instancesById.TryGetValue(sourceId, out var sourceEntity))
-                continue;
-
-            foreach (var conn in t.OutgoingConnections)
+        foreach (var task in tasks)
+        {
+            if (!instancesById.TryGetValue(task.InstanceId, out var sourceEntity))
             {
-                if (!instancesById.TryGetValue(conn.ConnectedBlueprintNodeId, out var destEntity))
-                    continue;
+                continue;
+            }
 
-                var channelName = conn.ChannelName;
-                if (string.IsNullOrWhiteSpace(channelName) && conn.ChannelId is not null)
+            foreach (var connection in task.OutgoingConnections)
+            {
+                if (!instancesById.TryGetValue(connection.ConnectedBlueprintNodeId, out var destinationEntity))
+                {
+                    continue;
+                }
+
+                var channelName = connection.ChannelName;
+                if (string.IsNullOrWhiteSpace(channelName) && connection.ChannelId is not null)
                 {
                     channelName = await _context.Channels
-                        .Where(c => c.Id == conn.ChannelId.Value)
-                        .Select(c => c.Name)
+                        .Where(channel => channel.Id == connection.ChannelId.Value)
+                        .Select(channel => channel.Name)
                         .FirstOrDefaultAsync(cancellationToken);
                 }
 
                 if (string.IsNullOrWhiteSpace(channelName))
+                {
                     continue;
+                }
 
-                sourceEntity.OutgoingConnections.Add(new Backend.Database.Relational.Entities.BlueprintConnection
+                sourceEntity.OutgoingConnections.Add(new BlueprintConnection
                 {
                     Id = Guid.NewGuid(),
                     SourceBlueprintNode = sourceEntity,
-                    DestinationBlueprintNode = destEntity,
-                    Anchor = conn.Anchor,
-                    Side = conn.Side,
-                    Position = conn.Position,
-                    ChannelName = channelName
+                    DestinationBlueprintNode = destinationEntity,
+                    Anchor = connection.Anchor,
+                    Side = connection.Side,
+                    Position = connection.Position,
+                    ChannelName = channelName,
+                    PropertyMappingsJson = SerializePropertyMappings(connection.PropertyMappings)
                 });
             }
         }
@@ -428,21 +416,21 @@ public class BlueprintRepository : IBlueprintRepository
         return normalized;
     }
 
-    private BlueprintViewModel MapBlueprintDefinition(BlueprintDefinition entity, bool includeTaskDetails = false)
-        => new BlueprintViewModel
+    private BlueprintViewModel MapBlueprintDefinition(BlueprintDefinition entity, bool includeTaskDetails = false) =>
+        new()
         {
             Id = entity.Id,
             Key = entity.Key,
             Name = entity.DisplayName,
             Description = string.Empty,
             Versions = entity.Versions
-                .OrderByDescending(v => v.Version)
-                .Select(v => MapBlueprintVersion(v, includeTaskDetails))
+                .OrderByDescending(version => version.Version)
+                .Select(version => MapBlueprintVersion(version, includeTaskDetails))
                 .ToList()
         };
 
-    private BlueprintVersionViewModel MapBlueprintVersion(BlueprintVersion version, bool includeTaskDetails)
-        => new()
+    private BlueprintVersionViewModel MapBlueprintVersion(BlueprintVersion version, bool includeTaskDetails) =>
+        new()
         {
             BlueprintVersionId = version.Id,
             BlueprintDefinitionId = version.BlueprintDefinitionId,
@@ -450,7 +438,10 @@ public class BlueprintRepository : IBlueprintRepository
             Version = version.Version,
             StartingBlueprintNodeId = version.StartingBlueprintNodeId ?? Guid.Empty,
             Tasks = includeTaskDetails
-                ? version.BlueprintNodes.OrderBy(taskInstance => taskInstance.Id).Select(MapBlueprintTask).ToList()
+                ? version.BlueprintNodes
+                    .OrderBy(taskInstance => taskInstance.Id)
+                    .Select(MapBlueprintTask)
+                    .ToList()
                 : new()
         };
 
@@ -466,40 +457,158 @@ public class BlueprintRepository : IBlueprintRepository
             ResolvedVersionId = resolvedVersion.Id,
             ResolvedVersion = resolvedVersion.Version.ToString(),
             Position = new CoordinatesViewModel { X = taskInstance.PositionX, Y = taskInstance.PositionY },
-            OutgoingConnections = taskInstance.OutgoingConnections.Select(connection => new BlueprintConnectionViewModel
-            {
-                ChannelId = resolvedVersion.OutputChannels.FirstOrDefault(channel => channel.Name == connection.ChannelName)?.Id,
-                ChannelName = connection.ChannelName,
-                BlueprintNodeId = connection.DestinationBlueprintNodeId ?? Guid.Empty,
-                Anchor = connection.Anchor,
-                Side = connection.Side,
-                Position = connection.Position,
-            }).Where(connection => connection.BlueprintNodeId != Guid.Empty).ToList()
+            DesignTimeInputOverrides = DeserializeJsonMap(taskInstance.DesignTimeInputOverridesJson),
+            OutgoingConnections = taskInstance.OutgoingConnections
+                .Select(connection => new BlueprintConnectionViewModel
+                {
+                    ChannelId = resolvedVersion.OutputChannels.FirstOrDefault(channel => channel.Name == connection.ChannelName)?.Id,
+                    ChannelName = connection.ChannelName,
+                    BlueprintNodeId = connection.DestinationBlueprintNodeId ?? Guid.Empty,
+                    Anchor = connection.Anchor,
+                    Side = connection.Side,
+                    Position = connection.Position,
+                    PropertyMappings = DeserializePropertyMappings(connection.PropertyMappingsJson)
+                        .Select(mapping => new BlueprintPropertyMappingViewModel
+                        {
+                            SourceProperty = mapping.SourceProperty,
+                            TargetProperty = mapping.TargetProperty
+                        })
+                        .ToList()
+                })
+                .Where(connection => connection.BlueprintNodeId != Guid.Empty)
+                .ToList()
         };
     }
 
-    private async Task<BlueprintVersionViewModel> GetBlueprintVersionViewModel(int blueprintVersionId, CancellationToken cancellationToken)
+    private async Task<BlueprintVersionViewModel> GetBlueprintVersionViewModel(
+        int blueprintVersionId,
+        CancellationToken cancellationToken)
     {
-        var bv = await _context.BlueprintVersions
+        var blueprintVersion = await _context.BlueprintVersions
             .AsNoTracking()
-            .FirstOrDefaultAsync(v => v.Id == blueprintVersionId, cancellationToken);
+            .FirstOrDefaultAsync(version => version.Id == blueprintVersionId, cancellationToken);
 
-        if (bv is null)
+        if (blueprintVersion is null)
+        {
             throw new EntityNotFoundException<BlueprintVersionViewModel>(blueprintVersionId);
+        }
 
         var taskInstances = await _context.BlueprintNodes
-            .Where(ti => ti.BlueprintVersionId == blueprintVersionId)
-            .Include(ti => ti.TaskDefinition)
-                .ThenInclude(td => td.Versions)
-                    .ThenInclude(tv => tv.Channels)
-            .Include(ti => ti.OutgoingConnections)
+            .Where(taskInstance => taskInstance.BlueprintVersionId == blueprintVersionId)
+            .Include(taskInstance => taskInstance.TaskDefinition)
+                .ThenInclude(taskDefinition => taskDefinition.Versions)
+                    .ThenInclude(taskVersion => taskVersion.Channels)
+                        .ThenInclude(channel => channel.Properties)
+            .Include(taskInstance => taskInstance.OutgoingConnections)
             .AsNoTracking()
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
 
-        bv.BlueprintNodes = taskInstances;
+        blueprintVersion.BlueprintNodes = taskInstances;
+        return MapBlueprintVersion(blueprintVersion, includeTaskDetails: true);
+    }
 
-        return MapBlueprintVersion(bv, includeTaskDetails: true);
+    private static Dictionary<Guid, int> ComputeExecutionOrder(
+        BlueprintVersion blueprintVersion,
+        IReadOnlyCollection<BlueprintNode> nodeEntities)
+    {
+        var outgoingByNodeId = nodeEntities.ToDictionary(
+            node => node.Id,
+            node => node.OutgoingConnections
+                .Where(connection => connection.DestinationBlueprintNodeId.HasValue)
+                .Select(connection => connection.DestinationBlueprintNodeId!.Value)
+                .ToList());
+
+        var visited = new HashSet<Guid>();
+        var order = new List<Guid>(nodeEntities.Count);
+
+        void Visit(Guid nodeId)
+        {
+            if (!visited.Add(nodeId))
+            {
+                return;
+            }
+
+            foreach (var destinationId in outgoingByNodeId[nodeId].OrderBy(id => id))
+            {
+                Visit(destinationId);
+            }
+
+            order.Add(nodeId);
+        }
+
+        if (blueprintVersion.StartingBlueprintNodeId is Guid startingNodeId)
+        {
+            Visit(startingNodeId);
+        }
+
+        foreach (var remainingNodeId in nodeEntities
+                     .Select(node => node.Id)
+                     .Where(nodeId => !visited.Contains(nodeId))
+                     .OrderBy(nodeId => nodeId))
+        {
+            Visit(remainingNodeId);
+        }
+
+        order.Reverse();
+        return order
+            .Select((nodeId, index) => new { nodeId, index })
+            .ToDictionary(item => item.nodeId, item => item.index);
+    }
+
+    private static List<ExecutableBlueprintPropertyMapping> BuildDefaultPropertyMappings(
+        IReadOnlyDictionary<string, string> sourceProperties,
+        IReadOnlyDictionary<string, string> targetProperties) =>
+        sourceProperties.Keys
+            .Intersect(targetProperties.Keys, StringComparer.Ordinal)
+            .OrderBy(property => property, StringComparer.Ordinal)
+            .Select(property => new ExecutableBlueprintPropertyMapping
+            {
+                SourceProperty = property,
+                TargetProperty = property
+            })
+            .ToList();
+
+    private static string? SerializeJsonMap(Dictionary<string, JsonElement> values) =>
+        values.Count == 0
+            ? null
+            : JsonSerializer.Serialize(values, JsonOptions);
+
+    private static Dictionary<string, JsonElement> DeserializeJsonMap(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        }
+
+        var parsed = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json, JsonOptions) ?? new();
+        return parsed.ToDictionary(
+            entry => entry.Key,
+            entry => entry.Value.Clone(),
+            StringComparer.Ordinal);
+    }
+
+    private static string? SerializePropertyMappings(IReadOnlyCollection<BlueprintPropertyMappingInputModel> mappings) =>
+        mappings.Count == 0
+            ? null
+            : JsonSerializer.Serialize(
+                mappings.Select(mapping => new SerializablePropertyMapping(mapping.SourceProperty, mapping.TargetProperty)).ToList(),
+                JsonOptions);
+
+    private static List<ExecutableBlueprintPropertyMapping> DeserializePropertyMappings(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        return (JsonSerializer.Deserialize<List<SerializablePropertyMapping>>(json, JsonOptions) ?? [])
+            .Select(mapping => new ExecutableBlueprintPropertyMapping
+            {
+                SourceProperty = mapping.SourceProperty,
+                TargetProperty = mapping.TargetProperty
+            })
+            .ToList();
     }
 
     private static TaskVersion ResolveConcreteVersion(BlueprintNode taskInstance, bool requireActive)
@@ -518,4 +627,6 @@ public class BlueprintRepository : IBlueprintRepository
         _ = requireActive;
         return laneVersions.First();
     }
+
+    private sealed record SerializablePropertyMapping(string SourceProperty, string TargetProperty);
 }

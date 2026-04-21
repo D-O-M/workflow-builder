@@ -1,5 +1,4 @@
 using Backend.Models;
-using Backend.Models.DomainModels;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
 
@@ -16,5 +15,5 @@ public interface IBlueprintRepository
 
     Task<BlueprintViewModel> CreateBlueprint(BlueprintInputModel model, CancellationToken cancellationToken);
 
-    Task<BlueprintVersionViewModel> CreateVersion(FullBlueprintVersion model, CancellationToken cancellationToken);
+    Task<BlueprintVersionViewModel> CreateVersion(BlueprintVersionInputModel model, CancellationToken cancellationToken);
 }

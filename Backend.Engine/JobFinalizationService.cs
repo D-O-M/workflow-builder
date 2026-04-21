@@ -1,22 +1,21 @@
-using Backend.Interfaces.Queues;
 using Backend.Plugins.Communication;
 
 namespace Backend.Engine;
 
 public class JobFinalizationService
 {
+    private readonly NodeActivationService _nodeActivationService;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
     private readonly ILogger<JobFinalizationService> _logger;
-    private readonly IProcessStepQueueWriter _processStepQueueWriter;
 
     public JobFinalizationService(
+        NodeActivationService nodeActivationService,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
-        ILogger<JobFinalizationService> logger,
-        IProcessStepQueueWriter processStepQueueWriter)
+        ILogger<JobFinalizationService> logger)
     {
+        _nodeActivationService = nodeActivationService;
         _processLifecycleTelemetry = processLifecycleTelemetry;
         _logger = logger;
-        _processStepQueueWriter = processStepQueueWriter;
     }
 
     public async Task FinalizeSuccess(
@@ -30,7 +29,10 @@ public class JobFinalizationService
             executionResult.CompletedAt,
             cancellationToken);
 
-        await EnqueueNextStepsAsync(context, executionResult, cancellationToken);
+        await _nodeActivationService.EnqueueReadyDownstreamStepsAsync(
+            context,
+            executionResult,
+            cancellationToken);
         _processLifecycleTelemetry.LogStepCompleted(context, executionResult);
 
         if (await context.CompleteProcessIfTerminalAsync(cancellationToken))
@@ -67,45 +69,6 @@ public class JobFinalizationService
                 context.BlueprintNodeId,
                 context.ProcessId,
                 executionResult.ErrorMessage);
-        }
-    }
-
-    private async Task EnqueueNextStepsAsync(
-        JobContext context,
-        PluginExecutionResult executionResult,
-        CancellationToken cancellationToken)
-    {
-        foreach (var outputChannel in context.BlueprintNode.OutputChannels.Values)
-        {
-            if (!executionResult.OutputData.ContainsKey(outputChannel.Name) ||
-                outputChannel.Destination is null)
-            {
-                continue;
-            }
-
-            var downstreamProcessStepId = Guid.NewGuid();
-            await context.CreatePendingStepAsync(
-                downstreamProcessStepId,
-                outputChannel.Destination.Id,
-                executionResult.CompletedAt,
-                cancellationToken);
-
-            var job = new ProcessStepInitialisationMessage
-            {
-                ProcessId = context.ProcessId,
-                ExecutableBlueprintId = context.ExecutableBlueprintId,
-                ProcessStepId = downstreamProcessStepId,
-                BlueprintNodeId = outputChannel.Destination.Id,
-                PreviousProcessStepId = context.ProcessStepId,
-                LinkedOutputChannelName = outputChannel.Name
-            };
-
-            await _processStepQueueWriter.EnqueueAsync(job, cancellationToken);
-            _logger.LogInformation(
-                "Enqueued downstream step {BlueprintNodeId} from output channel {OutputChannelName} for process {ProcessId}",
-                outputChannel.Destination.Id,
-                outputChannel.Name,
-                context.ProcessId);
         }
     }
 }

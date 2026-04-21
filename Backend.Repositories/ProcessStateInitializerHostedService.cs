@@ -38,6 +38,10 @@ public sealed class ProcessStateInitializerHostedService : IHostedService
             new ContainerProperties(_options.TasksContainerName, "/processId"),
             cancellationToken: cancellationToken);
 
+        await databaseResponse.Database.CreateContainerIfNotExistsAsync(
+            new ContainerProperties(_options.ActivationsContainerName, "/processId"),
+            cancellationToken: cancellationToken);
+
         _logger.LogInformation(
             "Cosmos process state is ready for database {DatabaseName}.",
             _options.DatabaseName);

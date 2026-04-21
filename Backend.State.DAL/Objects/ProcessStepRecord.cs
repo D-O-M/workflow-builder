@@ -32,6 +32,10 @@ public class ProcessStepRecord
         init => _id = value;
     }
 
+    [JsonPropertyName("_etag")]
+    [JsonProperty(PropertyName = "_etag")]
+    public string? ETag { get; set; }
+
     [JsonPropertyName("blueprintNodeId")]
     [JsonProperty(PropertyName = "blueprintNodeId")]
     public string BlueprintNodeId { get; init; } = null!;
@@ -92,6 +96,10 @@ public class ProcessStepRecord
     [System.Text.Json.Serialization.JsonConverter(typeof(JsonStringEnumConverter))]
     [JsonProperty(PropertyName = "status")]
     public ProcessStepStatus Status { get; set; }
+
+    [JsonPropertyName("inputData")]
+    [JsonProperty(PropertyName = "inputData")]
+    public Dictionary<string, JsonElement>? InputData { get; set; }
 
     [JsonPropertyName("outputData")]
     [JsonProperty(PropertyName = "outputData")]

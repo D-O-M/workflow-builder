@@ -26,8 +26,16 @@ public class JobManager
         JobContext job,
         CancellationToken cancellationToken)
     {
+        var (stepClaimed, processStarted) = await job.TryMarkInProgressAsync(cancellationToken);
+        if (!stepClaimed)
+        {
+            await job.CompleteMessageAsync(cancellationToken);
+            return true;
+        }
+
         if (!_agentManager.TryAcquireJobSlot(job.ResolvedTaskVersionId))
         {
+            await job.ResetToPendingAsync(cancellationToken);
             return false;
         }
 
@@ -43,6 +51,7 @@ public class JobManager
         {
             _jobs.Remove(job.Guid);
             _agentManager.ReleaseJobSlot(job.ResolvedTaskVersionId);
+            await job.ResetToPendingAsync(cancellationToken);
             throw;
         }
 
@@ -50,12 +59,12 @@ public class JobManager
         {
             _jobs.Remove(job.Guid);
             _agentManager.ReleaseJobSlot(job.ResolvedTaskVersionId);
+            await job.ResetToPendingAsync(cancellationToken);
             return false;
         }
 
         try
         {
-            var processStarted = await job.MarkInProgressAsync(cancellationToken);
             _processLifecycleTelemetry.LogStepStarted(
                 job,
                 job.StartedAt ?? DateTimeOffset.UtcNow);

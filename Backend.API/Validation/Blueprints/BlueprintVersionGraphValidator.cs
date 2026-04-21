@@ -35,8 +35,8 @@ public sealed class BlueprintVersionGraphValidator : IBlueprintVersionValidator
 
         if (!result.IsValid)
             return Task.FromResult(result);
-
-        var nodeIndex = tasksByInstanceId.Keys.Select((id, idx) => (id, idx)).ToDictionary(x => x.id, x => x.idx);
+        var orderedTaskIds = model.Tasks.Select(task => task.InstanceId).ToList();
+        var nodeIndex = orderedTaskIds.Select((id, idx) => (id, idx)).ToDictionary(x => x.id, x => x.idx);
 
         // Detect cycles (must be a DAG) and ensure all nodes are reachable from the starting node.
         var visited = new HashSet<Guid>();
@@ -88,8 +88,6 @@ public sealed class BlueprintVersionGraphValidator : IBlueprintVersionValidator
                 result.Add("graph.unreachable", "All tasks must be reachable from startingBlueprintNodeId.", $"tasks[{nodeIndex[task.InstanceId]}]");
         }
 
-        // Enforce: from-task output channel can connect to many nodes, but each destination task must have <= 1 incoming edge.
-        // NOTE: "destination input channel" is not modeled yet; this is the strictest safe check we can do with current DTOs.
         var incomingCounts = new Dictionary<Guid, int>();
         foreach (var task in model.Tasks)
         {
@@ -109,13 +107,69 @@ public sealed class BlueprintVersionGraphValidator : IBlueprintVersionValidator
             {
                 if (count > 0)
                     result.Add("graph.start.incoming", "Starting task must not have any incoming connections.", "startingBlueprintNodeId");
-                continue;
             }
+        }
 
-            if (count > 1)
-                result.Add("graph.node.multipleIncoming", "Task must not have multiple incoming connections.", $"tasks[{nodeIndex[destId]}]");
+        if (!result.IsValid)
+            return Task.FromResult(result);
+
+        var topologicalOrder = BuildTopologicalOrder(model.Tasks, tasksByInstanceId);
+        foreach (var task in model.Tasks)
+        {
+            foreach (var conn in task.OutgoingConnections)
+            {
+                if (!topologicalOrder.TryGetValue(task.InstanceId, out var sourceOrder) ||
+                    !topologicalOrder.TryGetValue(conn.ConnectedBlueprintNodeId, out var destinationOrder))
+                {
+                    continue;
+                }
+
+                if (destinationOrder <= sourceOrder)
+                {
+                    result.Add(
+                        "graph.executionOrder.backward",
+                        "Connections must always point forward in execution order.",
+                        $"tasks[{nodeIndex[task.InstanceId]}].outgoingConnections");
+                }
+            }
         }
 
         return Task.FromResult(result);
+    }
+
+    private static Dictionary<Guid, int> BuildTopologicalOrder(
+        IReadOnlyCollection<BlueprintNodeInputModel> tasks,
+        IReadOnlyDictionary<Guid, BlueprintNodeInputModel> tasksByInstanceId)
+    {
+        var visited = new HashSet<Guid>();
+        var order = new List<Guid>(tasks.Count);
+
+        void Visit(Guid nodeId)
+        {
+            if (!visited.Add(nodeId))
+            {
+                return;
+            }
+
+            foreach (var targetId in tasksByInstanceId[nodeId].OutgoingConnections
+                         .Select(connection => connection.ConnectedBlueprintNodeId)
+                         .Where(tasksByInstanceId.ContainsKey)
+                         .OrderBy(id => id))
+            {
+                Visit(targetId);
+            }
+
+            order.Add(nodeId);
+        }
+
+        foreach (var nodeId in tasks.Select(task => task.InstanceId).OrderBy(id => id))
+        {
+            Visit(nodeId);
+        }
+
+        order.Reverse();
+        return order
+            .Select((nodeId, index) => new { nodeId, index })
+            .ToDictionary(item => item.nodeId, item => item.index);
     }
 }

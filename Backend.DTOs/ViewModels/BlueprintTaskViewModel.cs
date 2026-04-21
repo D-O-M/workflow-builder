@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Backend.Models.ViewModels;
 
 public sealed class BlueprintNodeViewModel
@@ -12,6 +14,8 @@ public sealed class BlueprintNodeViewModel
     public string? ResolvedVersion { get; init; }
 
     public CoordinatesViewModel Position { get; init; }
+
+    public Dictionary<string, JsonElement> DesignTimeInputOverrides { get; init; } = new();
 
     public List<BlueprintConnectionViewModel> OutgoingConnections { get; init; } = new();
 }

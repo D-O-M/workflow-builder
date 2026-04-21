@@ -7,4 +7,5 @@ public sealed class ExportedBlueprintConnectionViewModel
     public int Anchor { get; init; }
     public required string Side { get; init; }
     public int Position { get; init; }
+    public List<BlueprintPropertyMappingViewModel> PropertyMappings { get; init; } = [];
 }

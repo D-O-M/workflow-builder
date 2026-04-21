@@ -14,4 +14,5 @@ public class BlueprintConnection
     public string Side { get; set; } = null!;
     public int Position { get; set; }
     public string ChannelName { get; set; } = null!;
+    public string? PropertyMappingsJson { get; set; }
 }

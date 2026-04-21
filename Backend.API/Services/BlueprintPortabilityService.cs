@@ -15,7 +15,7 @@ namespace Backend.API.Services;
 
 public sealed class BlueprintPortabilityService
 {
-    private const int CurrentSchemaVersion = 2;
+    private const int CurrentSchemaVersion = 3;
     private static readonly JsonSerializerOptions CanonicalJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly BlueprintDbContext _context;
@@ -97,6 +97,7 @@ public sealed class BlueprintPortabilityService
                 AllowedMajor = task.AllowedMajor,
                 AllowedMinor = task.AllowedMinor,
                 Position = task.Position,
+                DesignTimeInputOverrides = task.DesignTimeInputOverrides,
                 OutgoingConnections = task.OutgoingConnections
                     .Select(connection => new BlueprintConnectionInputModel
                     {
@@ -104,7 +105,14 @@ public sealed class BlueprintPortabilityService
                         ConnectedBlueprintNodeId = connection.ConnectedTaskKey,
                         Anchor = connection.Anchor,
                         Side = connection.Side,
-                        Position = connection.Position
+                        Position = connection.Position,
+                        PropertyMappings = connection.PropertyMappings
+                            .Select(mapping => new BlueprintPropertyMappingInputModel
+                            {
+                                SourceProperty = mapping.SourceProperty,
+                                TargetProperty = mapping.TargetProperty
+                            })
+                            .ToList()
                     })
                     .ToList()
             })
@@ -157,9 +165,7 @@ public sealed class BlueprintPortabilityService
                 }
             }
 
-            var createdVersion = await _blueprintRepository.CreateVersion(
-                BuildImportedVersion(definition.Id, validationModel),
-                cancellationToken);
+            var createdVersion = await _blueprintRepository.CreateVersion(validationModel, cancellationToken);
 
             return new BlueprintImportViewModel
             {
@@ -361,6 +367,7 @@ public sealed class BlueprintPortabilityService
                         X = task.PositionX,
                         Y = task.PositionY
                     },
+                    DesignTimeInputOverrides = DeserializeJsonMap(task.DesignTimeInputOverridesJson),
                     OutgoingConnections = task.OutgoingConnections
                         .Where(connection => connection.DestinationBlueprintNodeId.HasValue)
                         .OrderBy(connection => connection.ChannelName)
@@ -372,7 +379,8 @@ public sealed class BlueprintPortabilityService
                             ConnectedTaskKey = connection.DestinationBlueprintNodeId!.Value,
                             Anchor = connection.Anchor,
                             Side = connection.Side,
-                            Position = connection.Position
+                            Position = connection.Position,
+                            PropertyMappings = DeserializePropertyMappings(connection.PropertyMappingsJson)
                         })
                         .ToList()
                 })
@@ -395,6 +403,7 @@ public sealed class BlueprintPortabilityService
                     AllowedMinor = task.AllowedMinor,
                     PositionX = task.Position.X,
                     PositionY = task.Position.Y,
+                    DesignTimeInputOverrides = CanonicalizeJsonMap(task.DesignTimeInputOverrides),
                     OutgoingConnections = task.OutgoingConnections
                         .Select(connection => new ComparableConnection
                         {
@@ -402,7 +411,16 @@ public sealed class BlueprintPortabilityService
                             ConnectedTaskKey = connection.ConnectedTaskKey,
                             Anchor = connection.Anchor,
                             Side = connection.Side,
-                            Position = connection.Position
+                            Position = connection.Position,
+                            PropertyMappings = connection.PropertyMappings
+                                .Select(mapping => new ComparablePropertyMapping
+                                {
+                                    SourceProperty = mapping.SourceProperty.Trim(),
+                                    TargetProperty = mapping.TargetProperty.Trim()
+                                })
+                                .OrderBy(mapping => mapping.TargetProperty, StringComparer.Ordinal)
+                                .ThenBy(mapping => mapping.SourceProperty, StringComparer.Ordinal)
+                                .ToList()
                         })
                         .OrderBy(connection => connection.ChannelName, StringComparer.Ordinal)
                         .ThenBy(connection => connection.ConnectedTaskKey)
@@ -433,6 +451,7 @@ public sealed class BlueprintPortabilityService
                     AllowedMinor = task.AllowedMinor,
                     PositionX = task.Position.X,
                     PositionY = task.Position.Y,
+                    DesignTimeInputOverrides = CanonicalizeJsonMap(task.DesignTimeInputOverrides),
                     OutgoingConnections = task.OutgoingConnections
                         .Select(connection => new ComparableConnection
                         {
@@ -440,7 +459,16 @@ public sealed class BlueprintPortabilityService
                             ConnectedTaskKey = connection.ConnectedTaskKey,
                             Anchor = connection.Anchor,
                             Side = connection.Side,
-                            Position = connection.Position
+                            Position = connection.Position,
+                            PropertyMappings = connection.PropertyMappings
+                                .Select(mapping => new ComparablePropertyMapping
+                                {
+                                    SourceProperty = mapping.SourceProperty,
+                                    TargetProperty = mapping.TargetProperty
+                                })
+                                .OrderBy(mapping => mapping.TargetProperty, StringComparer.Ordinal)
+                                .ThenBy(mapping => mapping.SourceProperty, StringComparer.Ordinal)
+                                .ToList()
                         })
                         .OrderBy(connection => connection.ChannelName, StringComparer.Ordinal)
                         .ThenBy(connection => connection.ConnectedTaskKey)
@@ -454,50 +482,6 @@ public sealed class BlueprintPortabilityService
         };
 
         return JsonSerializer.Serialize(comparable, CanonicalJsonOptions);
-    }
-
-    private static FullBlueprintVersion BuildImportedVersion(
-        int blueprintDefinitionId,
-        BlueprintVersionInputModel model)
-    {
-        var taskModelsByInstanceId = model.Tasks.ToDictionary(task => task.InstanceId, task => task);
-        return new FullBlueprintVersion
-        {
-            DefinitionId = blueprintDefinitionId,
-            TaskTree = BuildTaskTree(taskModelsByInstanceId[model.StartingBlueprintNodeId], taskModelsByInstanceId)
-        };
-    }
-
-    private static BlueprintTaskTree BuildTaskTree(
-        BlueprintNodeInputModel model,
-        IReadOnlyDictionary<Guid, BlueprintNodeInputModel> taskModelsByInstanceId)
-    {
-        var task = new BlueprintTaskTree
-        {
-            InstanceId = model.InstanceId,
-            TaskDefinitionId = model.TaskDefinitionId,
-            AllowedMajor = model.AllowedMajor,
-            AllowedMinor = model.AllowedMinor,
-            Position = new Coordinates(model.Position.X, model.Position.Y)
-        };
-
-        foreach (var connection in model.OutgoingConnections)
-        {
-            task.OutgoingConnections.Add(new Backend.Models.DomainModels.BlueprintConnection
-            {
-                ChannelDetails = new ChannelDetails
-                {
-                    ChannelId = connection.ChannelId,
-                    ChannelName = connection.ChannelName
-                },
-                Anchor = connection.Anchor,
-                Side = connection.Side,
-                Position = connection.Position,
-                Task = BuildTaskTree(taskModelsByInstanceId[connection.ConnectedBlueprintNodeId], taskModelsByInstanceId)
-            });
-        }
-
-        return task;
     }
 
     private sealed record ResolvedImportTask(int TaskDefinitionId, TaskVersion ResolvedVersion);
@@ -517,6 +501,7 @@ public sealed class BlueprintPortabilityService
         public int AllowedMinor { get; init; }
         public int PositionX { get; init; }
         public int PositionY { get; init; }
+        public required string? DesignTimeInputOverrides { get; init; }
         public required List<ComparableConnection> OutgoingConnections { get; init; }
     }
 
@@ -527,5 +512,45 @@ public sealed class BlueprintPortabilityService
         public int Anchor { get; init; }
         public required string Side { get; init; }
         public int Position { get; init; }
+        public required List<ComparablePropertyMapping> PropertyMappings { get; init; }
+    }
+
+    private sealed class ComparablePropertyMapping
+    {
+        public required string SourceProperty { get; init; }
+        public required string TargetProperty { get; init; }
+    }
+
+    private static List<BlueprintPropertyMappingViewModel> DeserializePropertyMappings(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<List<BlueprintPropertyMappingViewModel>>(json, CanonicalJsonOptions) ?? [];
+    }
+
+    private static Dictionary<string, JsonElement> DeserializeJsonMap(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json, CanonicalJsonOptions) ?? [];
+    }
+
+    private static string? CanonicalizeJsonMap(IReadOnlyDictionary<string, JsonElement> values)
+    {
+        if (values.Count == 0)
+        {
+            return null;
+        }
+
+        var ordered = values
+            .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+            .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
+        return JsonSerializer.Serialize(ordered, CanonicalJsonOptions);
     }
 }

@@ -95,6 +95,12 @@ public sealed class ProcessProjectionService
         context.ProcessStepsByBlueprintNodeId.TryGetValue(blueprintNode.Id, out var taskState);
         var actualResolvedVersion = ResolveActualVersion(blueprintNode, taskState);
         var endedAt = taskState?.FailedAt ?? taskState?.CompletedAt;
+        var sourceNameByBlueprintNodeId = context.BlueprintVersion.BlueprintNodes
+            .ToDictionary(node => node.Id, node => node.TaskDefinition.Name);
+        var designTimeOverrides = SerializePayloads(DeserializePayloads(blueprintNode.DesignTimeInputOverridesJson));
+        var runtimeOverrides = context.ProcessRecord.NodeOverrides.TryGetValue(blueprintNode.Id.ToString(), out var nodeOverrides)
+            ? SerializePayloads(nodeOverrides)
+            : null;
 
         return new ProcessStepDetailViewModel
         {
@@ -108,8 +114,23 @@ public sealed class ProcessProjectionService
             EndedAt = endedAt,
             DurationMs = CalculateDurationMs(taskState?.StartedAt, endedAt),
             FailureMessage = taskState?.ErrorMessage,
-            Inputs = ResolveStepInputs(blueprintNode, actualResolvedVersion, context),
+            Inputs = SerializePayloads(taskState?.InputData),
             Outputs = SerializePayloads(taskState?.OutputData),
+            IncomingMappings = blueprintNode.IncomingConnections
+                .Where(connection => connection.SourceBlueprintNodeId.HasValue)
+                .OrderBy(connection => sourceNameByBlueprintNodeId.TryGetValue(connection.SourceBlueprintNodeId!.Value, out var name) ? name : connection.SourceBlueprintNodeId.ToString())
+                .Select(connection => new ProcessStepIncomingMappingViewModel
+                {
+                    SourceBlueprintNodeId = connection.SourceBlueprintNodeId!.Value,
+                    SourceName = sourceNameByBlueprintNodeId.TryGetValue(connection.SourceBlueprintNodeId!.Value, out var name)
+                        ? name
+                        : $"Node {connection.SourceBlueprintNodeId}",
+                    ChannelName = connection.ChannelName,
+                    PropertyMappings = DeserializePropertyMappings(connection.PropertyMappingsJson),
+                })
+                .ToList(),
+            DesignTimeInputOverrides = designTimeOverrides,
+            RuntimeOverrides = runtimeOverrides,
         };
     }
 
@@ -351,52 +372,6 @@ public sealed class ProcessProjectionService
             processStepsByBlueprintNodeId);
     }
 
-    private static JsonElement? ResolveStepInputs(
-        BlueprintNode blueprintNode,
-        TaskVersion resolvedVersion,
-        ProcessProjectionContext context)
-    {
-        var inputChannelName = resolvedVersion.InputChannels.SingleOrDefault()?.Name;
-        var incomingConnection = blueprintNode.IncomingConnections
-            .FirstOrDefault(connection => connection.SourceBlueprintNodeId.HasValue);
-
-        if (incomingConnection is not null)
-        {
-            if (!context.ProcessStepsByBlueprintNodeId.TryGetValue(incomingConnection.SourceBlueprintNodeId!.Value, out var sourceTaskState))
-            {
-                return null;
-            }
-
-            return TryBuildNamedPayload(
-                sourceTaskState.OutputData,
-                incomingConnection.ChannelName,
-                inputChannelName ?? incomingConnection.ChannelName);
-        }
-
-        var seedTask = context.ProcessSteps
-            .FirstOrDefault(task => string.Equals(task.BlueprintNodeId, Guid.Empty.ToString(), StringComparison.OrdinalIgnoreCase));
-
-        return seedTask is null || string.IsNullOrWhiteSpace(inputChannelName)
-            ? null
-            : TryBuildNamedPayload(seedTask.OutputData, inputChannelName, inputChannelName);
-    }
-
-    private static JsonElement? TryBuildNamedPayload(
-        IReadOnlyDictionary<string, JsonElement>? payloads,
-        string payloadKey,
-        string propertyName)
-    {
-        if (payloads is null || !payloads.TryGetValue(payloadKey, out var payload))
-        {
-            return null;
-        }
-
-        return JsonSerializer.SerializeToElement(new Dictionary<string, JsonElement>
-        {
-            [propertyName] = payload,
-        });
-    }
-
     private static JsonElement? SerializePayloads(IReadOnlyDictionary<string, JsonElement>? payloads)
     {
         if (payloads is null || payloads.Count == 0)
@@ -405,6 +380,17 @@ public sealed class ProcessProjectionService
         }
 
         return JsonSerializer.SerializeToElement(payloads);
+    }
+
+    private static Dictionary<string, JsonElement> DeserializePayloads(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            ?? [];
     }
 
     private static double? CalculateDurationMs(DateTimeOffset? startedAt, DateTimeOffset? endedAt)
@@ -520,6 +506,7 @@ public sealed class ProcessProjectionService
                     Anchor = connection.Anchor,
                     Side = connection.Side,
                     Position = connection.Position,
+                    PropertyMappings = DeserializePropertyMappings(connection.PropertyMappingsJson),
                 })
                 .ToList(),
         };
@@ -621,4 +608,15 @@ public sealed class ProcessProjectionService
         ProcessInstanceRecord<Dictionary<string, JsonElement>> ProcessRecord,
         IReadOnlyCollection<ProcessStepRecord> ProcessSteps,
         IReadOnlyDictionary<Guid, ProcessStepRecord> ProcessStepsByBlueprintNodeId);
+
+    private static List<BlueprintPropertyMappingViewModel> DeserializePropertyMappings(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<List<BlueprintPropertyMappingViewModel>>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            ?? [];
+    }
 }

@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Backend.Models.ViewModels;
 
 public sealed class ExportedBlueprintNodeViewModel
@@ -7,5 +9,6 @@ public sealed class ExportedBlueprintNodeViewModel
     public int AllowedMajor { get; init; }
     public int AllowedMinor { get; init; }
     public required CoordinatesViewModel Position { get; init; }
+    public Dictionary<string, JsonElement> DesignTimeInputOverrides { get; init; } = [];
     public List<ExportedBlueprintConnectionViewModel> OutgoingConnections { get; init; } = [];
 }

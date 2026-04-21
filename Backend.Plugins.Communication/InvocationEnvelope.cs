@@ -3,10 +3,6 @@ using System.Text.Json;
 
 namespace Backend.Plugins.Communication;
 
-public sealed record PreviousTaskDetails(
-    Guid PreviousBlueprintNodeId,
-    string LinkedOutputChannelName);
-
 /// <summary>
 /// Minimal invocation envelope exchanged between the engine and nano-service.
 /// The envelope omits payload data and instead conveys the identifiers needed
@@ -24,8 +20,7 @@ public sealed record InvocationEnvelope(
     int TaskDefinitionId,
     int TaskVersionId,
     string TaskVersion,
-    string PluginName,
-    PreviousTaskDetails PreviousTaskDetails);
+    string PluginName);
 
 /// <summary>
 /// Helper responsible for serialising <see cref="InvocationEnvelope"/> payloads.

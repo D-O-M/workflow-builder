@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Azure.Cosmos;
 using Newtonsoft.Json;
@@ -63,4 +64,8 @@ public class ProcessInstanceRecord<TGlobalState>
     [JsonPropertyName("globalState")]
     [JsonProperty(PropertyName = "globalState")]
     public required TGlobalState GlobalState { get; set; }
+
+    [JsonPropertyName("nodeOverrides")]
+    [JsonProperty(PropertyName = "nodeOverrides")]
+    public Dictionary<string, Dictionary<string, JsonElement>> NodeOverrides { get; set; } = new();
 }

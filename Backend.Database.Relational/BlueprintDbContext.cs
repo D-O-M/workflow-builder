@@ -130,6 +130,7 @@ public class BlueprintDbContext : DbContext
             entity.Property(e => e.AllowedMinor).IsRequired();
             entity.Property(e => e.PositionX).IsRequired();
             entity.Property(e => e.PositionY).IsRequired();
+            entity.Property(e => e.DesignTimeInputOverridesJson).IsRequired(false);
 
             entity.HasOne(e => e.TaskDefinition)
                 .WithMany()
@@ -160,6 +161,7 @@ public class BlueprintDbContext : DbContext
             entity.Property(e => e.DestinationBlueprintNodeId).IsRequired(false);
             entity.Property(e => e.Side).IsRequired();
             entity.Property(e => e.ChannelName).IsRequired();
+            entity.Property(e => e.PropertyMappingsJson).IsRequired(false);
         });
 
         // -----------------------------

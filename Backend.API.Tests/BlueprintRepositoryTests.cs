@@ -1,10 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Backend.API.Tests.TestSupport;
 using Backend.Database.Relational.Entities;
-using Backend.Models.DomainModels;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
 using Backend.Repositories;
@@ -57,6 +58,138 @@ public sealed class BlueprintRepositoryTests
         reloaded.Versions[0].Version.ShouldBe(2);
     }
 
+    [Test]
+    public async Task GetFullBlueprintById_compiles_bindings_and_design_time_overrides()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var sourceDefinition = await SeedTaskDefinitionWithChannelsAsync(
+            database.Context,
+            "Lookup",
+            new Dictionary<string, PrimitiveTypes>
+            {
+                ["requestId"] = PrimitiveTypes.Guid,
+            },
+            ("TownResult", new Dictionary<string, PrimitiveTypes>
+            {
+                ["town"] = PrimitiveTypes.String,
+            }));
+        var holidayDefinition = await SeedTaskDefinitionWithChannelsAsync(
+            database.Context,
+            "Holiday",
+            new Dictionary<string, PrimitiveTypes>
+            {
+                ["requestId"] = PrimitiveTypes.Guid,
+            },
+            ("HolidayResult", new Dictionary<string, PrimitiveTypes>
+            {
+                ["holiday"] = PrimitiveTypes.String,
+            }));
+        var targetDefinition = await SeedTaskDefinitionWithChannelsAsync(
+            database.Context,
+            "Recommendation",
+            new Dictionary<string, PrimitiveTypes>
+            {
+                ["mappedTown"] = PrimitiveTypes.String,
+                ["holiday"] = PrimitiveTypes.String,
+                ["mode"] = PrimitiveTypes.String,
+            });
+
+        var repository = new BlueprintRepository(database.Context);
+        var sourceNodeId = Guid.NewGuid();
+        var holidayNodeId = Guid.NewGuid();
+        var targetNodeId = Guid.NewGuid();
+
+        var created = await repository.CreateBlueprint(
+            new BlueprintInputModel
+            {
+                Name = "Joined Blueprint",
+                StartingBlueprintNodeId = sourceNodeId,
+                Tasks =
+                [
+                    new BlueprintNodeInputModel
+                    {
+                        InstanceId = sourceNodeId,
+                        TaskDefinitionId = sourceDefinition.Id,
+                        AllowedMajor = 1,
+                        AllowedMinor = 0,
+                        Position = new CoordinatesViewModel { X = 100, Y = 80 },
+                        OutgoingConnections =
+                        [
+                            new BlueprintConnectionInputModel
+                            {
+                                ConnectedBlueprintNodeId = targetNodeId,
+                                ChannelName = "TownResult",
+                                Anchor = 0,
+                                Side = "right",
+                                Position = 0,
+                                PropertyMappings =
+                                [
+                                    new BlueprintPropertyMappingInputModel
+                                    {
+                                        SourceProperty = "town",
+                                        TargetProperty = "mappedTown",
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    new BlueprintNodeInputModel
+                    {
+                        InstanceId = holidayNodeId,
+                        TaskDefinitionId = holidayDefinition.Id,
+                        AllowedMajor = 1,
+                        AllowedMinor = 0,
+                        Position = new CoordinatesViewModel { X = 360, Y = 80 },
+                        OutgoingConnections =
+                        [
+                            new BlueprintConnectionInputModel
+                            {
+                                ConnectedBlueprintNodeId = targetNodeId,
+                                ChannelName = "HolidayResult",
+                                Anchor = 0,
+                                Side = "right",
+                                Position = 0,
+                            }
+                        ]
+                    },
+                    new BlueprintNodeInputModel
+                    {
+                        InstanceId = targetNodeId,
+                        TaskDefinitionId = targetDefinition.Id,
+                        AllowedMajor = 1,
+                        AllowedMinor = 0,
+                        Position = new CoordinatesViewModel { X = 620, Y = 80 },
+                        DesignTimeInputOverrides = new Dictionary<string, JsonElement>
+                        {
+                            ["mode"] = JsonSerializer.SerializeToElement("design-time")
+                        }
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        var executable = await repository.GetFullBlueprintById(
+            created.Versions[0].BlueprintVersionId,
+            CancellationToken.None);
+
+        var sourceNode = executable.NodesById[sourceNodeId];
+        var holidayNode = executable.NodesById[holidayNodeId];
+        var targetNode = executable.NodesById[targetNodeId];
+
+        sourceNode.OutputChannels["TownResult"].OutboundBindings.Count.ShouldBe(1);
+        holidayNode.OutputChannels["HolidayResult"].OutboundBindings.Count.ShouldBe(1);
+        targetNode.InboundBindings.Count.ShouldBe(2);
+        targetNode.DesignTimeInputOverrides["mode"].GetString().ShouldBe("design-time");
+        targetNode.InboundBindings.ShouldContain(binding =>
+            binding.PropertyMappings.Any(mapping =>
+                mapping.SourceProperty == "town" &&
+                mapping.TargetProperty == "mappedTown"));
+        targetNode.InboundBindings.ShouldContain(binding =>
+            binding.PropertyMappings.Any(mapping =>
+                mapping.SourceProperty == "holiday" &&
+                mapping.TargetProperty == "holiday"));
+    }
+
     private static async Task<TaskDefinition> SeedTaskDefinitionAsync(
         Backend.Database.Relational.BlueprintDbContext context,
         string name,
@@ -85,6 +218,56 @@ public sealed class BlueprintRepositoryTests
         return taskDefinition;
     }
 
+    private static async Task<TaskDefinition> SeedTaskDefinitionWithChannelsAsync(
+        Backend.Database.Relational.BlueprintDbContext context,
+        string name,
+        Dictionary<string, PrimitiveTypes> inputProperties,
+        params (string ChannelName, Dictionary<string, PrimitiveTypes> Properties)[] outputChannels)
+    {
+        var taskDefinition = new TaskDefinition
+        {
+            Name = name,
+            Versions =
+            [
+                new TaskVersion
+                {
+                    Version = new Version(1, 0, 0),
+                    Path = $"/plugins/{name.ToLowerInvariant()}",
+                    State = TaskVersionState.Active,
+                    Channels =
+                    [
+                        new InputChannelDefinition
+                        {
+                            Name = "Input",
+                            Properties = inputProperties
+                                .Select(property => new ChannelProperty
+                                {
+                                    Name = property.Key,
+                                    Type = property.Value,
+                                })
+                                .ToList()
+                        },
+                        .. outputChannels.Select(channel => new OutputChannelDefinition
+                        {
+                            Name = channel.ChannelName,
+                            Properties = channel.Properties
+                                .Select(property => new ChannelProperty
+                                {
+                                    Name = property.Key,
+                                    Type = property.Value,
+                                })
+                                .ToList()
+                        })
+                    ]
+                }
+            ]
+        };
+
+        context.TaskDefinitions.Add(taskDefinition);
+        await context.SaveChangesAsync();
+        return taskDefinition;
+    }
+
     private static BlueprintInputModel CreateBlueprintInput(string name, int taskDefinitionId, Guid nodeId)
     {
         var version = new Version(1, 0, 0);
@@ -99,22 +282,30 @@ public sealed class BlueprintRepositoryTests
         };
     }
 
-    private static FullBlueprintVersion CreateBlueprintVersion(int definitionId, int taskDefinitionId, Guid nodeId)
+    private static BlueprintVersionInputModel CreateBlueprintVersion(int definitionId, int taskDefinitionId, Guid nodeId)
     {
         var version = new Version(1, 0, 0);
         var (allowedMajor, allowedMinor) = GetLane(version);
 
-        return new FullBlueprintVersion
+        return new BlueprintVersionInputModel
         {
-            DefinitionId = definitionId,
-            TaskTree = new BlueprintTaskTree
-            {
-                InstanceId = nodeId,
-                TaskDefinitionId = taskDefinitionId,
-                AllowedMajor = allowedMajor,
-                AllowedMinor = allowedMinor,
-                Position = new Coordinates(180, 120),
-            }
+            BlueprintDefinitionId = definitionId,
+            StartingBlueprintNodeId = nodeId,
+            Tasks =
+            [
+                new BlueprintNodeInputModel
+                {
+                    InstanceId = nodeId,
+                    TaskDefinitionId = taskDefinitionId,
+                    AllowedMajor = allowedMajor,
+                    AllowedMinor = allowedMinor,
+                    Position = new CoordinatesViewModel
+                    {
+                        X = 180,
+                        Y = 120,
+                    }
+                }
+            ]
         };
     }
 

@@ -116,6 +116,7 @@ builder.Services.AddSingleton<IPluginReloadQueueReader>(provider =>
 });
 
 builder.Services.AddTransient<JobFinalizationService>();
+builder.Services.AddTransient<NodeActivationService>();
 builder.Services.AddSingleton<ProcessLifecycleTelemetry>();
 builder.Services.AddSingleton<JobManager>();
 

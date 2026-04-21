@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
@@ -11,7 +12,6 @@ using Backend.API.Validation.Blueprints;
 using Backend.Database.Relational.Entities;
 using Backend.Interfaces.Repositories;
 using Backend.Models;
-using Backend.Models.DomainModels;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
 using Backend.Repositories;
@@ -22,7 +22,7 @@ namespace Backend.API.Tests;
 public sealed class BlueprintPortabilityServiceTests
 {
     [Test]
-    public async Task ExportLatestBlueprint_uses_schema_version_2_without_version_name()
+    public async Task ExportLatestBlueprint_uses_schema_version_3_without_version_name()
     {
         await using var database = await SqliteBlueprintDb.CreateAsync();
         var taskDefinition = await SeedTaskDefinitionAsync(database.Context, "Lookup", new Version(1, 0, 0));
@@ -60,8 +60,8 @@ public sealed class BlueprintPortabilityServiceTests
         var exported = await service.ExportLatestBlueprintAsync(createdBlueprint.Id, CancellationToken.None);
         var json = JsonSerializer.Serialize(exported, new JsonSerializerOptions(JsonSerializerDefaults.Web));
 
-        exported.SchemaVersion.ShouldBe(2);
-        json.ShouldContain("\"schemaVersion\":2");
+        exported.SchemaVersion.ShouldBe(3);
+        json.ShouldContain("\"schemaVersion\":3");
         json.ShouldNotContain("versionName");
     }
 
@@ -182,13 +182,20 @@ public sealed class BlueprintPortabilityServiceTests
         };
     }
 
-    private static string FindSeedBlueprintPath()
+    private static string FindSeedBlueprintPath([CallerFilePath] string sourceFilePath = "")
     {
         const string relativeSeedPath = "SeedData\\Blueprints\\showcase-town-weekend-recommendation.blueprint.json";
 
-        foreach (var startPath in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
+        var candidateRoots = new List<string?>
         {
-            var directory = new DirectoryInfo(startPath);
+            AppContext.BaseDirectory,
+            Directory.GetCurrentDirectory(),
+            Path.GetDirectoryName(sourceFilePath),
+        };
+
+        foreach (var startPath in candidateRoots.Where(path => !string.IsNullOrWhiteSpace(path)))
+        {
+            var directory = new DirectoryInfo(startPath!);
             while (directory is not null)
             {
                 var candidate = Path.Combine(directory.FullName, relativeSeedPath);
@@ -213,7 +220,7 @@ public sealed class BlueprintPortabilityServiceTests
     private sealed class RecordingBlueprintRepository : IBlueprintRepository
     {
         public List<BlueprintInputModel> CreatedBlueprints { get; } = [];
-        public List<FullBlueprintVersion> CreatedVersions { get; } = [];
+        public List<BlueprintVersionInputModel> CreatedVersions { get; } = [];
 
         public Task<ExecutableBlueprint> GetFullBlueprintById(int id, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
@@ -247,15 +254,15 @@ public sealed class BlueprintPortabilityServiceTests
             });
         }
 
-        public Task<BlueprintVersionViewModel> CreateVersion(FullBlueprintVersion model, CancellationToken cancellationToken)
+        public Task<BlueprintVersionViewModel> CreateVersion(BlueprintVersionInputModel model, CancellationToken cancellationToken)
         {
             CreatedVersions.Add(model);
             return Task.FromResult(new BlueprintVersionViewModel
             {
-                BlueprintDefinitionId = model.DefinitionId,
+                BlueprintDefinitionId = model.BlueprintDefinitionId,
                 BlueprintVersionId = 910,
                 Version = 2,
-                StartingBlueprintNodeId = model.TaskTree.InstanceId,
+                StartingBlueprintNodeId = model.StartingBlueprintNodeId,
                 Tasks = []
             });
         }

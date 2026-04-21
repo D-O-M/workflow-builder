@@ -60,8 +60,6 @@ public sealed class InMemoryProcessStepQueueTests
             ProcessId = Guid.NewGuid(),
             ExecutableBlueprintId = Random.Shared.Next(1, int.MaxValue),
             ProcessStepId = Guid.NewGuid(),
-            BlueprintNodeId = Guid.NewGuid(),
-            PreviousProcessStepId = Guid.NewGuid(),
-            LinkedOutputChannelName = "Success"
+            BlueprintNodeId = Guid.NewGuid()
         };
 }

@@ -18,4 +18,6 @@ public sealed class ExportedBlueprintConnectionInputModel
 
     [Range(0, int.MaxValue)]
     public int Position { get; init; }
+
+    public List<BlueprintPropertyMappingInputModel> PropertyMappings { get; init; } = [];
 }

@@ -15,6 +15,7 @@ public class BlueprintNode
 
     public int PositionX { get; set; }
     public int PositionY { get; set; }
+    public string? DesignTimeInputOverridesJson { get; set; }
 
     public List<BlueprintConnection> OutgoingConnections { get; set; } = new();
     public List<BlueprintConnection> IncomingConnections { get; set; } = new();

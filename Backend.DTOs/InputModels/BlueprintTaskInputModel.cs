@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.ComponentModel.DataAnnotations;
 using Backend.Models.ViewModels;
 
@@ -29,6 +30,8 @@ public sealed class BlueprintNodeInputModel
 
     [Required]
     public CoordinatesViewModel Position { get; init; }
+
+    public Dictionary<string, JsonElement> DesignTimeInputOverrides { get; init; } = new();
 
     /// <summary>Outgoing connections from this task.</summary>
     public List<BlueprintConnectionInputModel> OutgoingConnections { get; init; } = new();

@@ -83,12 +83,13 @@ public class Program
 
         builder.Services.AddControllers();
 
-builder.Services.AddScoped<Backend.API.Validation.Blueprints.IBlueprintVersionValidator>(sp =>
-    new Backend.API.Validation.Blueprints.BlueprintVersionValidatorPipeline(
-        new Backend.API.Validation.Blueprints.IBlueprintVersionValidator[]
-        {
-            new Backend.API.Validation.Blueprints.BlueprintVersionGraphValidator()
-        }));
+        builder.Services.AddScoped<Backend.API.Validation.Blueprints.IBlueprintVersionValidator>(sp =>
+            new Backend.API.Validation.Blueprints.BlueprintVersionValidatorPipeline(
+                new Backend.API.Validation.Blueprints.IBlueprintVersionValidator[]
+                {
+                    ActivatorUtilities.CreateInstance<Backend.API.Validation.Blueprints.BlueprintVersionGraphValidator>(sp),
+                    ActivatorUtilities.CreateInstance<Backend.API.Validation.Blueprints.BlueprintVersionSchemaValidator>(sp)
+                }));
         // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
         builder.Services.AddOpenApi();
 

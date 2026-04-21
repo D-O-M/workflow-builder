@@ -2,6 +2,7 @@ using System.Text.Json;
 using Backend.Database.State.Objects;
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
+using Backend.Models;
 using Backend.Models.InputModels;
 using Backend.Plugins.Communication;
 using Microsoft.Extensions.Logging;
@@ -57,6 +58,8 @@ public sealed class BlueprintProcessService
             latestVersion.BlueprintVersionId,
             cancellationToken);
 
+        ValidateNodeOverrides(executableBlueprint, processModel.NodeOverrides);
+
         _logger.LogInformation(
             "Resolved blueprint definition {BlueprintDefinitionId} to version {BlueprintVersionId}.",
             blueprintDefinitionId,
@@ -64,9 +67,21 @@ public sealed class BlueprintProcessService
 
         var acceptedAt = DateTimeOffset.UtcNow;
         var processId = Guid.NewGuid();
-        var seedBlueprintNodeId = Guid.NewGuid();
-        var firstBlueprintNodeId = Guid.NewGuid();
+        var initialProcessStepId = ProcessStepIdentity.Create(processId, executableBlueprint.InitialNode.Id);
         var blueprintVersionIdString = latestVersion.BlueprintVersionId.ToString();
+        var serializedNodeOverrides = processModel.NodeOverrides.ToDictionary(
+            entry => entry.Key.ToString(),
+            entry => entry.Value.ToDictionary(
+                overrideEntry => overrideEntry.Key,
+                overrideEntry => overrideEntry.Value.Clone(),
+                StringComparer.Ordinal),
+            StringComparer.Ordinal);
+
+        serializedNodeOverrides.TryGetValue(executableBlueprint.InitialNode.Id.ToString(), out var initialNodeOverrides);
+        var initialInput = BlueprintInputMaterializer.MergeInputs(
+            [(IReadOnlyDictionary<string, JsonElement>)processModel.InitialTaskInput],
+            executableBlueprint.InitialNode.DesignTimeInputOverrides,
+            initialNodeOverrides);
 
         var processState = new ProcessInstanceRecord<Dictionary<string, JsonElement>>
         {
@@ -75,32 +90,16 @@ public sealed class BlueprintProcessService
             CreatedAt = acceptedAt,
             UpdatedAt = acceptedAt,
             Status = ProcessStatus.Pending,
-            GlobalState = processModel.GlobalState
-        };
-
-        var firstInputPayload = JsonSerializer.SerializeToElement(
-            processModel.InitialTaskInput,
-            JsonSerializerOptions.Web);
-
-        var triggerSeedState = new ProcessStepRecord
-        {
-            Id = seedBlueprintNodeId.ToString(),
-            BlueprintNodeId = Guid.Empty.ToString(),
-            ProcessId = processId.ToString(),
-            BlueprintId = blueprintVersionIdString,
-            CreatedAt = acceptedAt,
-            UpdatedAt = acceptedAt,
-            CompletedAt = acceptedAt,
-            Status = ProcessStepStatus.Completed,
-            OutputData = new Dictionary<string, JsonElement>
-            {
-                [executableBlueprint.InitialNode.InputChannel.Name] = firstInputPayload
-            }
+            GlobalState = processModel.GlobalState.ToDictionary(
+                entry => entry.Key,
+                entry => entry.Value.Clone(),
+                StringComparer.Ordinal),
+            NodeOverrides = serializedNodeOverrides
         };
 
         var initialStepState = new ProcessStepRecord
         {
-            Id = firstBlueprintNodeId.ToString(),
+            Id = initialProcessStepId.ToString(),
             BlueprintNodeId = executableBlueprint.InitialNode.Id.ToString(),
             TaskDefinitionId = executableBlueprint.InitialNode.TaskDefinitionId,
             AllowedMajor = executableBlueprint.InitialNode.AllowedMajor,
@@ -109,7 +108,10 @@ public sealed class BlueprintProcessService
             BlueprintId = blueprintVersionIdString,
             CreatedAt = acceptedAt,
             UpdatedAt = acceptedAt,
-            Status = ProcessStepStatus.Pending
+            Status = ProcessStepStatus.Pending,
+            InputData = BlueprintInputMaterializer.BuildChannelPayload(
+                executableBlueprint.InitialNode.InputChannel.Name,
+                initialInput)
         };
 
         _logger.LogInformation(
@@ -119,32 +121,20 @@ public sealed class BlueprintProcessService
         await _processInstanceRepository.CreateProcessState(processState, cancellationToken);
 
         _logger.LogInformation(
-            "Creating seed process step {SeedBlueprintNodeId} for process {ProcessId}.",
-            seedBlueprintNodeId,
-            processId);
-        await _processStepRepository.CreateProcessStep(triggerSeedState, cancellationToken);
-
-        _logger.LogInformation(
             "Creating initial process step {InitialBlueprintNodeId} for process {ProcessId}.",
-            firstBlueprintNodeId,
+            initialProcessStepId,
             processId);
         await _processStepRepository.CreateProcessStep(initialStepState, cancellationToken);
 
-        var initialisationMessage = new ProcessStepInitialisationMessage
-        {
-            ProcessId = processId,
-            ExecutableBlueprintId = latestVersion.BlueprintVersionId,
-            ProcessStepId = firstBlueprintNodeId,
-            BlueprintNodeId = executableBlueprint.InitialNode.Id,
-            PreviousProcessStepId = seedBlueprintNodeId,
-            LinkedOutputChannelName = executableBlueprint.InitialNode.InputChannel.Name
-        };
-
-        _logger.LogInformation(
-            "Enqueuing initialisation message for process {ProcessId}, process step {ProcessStepId}.",
-            processId,
-            firstBlueprintNodeId);
-        await _processStepQueueWriter.EnqueueAsync(initialisationMessage, cancellationToken);
+        await _processStepQueueWriter.EnqueueAsync(
+            new ProcessStepInitialisationMessage
+            {
+                ProcessId = processId,
+                ExecutableBlueprintId = latestVersion.BlueprintVersionId,
+                ProcessStepId = initialProcessStepId,
+                BlueprintNodeId = executableBlueprint.InitialNode.Id
+            },
+            cancellationToken);
 
         _logger.LogInformation(
             "Accepted process {ProcessId} for blueprint definition {BlueprintDefinitionId}.",
@@ -155,5 +145,33 @@ public sealed class BlueprintProcessService
             processId,
             blueprintDefinitionId,
             acceptedAt);
+    }
+
+    private static void ValidateNodeOverrides(
+        ExecutableBlueprint executableBlueprint,
+        IReadOnlyDictionary<Guid, Dictionary<string, JsonElement>> nodeOverrides)
+    {
+        if (nodeOverrides.Count == 0)
+        {
+            return;
+        }
+
+        var nodesById = executableBlueprint.NodesById;
+        foreach (var (nodeId, overrides) in nodeOverrides)
+        {
+            if (!nodesById.TryGetValue(nodeId, out var node))
+            {
+                throw new InvalidDataException($"Node override references unknown blueprint node '{nodeId}'.");
+            }
+
+            foreach (var overrideKey in overrides.Keys)
+            {
+                if (!node.InputChannel.Properties.ContainsKey(overrideKey))
+                {
+                    throw new InvalidDataException(
+                        $"Node override '{overrideKey}' does not exist on blueprint node '{nodeId}'.");
+                }
+            }
+        }
     }
 }

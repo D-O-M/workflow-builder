@@ -1,6 +1,5 @@
 using Backend.API.Services;
 using Backend.Models;
-using Backend.Models.DomainModels;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
 using Microsoft.AspNetCore.Mvc;
@@ -60,6 +59,24 @@ public class BlueprintsController : ControllerBase
         if (model.Tasks.Count == 0)
             return BadRequest();
 
+        var validation = await _blueprintVersionValidator.ValidateAsync(
+            new BlueprintVersionInputModel
+            {
+                BlueprintDefinitionId = 1,
+                BaseVersion = null,
+                Description = model.Description,
+                StartingBlueprintNodeId = model.StartingBlueprintNodeId,
+                Tasks = model.Tasks
+            },
+            HttpContext.RequestAborted);
+        if (!validation.IsValid)
+            return ValidationProblem(new ValidationProblemDetails
+            {
+                Title = "Blueprint validation failed.",
+                Status = StatusCodes.Status400BadRequest,
+                Extensions = { ["errors"] = validation.Errors }
+            });
+
         try
         {
             var created = await _blueprintRepository.CreateBlueprint(model, HttpContext.RequestAborted);
@@ -81,17 +98,6 @@ public class BlueprintsController : ControllerBase
         if (model.Tasks.Count == 0)
             return BadRequest();
 
-        var taskModelsByInstanceId = model.Tasks.ToDictionary(t => t.InstanceId, t => t);
-
-        var dto = new FullBlueprintVersion
-        {
-            DefinitionId = model.BlueprintDefinitionId,
-            Description = model.Description,
-            TaskTree = BuildTaskTree(
-                taskModelsByInstanceId[model.StartingBlueprintNodeId],
-                taskModelsByInstanceId)
-        };
-
         var validation = await _blueprintVersionValidator.ValidateAsync(model, HttpContext.RequestAborted);
         if (!validation.IsValid)
             return ValidationProblem(new ValidationProblemDetails
@@ -103,7 +109,7 @@ public class BlueprintsController : ControllerBase
 
         try
         {
-            var created = await _blueprintRepository.CreateVersion(dto, HttpContext.RequestAborted);
+            var created = await _blueprintRepository.CreateVersion(model, HttpContext.RequestAborted);
             return Ok(created);
         }
         catch (EntityNotFoundException<BlueprintViewModel>)
@@ -129,6 +135,10 @@ public class BlueprintsController : ControllerBase
         catch (EntityNotFoundException<BlueprintViewModel>)
         {
             return NotFound();
+        }
+        catch (InvalidDataException)
+        {
+            return BadRequest();
         }
     }
 
@@ -173,42 +183,5 @@ public class BlueprintsController : ControllerBase
                 Extensions = { ["errors"] = ex.Errors }
             });
         }
-    }
-
-    private BlueprintTaskTree BuildTaskTree(
-        BlueprintNodeInputModel model,
-        Dictionary<Guid, BlueprintNodeInputModel> taskModelsByInstanceId)
-    {
-        var task = new BlueprintTaskTree
-        {
-            InstanceId = model.InstanceId,
-            TaskDefinitionId = model.TaskDefinitionId,
-            AllowedMajor = model.AllowedMajor,
-            AllowedMinor = model.AllowedMinor,
-            Position = new(model.Position.X, model.Position.Y)
-        };
-
-        if (model.OutgoingConnections.Count > 0)
-        {
-            foreach (var connection in model.OutgoingConnections)
-            {
-                task.OutgoingConnections.Add(
-                    new() {
-                        ChannelDetails = new()
-                        {
-                            ChannelId = connection.ChannelId,
-                            ChannelName = connection.ChannelName
-                        },
-                        Anchor = connection.Anchor,
-                        Side = connection.Side,
-                        Position = connection.Position,
-                        Task = BuildTaskTree(
-                            taskModelsByInstanceId[connection.ConnectedBlueprintNodeId],
-                            taskModelsByInstanceId)
-                    });
-            }
-        }
-
-        return task;
     }
 }

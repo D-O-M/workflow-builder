@@ -25,6 +25,8 @@ public sealed class BlueprintConnectionInputModel : IValidatableObject
     [Range(0, int.MaxValue)]
     public int Position { get; init; }
 
+    public List<BlueprintPropertyMappingInputModel> PropertyMappings { get; init; } = new();
+
     /// <summary>
     /// Enforces: at least one of ChannelId / ChannelName must be supplied.
     /// (JSON Schema "anyOf" equivalent.)
@@ -36,6 +38,24 @@ public sealed class BlueprintConnectionInputModel : IValidatableObject
             yield return new ValidationResult(
                 "Either channelId or channelName must be provided.",
                 new[] { nameof(ChannelId), nameof(ChannelName) });
+        }
+
+        for (var index = 0; index < PropertyMappings.Count; index++)
+        {
+            var mapping = PropertyMappings[index];
+            if (string.IsNullOrWhiteSpace(mapping.SourceProperty))
+            {
+                yield return new ValidationResult(
+                    "propertyMappings.sourceProperty is required.",
+                    [$"{nameof(PropertyMappings)}[{index}].{nameof(BlueprintPropertyMappingInputModel.SourceProperty)}"]);
+            }
+
+            if (string.IsNullOrWhiteSpace(mapping.TargetProperty))
+            {
+                yield return new ValidationResult(
+                    "propertyMappings.targetProperty is required.",
+                    [$"{nameof(PropertyMappings)}[{index}].{nameof(BlueprintPropertyMappingInputModel.TargetProperty)}"]);
+            }
         }
     }
 }

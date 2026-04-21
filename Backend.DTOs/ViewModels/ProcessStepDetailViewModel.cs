@@ -14,4 +14,7 @@ public sealed class ProcessStepDetailViewModel
     public string? FailureMessage { get; init; }
     public JsonElement? Inputs { get; init; }
     public JsonElement? Outputs { get; init; }
+    public List<ProcessStepIncomingMappingViewModel> IncomingMappings { get; init; } = [];
+    public JsonElement? DesignTimeInputOverrides { get; init; }
+    public JsonElement? RuntimeOverrides { get; init; }
 }

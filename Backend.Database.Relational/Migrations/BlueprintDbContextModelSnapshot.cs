@@ -41,6 +41,9 @@ namespace Backend.Database.Relational.Migrations
                     b.Property<int>("Position")
                         .HasColumnType("int");
 
+                    b.Property<string>("PropertyMappingsJson")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("Side")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -95,6 +98,9 @@ namespace Backend.Database.Relational.Migrations
 
                     b.Property<int>("BlueprintVersionId")
                         .HasColumnType("int");
+
+                    b.Property<string>("DesignTimeInputOverridesJson")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("PositionX")
                         .HasColumnType("int");

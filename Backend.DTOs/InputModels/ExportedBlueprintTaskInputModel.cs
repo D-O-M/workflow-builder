@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.ComponentModel.DataAnnotations;
 using Backend.Models.ViewModels;
 
@@ -19,6 +20,8 @@ public sealed class ExportedBlueprintNodeInputModel
 
     [Required]
     public CoordinatesViewModel Position { get; init; }
+
+    public Dictionary<string, JsonElement> DesignTimeInputOverrides { get; init; } = [];
 
     public List<ExportedBlueprintConnectionInputModel> OutgoingConnections { get; init; } = [];
 }

@@ -15,4 +15,6 @@ public sealed class BlueprintConnectionViewModel
     public string Side { get; init; } = null!;
 
     public int Position { get; init; }
+
+    public List<BlueprintPropertyMappingViewModel> PropertyMappings { get; init; } = new();
 }

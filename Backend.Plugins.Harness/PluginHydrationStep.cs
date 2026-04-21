@@ -46,6 +46,6 @@ internal sealed class PluginHydrationStep<TPlugin, TDocument, TProperty> : IPlug
             propertySetter: value => _setter.Set(plugin, value),
             documentId: _documentIdSelector(envelope),
             partitionKey: _partitionKeySelector(envelope),
-            outputChannelName: envelope.PreviousTaskDetails.LinkedOutputChannelName,
+            outputChannelName: _channelName,
             cancellationToken: cancellationToken);
 }

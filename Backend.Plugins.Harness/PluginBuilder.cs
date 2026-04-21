@@ -90,11 +90,11 @@ public class PluginBuilder<TPlugin>
             Func<ProcessStepRecord, string, TChannelType> valueExtractionFunction =
                 (task, channelName) =>
                 {
-                    if (string.IsNullOrWhiteSpace(channelName) || task.OutputData is null)
+                    if (string.IsNullOrWhiteSpace(channelName) || task.InputData is null)
                         throw new InvalidOperationException("Channel name or output data missing.");
 
-                    if (!task.OutputData.TryGetValue(channelName, out var json))
-                        throw new InvalidOperationException($"OutputData does not contain key '{channelName}'.");
+                    if (!task.InputData.TryGetValue(channelName, out var json))
+                        throw new InvalidOperationException($"InputData does not contain key '{channelName}'.");
 
                     return JsonSerializer.Deserialize<TChannelType>(
                         json, JsonSerializerOptions.Web)!;
@@ -110,7 +110,7 @@ public class PluginBuilder<TPlugin>
             var hydrator = sp.GetRequiredService<PluginPropertyHydrationService<ProcessStepRecord, TChannelType>>();
             var setter = sp.GetRequiredService<PropertySetterUtility<TPlugin, TChannelType>>();
             Func<InvocationEnvelope, string> documentIdSelector =
-                env => env.PreviousTaskDetails.PreviousBlueprintNodeId.ToString();
+                env => env.ProcessStepId.ToString();
             Func<InvocationEnvelope, string> partitionKeySelector =
                 env => env.ProcessId.ToString();
 

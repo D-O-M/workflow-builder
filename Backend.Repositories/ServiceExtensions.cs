@@ -21,13 +21,15 @@ public static class ServiceExtensions
         this IServiceCollection services,
         string databaseName = "enginedb",
         string processesContainerName = "processes",
-        string tasksContainerName = "processsteps")
+        string tasksContainerName = "processsteps",
+        string activationsContainerName = "nodeactivations")
     {
         services.AddSingleton(new ProcessStateInitializationOptions
         {
             DatabaseName = databaseName,
             ProcessesContainerName = processesContainerName,
-            TasksContainerName = tasksContainerName
+            TasksContainerName = tasksContainerName,
+            ActivationsContainerName = activationsContainerName
         });
         services.AddHostedService<ProcessStateInitializerHostedService>();
 
@@ -35,6 +37,12 @@ public static class ServiceExtensions
         {
             var client = sp.GetRequiredService<CosmosClient>();
             return new ProcessStepRepository(client.GetContainer(databaseName, tasksContainerName));
+        });
+
+        services.AddSingleton<INodeActivationRepository>(sp =>
+        {
+            var client = sp.GetRequiredService<CosmosClient>();
+            return new NodeActivationRepository(client.GetContainer(databaseName, activationsContainerName));
         });
 
         services.AddSingleton<IProcessInstanceRepository<Dictionary<string, JsonElement>>>(sp =>
