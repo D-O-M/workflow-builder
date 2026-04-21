@@ -5,6 +5,7 @@ export interface Point {
 
 export type Side = 'left' | 'right' | 'top' | 'bottom';
 export type NodeRenderStatus = 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+export type TaskPropertyType = 'Number' | 'String' | 'Boolean' | 'Guid';
 
 export interface NodeAnchor {
     index: number;
@@ -39,6 +40,9 @@ export class NodeModel {
         public hasUpgradeWarning: boolean = false,
         public renderStatus: NodeRenderStatus | null = null,
         public failureMessage: string | null = null,
+        public inputProperties: Record<string, TaskPropertyType> = {},
+        public outputChannelProperties: Record<string, Record<string, TaskPropertyType>> = {},
+        public designTimeInputOverrides: Record<string, unknown> = {},
     ) {}
 
     contains(x: number, y: number): boolean {
@@ -149,6 +153,15 @@ export class NodeModel {
         return anchor?.kind === 'output' ? anchor.label : null;
     }
 
+    outputPropertiesForAnchor(idx: number): Record<string, TaskPropertyType> {
+        const channelName = this.outputChannelNameForAnchor(idx);
+        if (!channelName) {
+            return {};
+        }
+
+        return this.outputChannelProperties[channelName] ?? {};
+    }
+
     inputAnchorSnap(): { x: number; y: number; side: Side; pos: number } | null {
         const idx = this.inputAnchorIndex();
         if (idx === null) {
@@ -226,5 +239,17 @@ export class NodeModel {
                 const xxB = NodeModel.clamp(x, this.x, this.x + this.width);
                 return { x: xxB, y: this.y + this.height, side: "bottom", pos: xxB - this.x };
         }
+    }
+
+    get designTimeOverrideCount(): number {
+        return Object.keys(this.designTimeInputOverrides).length;
+    }
+
+    get hasDesignTimeOverrides(): boolean {
+        return this.designTimeOverrideCount > 0;
+    }
+
+    designTimeOverrideKeys(): string[] {
+        return Object.keys(this.designTimeInputOverrides).sort((left, right) => left.localeCompare(right));
     }
 }

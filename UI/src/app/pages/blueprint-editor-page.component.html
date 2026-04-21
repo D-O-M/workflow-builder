@@ -1,242 +1,481 @@
-<div class="builder-page" [class.is-drawer-collapsed]="drawerCollapsed()">
-  <aside class="builder-sidebar">
-    <section class="project-card">
-      <div class="project-card__avatar">{{ projectInitial() }}</div>
-      <div class="project-card__body">
-        <h2>{{ selectedBlueprintName() }}</h2>
-        <p>{{ selectedBlueprintVersionLabel() }}</p>
-      </div>
-    </section>
-
-    <button class="new-blueprint-button" type="button" (click)="newBlueprint()">
-      <mat-icon>add</mat-icon>
-      <span>New Blueprint</span>
-    </button>
-
-    <section class="rail-section">
-      <div class="rail-section__header">
-        <span>Blueprints</span>
-      </div>
-
-      <label class="search-field">
-        <span class="sr-only">Search blueprints</span>
-        <mat-icon>search</mat-icon>
-        <input type="search" [formControl]="blueprintSearch" placeholder="Search blueprints" />
-      </label>
-
-      <div class="blueprint-list" aria-label="Blueprint list">
-        @if (filteredBlueprints().length === 0) {
-          <p class="empty-message">No blueprints found.</p>
-        } @else {
-          @for (blueprint of filteredBlueprints(); track blueprint.id) {
-            <button
-              class="blueprint-item"
-              type="button"
-              (click)="openBlueprint(blueprint.id)"
-              [class.is-selected]="selectedBlueprintId() === blueprint.id"
-            >
-              <mat-icon>{{ selectedBlueprintId() === blueprint.id ? 'folder' : 'share' }}</mat-icon>
-              <span>{{ blueprint.name }}</span>
-              @if (blueprintHasUpgradeWarning(blueprint)) {
-                <mat-icon class="blueprint-item__warning">warning</mat-icon>
-              }
-            </button>
-          }
-        }
-      </div>
-    </section>
-
-    <section class="rail-section rail-section--links">
-      @for (item of blueprintShortcuts; track item.label) {
-        <button class="link-row" type="button">
-          <mat-icon>{{ item.icon }}</mat-icon>
-          <span>{{ item.label }}</span>
-        </button>
-      }
-    </section>
-
-    <section class="rail-section rail-section--support">
-      @for (item of supportLinks; track item.label) {
-        <button class="link-row link-row--muted" type="button">
-          <mat-icon>{{ item.icon }}</mat-icon>
-          <span>{{ item.label }}</span>
-        </button>
-      }
-    </section>
-  </aside>
-
-  <section class="canvas-stage">
-    <div class="canvas-stage__toolbar">
-      <button
-        class="canvas-tool"
-        type="button"
-        aria-label="Undo"
-        title="Undo (Ctrl+Z)"
-        [disabled]="!canUndo()"
-        (click)="undo()"
-      >
-        <mat-icon>undo</mat-icon>
-      </button>
-      <button
-        class="canvas-tool"
-        type="button"
-        aria-label="Copy selection"
-        title="Copy selection (Ctrl+C)"
-        [disabled]="!canCopy()"
-        (click)="copySelection()"
-      >
-        <mat-icon>content_copy</mat-icon>
-      </button>
-      <button
-        class="canvas-tool"
-        type="button"
-        aria-label="Paste selection"
-        title="Paste selection (Ctrl+V)"
-        [disabled]="!canPaste()"
-        (click)="pasteSelection()"
-      >
-        <mat-icon>content_paste</mat-icon>
-      </button>
-      <button
-        class="canvas-tool"
-        type="button"
-        aria-label="Delete selection"
-        title="Delete selection (Delete)"
-        [disabled]="!canDelete()"
-        (click)="deleteSelection()"
-      >
-        <mat-icon>delete</mat-icon>
-      </button>
-    </div>
-
-    <div class="canvas-stage__panel canvas-grid">
-      <div class="canvas-stage__hud">
-        <div class="stage-badge">
-          <span class="stage-badge__label">Canvas Zoom</span>
-          <span class="stage-badge__value">{{ zoomPercent() }}%</span>
-        </div>
-
-        <div class="stage-actions">
-          <button class="shell-button shell-button--ghost" type="button" (click)="zoomOut()">
-            <mat-icon>zoom_out</mat-icon>
-            <span>Zoom Out</span>
-          </button>
-          <button class="shell-button shell-button--ghost" type="button" (click)="resetView()">
-            Reset View
-          </button>
-          <button class="shell-button shell-button--ghost" type="button" (click)="zoomIn()">
-            <mat-icon>zoom_in</mat-icon>
-            <span>Zoom In</span>
-          </button>
-          <button class="shell-button shell-button--primary" type="button" (click)="save()" [disabled]="!canSave()">
-            {{ saveButtonLabel() }}
-          </button>
-        </div>
-      </div>
-
-      <div class="canvas-stage__name-overlay" [class.is-readonly]="isBlueprintNameReadonly()">
-        <p class="canvas-stage__name-eyebrow">
-          {{ isBlueprintNameReadonly() ? 'Saved blueprint' : 'Draft blueprint' }}
-        </p>
-
-        @if (isEditingBlueprintName()) {
-          <label class="canvas-stage__name-editor">
-            <span class="sr-only">Blueprint name</span>
-            <input
-              #blueprintNameInput
-              type="text"
-              [attr.maxlength]="blueprintNameMaxLength"
-              [value]="blueprintNameDraft()"
-              placeholder="Click to name blueprint"
-              (input)="updateBlueprintNameDraft($any($event.target).value)"
-              (blur)="commitBlueprintNameEdit()"
-              (keydown)="onBlueprintNameKeydown($event)"
-            />
-          </label>
-        } @else if (isBlueprintNameReadonly()) {
-          <div class="canvas-stage__name-display">
-            <strong>{{ selectedBlueprintName() }}</strong>
-          </div>
-        } @else {
-          <button
-            class="canvas-stage__name-button"
-            type="button"
-            (click)="beginBlueprintNameEdit()"
-            aria-label="Name blueprint"
-          >
-            <span class="canvas-stage__name-button-label" [class.is-placeholder]="!hasBlueprintName()">
-              {{ hasBlueprintName() ? selectedBlueprintName() : 'Click to name blueprint' }}
-            </span>
-          </button>
-        }
-
-        @if (blueprintNameError()) {
-          <p class="canvas-stage__name-error">{{ blueprintNameError() }}</p>
-        } @else {
-          <p class="canvas-stage__name-support">{{ blueprintNameStatus() }}</p>
-        }
-      </div>
-
+<section class="app-page blueprint-editor-page">
+  <div class="blueprint-editor-page__workspace">
+    <div class="blueprint-editor-page__canvas-layer">
       <app-blueprint-canvas
         [nodes]="editorStore.nodes()"
         [connections]="editorStore.connections()"
+        [backgroundEffect]="canvasBackgroundEffect"
         mode="edit"
+        (nodeDoubleActivated)="openDesignTimeOverrideModal($event)"
+        (connectionDoubleActivated)="openConnectionMappingModal($event)"
+        (connectionBadgeActivated)="openConnectionMappingModal($event)"
       />
+    </div>
 
-      <div class="canvas-stage__hint">
-        <span>Shift-drag to marquee select</span>
-        <span>Use Delete, Ctrl+C, Ctrl+V, Ctrl+Z while the canvas is focused</span>
+    <div
+      class="blueprint-editor-page__picker-surface"
+      [class.is-drawer-open]="!drawerCollapsed()"
+    >
+      <div class="blueprint-editor-page__picker-bar">
+        <div
+          matAutocompleteOrigin
+          #blueprintPickerOrigin="matAutocompleteOrigin"
+          class="blueprint-editor-page__picker-shell"
+          [class.is-search]="isPickerSearchMode()"
+          [class.is-draft]="isDraftPickerMode()"
+          [class.is-invalid]="!!blueprintNameError()"
+          [class.is-panel-open]="pickerPanelOpen()"
+        >
+          @if (isPickerSearchMode()) {
+            <mat-icon class="blueprint-editor-page__picker-leading-icon">search</mat-icon>
+            <input
+              #blueprintPickerInput
+              class="blueprint-editor-page__picker-input"
+              type="search"
+              [formControl]="blueprintSearch"
+              [matAutocomplete]="blueprintPickerAutocomplete"
+              [matAutocompleteConnectedTo]="blueprintPickerOrigin"
+              aria-label="Search blueprints"
+              placeholder="Search blueprints"
+              (focus)="onPickerSearchFocus()"
+              (click)="onPickerSearchFocus()"
+              (keydown)="onPickerSearchKeydown($event)"
+            />
+          } @else {
+            <mat-icon class="blueprint-editor-page__picker-leading-icon">account_tree</mat-icon>
+
+            @if (pickerMode() === 'selected') {
+              <button
+                type="button"
+                class="blueprint-editor-page__picker-trigger blueprint-editor-page__picker-trigger--button"
+                (click)="beginPickerSearchFromTrigger()"
+                aria-label="Select a different blueprint"
+              >
+                <span class="blueprint-editor-page__picker-label">{{ pickerDisplayName() }}</span>
+              </button>
+            } @else if (pickerMode() === 'draft-edit') {
+              <div class="blueprint-editor-page__picker-trigger blueprint-editor-page__picker-trigger--editing">
+                <input
+                  #blueprintNameInput
+                  class="blueprint-editor-page__picker-input blueprint-editor-page__picker-input--draft"
+                  type="text"
+                  [attr.maxlength]="blueprintNameMaxLength"
+                  [value]="blueprintNameDraft()"
+                  aria-label="Draft blueprint name"
+                  (input)="updateBlueprintNameDraft($any($event.target).value)"
+                  (blur)="commitBlueprintNameEdit()"
+                  (keydown)="onBlueprintNameKeydown($event)"
+                />
+              </div>
+            } @else {
+              <div class="blueprint-editor-page__picker-trigger">
+                <span class="blueprint-editor-page__picker-label">{{ pickerDisplayName() }}</span>
+              </div>
+            }
+
+            @if (showVersionPicker()) {
+              <span class="blueprint-editor-page__picker-divider" aria-hidden="true"></span>
+
+              <mat-select
+                class="blueprint-editor-page__version-select"
+                [value]="selectedBlueprintVersionId()"
+                panelClass="blueprint-editor-page__version-select-panel"
+                [disableOptionCentering]="true"
+                (selectionChange)="onBlueprintVersionSelected($event.value)"
+                aria-label="Select blueprint version"
+              >
+                <mat-select-trigger>
+                  <span class="blueprint-editor-page__version-trigger">
+                    <span class="blueprint-editor-page__version-trigger-label">
+                      {{ selectedBlueprintVersion() ? formatBlueprintVersion(selectedBlueprintVersion()!) : 'Version' }}
+                    </span>
+                  </span>
+                </mat-select-trigger>
+
+                @for (version of selectedBlueprintVersions(); track version.blueprintVersionId) {
+                  <mat-option [value]="version.blueprintVersionId">
+                    {{ formatBlueprintVersion(version) }}
+                  </mat-option>
+                }
+              </mat-select>
+            }
+
+            @if (isDraftPickerMode()) {
+              <button
+                mat-icon-button
+                type="button"
+                class="blueprint-editor-page__picker-icon-button"
+                aria-label="Edit draft blueprint name"
+                (click)="beginBlueprintNameEdit(); $event.stopPropagation()"
+              >
+                <mat-icon>edit</mat-icon>
+              </button>
+            }
+
+            <button
+              mat-icon-button
+              type="button"
+              class="blueprint-editor-page__picker-icon-button"
+              [attr.aria-label]="isDraftPickerMode() ? 'Browse existing blueprints' : 'Open blueprint suggestions'"
+              (click)="beginPickerSearchFromDraftChevron($event)"
+            >
+              <mat-icon>keyboard_arrow_down</mat-icon>
+            </button>
+          }
+        </div>
       </div>
     </div>
-  </section>
 
-  <aside class="right-rail" [class.is-collapsed]="drawerCollapsed()">
-    <button
-      class="drawer-toggle"
-      type="button"
-      (click)="toggleDrawer()"
-      [attr.aria-expanded]="!drawerCollapsed()"
-      aria-controls="plugin-drawer-content"
+    <mat-autocomplete
+      #blueprintPickerAutocomplete="matAutocomplete"
+      class="blueprint-editor-page__picker-autocomplete"
+      autoActiveFirstOption
+      (opened)="onPickerAutocompleteOpened()"
+      (closed)="onPickerAutocompleteClosed()"
+      (optionSelected)="onBlueprintSuggestionSelected($event)"
     >
-      <mat-icon class="drawer-toggle__icon">{{ drawerCollapsed() ? 'left_panel_open' : 'right_panel_close' }}</mat-icon>
-      <span class="drawer-toggle__label">{{ drawerCollapsed() ? 'Plugins' : 'Close' }}</span>
+      @if (pickerSuggestions().length === 0) {
+        <mat-option disabled>No blueprints found</mat-option>
+      } @else {
+        @for (suggestion of pickerSuggestions(); track suggestion.blueprint.id) {
+          <mat-option
+            [value]="suggestion.blueprint.id"
+            [class.is-active]="suggestion.isActive"
+          >
+            <span class="blueprint-editor-page__picker-option">
+              <span class="blueprint-editor-page__picker-option-copy">
+                <span class="blueprint-editor-page__picker-option-title">{{ suggestion.blueprint.name }}</span>
+                @if (suggestion.isActive) {
+                  <span class="blueprint-editor-page__picker-option-support">
+                    Current blueprint
+                  </span>
+                } @else if (blueprintHasUpgradeWarning(suggestion.blueprint)) {
+                  <span class="blueprint-editor-page__picker-option-support blueprint-editor-page__picker-option-support--warning">
+                    Update available
+                  </span>
+                }
+              </span>
+            </span>
+          </mat-option>
+        }
+      }
+    </mat-autocomplete>
+
+    <div class="blueprint-editor-page__action-rail" [class.is-drawer-open]="!drawerCollapsed()">
+      <mat-card appearance="outlined">
+        <div class="blueprint-editor-page__action-group">
+          <span [matTooltip]="saveButtonLabel()" matTooltipPosition="left">
+            <button
+              mat-icon-button
+              type="button"
+              aria-label="Save blueprint"
+              [disabled]="!canSave()"
+              (click)="save()"
+            >
+              <mat-icon>save</mat-icon>
+            </button>
+          </span>
+
+          <span
+            [matTooltip]="drawerCollapsed() ? 'Open plugin library' : 'Hide plugin library'"
+            matTooltipPosition="left"
+          >
+            <button
+              mat-icon-button
+              type="button"
+              class="blueprint-editor-page__plugin-toggle"
+              [class.is-active]="!drawerCollapsed()"
+              [class.is-inactive]="drawerCollapsed()"
+              aria-label="Toggle plugin library"
+              [attr.aria-pressed]="!drawerCollapsed()"
+              (click)="drawerCollapsed() ? openDrawer() : closeDrawer()"
+            >
+              <mat-icon>extension</mat-icon>
+            </button>
+          </span>
+        </div>
+
+        <div class="blueprint-editor-page__action-group blueprint-editor-page__action-group--divided">
+          <span matTooltip="Undo (Ctrl+Z)" matTooltipPosition="left">
+            <button
+              mat-icon-button
+              type="button"
+              aria-label="Undo"
+              [disabled]="!canUndo()"
+              (click)="undo()"
+            >
+              <mat-icon>undo</mat-icon>
+            </button>
+          </span>
+
+          <span matTooltip="Redo (Ctrl+Shift+Z)" matTooltipPosition="left">
+            <button
+              mat-icon-button
+              type="button"
+              aria-label="Redo"
+              [disabled]="!canRedo()"
+              (click)="redo()"
+            >
+              <mat-icon>redo</mat-icon>
+            </button>
+          </span>
+
+          <span matTooltip="Copy selection (Ctrl+C)" matTooltipPosition="left">
+            <button
+              mat-icon-button
+              type="button"
+              aria-label="Copy selection"
+              [disabled]="!canCopy()"
+              (click)="copySelection()"
+            >
+              <mat-icon>content_copy</mat-icon>
+            </button>
+          </span>
+
+          <span matTooltip="Paste selection (Ctrl+V)" matTooltipPosition="left">
+            <button
+              mat-icon-button
+              type="button"
+              aria-label="Paste selection"
+              [disabled]="!canPaste()"
+              (click)="pasteSelection()"
+            >
+              <mat-icon>content_paste</mat-icon>
+            </button>
+          </span>
+
+          <span matTooltip="Delete selection (Delete)" matTooltipPosition="left">
+            <button
+              mat-icon-button
+              type="button"
+              aria-label="Delete selection"
+              [disabled]="!canDelete()"
+              (click)="deleteSelection()"
+            >
+              <mat-icon>delete</mat-icon>
+            </button>
+          </span>
+        </div>
+
+        <div class="blueprint-editor-page__action-group blueprint-editor-page__action-group--divided">
+          <span matTooltip="Zoom in" matTooltipPosition="left">
+            <button
+              mat-icon-button
+              type="button"
+              aria-label="Zoom in"
+              (click)="zoomIn()"
+            >
+              <mat-icon>zoom_in</mat-icon>
+            </button>
+          </span>
+
+          <span
+            [matTooltip]="'Reset view (' + zoomPercent() + '% current zoom)'"
+            matTooltipPosition="left"
+          >
+            <button
+              mat-icon-button
+              type="button"
+              aria-label="Reset view"
+              (click)="resetView()"
+            >
+              <mat-icon>center_focus_strong</mat-icon>
+            </button>
+          </span>
+
+          <span matTooltip="Zoom out" matTooltipPosition="left">
+            <button
+              mat-icon-button
+              type="button"
+              aria-label="Zoom out"
+              (click)="zoomOut()"
+            >
+              <mat-icon>zoom_out</mat-icon>
+            </button>
+          </span>
+        </div>
+      </mat-card>
+    </div>
+
+    <button
+      mat-fab
+      color="primary"
+      type="button"
+      class="blueprint-editor-page__new-blueprint-button"
+      [class.is-drawer-open]="!drawerCollapsed()"
+      (click)="newBlueprint()"
+      aria-label="Create new blueprint"
+    >
+      <mat-icon>add</mat-icon>
     </button>
 
-    <div class="drawer-content" id="plugin-drawer-content">
-      <div class="library-header">
-        <h2>Plugin Library</h2>
-        <p>Click plugin to add it to canvas center</p>
-      </div>
+    @if (pluginLibraryHasBackdrop() && !drawerCollapsed()) {
+      <button
+        type="button"
+        class="blueprint-editor-page__drawer-backdrop"
+        (click)="closeDrawer()"
+        aria-label="Close plugin library"
+      ></button>
+    }
 
-      <div class="library-groups">
-        @for (section of taskLibrarySections(); track section.title) {
-          <section class="library-group">
-            <div class="library-group__label">{{ section.title }}</div>
-            <div class="library-list">
-              @for (item of section.items; track item.task.id) {
-                <button class="library-list-item" type="button" (click)="addTaskFromDrawer(item.task)">
-                  <span class="library-list-item__icon">
+    <aside class="blueprint-editor-page__drawer" [class.is-open]="!drawerCollapsed()">
+      <div class="blueprint-editor-page__drawer-shell">
+        <div class="blueprint-editor-page__drawer-header">
+          <h3>Plugin Library</h3>
+
+          <button
+            mat-icon-button
+            type="button"
+            class="blueprint-editor-page__rail-toggle"
+            (click)="closeDrawer()"
+            aria-label="Close plugin library"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+
+        <div class="blueprint-editor-page__drawer-search">
+          <div class="blueprint-editor-page__drawer-search-shell">
+            <mat-icon class="blueprint-editor-page__drawer-search-icon">search</mat-icon>
+            <input
+              class="blueprint-editor-page__drawer-search-input"
+              type="search"
+              [formControl]="pluginLibrarySearch"
+              aria-label="Search plugins"
+              placeholder="Search plugins..."
+            />
+          </div>
+        </div>
+
+        <div class="blueprint-editor-page__drawer-body">
+          @if (filteredTaskLibraryItems().length === 0) {
+            <div class="blueprint-editor-page__drawer-empty">
+              <mat-icon>search_off</mat-icon>
+              <p>No plugins match that search.</p>
+            </div>
+          } @else {
+            <div class="blueprint-editor-page__drawer-list">
+              @for (item of filteredTaskLibraryItems(); track item.task.id) {
+                <button
+                  type="button"
+                  class="blueprint-editor-page__drawer-card"
+                  (click)="addTaskFromDrawer(item.task)"
+                >
+                  <span
+                    class="blueprint-editor-page__drawer-card-icon"
+                    [class.is-trigger]="item.tone === 'trigger'"
+                    [class.is-logic]="item.tone === 'logic'"
+                    [class.is-action]="item.tone === 'action'"
+                    aria-hidden="true"
+                  >
                     <mat-icon>{{ item.icon }}</mat-icon>
                   </span>
-                  <span class="library-list-item__body">
-                    <span class="library-list-item__title">{{ item.task.name }}</span>
-                    <span class="library-list-item__copy">{{ item.description }}</span>
+
+                  <span class="blueprint-editor-page__drawer-card-copy">
+                    <span class="blueprint-editor-page__drawer-card-title">{{ item.task.name }}</span>
+                    <span class="blueprint-editor-page__drawer-card-support">
+                      {{ item.categoryLabel }} • {{ item.description }}
+                    </span>
                   </span>
                 </button>
               }
             </div>
-          </section>
-        }
-      </div>
-
-      <section class="stats-card">
-        <p class="stats-card__eyebrow">Canvas Stats</p>
-        <div class="stats-card__metrics">
-          <span>Nodes: {{ activeNodeCount() }} Active</span>
-          <span>Channels: {{ activeChannelCount() }} Live</span>
-          <span>Avail: {{ availableChannelCount() }}</span>
+          }
         </div>
-      </section>
-    </div>
-  </aside>
-</div>
+
+        <mat-card appearance="outlined" class="blueprint-editor-page__drawer-tip">
+          <mat-card-content>
+            <div class="blueprint-editor-page__drawer-tip-header">
+              <mat-icon>info</mat-icon>
+              <span>Pro tip</span>
+            </div>
+            <p>Click a plugin card to add it near the current canvas center.</p>
+          </mat-card-content>
+        </mat-card>
+      </div>
+    </aside>
+  </div>
+
+  <ng-template #mappingDialogTemplate>
+    @if (mappingModalConnection(); as connection) {
+      <h2 mat-dialog-title>{{ connection.from.name }} to {{ connection.to.name }}</h2>
+      <div mat-dialog-content class="blueprint-editor-page__dialog-content">
+        <p class="app-section-support">
+          Choose, per destination input property, whether it stays unmapped, transfers directly, or maps from a different source property.
+        </p>
+
+        <div class="app-chip-row">
+          @for (chip of mappingModalChips(); track chip.icon + chip.label) {
+            <mat-chip [class]="'blueprint-editor-page__chip--' + chip.tone">
+              <mat-icon>{{ chip.icon }}</mat-icon>
+              {{ chip.label }}
+            </mat-chip>
+          }
+        </div>
+
+        <div class="blueprint-editor-page__dialog-grid">
+          @for (targetProperty of mappingModalTargetProperties(); track targetProperty) {
+            <mat-card appearance="outlined">
+              <mat-card-title>{{ formatPropertyLabel(targetProperty) }}</mat-card-title>
+              <mat-card-subtitle>Destination input</mat-card-subtitle>
+              <mat-card-content>
+                <mat-form-field appearance="outline">
+                  <mat-label>Transfer mode</mat-label>
+                  <mat-select
+                    [value]="mappingModalSelectionFor(targetProperty)"
+                    (selectionChange)="updateMappingModalSelection(targetProperty, $event.value)"
+                  >
+                    <mat-option value="">Unmapped</mat-option>
+                    @if (mappingModalHasDirectOption(targetProperty)) {
+                      <mat-option [value]="targetProperty">
+                        Direct transfer from {{ formatPropertyLabel(targetProperty) }}
+                      </mat-option>
+                    }
+                    @for (sourceProperty of mappingModalAlternativeSourceProperties(targetProperty); track sourceProperty) {
+                      <mat-option [value]="sourceProperty">
+                        Map from {{ formatPropertyLabel(sourceProperty) }}
+                      </mat-option>
+                    }
+                  </mat-select>
+                </mat-form-field>
+              </mat-card-content>
+            </mat-card>
+          }
+        </div>
+      </div>
+      <div mat-dialog-actions align="end">
+        <button mat-button type="button" (click)="closeConnectionMappingModal()">Cancel</button>
+        <button mat-flat-button color="primary" type="button" (click)="applyConnectionMappingModal()">
+          Apply Mapping
+        </button>
+      </div>
+    }
+  </ng-template>
+
+  <ng-template #designTimeOverrideDialogTemplate>
+    @if (designTimeOverrideModalNode(); as node) {
+      <h2 mat-dialog-title>{{ node.name }}</h2>
+      <div mat-dialog-content class="blueprint-editor-page__dialog-content">
+        <p class="app-section-support">
+          Fixed values overlay destination inputs after mapped data and before runtime overrides.
+        </p>
+
+        <app-property-override-editor
+          editorId="design-time"
+          [properties]="node.inputProperties"
+          [initialOverrides]="node.designTimeInputOverrides"
+          [resetKey]="designTimeOverrideResetKey()"
+          emptyMessage="This node has no input properties available for fixed values."
+          (stateChange)="onDesignTimeOverrideStateChanged($event)"
+        />
+      </div>
+      <div mat-dialog-actions align="end">
+        <button mat-button type="button" (click)="clearDesignTimeOverrides()">Clear Fixed Values</button>
+        <button mat-button type="button" (click)="closeDesignTimeOverrideModal()">Cancel</button>
+        <button mat-flat-button color="primary" type="button" [disabled]="!designTimeOverrideState().valid" (click)="applyDesignTimeOverrides()">
+          Apply Fixed Values
+        </button>
+      </div>
+    }
+  </ng-template>
+</section>

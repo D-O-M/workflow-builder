@@ -14,8 +14,18 @@ import { DatePipe, NgClass } from '@angular/common';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
+import { MatChipsModule } from '@angular/material/chips';
+import { MatDividerModule } from '@angular/material/divider';
+import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
+import { MatListModule } from '@angular/material/list';
 import { MatMenuModule } from '@angular/material/menu';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatSidenavModule } from '@angular/material/sidenav';
+import { MatTabsModule } from '@angular/material/tabs';
 import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
 import {
   catchError,
@@ -74,15 +84,25 @@ interface StepLogHistoryRequest {
 }
 
 type HistoryPanelMode = 'blueprints' | 'processes';
-type StepInspectorTab = 'inputs' | 'outputs' | 'logs';
+type StepInspectorTab = 'inputs' | 'outputs' | 'dataflow' | 'logs';
 
 @Component({
   selector: 'app-process-explorer-page',
   imports: [
     ReactiveFormsModule,
     MatButtonModule,
+    MatCardModule,
+    MatChipsModule,
+    MatDividerModule,
+    MatFormFieldModule,
     MatIconModule,
+    MatInputModule,
+    MatListModule,
     MatMenuModule,
+    MatProgressBarModule,
+    MatProgressSpinnerModule,
+    MatSidenavModule,
+    MatTabsModule,
     NgClass,
     DatePipe,
     BlueprintCanvasComponent,
@@ -395,6 +415,13 @@ export class ProcessExplorerPageComponent {
   );
   protected readonly selectedStepInputs = computed(() => this.selectedStepDetail()?.inputs ?? null);
   protected readonly selectedStepOutputs = computed(() => this.selectedStepDetail()?.outputs ?? null);
+  protected readonly selectedStepIncomingMappings = computed(() => this.selectedStepDetail()?.incomingMappings ?? []);
+  protected readonly selectedStepDesignTimeOverrides = computed(() =>
+    this.selectedStepDetail()?.designTimeInputOverrides ?? null,
+  );
+  protected readonly selectedStepRuntimeOverrides = computed(() =>
+    this.selectedStepDetail()?.runtimeOverrides ?? null,
+  );
   private readonly stepLogHistoryRequest = computed<StepLogHistoryRequest | null>(() => {
     const process = this.selectedProcess();
     const blueprintNodeId = this.selectedStepInstanceId();
@@ -623,6 +650,8 @@ export class ProcessExplorerPageComponent {
           connection.anchor,
           connection.side,
           connection.position,
+          crypto.randomUUID(),
+          connection.propertyMappings,
         )];
       });
     });
@@ -925,6 +954,36 @@ export class ProcessExplorerPageComponent {
     this.stepInspectorTab.set(tab);
   }
 
+  protected stepTabIndex(): number {
+    switch (this.stepInspectorTab()) {
+      case 'outputs':
+        return 1;
+      case 'dataflow':
+        return 2;
+      case 'logs':
+        return 3;
+      default:
+        return 0;
+    }
+  }
+
+  protected onStepTabIndexChange(index: number): void {
+    switch (index) {
+      case 1:
+        this.stepInspectorTab.set('outputs');
+        break;
+      case 2:
+        this.stepInspectorTab.set('dataflow');
+        break;
+      case 3:
+        this.stepInspectorTab.set('logs');
+        break;
+      default:
+        this.stepInspectorTab.set('inputs');
+        break;
+    }
+  }
+
   protected async loadMoreProcessHistory(): Promise<void> {
     const blueprintId = this.selectedBlueprintId();
     const cursor = this.processHistoryNextCursor();
@@ -1035,6 +1094,10 @@ export class ProcessExplorerPageComponent {
 
   protected trackStepLog(_: number, entry: NodeLogEntryViewModel): string {
     return entry.cursor;
+  }
+
+  protected trackIncomingMapping(_: number, mapping: ProcessStepDetailViewModel['incomingMappings'][number]): string {
+    return `${mapping.sourceBlueprintNodeId}:${mapping.channelName ?? 'default'}`;
   }
 
   protected hasStructuredPayload(payload: unknown | null | undefined): boolean {

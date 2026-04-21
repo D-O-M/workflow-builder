@@ -6,6 +6,7 @@ import { BlueprintEditorStore } from './blueprint-editor.store';
 export class BuilderInputService implements OnDestroy {
   private readonly document = inject(DOCUMENT);
   private readonly editorStore = inject(BlueprintEditorStore);
+  private spacePressed = false;
 
   constructor() {
     if (typeof window === 'undefined') {
@@ -28,9 +29,20 @@ export class BuilderInputService implements OnDestroy {
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
+    if (event.code === 'Space') {
+      this.spacePressed = true;
+    }
+
     this.updateModifierState(event);
 
-    if (!this.editorStore.canvasFocused() || this.isEditableTarget(event.target)) {
+    const canvasFocused = this.editorStore.canvasFocused();
+    const editableTarget = this.isEditableTarget(event.target);
+
+    if (event.code === 'Space' && canvasFocused && !editableTarget) {
+      event.preventDefault();
+    }
+
+    if (!canvasFocused || editableTarget) {
       return;
     }
 
@@ -58,7 +70,11 @@ export class BuilderInputService implements OnDestroy {
         break;
       case 'z':
         event.preventDefault();
-        this.editorStore.undo();
+        if (event.shiftKey) {
+          this.editorStore.redo();
+        } else {
+          this.editorStore.undo();
+        }
         break;
       default:
         break;
@@ -66,17 +82,23 @@ export class BuilderInputService implements OnDestroy {
   };
 
   private readonly handleKeyUp = (event: KeyboardEvent): void => {
+    if (event.code === 'Space') {
+      this.spacePressed = false;
+    }
+
     this.updateModifierState(event);
   };
 
   private readonly handleWindowBlur = (): void => {
-    this.editorStore.setModifierState({ shift: false, ctrlOrMeta: false });
+    this.spacePressed = false;
+    this.editorStore.setModifierState({ shift: false, ctrlOrMeta: false, space: false });
   };
 
   private updateModifierState(event: KeyboardEvent): void {
     this.editorStore.setModifierState({
       shift: event.shiftKey,
       ctrlOrMeta: event.ctrlKey || event.metaKey,
+      space: this.spacePressed,
     });
   }
 

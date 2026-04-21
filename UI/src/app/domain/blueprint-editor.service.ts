@@ -1,8 +1,8 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
-import { ConnectionModel } from './connection-model';
-import { NodeModel, Point, Side } from './node-model';
+import { ConnectionModel, ConnectionPropertyMappingModel } from './connection-model';
+import { NodeModel, Point, Side, TaskPropertyType } from './node-model';
 import { ITaskDefinition } from '../interfaces/ITaskDefinition';
 
 interface CoordinatesViewModel {
@@ -17,6 +17,7 @@ interface BlueprintConnectionInputModel {
   anchor: number;
   side: Side;
   position: number;
+  propertyMappings: ConnectionPropertyMappingModel[];
 }
 
 interface BlueprintNodeInputModel {
@@ -25,6 +26,7 @@ interface BlueprintNodeInputModel {
   allowedMajor: number;
   allowedMinor: number;
   position: CoordinatesViewModel;
+  designTimeInputOverrides: Record<string, unknown>;
   outgoingConnections: BlueprintConnectionInputModel[];
 }
 
@@ -50,6 +52,7 @@ interface BlueprintConnectionViewModel {
   anchor: number;
   side: Side;
   position: number;
+  propertyMappings: ConnectionPropertyMappingModel[];
 }
 
 interface BlueprintNodeViewModel {
@@ -60,6 +63,7 @@ interface BlueprintNodeViewModel {
   resolvedVersionId: number;
   resolvedVersion?: string | null;
   position: CoordinatesViewModel;
+  designTimeInputOverrides: Record<string, unknown>;
   outgoingConnections: BlueprintConnectionViewModel[];
 }
 
@@ -82,6 +86,7 @@ export interface BlueprintViewModel {
 export interface BlueprintProcessInputModel {
   globalState: Record<string, unknown>;
   initialTaskInput: Record<string, unknown>;
+  nodeOverrides?: Record<string, Record<string, unknown>>;
 }
 
 export interface BlueprintProcessAcceptedViewModel {
@@ -181,6 +186,16 @@ export interface ProcessStepDetailViewModel {
   failureMessage?: string | null;
   inputs?: unknown | null;
   outputs?: unknown | null;
+  incomingMappings: ProcessStepIncomingMappingViewModel[];
+  designTimeInputOverrides?: unknown | null;
+  runtimeOverrides?: unknown | null;
+}
+
+export interface ProcessStepIncomingMappingViewModel {
+  sourceBlueprintNodeId: string;
+  sourceName: string;
+  channelName?: string | null;
+  propertyMappings: ConnectionPropertyMappingModel[];
 }
 
 export interface BlueprintGraphDocument {
@@ -205,6 +220,9 @@ export class BlueprintEditorService {
     inputChannelName: string | null,
     outputChannelNames: string[],
     hasUpgradeWarning: boolean,
+    inputProperties: Record<string, TaskPropertyType>,
+    outputChannelProperties: Record<string, Record<string, TaskPropertyType>>,
+    designTimeInputOverrides: Record<string, unknown>,
     snap?: (v: number) => number,
   ): NodeModel {
     const y = snap ? snap(coordinates.y) : coordinates.y;
@@ -224,6 +242,11 @@ export class BlueprintEditorService {
       inputChannelName,
       outputChannelNames,
       hasUpgradeWarning,
+      null,
+      null,
+      inputProperties,
+      outputChannelProperties,
+      designTimeInputOverrides,
     );
   }
 
@@ -290,6 +313,7 @@ export class BlueprintEditorService {
       allowedMajor: n.allowedMajor,
       allowedMinor: n.allowedMinor,
       position: { x: n.x, y: n.y },
+      designTimeInputOverrides: { ...n.designTimeInputOverrides },
       outgoingConnections: [],
     }));
 
@@ -316,6 +340,7 @@ export class BlueprintEditorService {
         anchor: c.anchor,
         side: c.side,
         position: c.pos,
+        propertyMappings: c.propertyMappings.map((mapping) => ({ ...mapping })),
       });
     }
 
@@ -325,10 +350,16 @@ export class BlueprintEditorService {
     };
   }
 
-  loadBlueprintGraph(definitionId: number, taskDefinitions: ITaskDefinition[]): Observable<BlueprintGraphDocument> {
+  loadBlueprintGraph(
+    definitionId: number,
+    taskDefinitions: ITaskDefinition[],
+    blueprintVersionId?: number | null,
+  ): Observable<BlueprintGraphDocument> {
     return this.getBlueprintById(definitionId).pipe(
       map((blueprint) => {
-        const version = blueprint.versions[0];
+        const version = blueprintVersionId === undefined || blueprintVersionId === null
+          ? blueprint.versions[0]
+          : blueprint.versions.find((candidate) => candidate.blueprintVersionId === blueprintVersionId) ?? blueprint.versions[0];
         if (!version) {
           return {
             blueprint,
@@ -359,6 +390,9 @@ export class BlueprintEditorService {
             taskVersion?.inputChannel?.name ?? null,
             taskVersion?.outputChannels.map((channel) => channel.name) ?? [],
             taskDefinition ? this.hasNewerMajorMinorLane(taskDefinition, task.allowedMajor, task.allowedMinor) : false,
+            taskVersion?.inputChannel?.properties ?? {},
+            Object.fromEntries((taskVersion?.outputChannels ?? []).map((channel) => [channel.name, channel.properties])),
+            task.designTimeInputOverrides ?? {},
           );
         });
 
@@ -379,6 +413,8 @@ export class BlueprintEditorService {
               connection.anchor,
               connection.side,
               connection.position,
+              crypto.randomUUID(),
+              connection.propertyMappings.map((mapping) => ({ ...mapping })),
             )];
           }),
         );

@@ -1,5 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
 
 export type DynamicFieldKind = 'string' | 'number' | 'boolean' | 'guid';
 
@@ -12,70 +15,67 @@ export interface DynamicFieldDefinition {
 
 @Component({
   selector: 'app-dynamic-form-field',
-  imports: [ReactiveFormsModule],
+  imports: [
+    ReactiveFormsModule,
+    MatCheckboxModule,
+    MatFormFieldModule,
+    MatInputModule,
+  ],
   template: `
     <div class="field" [formGroup]="group()">
       @if (field().kind === 'boolean') {
-        <label class="checkbox-field">
-          <input type="checkbox" [formControlName]="field().key" />
-          <span>{{ field().label }}</span>
-        </label>
+        <div class="field__boolean">
+          <mat-checkbox [formControlName]="field().key">
+            {{ field().label }}
+          </mat-checkbox>
+
+          @if (controlInvalid()) {
+            <p class="field__error">{{ errorMessage() }}</p>
+          }
+        </div>
       } @else {
-        <label class="text-field">
-          <span>{{ field().label }}</span>
+        <mat-form-field class="field__control" appearance="outline">
+          <mat-label>{{ field().label }}</mat-label>
           <input
+            matInput
             [type]="inputType()"
             [formControlName]="field().key"
             [attr.placeholder]="field().label"
             [attr.inputmode]="field().kind === 'number' ? 'decimal' : null"
             [attr.autocomplete]="field().kind === 'guid' ? 'off' : null"
+            [attr.step]="field().kind === 'number' ? 'any' : null"
           />
-        </label>
-      }
 
-      @if (controlInvalid()) {
-        <small class="field-error">{{ errorMessage() }}</small>
+          @if (field().kind === 'guid') {
+            <mat-hint>GUID format expected.</mat-hint>
+          }
+
+          @if (controlInvalid()) {
+            <mat-error>{{ errorMessage() }}</mat-error>
+          }
+        </mat-form-field>
       }
     </div>
   `,
   styles: [`
     .field {
-      display: flex;
-      flex-direction: column;
-      gap: 0.35rem;
+      width: 100%;
     }
 
-    .text-field,
-    .checkbox-field {
-      display: flex;
-      gap: 0.65rem;
-      align-items: center;
-      color: var(--app-text);
+    .field__control {
+      width: 100%;
     }
 
-    .text-field {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 0.35rem;
+    .field__boolean {
+      display: grid;
+      gap: 0.5rem;
+      padding: 0.5rem 0;
     }
 
-    input[type='text'],
-    input[type='number'] {
-      border: 1px solid var(--app-border);
-      border-radius: 10px;
-      padding: 0.65rem 0.75rem;
-      font: inherit;
-      background: rgba(255, 255, 255, 0.86);
-    }
-
-    input[type='checkbox'] {
-      width: 1rem;
-      height: 1rem;
-      accent-color: var(--app-primary);
-    }
-
-    .field-error {
-      color: #b42318;
+    .field__error {
+      margin: 0;
+      color: var(--app-status-danger);
+      font-size: 0.83rem;
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,

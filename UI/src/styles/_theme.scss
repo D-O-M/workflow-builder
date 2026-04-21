@@ -1,0 +1,24 @@
+@use '@angular/material' as mat;
+
+$app-font-family: 'Merriweather Sans', 'Rosario', 'Segoe UI', Arial, sans-serif;
+
+$app-theme: mat.define-theme((
+  color: (
+    theme-type: light,
+    primary: mat.$azure-palette,
+    tertiary: mat.$cyan-palette,
+  ),
+  typography: (
+    plain-family: $app-font-family,
+    brand-family: $app-font-family,
+  ),
+  density: (
+    scale: 0,
+  ),
+));
+
+@mixin apply() {
+  @include mat.core();
+  @include mat.all-component-themes($app-theme);
+  @include mat.typography-hierarchy($app-theme);
+}

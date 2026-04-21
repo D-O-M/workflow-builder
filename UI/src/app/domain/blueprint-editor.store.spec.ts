@@ -125,4 +125,28 @@ describe('BlueprintEditorStore', () => {
     expect(store.connections()).toHaveLength(1);
     expect(store.nodes().map((node) => node.name)).toEqual(['Lookup', 'Forecast']);
   });
+
+  it('restores the undone graph state on redo', () => {
+    const store = new BlueprintEditorStore();
+    const sourceTask = createTaskDefinition(1, 'Lookup', { outputChannelNames: ['Success'] });
+    const destinationTask = createTaskDefinition(2, 'Forecast', {
+      inputChannelName: 'Input',
+      outputChannelNames: ['Success'],
+    });
+
+    const source = store.createNode(sourceTask, { x: 0, y: 0 });
+    const destination = store.createNode(destinationTask, { x: 400, y: 0 });
+    store.createConnection(source.id, destination.id, 0, 'left', destination.inputAnchorSnap()!.pos);
+
+    store.selectOnlyNode(source.id);
+    store.toggleNodeSelection(destination.id);
+    store.deleteSelection();
+    store.undo();
+    store.redo();
+
+    expect(store.nodes()).toHaveLength(0);
+    expect(store.connections()).toHaveLength(0);
+    expect(store.canRedo()).toBe(false);
+    expect(store.canUndo()).toBe(true);
+  });
 });

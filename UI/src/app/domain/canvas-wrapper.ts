@@ -1,9 +1,18 @@
 import { NodeModel, Point, Side } from './node-model';
 import { PathfinderOptions, orthogonalSegments } from './pathfinder';
-import { ConnectionModel } from './connection-model';
+import { ConnectionBehaviorKind, ConnectionModel, describeConnectionBehavior } from './connection-model';
 import { signal } from '@angular/core';
+import {
+    CanvasBackgroundEffect,
+    canvasPointToWorldPoint,
+    getHighlightFalloff,
+    getVisibleWorldBounds,
+    getWorldRadiusFromScreenRadius,
+} from './canvas-backdrop';
 
 export class CanvasWrapper {
+    private static readonly primaryFontFamilyName = '"Merriweather Sans"';
+    private static readonly fallbackFontFamily = "'Merriweather Sans', 'Rosario', 'Segoe UI', Arial, sans-serif";
 
     private static readonly theme = {
         surface: '#ffffff',
@@ -67,6 +76,16 @@ export class CanvasWrapper {
                 badgeFill: 'rgba(203, 213, 225, 0.26)',
             },
         },
+        backdrop: {
+            dotSpacing: 24,
+            dotRadius: 1,
+            dotOffset: 12,
+            baseDotColor: 'rgba(118, 138, 176, 0.26)',
+            hoverRadiusPx: 120,
+            hoverDotRadiusBoost: 0.55,
+            hoverColorRgb: '69, 108, 230',
+            hoverMaxAlpha: 0.72,
+        },
     } as const;
 
     readonly viewportOffset = signal<Point>({ x: 0, y: 0 });
@@ -74,10 +93,13 @@ export class CanvasWrapper {
     readonly fontReady = signal(false);
 
     readonly arrowSize = 8;
+    private stitchPattern: CanvasPattern | null = null;
+    private readonly fontFamily: string;
     constructor(
         public readonly ctx: CanvasRenderingContext2D,
         private readonly gridSize: number
     ) {
+        this.fontFamily = this.resolveFontFamily();
         void this.ensureFontLoaded();
     }
 
@@ -89,7 +111,7 @@ export class CanvasWrapper {
                 return;
             }
 
-            await fonts.load('600 14px Datatype');
+            await fonts.load(`600 14px ${CanvasWrapper.primaryFontFamilyName}`);
             await fonts.ready;
             this.fontReady.set(true);
         } catch {
@@ -114,8 +136,20 @@ export class CanvasWrapper {
 
     private setFont(weight: 500 | 600 | 700, size: number): void {
         this.ctx.font = this.fontReady()
-            ? `${weight} ${size}px Datatype, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`
-            : `${weight} ${size}px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+            ? `${weight} ${size}px ${this.fontFamily}`
+            : `${weight} ${size}px ${CanvasWrapper.fallbackFontFamily}`;
+    }
+
+    private resolveFontFamily(): string {
+        if (typeof document === 'undefined') {
+            return CanvasWrapper.fallbackFontFamily;
+        }
+
+        const configuredFontFamily = getComputedStyle(document.documentElement)
+            .getPropertyValue('--app-font-family')
+            .trim();
+
+        return configuredFontFamily || CanvasWrapper.fallbackFontFamily;
     }
 
     clear(width: number, height: number): void {
@@ -127,19 +161,107 @@ export class CanvasWrapper {
         this.ctx.textBaseline = 'alphabetic';
     }
 
+    drawBackdrop(
+        canvasWidth: number,
+        canvasHeight: number,
+        effect: CanvasBackgroundEffect,
+        hoveredCanvasPoint: Point | null,
+    ): void {
+        if (effect !== 'stitch') {
+            return;
+        }
+
+        const visibleBounds = getVisibleWorldBounds(
+            canvasWidth,
+            canvasHeight,
+            this.viewportOffset(),
+            this.zoomLevel(),
+        );
+        const pattern = this.getStitchPattern();
+        if (pattern) {
+            this.ctx.save();
+            this.ctx.fillStyle = pattern;
+            this.ctx.fillRect(
+                visibleBounds.left,
+                visibleBounds.top,
+                visibleBounds.right - visibleBounds.left,
+                visibleBounds.bottom - visibleBounds.top,
+            );
+            this.ctx.restore();
+        }
+
+        if (!hoveredCanvasPoint) {
+            return;
+        }
+
+        const hoverCenter = canvasPointToWorldPoint(
+            hoveredCanvasPoint,
+            this.viewportOffset(),
+            this.zoomLevel(),
+        );
+        const radiusWorld = getWorldRadiusFromScreenRadius(
+            CanvasWrapper.theme.backdrop.hoverRadiusPx,
+            this.zoomLevel(),
+        );
+        const radiusSquared = radiusWorld * radiusWorld;
+        const startX = this.snapBackdropCoordinate(hoverCenter.x - radiusWorld);
+        const endX = this.snapBackdropCoordinate(hoverCenter.x + radiusWorld);
+        const startY = this.snapBackdropCoordinate(hoverCenter.y - radiusWorld);
+        const endY = this.snapBackdropCoordinate(hoverCenter.y + radiusWorld);
+
+        this.ctx.save();
+        for (let x = startX; x <= endX; x += CanvasWrapper.theme.backdrop.dotSpacing) {
+            for (let y = startY; y <= endY; y += CanvasWrapper.theme.backdrop.dotSpacing) {
+                const deltaX = x - hoverCenter.x;
+                const deltaY = y - hoverCenter.y;
+                const distanceSquared = deltaX * deltaX + deltaY * deltaY;
+                const strength = getHighlightFalloff(distanceSquared, radiusSquared);
+                if (strength <= 0) {
+                    continue;
+                }
+
+                this.ctx.globalAlpha = CanvasWrapper.theme.backdrop.hoverMaxAlpha * strength;
+                this.ctx.fillStyle = `rgb(${CanvasWrapper.theme.backdrop.hoverColorRgb})`;
+                this.ctx.beginPath();
+                this.ctx.arc(
+                    x,
+                    y,
+                    CanvasWrapper.theme.backdrop.dotRadius + CanvasWrapper.theme.backdrop.hoverDotRadiusBoost * strength,
+                    0,
+                    Math.PI * 2,
+                );
+                this.ctx.fill();
+            }
+        }
+        this.ctx.restore();
+    }
+
     drawConnections(
         connections: ConnectionModel[],
         nodes: NodeModel[],
         selectedConnectionIds: ReadonlySet<string> = new Set<string>(),
+        options?: { readOnly?: boolean },
     ): void {
+        const readOnly = options?.readOnly ?? false;
+        const behaviorByConnectionId = readOnly
+            ? new Map<string, ReturnType<typeof describeConnectionBehavior>>()
+            : new Map(connections.map((connection) => [connection.id, describeConnectionBehavior(connection, connections)] as const));
+
         for (const conn of connections.filter((connection) => !selectedConnectionIds.has(connection.id))) {
             const obstacles = nodes.filter((n) => n.id !== conn.from.id && n.id !== conn.to.id);
-            conn.draw(this, obstacles);
+            conn.draw(this, obstacles, {
+                behavior: behaviorByConnectionId.get(conn.id),
+                showBehaviorCue: !readOnly,
+            });
         }
 
         for (const conn of connections.filter((connection) => selectedConnectionIds.has(connection.id))) {
             const obstacles = nodes.filter((n) => n.id !== conn.from.id && n.id !== conn.to.id);
-            conn.draw(this, obstacles, { selected: true });
+            conn.draw(this, obstacles, {
+                selected: true,
+                behavior: behaviorByConnectionId.get(conn.id),
+                showBehaviorCue: !readOnly,
+            });
         }
     }
 
@@ -247,6 +369,10 @@ export class CanvasWrapper {
             this.ctx.fillStyle = CanvasWrapper.theme.nodeTextMuted;
             this.setFont(500, 12);
             this.ctx.fillText('Route task output between process steps', node.x + 24, node.y + 62);
+
+            if (!readOnly && node.hasDesignTimeOverrides) {
+                this.drawNodeOverrideBadge(node, `${node.designTimeOverrideCount} override${node.designTimeOverrideCount === 1 ? '' : 's'}`);
+            }
 
             this.ctx.fillStyle = CanvasWrapper.theme.nodeSectionText;
             this.setFont(700, 11);
@@ -386,6 +512,30 @@ export class CanvasWrapper {
         this.ctx.restore();
     }
 
+    private drawNodeOverrideBadge(node: NodeModel, label: string): void {
+        this.ctx.save();
+        this.setFont(700, 11);
+        const paddingX = 10;
+        const iconSize = 16;
+        const width = this.ctx.measureText(label).width + paddingX * 2 + iconSize + 8;
+        const height = 24;
+        const x = node.x + 24;
+        const y = node.y + 74;
+
+        this.ctx.fillStyle = 'rgba(242, 140, 24, 0.12)';
+        this.roundedRect(x, y, width, height, 12);
+        this.ctx.fill();
+
+        this.ctx.fillStyle = '#c2410c';
+        this.ctx.beginPath();
+        this.ctx.arc(x + 12, y + height / 2, 5, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        this.ctx.fillStyle = '#9a3412';
+        this.ctx.fillText(label, x + 12 + iconSize, y + 16);
+        this.ctx.restore();
+    }
+
     drawFailureTooltip(node: NodeModel, message: string): void {
         this.ctx.save();
         const width = 280;
@@ -520,17 +670,6 @@ export class CanvasWrapper {
         this.ctx.fill();
     }
 
-    private drawSegment(x1: number, y1: number, x2: number, y2: number): void {
-        const t = this.ctx.lineWidth;
-        if (x1 === x2) {
-            const top = Math.min(y1, y2);
-            this.ctx.fillRect(x1 - t / 2, top, t, Math.abs(y2 - y1));
-        } else if (y1 === y2) {
-            const left = Math.min(x1, x2);
-            this.ctx.fillRect(left, y1 - t / 2, Math.abs(x2 - x1), t);
-        }
-    }
-
     drawOrthogonalLine(
         sx: number,
         sy: number,
@@ -559,8 +698,136 @@ export class CanvasWrapper {
             startSide,
             startNode,
         );
-        for (const seg of segments) {
-            this.drawSegment(seg.x1, seg.y1, seg.x2, seg.y2);
+        if (segments.length === 0) {
+            return;
         }
+
+        this.ctx.beginPath();
+        this.ctx.moveTo(segments[0].x1, segments[0].y1);
+        for (const seg of segments) {
+            this.ctx.lineTo(seg.x2, seg.y2);
+        }
+        this.ctx.stroke();
+    }
+
+    drawConnectionBadge(x: number, y: number, kind: ConnectionBehaviorKind, selected: boolean): void {
+        this.ctx.save();
+        this.ctx.translate(x, y);
+
+        this.ctx.fillStyle = selected ? '#dbeafe' : 'rgba(255, 255, 255, 0.98)';
+        this.ctx.strokeStyle = selected ? '#2563eb' : '#2446c5';
+        this.ctx.lineWidth = 1.8;
+        this.ctx.beginPath();
+        this.ctx.arc(0, 0, 13, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.stroke();
+
+        this.ctx.strokeStyle = selected ? '#1d4ed8' : '#2d4bdd';
+        this.ctx.fillStyle = selected ? '#1d4ed8' : '#2d4bdd';
+        this.ctx.lineWidth = 1.7;
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+
+        switch (kind) {
+            case 'mapped':
+                this.drawMappedBadgeIcon();
+                break;
+            case 'fanOut':
+                this.drawFanOutBadgeIcon();
+                break;
+            case 'mappedFanOut':
+                this.drawFanOutBadgeIcon();
+                this.ctx.beginPath();
+                this.ctx.arc(0, -6, 2, 0, Math.PI * 2);
+                this.ctx.fill();
+                break;
+            default:
+                break;
+        }
+
+        this.ctx.restore();
+    }
+
+    pathfinderOptions(): PathfinderOptions {
+        return {
+            gridSize: this.gridSize,
+            nodeMargin: NodeModel.buffer,
+            obstacleBuffer: Math.max(NodeModel.buffer / this.gridSize, 1),
+        };
+    }
+
+    private drawMappedBadgeIcon(): void {
+        this.ctx.beginPath();
+        this.ctx.arc(-5, -2, 1.6, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        this.ctx.beginPath();
+        this.ctx.moveTo(-3, -2);
+        this.ctx.lineTo(2, -2);
+        this.ctx.lineTo(2, 3);
+        this.ctx.lineTo(6, 3);
+        this.ctx.stroke();
+
+        this.ctx.beginPath();
+        this.ctx.arc(7, 3, 1.6, 0, Math.PI * 2);
+        this.ctx.fill();
+    }
+
+    private drawFanOutBadgeIcon(): void {
+        this.ctx.beginPath();
+        this.ctx.arc(-5, 0, 1.6, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        this.ctx.beginPath();
+        this.ctx.moveTo(-3, 0);
+        this.ctx.lineTo(0, 0);
+        this.ctx.lineTo(4, -4);
+        this.ctx.moveTo(0, 0);
+        this.ctx.lineTo(4, 4);
+        this.ctx.stroke();
+
+        this.ctx.beginPath();
+        this.ctx.arc(5, -4, 1.6, 0, Math.PI * 2);
+        this.ctx.arc(5, 4, 1.6, 0, Math.PI * 2);
+        this.ctx.fill();
+    }
+
+    private getStitchPattern(): CanvasPattern | null {
+        if (this.stitchPattern) {
+            return this.stitchPattern;
+        }
+
+        if (typeof document === 'undefined') {
+            return null;
+        }
+
+        const tile = document.createElement('canvas');
+        const size = CanvasWrapper.theme.backdrop.dotSpacing;
+        tile.width = size;
+        tile.height = size;
+
+        const tileContext = tile.getContext('2d');
+        if (!tileContext) {
+            return null;
+        }
+
+        tileContext.fillStyle = CanvasWrapper.theme.backdrop.baseDotColor;
+        tileContext.beginPath();
+        tileContext.arc(
+            CanvasWrapper.theme.backdrop.dotOffset,
+            CanvasWrapper.theme.backdrop.dotOffset,
+            CanvasWrapper.theme.backdrop.dotRadius,
+            0,
+            Math.PI * 2,
+        );
+        tileContext.fill();
+
+        this.stitchPattern = this.ctx.createPattern(tile, 'repeat');
+        return this.stitchPattern;
+    }
+
+    private snapBackdropCoordinate(value: number): number {
+        const { dotSpacing, dotOffset } = CanvasWrapper.theme.backdrop;
+        return Math.floor((value - dotOffset) / dotSpacing) * dotSpacing + dotOffset;
     }
 }

@@ -15,12 +15,14 @@ import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
 import { ConnectionModel } from '../domain/connection-model';
 import { CanvasWrapper } from '../domain/canvas-wrapper';
 import { NodeModel, NodeRenderStatus, Point, Side } from '../domain/node-model';
+import { CanvasBackgroundEffect } from '../domain/canvas-backdrop';
 
 interface PendingClickState {
   pointerId: number;
   startCanvas: Point;
   nodeId: number | null;
   connectionId: string | null;
+  connectionBadgeId: string | null;
   shift: boolean;
 }
 
@@ -62,19 +64,28 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   readonly nodes = input.required<NodeModel[]>();
   readonly connections = input.required<ConnectionModel[]>();
   readonly mode = input<'edit' | 'readonly'>('edit');
+  readonly backgroundEffect = input<CanvasBackgroundEffect>('plain');
   readonly readonlySelectedNodeId = input<number | null>(null);
   readonly readonlyNodeActivated = output<number>();
+  readonly nodeDoubleActivated = output<number>();
+  readonly connectionDoubleActivated = output<string>();
+  readonly connectionBadgeActivated = output<string>();
 
   private readonly editorStore = inject(BlueprintEditorStore);
   private readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
   private readonly gridSize = 20;
   private readonly clickTolerance = 4;
+  private readonly wheelLineStep = 16;
+  private readonly wheelDeltaModeLine = 1;
+  private readonly wheelDeltaModePage = 2;
 
   private canvasWrapper?: CanvasWrapper;
   private resizeObserver?: ResizeObserver;
+  private pendingDrawFrameId: number | null = null;
 
   protected readonly hoveredNodeId = signal<number | null>(null);
   protected readonly hoveredAnchor = signal<number | null>(null);
+  protected readonly backdropHoverCanvasPoint = signal<Point | null>(null);
   protected readonly pendingClick = signal<PendingClickState | null>(null);
   protected readonly dragNode = signal<DragNodeState | null>(null);
   protected readonly dragConnection = signal<DragConnectionState | null>(null);
@@ -90,10 +101,12 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       }
 
       this.mode();
+      this.backgroundEffect();
       this.nodes();
       this.connections();
       this.hoveredNodeId();
       this.hoveredAnchor();
+      this.backdropHoverCanvasPoint();
       this.pendingClick();
       this.dragNode();
       this.dragConnection();
@@ -107,7 +120,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       wrapper.viewportOffset();
       wrapper.zoomLevel();
       this.zoomPercent.set(Math.round(wrapper.zoomLevel() * 100));
-      this.draw();
+      this.scheduleDraw();
     });
   }
 
@@ -120,16 +133,21 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
 
     this.canvasWrapper = new CanvasWrapper(context, this.gridSize);
     this.syncCanvasBackingSize();
+    this.scheduleDraw();
 
     this.resizeObserver = new ResizeObserver(() => {
       this.syncCanvasBackingSize();
-      this.draw();
+      this.scheduleDraw();
     });
     this.resizeObserver.observe(canvas);
   }
 
   ngOnDestroy(): void {
     this.resizeObserver?.disconnect();
+    if (this.pendingDrawFrameId !== null) {
+      cancelAnimationFrame(this.pendingDrawFrameId);
+      this.pendingDrawFrameId = null;
+    }
   }
 
   resetView(): void {
@@ -216,6 +234,9 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     const shift = !this.isReadonly() && this.editorStore.modifiers().shift;
     const node = this.getNodeByCoordinates(world);
     const connection = !this.isReadonly() && !node ? this.getConnectionByCoordinates(world) : undefined;
+    const connectionBadge = !this.isReadonly() && connection
+      ? this.getConnectionBadgeByCoordinates(connection, world)
+      : undefined;
 
     if (!this.isReadonly() && node) {
       const anchor = this.getAnchorAt(node, world);
@@ -248,6 +269,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       startCanvas: canvasPoint,
       nodeId: node?.id ?? null,
       connectionId: connection?.id ?? null,
+      connectionBadgeId: connectionBadge?.id ?? null,
       shift,
     });
   }
@@ -259,6 +281,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     }
 
     const { canvas, world } = this.getCoordinates(event);
+    this.backdropHoverCanvasPoint.set(canvas);
 
     const dragConnection = this.dragConnection();
     if (dragConnection?.pointerId === event.pointerId) {
@@ -341,6 +364,8 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   protected onPointerLeave(): void {
+    this.backdropHoverCanvasPoint.set(null);
+
     if (this.dragConnection() || this.dragNode() || this.panState() || this.marqueeState()) {
       return;
     }
@@ -350,8 +375,43 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   protected onWheel(event: WheelEvent): void {
+    const wrapper = this.canvasWrapper;
+    if (!wrapper) {
+      return;
+    }
+
     event.preventDefault();
-    this.adjustZoom(Math.sign(-event.deltaY) * 0.05);
+    const delta = this.normalizeWheelDelta(event);
+    if (this.shouldZoomFromWheel(event)) {
+      const dominantDelta = Math.abs(delta.y) >= Math.abs(delta.x) ? delta.y : delta.x;
+      if (dominantDelta !== 0) {
+        this.adjustZoom(Math.sign(-dominantDelta) * 0.05, this.getCoordinates(event).canvas);
+      }
+      return;
+    }
+
+    wrapper.viewportOffset.update((currentOffset) => ({
+      x: currentOffset.x - delta.x,
+      y: currentOffset.y - delta.y,
+    }));
+  }
+
+  protected onDoubleClick(event: MouseEvent): void {
+    if (this.isReadonly() || !this.canvasWrapper) {
+      return;
+    }
+
+    const { world } = this.getCoordinates(event);
+    const node = this.getNodeByCoordinates(world);
+    if (node) {
+      this.nodeDoubleActivated.emit(node.id);
+      return;
+    }
+
+    const connection = this.getConnectionByCoordinates(world);
+    if (connection) {
+      this.connectionDoubleActivated.emit(connection.id);
+    }
   }
 
   private completePointerInteraction(event: PointerEvent, cancelled: boolean): void {
@@ -436,6 +496,10 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         this.editorStore.toggleConnectionSelection(click.connectionId);
       } else {
         this.editorStore.selectOnlyConnection(click.connectionId);
+      }
+
+      if (click.connectionBadgeId !== null) {
+        this.connectionBadgeActivated.emit(click.connectionBadgeId);
       }
       return;
     }
@@ -592,14 +656,62 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private adjustZoom(delta: number): void {
+  private adjustZoom(delta: number, focalCanvasPoint?: Point): void {
     const wrapper = this.canvasWrapper;
+    const canvas = this.canvasRef()?.nativeElement;
     if (!wrapper) {
       return;
     }
 
-    const nextZoom = Math.min(3, Math.max(0.2, wrapper.zoomLevel() + delta));
+    const currentZoom = wrapper.zoomLevel();
+    const nextZoom = Math.min(3, Math.max(0.2, currentZoom + delta));
+    if (Number(nextZoom.toFixed(2)) === currentZoom) {
+      return;
+    }
+
+    const offset = wrapper.viewportOffset();
+    const focus = focalCanvasPoint ?? (
+      canvas
+        ? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }
+        : { x: 0, y: 0 }
+    );
+    const worldFocus = {
+      x: (focus.x - offset.x) / currentZoom,
+      y: (focus.y - offset.y) / currentZoom,
+    };
+
     wrapper.zoomLevel.set(Number(nextZoom.toFixed(2)));
+    wrapper.viewportOffset.set({
+      x: focus.x - worldFocus.x * nextZoom,
+      y: focus.y - worldFocus.y * nextZoom,
+    });
+  }
+
+  private shouldZoomFromWheel(event: WheelEvent): boolean {
+    return event.ctrlKey || this.editorStore.modifiers().space;
+  }
+
+  private normalizeWheelDelta(event: WheelEvent): Point {
+    if (event.deltaMode === this.wheelDeltaModeLine) {
+      return {
+        x: event.deltaX * this.wheelLineStep,
+        y: event.deltaY * this.wheelLineStep,
+      };
+    }
+
+    if (event.deltaMode === this.wheelDeltaModePage) {
+      const canvas = this.canvasRef()?.nativeElement;
+      const pageStep = Math.max(canvas?.clientHeight ?? 1, canvas?.clientWidth ?? 1);
+      return {
+        x: event.deltaX * pageStep,
+        y: event.deltaY * pageStep,
+      };
+    }
+
+    return {
+      x: event.deltaX,
+      y: event.deltaY,
+    };
   }
 
   private getCoordinates(event: MouseEvent | PointerEvent): { canvas: Point; world: Point } {
@@ -651,14 +763,24 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         coordinates.x,
         coordinates.y,
         tolerance,
-        {
-          gridSize: this.gridSize,
-          nodeMargin: NodeModel.buffer,
-          obstacleBuffer: Math.max(NodeModel.buffer / this.gridSize, 1),
-        },
+        this.canvasWrapper!.pathfinderOptions(),
         obstacles,
       );
     });
+  }
+
+  private getConnectionBadgeByCoordinates(connection: ConnectionModel, coordinates: Point): ConnectionModel | undefined {
+    const obstacles = this.nodes().filter((node) => node.id !== connection.from.id && node.id !== connection.to.id);
+    const badgeRadius = 18 / this.canvasWrapper!.zoomLevel();
+    return connection.badgeHitTest(
+      coordinates.x,
+      coordinates.y,
+      badgeRadius,
+      this.canvasWrapper!.pathfinderOptions(),
+      obstacles,
+    )
+      ? connection
+      : undefined;
   }
 
   private getNodesConnectedTo(node: NodeModel): NodeModel[] {
@@ -688,6 +810,24 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     };
   }
 
+  private scheduleDraw(): void {
+    if (this.pendingDrawFrameId !== null) {
+      return;
+    }
+
+    const draw = () => {
+      this.pendingDrawFrameId = null;
+      this.draw();
+    };
+
+    if (typeof requestAnimationFrame === 'function') {
+      this.pendingDrawFrameId = requestAnimationFrame(draw);
+      return;
+    }
+
+    queueMicrotask(draw);
+  }
+
   private draw(): void {
     const wrapper = this.canvasWrapper;
     const canvas = this.canvasRef()?.nativeElement;
@@ -703,6 +843,12 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     const zoom = wrapper.zoomLevel();
     context.translate(offset.x, offset.y);
     context.scale(zoom, zoom);
+    wrapper.drawBackdrop(
+      canvas.clientWidth,
+      canvas.clientHeight,
+      this.backgroundEffect(),
+      this.backdropHoverCanvasPoint(),
+    );
 
     const nodes = this.nodes();
     const connections = this.connections();
@@ -713,7 +859,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       ? new Set<string>()
       : this.editorStore.selectedConnectionIdSet();
 
-    wrapper.drawConnections(connections, nodes, selectedConnectionIds);
+    wrapper.drawConnections(connections, nodes, selectedConnectionIds, { readOnly: this.isReadonly() });
     wrapper.drawNodes(
       nodes,
       connections,

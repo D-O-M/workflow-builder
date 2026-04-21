@@ -1,5 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
-import { ConnectionModel } from './connection-model';
+import { ConnectionModel, ConnectionPropertyMappingModel } from './connection-model';
 import { NodeModel, Point } from './node-model';
 import { ITaskDefinition } from '../interfaces/ITaskDefinition';
 
@@ -20,6 +20,9 @@ interface GraphNodeSnapshot {
   hasUpgradeWarning: boolean;
   renderStatus: NodeModel['renderStatus'];
   failureMessage: string | null;
+  inputProperties: NodeModel['inputProperties'];
+  outputChannelProperties: NodeModel['outputChannelProperties'];
+  designTimeInputOverrides: NodeModel['designTimeInputOverrides'];
 }
 
 interface GraphConnectionSnapshot {
@@ -29,6 +32,7 @@ interface GraphConnectionSnapshot {
   anchor: number;
   side: ConnectionModel['side'];
   pos: number;
+  propertyMappings: ConnectionPropertyMappingModel[];
 }
 
 interface GraphSnapshot {
@@ -46,6 +50,7 @@ interface ClipboardSnapshot {
 export interface ModifierState {
   shift: boolean;
   ctrlOrMeta: boolean;
+  space: boolean;
 }
 
 export interface NodePositionUpdate {
@@ -65,8 +70,9 @@ export class BlueprintEditorStore {
   private readonly _selectedConnectionIds = signal<string[]>([]);
   private readonly _clipboard = signal<ClipboardSnapshot | null>(null);
   private readonly _history = signal<GraphSnapshot[]>([]);
+  private readonly _future = signal<GraphSnapshot[]>([]);
   private readonly _canvasFocused = signal(false);
-  private readonly _modifiers = signal<ModifierState>({ shift: false, ctrlOrMeta: false });
+  private readonly _modifiers = signal<ModifierState>({ shift: false, ctrlOrMeta: false, space: false });
 
   private nextNodeId = 1;
   private pasteCount = 0;
@@ -87,6 +93,7 @@ export class BlueprintEditorStore {
   readonly canPaste = computed(() => this._clipboard() !== null);
   readonly canDelete = computed(() => this.hasSelection());
   readonly canUndo = computed(() => this._history().length > 0);
+  readonly canRedo = computed(() => this._future().length > 0);
 
   setCanvasFocused(value: boolean): void {
     this._canvasFocused.set(value);
@@ -102,6 +109,7 @@ export class BlueprintEditorStore {
     this._selectedNodeIds.set([]);
     this._selectedConnectionIds.set([]);
     this._history.set([]);
+    this._future.set([]);
     this.pasteCount = 0;
     this.nextNodeId = this.computeNextNodeId(nodes);
   }
@@ -143,6 +151,11 @@ export class BlueprintEditorStore {
       version.inputChannel?.name ?? null,
       version.outputChannels.map((channel) => channel.name),
       false,
+      null,
+      null,
+      version.inputChannel?.properties ?? {},
+      Object.fromEntries(version.outputChannels.map((channel) => [channel.name, channel.properties])),
+      {},
     );
 
     this._nodes.update((nodes) => [...nodes, node]);
@@ -180,6 +193,9 @@ export class BlueprintEditorStore {
         node.hasUpgradeWarning,
         node.renderStatus,
         node.failureMessage,
+        node.inputProperties,
+        node.outputChannelProperties,
+        node.designTimeInputOverrides,
       );
     });
 
@@ -212,11 +228,69 @@ export class BlueprintEditorStore {
     }
 
     this.captureHistory();
-    const connection = new ConnectionModel(from, to, anchor, side, this.snap(position));
+    const defaultMappings = this.getDefaultConnectionMappings(from, to, anchor);
+    const connection = new ConnectionModel(from, to, anchor, side, this.snap(position), crypto.randomUUID(), defaultMappings);
     this._connections.update((connections) => [...connections, connection]);
     this._selectedNodeIds.set([]);
     this._selectedConnectionIds.set([connection.id]);
     return connection;
+  }
+
+  updateNodeDesignTimeOverrides(nodeId: number, overrides: Record<string, unknown>): void {
+    const node = this.getNodeById(nodeId);
+    if (!node) {
+      return;
+    }
+
+    this.captureHistory();
+    this._nodes.update((nodes) => nodes.map((candidate) =>
+      candidate.id !== nodeId
+        ? candidate
+        : new NodeModel(
+          candidate.id,
+          candidate.taskDefinitionId,
+          candidate.allowedMajor,
+          candidate.allowedMinor,
+          candidate.resolvedVersionId,
+          candidate.resolvedVersion,
+          candidate.name,
+          candidate.x,
+          candidate.y,
+          candidate.width,
+          candidate.height,
+          candidate.inputChannelName,
+          candidate.outputChannelNames,
+          candidate.hasUpgradeWarning,
+          candidate.renderStatus,
+          candidate.failureMessage,
+          candidate.inputProperties,
+          candidate.outputChannelProperties,
+          { ...overrides },
+        ),
+    ));
+    this._connections.set(this.rebindConnections(this._connections(), this._nodes()));
+  }
+
+  updateConnectionPropertyMappings(connectionId: string, propertyMappings: ConnectionPropertyMappingModel[]): void {
+    const connection = this._connections().find((candidate) => candidate.id === connectionId);
+    if (!connection) {
+      return;
+    }
+
+    this.captureHistory();
+    this._connections.update((connections) => connections.map((candidate) =>
+      candidate.id !== connectionId
+        ? candidate
+        : new ConnectionModel(
+          candidate.from,
+          candidate.to,
+          candidate.anchor,
+          candidate.side,
+          candidate.pos,
+          candidate.id,
+          propertyMappings.map((mapping) => ({ ...mapping })),
+        ),
+    ));
   }
 
   selectOnlyNode(nodeId: number | null): void {
@@ -361,6 +435,9 @@ export class BlueprintEditorStore {
         nodeSnapshot.hasUpgradeWarning,
         nodeSnapshot.renderStatus,
         nodeSnapshot.failureMessage,
+        nodeSnapshot.inputProperties,
+        nodeSnapshot.outputChannelProperties,
+        nodeSnapshot.designTimeInputOverrides,
       ));
     }
 
@@ -380,6 +457,8 @@ export class BlueprintEditorStore {
           connectionSnapshot.anchor,
           connectionSnapshot.side,
           connectionSnapshot.pos,
+          crypto.randomUUID(),
+          connectionSnapshot.propertyMappings,
         );
       })
       .filter((connection): connection is ConnectionModel => connection !== null);
@@ -398,8 +477,21 @@ export class BlueprintEditorStore {
       return;
     }
 
+    this._future.update((future) => [...future, this.snapshotGraph()]);
     this._history.set(history.slice(0, -1));
     this.restoreSnapshot(previous);
+  }
+
+  redo(): void {
+    const future = this._future();
+    const next = future[future.length - 1];
+    if (!next) {
+      return;
+    }
+
+    this._history.update((history) => [...history, this.snapshotGraph()]);
+    this._future.set(future.slice(0, -1));
+    this.restoreSnapshot(next);
   }
 
   captureHistory(): void {
@@ -412,6 +504,7 @@ export class BlueprintEditorStore {
 
       return nextHistory.slice(nextHistory.length - BlueprintEditorStore.historyLimit);
     });
+    this._future.set([]);
   }
 
   private restoreSnapshot(snapshot: GraphSnapshot): void {
@@ -432,6 +525,7 @@ export class BlueprintEditorStore {
           connection.side,
           connection.pos,
           connection.id,
+          connection.propertyMappings,
         );
       })
       .filter((connection): connection is ConnectionModel => connection !== null);
@@ -472,6 +566,11 @@ export class BlueprintEditorStore {
       hasUpgradeWarning: node.hasUpgradeWarning,
       renderStatus: node.renderStatus,
       failureMessage: node.failureMessage,
+      inputProperties: { ...node.inputProperties },
+      outputChannelProperties: Object.fromEntries(
+        Object.entries(node.outputChannelProperties).map(([key, value]) => [key, { ...value }]),
+      ),
+      designTimeInputOverrides: { ...node.designTimeInputOverrides },
     };
   }
 
@@ -483,6 +582,7 @@ export class BlueprintEditorStore {
       anchor: connection.anchor,
       side: connection.side,
       pos: connection.pos,
+      propertyMappings: connection.propertyMappings.map((mapping) => ({ ...mapping })),
     };
   }
 
@@ -504,6 +604,9 @@ export class BlueprintEditorStore {
       node.hasUpgradeWarning,
       node.renderStatus,
       node.failureMessage,
+      node.inputProperties,
+      node.outputChannelProperties,
+      node.designTimeInputOverrides,
     );
   }
 
@@ -552,9 +655,25 @@ export class BlueprintEditorStore {
           connection.side,
           connection.pos,
           connection.id,
+          connection.propertyMappings,
         );
       })
       .filter((connection): connection is ConnectionModel => connection !== null);
+  }
+
+  private getDefaultConnectionMappings(
+    from: NodeModel,
+    to: NodeModel,
+    anchor: number,
+  ): ConnectionPropertyMappingModel[] {
+    const sourceProperties = from.outputPropertiesForAnchor(anchor);
+    return Object.keys(sourceProperties)
+      .filter((property) => property in to.inputProperties)
+      .sort((left, right) => left.localeCompare(right))
+      .map((property) => ({
+        sourceProperty: property,
+        targetProperty: property,
+      }));
   }
 
   private snap(value: number): number {

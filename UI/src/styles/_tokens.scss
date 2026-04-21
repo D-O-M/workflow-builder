@@ -1,0 +1,38 @@
+@mixin apply() {
+  :root {
+    --app-font-family: 'Merriweather Sans', 'Rosario', 'Segoe UI', Arial, sans-serif;
+    --app-font-family-mono: 'Cascadia Code', 'Consolas', monospace;
+    --app-page-background: #f4f7fb;
+    --app-page-accent: linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+    --app-surface: #ffffff;
+    --app-surface-subtle: #f8faff;
+    --app-surface-muted: #eef3fb;
+    --app-canvas-surface: #f7f9fd;
+    --app-outline: rgba(74, 92, 126, 0.16);
+    --app-outline-strong: rgba(48, 66, 101, 0.22);
+    --app-text: #15233c;
+    --app-text-secondary: #4c607f;
+    --app-text-muted: #5e7394;
+    --app-focus-ring: rgba(0, 106, 185, 0.26);
+    --app-status-success: #0e8f5b;
+    --app-status-success-container: #dbf6e9;
+    --app-status-warning: #a26200;
+    --app-status-warning-container: #ffe8c2;
+    --app-status-danger: #b3261e;
+    --app-status-danger-container: #ffdad6;
+    --app-status-info: #005cbb;
+    --app-status-info-container: #d6e3ff;
+    --app-radius-large: 28px;
+    --app-radius-medium: 20px;
+    --app-radius-small: 14px;
+    --app-shadow-1: 0 18px 40px rgba(31, 56, 99, 0.08);
+    --app-shadow-2: 0 22px 56px rgba(31, 56, 99, 0.12);
+    --app-space-1: 0.25rem;
+    --app-space-2: 0.5rem;
+    --app-space-3: 0.75rem;
+    --app-space-4: 1rem;
+    --app-space-5: 1.5rem;
+    --app-space-6: 2rem;
+    --app-space-7: 2.5rem;
+  }
+}
