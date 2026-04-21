@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Backend.API.Observability;
@@ -6,6 +8,7 @@ using Backend.Database.Relational;
 using Backend.Database.Relational.Entities;
 using Backend.Database.State.Objects;
 using Backend.Interfaces.Repositories;
+using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
 using Backend.Repositories;
 using Backend.Repositories.Processes;
@@ -25,6 +28,7 @@ public sealed class ProcessQueryService
     private readonly ProcessProjectionService _projectionService;
     private readonly BlueprintDbContext _dbContext;
     private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessStepRepository _processStepRepository;
     private readonly IMemoryCache _memoryCache;
     private readonly ObservabilityQueryService _observabilityQueryService;
 
@@ -32,12 +36,14 @@ public sealed class ProcessQueryService
         ProcessProjectionService projectionService,
         BlueprintDbContext dbContext,
         IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        IProcessStepRepository processStepRepository,
         IMemoryCache memoryCache,
         ObservabilityQueryService observabilityQueryService)
     {
         _projectionService = projectionService;
         _dbContext = dbContext;
         _processInstanceRepository = processInstanceRepository;
+        _processStepRepository = processStepRepository;
         _memoryCache = memoryCache;
         _observabilityQueryService = observabilityQueryService;
     }
@@ -212,6 +218,104 @@ public sealed class ProcessQueryService
             Items = items,
             HasMore = hasMore,
             NextCursor = hasMore ? EncodeCursor(partitionStates) : null,
+        };
+    }
+
+    public async Task<ProcessSearchPageViewModel> SearchProcessesAsync(
+        ProcessSearchRequestInputModel request,
+        CancellationToken cancellationToken)
+    {
+        var normalizedRequest = NormalizeProcessSearchRequest(request);
+        var filterSignature = BuildSearchFilterSignature(normalizedRequest);
+        var definitions = await LoadSearchDefinitionsAsync(normalizedRequest, cancellationToken);
+        var versionMetadata = BuildSearchVersionMetadata(definitions);
+
+        if (versionMetadata.Count == 0)
+        {
+            return new ProcessSearchPageViewModel
+            {
+                Items = [],
+                HasMore = false,
+                NextCursor = null,
+            };
+        }
+
+        var nodeFilters = BuildSearchNodeFilters(normalizedRequest, versionMetadata);
+        var propertyFilters = BuildSearchPropertyFilters(normalizedRequest, versionMetadata);
+        if (nodeFilters.Any(filter => filter.MatchingVersionIds.Count == 0)
+            || propertyFilters.Any(filter => filter.MatchingVersionIds.Count == 0))
+        {
+            return new ProcessSearchPageViewModel
+            {
+                Items = [],
+                HasMore = false,
+                NextCursor = null,
+            };
+        }
+
+        var partitions = CreateSearchPartitionStates(
+            versionMetadata.Values.ToList(),
+            filterSignature,
+            normalizedRequest.Cursor);
+        var items = new List<BlueprintProcessHistoryEntryViewModel>(normalizedRequest.Limit);
+        var processStateCache = new Dictionary<string, ProcessInstanceRecord<Dictionary<string, JsonElement>>>(StringComparer.Ordinal);
+        var processStepsCache = new Dictionary<string, IReadOnlyDictionary<string, ProcessStepRecord>>(StringComparer.Ordinal);
+
+        while (items.Count < normalizedRequest.Limit)
+        {
+            await EnsureSearchPartitionBuffersAsync(partitions, normalizedRequest, cancellationToken);
+
+            var nextPartition = partitions
+                .Where(partition => partition.Buffer.Count > 0)
+                .OrderByDescending(partition => partition.Buffer[0].CreatedAt)
+                .ThenByDescending(partition => partition.Buffer[0].ProcessId, StringComparer.Ordinal)
+                .FirstOrDefault();
+
+            if (nextPartition is null)
+            {
+                break;
+            }
+
+            var nextSummary = nextPartition.Buffer[0];
+            nextPartition.Buffer.RemoveAt(0);
+
+            if (!versionMetadata.TryGetValue(nextPartition.BlueprintVersionId, out var metadata))
+            {
+                continue;
+            }
+
+            var candidateMatches = await CandidateMatchesSearchAsync(
+                nextSummary,
+                metadata,
+                nodeFilters,
+                propertyFilters,
+                processStateCache,
+                processStepsCache,
+                cancellationToken);
+            if (!candidateMatches)
+            {
+                continue;
+            }
+
+            items.Add(new BlueprintProcessHistoryEntryViewModel
+            {
+                ProcessId = Guid.Parse(nextSummary.ProcessId),
+                BlueprintDefinitionId = metadata.BlueprintDefinitionId,
+                BlueprintName = metadata.BlueprintName,
+                BlueprintVersionId = metadata.BlueprintVersionId,
+                BlueprintVersionNumber = metadata.BlueprintVersionNumber,
+                Status = nextSummary.Status.ToString(),
+                CreatedAt = nextSummary.CreatedAt,
+                UpdatedAt = nextSummary.UpdatedAt,
+            });
+        }
+
+        var hasMore = partitions.Any(partition => partition.Buffer.Count > 0 || !partition.IsExhausted);
+        return new ProcessSearchPageViewModel
+        {
+            Items = items,
+            HasMore = hasMore,
+            NextCursor = hasMore ? EncodeSearchCursor(filterSignature, partitions) : null,
         };
     }
 
@@ -433,6 +537,339 @@ public sealed class ProcessQueryService
         }
     }
 
+    private async Task<List<BlueprintDefinition>> LoadSearchDefinitionsAsync(
+        NormalizedProcessSearchRequest request,
+        CancellationToken cancellationToken)
+    {
+        var query = _dbContext.BlueprintDefinitions
+            .Include(definition => definition.Versions)
+                .ThenInclude(version => version.BlueprintNodes)
+            .AsNoTracking();
+
+        if (request.BlueprintDefinitionIds.Count > 0)
+        {
+            query = query.Where(definition => request.BlueprintDefinitionIds.Contains(definition.Id));
+        }
+
+        return await query.ToListAsync(cancellationToken);
+    }
+
+    private static Dictionary<int, SearchVersionMetadata> BuildSearchVersionMetadata(
+        IEnumerable<BlueprintDefinition> definitions) =>
+        definitions
+            .SelectMany(definition => definition.Versions.Select(version => new SearchVersionMetadata(
+                definition.Id,
+                definition.DisplayName,
+                version.Id,
+                version.Version,
+                version.BlueprintNodes.Select(node => node.Id).ToHashSet())))
+            .ToDictionary(metadata => metadata.BlueprintVersionId);
+
+    private static List<SearchNodeFilterPlan> BuildSearchNodeFilters(
+        NormalizedProcessSearchRequest request,
+        IReadOnlyDictionary<int, SearchVersionMetadata> versionMetadata) =>
+        request.NodeFilters
+            .Select(filter => new SearchNodeFilterPlan(
+                filter.BlueprintDefinitionId,
+                filter.BlueprintNodeId,
+                filter.Statuses,
+                versionMetadata.Values
+                    .Where(metadata =>
+                        metadata.BlueprintDefinitionId == filter.BlueprintDefinitionId
+                        && metadata.BlueprintNodeIds.Contains(filter.BlueprintNodeId))
+                    .Select(metadata => metadata.BlueprintVersionId)
+                    .ToHashSet()))
+            .ToList();
+
+    private static List<SearchPropertyFilterPlan> BuildSearchPropertyFilters(
+        NormalizedProcessSearchRequest request,
+        IReadOnlyDictionary<int, SearchVersionMetadata> versionMetadata) =>
+        request.PropertyFilters
+            .Select(filter => new SearchPropertyFilterPlan(
+                filter.Scope,
+                filter.BlueprintDefinitionId,
+                filter.BlueprintNodeId,
+                filter.PropertyKey,
+                filter.PropertyType,
+                filter.StringValue,
+                filter.NumberValue,
+                filter.BooleanValue,
+                filter.GuidValue,
+                ResolveMatchingVersionIds(filter, versionMetadata)))
+            .ToList();
+
+    private static HashSet<int> ResolveMatchingVersionIds(
+        NormalizedProcessSearchPropertyFilter filter,
+        IReadOnlyDictionary<int, SearchVersionMetadata> versionMetadata)
+    {
+        IEnumerable<SearchVersionMetadata> candidates = versionMetadata.Values;
+
+        if (filter.BlueprintDefinitionId.HasValue)
+        {
+            candidates = candidates.Where(metadata => metadata.BlueprintDefinitionId == filter.BlueprintDefinitionId.Value);
+        }
+
+        if (filter.Scope is SearchPropertyScope.NodeInput or SearchPropertyScope.NodeOutput)
+        {
+            if (!filter.BlueprintNodeId.HasValue)
+            {
+                return [];
+            }
+
+            candidates = candidates.Where(metadata => metadata.BlueprintNodeIds.Contains(filter.BlueprintNodeId.Value));
+        }
+
+        return candidates.Select(metadata => metadata.BlueprintVersionId).ToHashSet();
+    }
+
+    private async Task EnsureSearchPartitionBuffersAsync(
+        IReadOnlyList<SearchPartitionState> partitions,
+        NormalizedProcessSearchRequest request,
+        CancellationToken cancellationToken)
+    {
+        var pageSize = Math.Clamp(request.Limit, 10, 50);
+        foreach (var partition in partitions)
+        {
+            if (partition.Buffer.Count > 0 || partition.IsExhausted)
+            {
+                continue;
+            }
+
+            var page = await _processInstanceRepository.GetProcessStateSummaryPageForBlueprint(
+                partition.BlueprintVersionId,
+                partition.ContinuationToken,
+                pageSize,
+                request.CreatedFrom,
+                request.CreatedTo,
+                request.ProcessStatuses.Count == 0 ? null : request.ProcessStatuses,
+                cancellationToken);
+
+            partition.ContinuationToken = page.ContinuationToken;
+            partition.IsExhausted = string.IsNullOrWhiteSpace(page.ContinuationToken);
+            if (page.Items.Count > 0)
+            {
+                partition.Buffer.AddRange(page.Items);
+            }
+        }
+    }
+
+    private async Task<bool> CandidateMatchesSearchAsync(
+        ProcessStateSummary summary,
+        SearchVersionMetadata metadata,
+        IReadOnlyList<SearchNodeFilterPlan> nodeFilters,
+        IReadOnlyList<SearchPropertyFilterPlan> propertyFilters,
+        IDictionary<string, ProcessInstanceRecord<Dictionary<string, JsonElement>>> processStateCache,
+        IDictionary<string, IReadOnlyDictionary<string, ProcessStepRecord>> processStepsCache,
+        CancellationToken cancellationToken)
+    {
+        if (nodeFilters.Any(filter => !filter.MatchingVersionIds.Contains(metadata.BlueprintVersionId))
+            || propertyFilters.Any(filter => !filter.MatchingVersionIds.Contains(metadata.BlueprintVersionId)))
+        {
+            return false;
+        }
+
+        IReadOnlyDictionary<string, ProcessStepRecord>? processSteps = null;
+        ProcessInstanceRecord<Dictionary<string, JsonElement>>? processState = null;
+        var processId = Guid.Parse(summary.ProcessId);
+        var processCacheKey = $"{metadata.BlueprintVersionId}:{summary.ProcessId}";
+
+        if (propertyFilters.Any(filter => filter.Scope == SearchPropertyScope.GlobalState))
+        {
+            processState = await GetProcessStateAsync(
+                processCacheKey,
+                processId,
+                metadata.BlueprintVersionId,
+                processStateCache,
+                cancellationToken);
+
+            foreach (var filter in propertyFilters.Where(filter => filter.Scope == SearchPropertyScope.GlobalState))
+            {
+                if (!processState.GlobalState.TryGetValue(filter.PropertyKey, out var propertyValue)
+                    || !MatchesPropertyFilter(propertyValue, filter))
+                {
+                    return false;
+                }
+            }
+        }
+
+        if (nodeFilters.Count > 0 || propertyFilters.Any(filter => filter.Scope != SearchPropertyScope.GlobalState))
+        {
+            processSteps = await GetProcessStepsAsync(
+                summary.ProcessId,
+                processId,
+                processStepsCache,
+                cancellationToken);
+        }
+
+        if (processSteps is not null)
+        {
+            foreach (var filter in nodeFilters)
+            {
+                if (!processSteps.TryGetValue(filter.BlueprintNodeId.ToString(), out var step)
+                    || (filter.Statuses.Count > 0 && !filter.Statuses.Contains(step.Status)))
+                {
+                    return false;
+                }
+            }
+
+            foreach (var filter in propertyFilters.Where(filter => filter.Scope != SearchPropertyScope.GlobalState))
+            {
+                if (!filter.BlueprintNodeId.HasValue
+                    || !processSteps.TryGetValue(filter.BlueprintNodeId.Value.ToString(), out var step)
+                    || !TryGetNodePropertyValue(step, filter.Scope, filter.PropertyKey, out var propertyValue)
+                    || !MatchesPropertyFilter(propertyValue, filter))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private async Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> GetProcessStateAsync(
+        string cacheKey,
+        Guid processId,
+        int blueprintVersionId,
+        IDictionary<string, ProcessInstanceRecord<Dictionary<string, JsonElement>>> cache,
+        CancellationToken cancellationToken)
+    {
+        if (cache.TryGetValue(cacheKey, out var processState))
+        {
+            return processState;
+        }
+
+        processState = await _processInstanceRepository.GetProcessStateById(processId, blueprintVersionId, cancellationToken);
+        cache[cacheKey] = processState;
+        return processState;
+    }
+
+    private async Task<IReadOnlyDictionary<string, ProcessStepRecord>> GetProcessStepsAsync(
+        string cacheKey,
+        Guid processId,
+        IDictionary<string, IReadOnlyDictionary<string, ProcessStepRecord>> cache,
+        CancellationToken cancellationToken)
+    {
+        if (cache.TryGetValue(cacheKey, out var processSteps))
+        {
+            return processSteps;
+        }
+
+        processSteps = (await _processStepRepository.GetProcessStepsForProcess(processId, cancellationToken))
+            .GroupBy(step => step.BlueprintNodeId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(step => step.CreatedAt).First(), StringComparer.Ordinal);
+        cache[cacheKey] = processSteps;
+        return processSteps;
+    }
+
+    private static bool TryGetNodePropertyValue(
+        ProcessStepRecord step,
+        SearchPropertyScope scope,
+        string propertyKey,
+        out JsonElement propertyValue)
+    {
+        var channels = scope == SearchPropertyScope.NodeInput
+            ? step.InputData
+            : step.OutputData;
+
+        if (channels is not null)
+        {
+            foreach (var channelPayload in channels.Values)
+            {
+                if (channelPayload.ValueKind == JsonValueKind.Object
+                    && channelPayload.TryGetProperty(propertyKey, out propertyValue))
+                {
+                    propertyValue = propertyValue.Clone();
+                    return true;
+                }
+            }
+        }
+
+        propertyValue = default;
+        return false;
+    }
+
+    private static bool MatchesPropertyFilter(JsonElement propertyValue, SearchPropertyFilterPlan filter) =>
+        filter.PropertyType switch
+        {
+            SearchPropertyType.String => TryGetString(propertyValue, out var stringValue)
+                && string.Equals(stringValue, filter.StringValue, StringComparison.Ordinal),
+            SearchPropertyType.Guid => TryGetGuid(propertyValue, out var guidValue)
+                && filter.GuidValue.HasValue
+                && guidValue == filter.GuidValue.Value,
+            SearchPropertyType.Boolean => TryGetBoolean(propertyValue, out var booleanValue)
+                && filter.BooleanValue.HasValue
+                && booleanValue == filter.BooleanValue.Value,
+            SearchPropertyType.Number => TryGetNumber(propertyValue, out var numberValue)
+                && filter.NumberValue.HasValue
+                && numberValue == filter.NumberValue.Value,
+            _ => false,
+        };
+
+    private static bool TryGetString(JsonElement value, out string stringValue)
+    {
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            stringValue = value.GetString() ?? string.Empty;
+            return true;
+        }
+
+        stringValue = string.Empty;
+        return false;
+    }
+
+    private static bool TryGetGuid(JsonElement value, out Guid guidValue)
+    {
+        if (value.ValueKind == JsonValueKind.String
+            && Guid.TryParse(value.GetString(), out guidValue))
+        {
+            return true;
+        }
+
+        guidValue = Guid.Empty;
+        return false;
+    }
+
+    private static bool TryGetBoolean(JsonElement value, out bool booleanValue)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.True:
+            case JsonValueKind.False:
+                booleanValue = value.GetBoolean();
+                return true;
+            case JsonValueKind.String when bool.TryParse(value.GetString(), out var parsed):
+                booleanValue = parsed;
+                return true;
+            default:
+                booleanValue = false;
+                return false;
+        }
+    }
+
+    private static bool TryGetNumber(JsonElement value, out decimal numberValue)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Number when value.TryGetDecimal(out var parsedDecimal):
+                numberValue = parsedDecimal;
+                return true;
+            case JsonValueKind.Number when value.TryGetDouble(out var parsedDouble):
+                numberValue = Convert.ToDecimal(parsedDouble, CultureInfo.InvariantCulture);
+                return true;
+            case JsonValueKind.String when decimal.TryParse(
+                value.GetString(),
+                NumberStyles.Number,
+                CultureInfo.InvariantCulture,
+                out var parsedFromString):
+                numberValue = parsedFromString;
+                return true;
+            default:
+                numberValue = 0;
+                return false;
+        }
+    }
+
     private static string EncodeCursor(IReadOnlyList<ProcessHistoryPartitionState> partitionStates)
     {
         var payload = new ProcessHistoryCursor(
@@ -469,6 +906,270 @@ public sealed class ProcessQueryService
             throw new ArgumentException("The process history cursor is invalid.", nameof(cursor), exception);
         }
     }
+
+    private static string EncodeSearchCursor(string filterSignature, IReadOnlyList<SearchPartitionState> partitionStates)
+    {
+        var payload = new ProcessSearchCursor(
+            filterSignature,
+            partitionStates.Select(partition => new ProcessSearchCursorPartition(
+                partition.BlueprintVersionId,
+                partition.ContinuationToken,
+                partition.IsExhausted,
+                partition.Buffer.Select(item => new ProcessHistoryCursorItem(
+                    item.ProcessId,
+                    item.CreatedAt,
+                    item.UpdatedAt,
+                    item.Status)).ToList())).ToList());
+
+        return Convert.ToBase64String(
+            Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, CursorSerializerOptions)));
+    }
+
+    private static List<SearchPartitionState> CreateSearchPartitionStates(
+        IReadOnlyList<SearchVersionMetadata> metadata,
+        string filterSignature,
+        string? cursor)
+    {
+        if (string.IsNullOrWhiteSpace(cursor))
+        {
+            return metadata
+                .Select(version => new SearchPartitionState(version.BlueprintVersionId))
+                .ToList();
+        }
+
+        var decoded = DecodeSearchCursor(cursor);
+        if (!string.Equals(decoded.FilterSignature, filterSignature, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("The search cursor does not match the active filter set.", nameof(cursor));
+        }
+
+        var partitionsById = decoded.Partitions.ToDictionary(partition => partition.BlueprintVersionId);
+        return metadata
+            .Select(version =>
+            {
+                if (!partitionsById.TryGetValue(version.BlueprintVersionId, out var partition))
+                {
+                    return new SearchPartitionState(version.BlueprintVersionId);
+                }
+
+                return new SearchPartitionState(
+                    version.BlueprintVersionId,
+                    partition.ContinuationToken,
+                    partition.IsExhausted,
+                    partition.BufferedItems.Select(item => new ProcessStateSummary
+                    {
+                        id = item.ProcessId,
+                        BlueprintId = version.BlueprintVersionId.ToString(),
+                        CreatedAt = item.CreatedAt,
+                        UpdatedAt = item.UpdatedAt,
+                        Status = item.Status,
+                    }).ToList());
+            })
+            .ToList();
+    }
+
+    private static ProcessSearchCursor DecodeSearchCursor(string cursor)
+    {
+        try
+        {
+            var payload = Encoding.UTF8.GetString(Convert.FromBase64String(cursor));
+            var decoded = JsonSerializer.Deserialize<ProcessSearchCursor>(payload, CursorSerializerOptions);
+            if (decoded is null)
+            {
+                throw new InvalidOperationException("The process search cursor did not contain a payload.");
+            }
+
+            return decoded;
+        }
+        catch (Exception exception) when (
+            exception is FormatException or JsonException or InvalidOperationException)
+        {
+            throw new ArgumentException("The process search cursor is invalid.", nameof(cursor), exception);
+        }
+    }
+
+    private static string BuildSearchFilterSignature(NormalizedProcessSearchRequest request)
+    {
+        var payload = new
+        {
+            request.BlueprintDefinitionIds,
+            ProcessStatuses = request.ProcessStatuses.Select(status => status.ToString()).OrderBy(status => status).ToList(),
+            request.CreatedFrom,
+            request.CreatedTo,
+            NodeFilters = request.NodeFilters
+                .Select(filter => new
+                {
+                    filter.BlueprintDefinitionId,
+                    filter.BlueprintNodeId,
+                    Statuses = filter.Statuses.Select(status => status.ToString()).OrderBy(status => status).ToList(),
+                })
+                .OrderBy(filter => filter.BlueprintDefinitionId)
+                .ThenBy(filter => filter.BlueprintNodeId)
+                .ToList(),
+            PropertyFilters = request.PropertyFilters
+                .Select(filter => new
+                {
+                    Scope = filter.Scope.ToString(),
+                    filter.BlueprintDefinitionId,
+                    filter.BlueprintNodeId,
+                    filter.PropertyKey,
+                    PropertyType = filter.PropertyType.ToString(),
+                    filter.StringValue,
+                    filter.NumberValue,
+                    filter.BooleanValue,
+                    filter.GuidValue,
+                })
+                .OrderBy(filter => filter.Scope)
+                .ThenBy(filter => filter.BlueprintDefinitionId)
+                .ThenBy(filter => filter.BlueprintNodeId)
+                .ThenBy(filter => filter.PropertyKey, StringComparer.Ordinal)
+                .ToList(),
+        };
+
+        var json = JsonSerializer.Serialize(payload, CursorSerializerOptions);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
+    }
+
+    private static NormalizedProcessSearchRequest NormalizeProcessSearchRequest(ProcessSearchRequestInputModel request)
+    {
+        var createdFrom = request.CreatedFrom;
+        var createdTo = request.CreatedTo;
+        if (createdFrom == default || createdTo == default)
+        {
+            throw new ArgumentException("Search requests must include a created-from and created-to window.", nameof(request));
+        }
+
+        if (createdTo < createdFrom)
+        {
+            throw new ArgumentException("Search created-to must be on or after created-from.", nameof(request));
+        }
+
+        var processStatuses = request.ProcessStatuses
+            .Where(status => !string.IsNullOrWhiteSpace(status))
+            .Select(ParseProcessStatus)
+            .Distinct()
+            .ToHashSet();
+
+        var nodeFilters = request.NodeFilters
+            .Select(filter => new NormalizedProcessSearchNodeFilter(
+                filter.BlueprintDefinitionId,
+                filter.BlueprintNodeId,
+                filter.Statuses
+                    .Where(status => !string.IsNullOrWhiteSpace(status))
+                    .Select(ParseProcessStepStatus)
+                    .Distinct()
+                    .ToHashSet()))
+            .ToList();
+
+        var propertyFilters = request.PropertyFilters
+            .Select(NormalizePropertyFilter)
+            .ToList();
+
+        return new NormalizedProcessSearchRequest(
+            request.BlueprintDefinitionIds
+                .Where(id => id > 0)
+                .Distinct()
+                .OrderBy(id => id)
+                .ToList(),
+            processStatuses,
+            createdFrom.ToUniversalTime(),
+            createdTo.ToUniversalTime(),
+            nodeFilters,
+            propertyFilters,
+            Math.Clamp(request.Limit, 1, 50),
+            request.Cursor);
+    }
+
+    private static NormalizedProcessSearchPropertyFilter NormalizePropertyFilter(
+        ProcessSearchPropertyFilterInputModel filter)
+    {
+        var propertyKey = filter.PropertyKey.Trim();
+        if (string.IsNullOrWhiteSpace(propertyKey))
+        {
+            throw new ArgumentException("Property filters must include a property key.", nameof(filter));
+        }
+
+        var propertyType = ParsePropertyType(filter.PropertyType);
+        var scope = ParsePropertyScope(filter.Scope);
+        var rawValue = filter.Value.Trim();
+        if (rawValue.Length == 0)
+        {
+            throw new ArgumentException("Property filters must include a value.", nameof(filter));
+        }
+
+        decimal? numberValue = null;
+        bool? booleanValue = null;
+        Guid? guidValue = null;
+
+        switch (propertyType)
+        {
+            case SearchPropertyType.Number:
+                if (!decimal.TryParse(rawValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedNumber))
+                {
+                    throw new ArgumentException($"'{rawValue}' is not a valid numeric property value.", nameof(filter));
+                }
+
+                numberValue = parsedNumber;
+                break;
+            case SearchPropertyType.Boolean:
+                if (!bool.TryParse(rawValue, out var parsedBoolean))
+                {
+                    throw new ArgumentException($"'{rawValue}' is not a valid boolean property value.", nameof(filter));
+                }
+
+                booleanValue = parsedBoolean;
+                rawValue = parsedBoolean.ToString();
+                break;
+            case SearchPropertyType.Guid:
+                if (!Guid.TryParse(rawValue, out var parsedGuid))
+                {
+                    throw new ArgumentException($"'{rawValue}' is not a valid GUID property value.", nameof(filter));
+                }
+
+                guidValue = parsedGuid;
+                rawValue = parsedGuid.ToString("D");
+                break;
+        }
+
+        if (scope is SearchPropertyScope.NodeInput or SearchPropertyScope.NodeOutput)
+        {
+            if (!filter.BlueprintDefinitionId.HasValue || !filter.BlueprintNodeId.HasValue)
+            {
+                throw new ArgumentException("Node property filters must include a blueprint and node reference.", nameof(filter));
+            }
+        }
+
+        return new NormalizedProcessSearchPropertyFilter(
+            scope,
+            filter.BlueprintDefinitionId,
+            filter.BlueprintNodeId,
+            propertyKey,
+            propertyType,
+            rawValue,
+            numberValue,
+            booleanValue,
+            guidValue);
+    }
+
+    private static ProcessStatus ParseProcessStatus(string status) =>
+        Enum.TryParse<ProcessStatus>(status, ignoreCase: true, out var parsedStatus)
+            ? parsedStatus
+            : throw new ArgumentException($"'{status}' is not a supported process status.", nameof(status));
+
+    private static ProcessStepStatus ParseProcessStepStatus(string status) =>
+        Enum.TryParse<ProcessStepStatus>(status, ignoreCase: true, out var parsedStatus)
+            ? parsedStatus
+            : throw new ArgumentException($"'{status}' is not a supported step status.", nameof(status));
+
+    private static SearchPropertyScope ParsePropertyScope(string scope) =>
+        Enum.TryParse<SearchPropertyScope>(scope, ignoreCase: true, out var parsedScope)
+            ? parsedScope
+            : throw new ArgumentException($"'{scope}' is not a supported property scope.", nameof(scope));
+
+    private static SearchPropertyType ParsePropertyType(string propertyType) =>
+        Enum.TryParse<SearchPropertyType>(propertyType, ignoreCase: true, out var parsedType)
+            ? parsedType
+            : throw new ArgumentException($"'{propertyType}' is not a supported property type.", nameof(propertyType));
 
     private sealed record BlueprintVersionProcessActivity(
         DateTimeOffset? LatestProcessAt,
@@ -508,4 +1209,100 @@ public sealed class ProcessQueryService
         DateTimeOffset CreatedAt,
         DateTimeOffset? UpdatedAt,
         ProcessStatus Status);
+
+    private sealed record NormalizedProcessSearchRequest(
+        List<int> BlueprintDefinitionIds,
+        HashSet<ProcessStatus> ProcessStatuses,
+        DateTimeOffset CreatedFrom,
+        DateTimeOffset CreatedTo,
+        List<NormalizedProcessSearchNodeFilter> NodeFilters,
+        List<NormalizedProcessSearchPropertyFilter> PropertyFilters,
+        int Limit,
+        string? Cursor);
+
+    private sealed record NormalizedProcessSearchNodeFilter(
+        int BlueprintDefinitionId,
+        Guid BlueprintNodeId,
+        HashSet<ProcessStepStatus> Statuses);
+
+    private sealed record NormalizedProcessSearchPropertyFilter(
+        SearchPropertyScope Scope,
+        int? BlueprintDefinitionId,
+        Guid? BlueprintNodeId,
+        string PropertyKey,
+        SearchPropertyType PropertyType,
+        string StringValue,
+        decimal? NumberValue,
+        bool? BooleanValue,
+        Guid? GuidValue);
+
+    private sealed record SearchVersionMetadata(
+        int BlueprintDefinitionId,
+        string BlueprintName,
+        int BlueprintVersionId,
+        int BlueprintVersionNumber,
+        HashSet<Guid> BlueprintNodeIds);
+
+    private sealed record SearchNodeFilterPlan(
+        int BlueprintDefinitionId,
+        Guid BlueprintNodeId,
+        HashSet<ProcessStepStatus> Statuses,
+        HashSet<int> MatchingVersionIds);
+
+    private sealed record SearchPropertyFilterPlan(
+        SearchPropertyScope Scope,
+        int? BlueprintDefinitionId,
+        Guid? BlueprintNodeId,
+        string PropertyKey,
+        SearchPropertyType PropertyType,
+        string StringValue,
+        decimal? NumberValue,
+        bool? BooleanValue,
+        Guid? GuidValue,
+        HashSet<int> MatchingVersionIds);
+
+    private sealed class SearchPartitionState
+    {
+        public SearchPartitionState(
+            int blueprintVersionId,
+            string? continuationToken = null,
+            bool isExhausted = false,
+            List<ProcessStateSummary>? buffer = null)
+        {
+            BlueprintVersionId = blueprintVersionId;
+            ContinuationToken = continuationToken;
+            IsExhausted = isExhausted;
+            Buffer = buffer ?? [];
+        }
+
+        public int BlueprintVersionId { get; }
+        public string? ContinuationToken { get; set; }
+        public bool IsExhausted { get; set; }
+        public List<ProcessStateSummary> Buffer { get; }
+    }
+
+    private sealed record ProcessSearchCursor(
+        string FilterSignature,
+        List<ProcessSearchCursorPartition> Partitions);
+
+    private sealed record ProcessSearchCursorPartition(
+        int BlueprintVersionId,
+        string? ContinuationToken,
+        bool IsExhausted,
+        List<ProcessHistoryCursorItem> BufferedItems);
+
+    private enum SearchPropertyScope
+    {
+        GlobalState,
+        NodeInput,
+        NodeOutput,
+    }
+
+    private enum SearchPropertyType
+    {
+        String,
+        Number,
+        Boolean,
+        Guid,
+    }
 }

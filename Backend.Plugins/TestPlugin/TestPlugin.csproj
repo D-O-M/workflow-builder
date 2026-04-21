@@ -3,7 +3,7 @@
         <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
         <OutputType>Exe</OutputType>
         <TargetFramework>net10.0</TargetFramework>
-        <Version>0.0.1</Version>
+        <Version>0.1.0</Version>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <PublishSingleFile>true</PublishSingleFile>
@@ -12,14 +12,11 @@
         <DebugType>none</DebugType>
         <InvariantGlobalization>true</InvariantGlobalization>
     </PropertyGroup>
-
     <ItemGroup>
         <Content Include="manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
         <Content Include="schemas\**\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
-
     <ItemGroup>
-      <ProjectReference Include="..\..\Backend.Plugins.Harness\Backend.Plugins.Harness.csproj" />
+        <ProjectReference Include="..\..\Backend.Plugins.Harness\Backend.Plugins.Harness.csproj" />
     </ItemGroup>
-
 </Project>

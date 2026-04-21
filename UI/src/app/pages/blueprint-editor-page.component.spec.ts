@@ -408,13 +408,13 @@ describe('BlueprintEditorPageComponent', () => {
   });
 
   it('opens and closes the plugin drawer explicitly', () => {
-    expect((component as any).drawerCollapsed()).toBe(false);
-
-    (component as any).closeDrawer();
     expect((component as any).drawerCollapsed()).toBe(true);
 
     (component as any).openDrawer();
     expect((component as any).drawerCollapsed()).toBe(false);
+
+    (component as any).closeDrawer();
+    expect((component as any).drawerCollapsed()).toBe(true);
   });
 
   it('uses the stitch canvas backdrop in the builder workspace', () => {

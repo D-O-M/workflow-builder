@@ -1,16 +1,29 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
-import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
+import {
+  MatAutocompleteModule,
+  MatAutocompleteSelectedEvent,
+  MatAutocompleteTrigger,
+} from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatExpansionModule } from '@angular/material/expansion';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatSelectModule } from '@angular/material/select';
 import { catchError, distinctUntilChanged, firstValueFrom, forkJoin, map, of, startWith } from 'rxjs';
 import { BlueprintEditorService, BlueprintViewModel, BlueprintVersionViewModel } from '../domain/blueprint-editor.service';
 import { DynamicFieldDefinition, DynamicFormFieldComponent } from '../components/dynamic-form-field.component';
@@ -45,6 +58,11 @@ interface RuntimeOverrideNode {
 interface StartProcessInitialData {
   blueprints: BlueprintViewModel[];
   taskDefinitions: ITaskDefinition[];
+}
+
+interface BlueprintPickerSuggestion {
+  blueprint: BlueprintViewModel;
+  isActive: boolean;
 }
 
 type RuntimeOverrideStateMap = Record<string, PropertyOverrideEditorState>;
@@ -104,19 +122,91 @@ function overridesEqual(
   return leftKeys.every((key) => Object.is(left[key], right[key]));
 }
 
+function getBlueprintMatch(
+  blueprintName: string,
+  query: string,
+): { rank: number; score: number } | null {
+  const normalizedName = blueprintName.trim().toLocaleLowerCase();
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+
+  if (normalizedName === normalizedQuery) {
+    return { rank: 0, score: 0 };
+  }
+
+  if (normalizedName.startsWith(normalizedQuery)) {
+    return { rank: 1, score: normalizedName.length - normalizedQuery.length };
+  }
+
+  const containsIndex = normalizedName.indexOf(normalizedQuery);
+  if (containsIndex >= 0) {
+    return { rank: 2, score: containsIndex };
+  }
+
+  const fuzzyScore = getFuzzyMatchScore(normalizedName, normalizedQuery);
+  if (fuzzyScore !== null) {
+    return { rank: 3, score: fuzzyScore };
+  }
+
+  return null;
+}
+
+function getFuzzyMatchScore(text: string, query: string): number | null {
+  let currentIndex = 0;
+  let previousMatchIndex = -1;
+  let gapScore = 0;
+
+  for (const character of query) {
+    const matchIndex = text.indexOf(character, currentIndex);
+    if (matchIndex < 0) {
+      return null;
+    }
+
+    if (previousMatchIndex >= 0) {
+      gapScore += matchIndex - previousMatchIndex - 1;
+    }
+
+    previousMatchIndex = matchIndex;
+    currentIndex = matchIndex + 1;
+  }
+
+  return gapScore + (text.length - query.length);
+}
+
+function filterBlueprintSuggestions(
+  blueprints: BlueprintViewModel[],
+  query: string,
+): BlueprintViewModel[] {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
+    return [...blueprints].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  return blueprints
+    .map((blueprint) => ({
+      blueprint,
+      match: getBlueprintMatch(blueprint.name, trimmedQuery),
+    }))
+    .filter((item): item is { blueprint: BlueprintViewModel; match: { rank: number; score: number } } =>
+      item.match !== null)
+    .sort((a, b) =>
+      a.match.rank - b.match.rank
+      || a.match.score - b.match.score
+      || a.blueprint.name.localeCompare(b.blueprint.name))
+    .map((item) => item.blueprint);
+}
+
 @Component({
   selector: 'app-start-process-page',
   imports: [
     ReactiveFormsModule,
+    MatAutocompleteModule,
     MatButtonModule,
     MatCardModule,
     MatChipsModule,
     MatExpansionModule,
-    MatFormFieldModule,
     MatIconModule,
-    MatProgressBarModule,
+    MatInputModule,
     MatProgressSpinnerModule,
-    MatSelectModule,
     DynamicFormFieldComponent,
     PropertyOverrideEditorComponent,
   ],
@@ -135,6 +225,16 @@ export class StartProcessPageComponent {
   protected readonly successMessage = signal<string | null>(null);
   protected readonly advancedOverridesExpanded = signal(false);
   protected readonly runtimeOverrideStates = signal<Record<string, PropertyOverrideEditorState>>({});
+  protected readonly pickerMode = signal<'search' | 'selected'>('search');
+  protected readonly pickerPanelOpen = signal(false);
+  private readonly pickerSelectionInProgress = signal(false);
+  private readonly pickerFocusRequested = signal(false);
+  private readonly blueprintPickerInput = viewChild<ElementRef<HTMLInputElement>>('blueprintPickerInput');
+  private readonly blueprintPickerTrigger = viewChild(MatAutocompleteTrigger);
+  protected readonly blueprintSearch = new FormControl('', { nonNullable: true });
+  private readonly blueprintSearchQuery = toSignal(this.blueprintSearch.valueChanges, {
+    initialValue: this.blueprintSearch.value,
+  });
 
   protected readonly form = this.fb.group({
     blueprintId: this.fb.control<number | null>(null, Validators.required),
@@ -182,9 +282,35 @@ export class StartProcessPageComponent {
     const state = this.selectedBlueprintState();
     return isReadyRequestState(state) ? state.data : null;
   });
+  protected readonly selectedBlueprintSummary = computed<BlueprintViewModel | null>(() =>
+    this.blueprints().find((blueprint) => blueprint.id === this.selectedBlueprintId()) ?? null,
+  );
   protected readonly selectedBlueprintVersion = computed<BlueprintVersionViewModel | null>(() =>
     this.selectedBlueprint()?.versions[0] ?? null,
   );
+  protected readonly pickerDisplayName = computed(() =>
+    this.selectedBlueprintSummary()?.name ?? 'Select a blueprint',
+  );
+  protected readonly pickerSuggestions = computed<BlueprintPickerSuggestion[]>(() => {
+    const filteredBlueprints = filterBlueprintSuggestions(this.blueprints(), this.blueprintSearchQuery());
+    const activeBlueprintId = this.selectedBlueprintId();
+    if (activeBlueprintId === null) {
+      return filteredBlueprints.map((blueprint) => ({
+        blueprint,
+        isActive: false,
+      }));
+    }
+
+    const activeBlueprint = filteredBlueprints.find((blueprint) => blueprint.id === activeBlueprintId);
+    const orderedBlueprints = activeBlueprint
+      ? [activeBlueprint, ...filteredBlueprints.filter((blueprint) => blueprint.id !== activeBlueprintId)]
+      : filteredBlueprints;
+
+    return orderedBlueprints.map((blueprint) => ({
+      blueprint,
+      isActive: blueprint.id === activeBlueprintId,
+    }));
+  });
 
   private readonly taskDefinitionById = computed(() => new Map(
     this.taskDefinitions().map((definition) => [definition.id, definition] as const),
@@ -295,6 +421,27 @@ export class StartProcessPageComponent {
         this.runtimeOverrideStates.set(nextStates);
       }
     });
+
+    effect(() => {
+      const selectedBlueprintId = this.selectedBlueprintId();
+      if (this.pickerMode() === 'search') {
+        return;
+      }
+
+      this.pickerMode.set(selectedBlueprintId === null ? 'search' : 'selected');
+    });
+
+    effect(() => {
+      if (this.pickerMode() !== 'search' || !this.pickerFocusRequested()) {
+        return;
+      }
+
+      this.scheduleUiTask(() => {
+        this.blueprintPickerInput()?.nativeElement.focus();
+        this.blueprintPickerTrigger()?.openPanel();
+        this.pickerFocusRequested.set(false);
+      });
+    });
   }
 
   protected async execute(): Promise<void> {
@@ -365,10 +512,69 @@ export class StartProcessPageComponent {
     this.form.reset({
       blueprintId: null,
     });
+    this.blueprintSearch.setValue('');
+    this.pickerMode.set('search');
+    this.pickerPanelOpen.set(false);
+    this.pickerSelectionInProgress.set(false);
+    this.pickerFocusRequested.set(false);
     this.runtimeOverrideStates.set({});
     this.successMessage.set(null);
     this.executeErrorMessage.set(null);
     this.advancedOverridesExpanded.set(false);
+  }
+
+  protected beginBlueprintSearch(): void {
+    this.blueprintSearch.setValue('');
+    this.pickerFocusRequested.set(true);
+    this.pickerMode.set('search');
+  }
+
+  protected onBlueprintSearchFocus(): void {
+    if (this.pickerMode() !== 'search') {
+      return;
+    }
+
+    this.blueprintPickerTrigger()?.openPanel();
+  }
+
+  protected onBlueprintSearchKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape') {
+      return;
+    }
+
+    event.preventDefault();
+    this.restorePickerAfterSearch();
+  }
+
+  protected onBlueprintAutocompleteOpened(): void {
+    this.pickerPanelOpen.set(true);
+  }
+
+  protected onBlueprintAutocompleteClosed(): void {
+    this.pickerPanelOpen.set(false);
+
+    if (this.pickerSelectionInProgress()) {
+      this.pickerSelectionInProgress.set(false);
+      return;
+    }
+
+    if (this.pickerMode() !== 'search') {
+      return;
+    }
+
+    this.restorePickerAfterSearch();
+  }
+
+  protected onBlueprintSuggestionSelected(event: MatAutocompleteSelectedEvent): void {
+    const blueprintId = Number(event.option.value);
+    if (Number.isNaN(blueprintId)) {
+      return;
+    }
+
+    this.pickerSelectionInProgress.set(true);
+    this.form.controls.blueprintId.setValue(blueprintId);
+    this.blueprintSearch.setValue('');
+    this.pickerMode.set('selected');
   }
 
   private resetGroup(group: FormGroup, fields: DynamicFieldDefinition[]): void {
@@ -387,5 +593,20 @@ export class StartProcessPageComponent {
         .filter(([, state]) => Object.keys(state.overrides).length > 0)
         .map(([nodeId, state]) => [nodeId, state.overrides]),
     );
+  }
+
+  private restorePickerAfterSearch(): void {
+    this.pickerFocusRequested.set(false);
+    this.blueprintSearch.setValue('');
+    this.pickerMode.set(this.selectedBlueprintId() === null ? 'search' : 'selected');
+  }
+
+  private scheduleUiTask(task: () => void): void {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(task);
+      return;
+    }
+
+    queueMicrotask(task);
   }
 }

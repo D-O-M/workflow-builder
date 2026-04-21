@@ -85,12 +85,73 @@ public class ProcessInstanceRepository<TGlobalState>
         int blueprintVersionId,
         string? continuationToken,
         int maxItemCount,
+        CancellationToken cancellationToken) =>
+        await GetProcessStateSummaryPageForBlueprint(
+            blueprintVersionId,
+            continuationToken,
+            maxItemCount,
+            createdFrom: null,
+            createdTo: null,
+            statuses: null,
+            cancellationToken);
+
+    public async Task<ProcessStateSummaryPage> GetProcessStateSummaryPageForBlueprint(
+        int blueprintVersionId,
+        string? continuationToken,
+        int maxItemCount,
+        DateTimeOffset? createdFrom,
+        DateTimeOffset? createdTo,
+        IReadOnlyCollection<ProcessStatus>? statuses,
         CancellationToken cancellationToken)
     {
+        var clauses = new List<string>
+        {
+            "c.blueprintId = @blueprintId"
+        };
+
         var query = new QueryDefinition(
             "SELECT c.id, c.blueprintId, c.createdAt, c.updatedAt, c.status " +
-            "FROM c WHERE c.blueprintId = @blueprintId ORDER BY c.createdAt DESC")
+            "FROM c WHERE c.blueprintId = @blueprintId");
+
+        query = query.WithParameter("@blueprintId", blueprintVersionId.ToString());
+
+        if (createdFrom.HasValue)
+        {
+            clauses.Add("c.createdAt >= @createdFrom");
+            query = query.WithParameter("@createdFrom", createdFrom.Value);
+        }
+
+        if (createdTo.HasValue)
+        {
+            clauses.Add("c.createdAt <= @createdTo");
+            query = query.WithParameter("@createdTo", createdTo.Value);
+        }
+
+        if (statuses is { Count: > 0 })
+        {
+            clauses.Add("ARRAY_CONTAINS(@statuses, c.status)");
+            query = query.WithParameter("@statuses", statuses.Select(status => status.ToString()).ToArray());
+        }
+
+        query = new QueryDefinition(
+                "SELECT c.id, c.blueprintId, c.createdAt, c.updatedAt, c.status " +
+                $"FROM c WHERE {string.Join(" AND ", clauses)} ORDER BY c.createdAt DESC")
             .WithParameter("@blueprintId", blueprintVersionId.ToString());
+
+        if (createdFrom.HasValue)
+        {
+            query = query.WithParameter("@createdFrom", createdFrom.Value);
+        }
+
+        if (createdTo.HasValue)
+        {
+            query = query.WithParameter("@createdTo", createdTo.Value);
+        }
+
+        if (statuses is { Count: > 0 })
+        {
+            query = query.WithParameter("@statuses", statuses.Select(status => status.ToString()).ToArray());
+        }
 
         using var iterator = Container.GetItemQueryIterator<ProcessStateSummary>(
             query,

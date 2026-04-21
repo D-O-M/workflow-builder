@@ -27,6 +27,15 @@ public interface IProcessInstanceRepository<TGlobalState>
         int maxItemCount,
         CancellationToken cancellationToken);
 
+    Task<ProcessStateSummaryPage> GetProcessStateSummaryPageForBlueprint(
+        int blueprintVersionId,
+        string? continuationToken,
+        int maxItemCount,
+        DateTimeOffset? createdFrom,
+        DateTimeOffset? createdTo,
+        IReadOnlyCollection<ProcessStatus>? statuses,
+        CancellationToken cancellationToken);
+
     Task<ProcessInstanceRecord<TGlobalState>> UpdateProcessState(
         ProcessInstanceRecord<TGlobalState> state,
         CancellationToken cancellationToken);

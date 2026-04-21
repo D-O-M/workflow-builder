@@ -1,339 +1,431 @@
 <section class="app-page process-explorer-page">
-  @if (selectedProcess(); as process) {
-    <mat-drawer-container class="process-explorer-page__surface">
-      <mat-drawer
-        class="process-explorer-page__history"
-        mode="side"
-        position="start"
-        [opened]="!historyCollapsed()"
-      >
-        <div class="process-explorer-page__history-shell">
-          <div class="app-section-heading">
-            <div>
-              <p class="app-hero-card__eyebrow">Process History</p>
-              <h2>{{ historyPaneSummary() }}</h2>
-            </div>
+  <mat-drawer-container class="process-explorer-page__surface">
+    <mat-drawer
+      class="process-explorer-page__history"
+      mode="side"
+      position="start"
+      [opened]="!historyCollapsed()"
+    >
+      <div class="process-explorer-page__history-shell">
+        <div class="app-section-heading process-explorer-page__history-heading">
+          <div>
+            <p class="app-hero-card__eyebrow">Process History</p>
+            <h2>{{ historyPaneSummary() }}</h2>
+          </div>
+
+          <div class="process-explorer-page__history-heading-actions">
+            <button mat-stroked-button type="button" (click)="openAdvancedSearch()">
+              <mat-icon>tune</mat-icon>
+              Advanced Search
+            </button>
 
             <button mat-icon-button type="button" (click)="toggleHistoryPanel()" aria-label="Collapse history">
               <mat-icon>left_panel_close</mat-icon>
             </button>
           </div>
-
-          @if (historyPanelMode() === 'blueprints') {
-            <mat-form-field appearance="outline">
-              <mat-label>Find a blueprint with activity</mat-label>
-              <input matInput type="search" [formControl]="blueprintSearch" />
-              <mat-icon matSuffix>search</mat-icon>
-            </mat-form-field>
-
-            @if (loading()) {
-              <div class="process-explorer-page__list-state">
-                <mat-progress-spinner diameter="32" mode="indeterminate" />
-                <p>Loading blueprints...</p>
-              </div>
-            } @else if (blueprintActivityLoading()) {
-              <div class="process-explorer-page__list-state">
-                <mat-progress-spinner diameter="32" mode="indeterminate" />
-                <p>Loading blueprint activity...</p>
-              </div>
-            } @else if (blueprintActivityError()) {
-              <div class="process-explorer-page__list-state">
-                <mat-icon>error</mat-icon>
-                <p>{{ blueprintActivityError() }}</p>
-              </div>
-            } @else if (blueprintActivities().length === 0) {
-              <div class="process-explorer-page__list-state">
-                <mat-icon>search_off</mat-icon>
-                <p>No blueprints with processes match that search.</p>
-              </div>
-            } @else {
-              <mat-nav-list>
-                @for (activity of blueprintActivities(); track trackBlueprintActivity($index, activity)) {
-                  <button
-                    mat-list-item
-                    type="button"
-                    class="process-explorer-page__history-item"
-                    [class.is-selected]="selectedBlueprintId() === activity.blueprintDefinitionId"
-                    (click)="selectBlueprintActivity(activity)"
-                  >
-                    <div matListItemTitle>{{ activity.blueprintName }}</div>
-                    <div matListItemLine>{{ blueprintActivityCountLabel(activity) }}</div>
-                    <div matListItemLine>
-                      Latest process {{ activity.latestProcessAt | date: 'dd MMM, HH:mm:ss' }}
-                    </div>
-                  </button>
-                }
-              </mat-nav-list>
-
-              @if (blueprintActivityHasMore()) {
-                <button
-                  mat-stroked-button
-                  type="button"
-                  class="process-explorer-page__load-more"
-                  (click)="loadMoreBlueprintActivities()"
-                  [disabled]="blueprintActivityLoadingMore()"
-                >
-                  <mat-icon>{{ blueprintActivityLoadingMore() ? 'hourglass_top' : 'expand_more' }}</mat-icon>
-                  {{ blueprintActivityLoadingMore() ? 'Loading...' : 'Load more blueprints' }}
-                </button>
-              }
-            }
-          } @else {
-            <button mat-button type="button" class="process-explorer-page__back-button" (click)="returnToBlueprintPicker()">
-              <mat-icon>arrow_back</mat-icon>
-              {{ selectedBlueprintTitle() }}
-            </button>
-
-            <p class="process-explorer-page__process-count">{{ selectedBlueprintProcessCountLabel() }}</p>
-
-            @if (loading()) {
-              <div class="process-explorer-page__list-state">
-                <mat-progress-spinner diameter="32" mode="indeterminate" />
-                <p>Loading blueprints...</p>
-              </div>
-            } @else if (processHistoryLoading()) {
-              <div class="process-explorer-page__list-state">
-                <mat-progress-spinner diameter="32" mode="indeterminate" />
-                <p>Loading process history...</p>
-              </div>
-            } @else if (processHistoryError()) {
-              <div class="process-explorer-page__list-state">
-                <mat-icon>error</mat-icon>
-                <p>{{ processHistoryError() }}</p>
-              </div>
-            } @else if (!selectedBlueprintId()) {
-              <div class="process-explorer-page__list-state">
-                <mat-icon>account_tree</mat-icon>
-                <p>Select a blueprint to see its processes.</p>
-              </div>
-            } @else if (processHistoryRows().length === 0) {
-              <div class="process-explorer-page__list-state">
-                <mat-icon>receipt_long</mat-icon>
-                <p>No processes have been loaded for this blueprint yet.</p>
-              </div>
-            } @else {
-              <mat-nav-list>
-                @for (processRow of processHistoryRows(); track trackProcess($index, processRow)) {
-                  <button
-                    mat-list-item
-                    type="button"
-                    class="process-explorer-page__history-item"
-                    [class.is-selected]="activeProcessId() === processRow.processId"
-                    (click)="selectProcess(processRow)"
-                  >
-                    <div matListItemTitle class="process-explorer-page__process-title">
-                      <span>{{ processRow.blueprintName }}</span>
-                      <mat-chip class="process-explorer-page__status-chip" [ngClass]="'status-chip--' + processRow.status.toLowerCase()">
-                        {{ statusLabel(processRow.status) }}
-                      </mat-chip>
-                    </div>
-                    <div matListItemLine>Version {{ processRow.blueprintVersionNumber }}</div>
-                    <div matListItemLine [attr.title]="processRow.processId">{{ processIdLabel(processRow) }}</div>
-                    <div matListItemLine>
-                      {{ processRow.createdAt | date: 'dd MMM, HH:mm:ss' }}
-                    </div>
-                  </button>
-                }
-              </mat-nav-list>
-
-              @if (processHistoryHasMore()) {
-                <button
-                  mat-stroked-button
-                  type="button"
-                  class="process-explorer-page__load-more"
-                  (click)="loadMoreProcessHistory()"
-                  [disabled]="processHistoryLoadingMore()"
-                >
-                  <mat-icon>{{ processHistoryLoadingMore() ? 'hourglass_top' : 'expand_more' }}</mat-icon>
-                  {{ processHistoryLoadingMore() ? 'Loading...' : 'Load more processes' }}
-                </button>
-              }
-            }
-          }
         </div>
-      </mat-drawer>
 
-      <mat-drawer
-        class="process-explorer-page__step-drawer"
-        mode="side"
-        position="end"
-        [opened]="stepDrawerOpen()"
-      >
-        <div class="process-explorer-page__step-shell">
-          <div class="app-section-heading">
-            <div>
-              <p class="app-hero-card__eyebrow">Process Step</p>
-              <h3>{{ selectedStepTitle() }}</h3>
+        @if (historyPanelMode() === 'blueprints') {
+          <mat-form-field appearance="outline">
+            <mat-label>Find a blueprint with activity</mat-label>
+            <input matInput type="search" [formControl]="blueprintSearch" />
+            <mat-icon matSuffix>search</mat-icon>
+          </mat-form-field>
+
+          @if (loading()) {
+            <div class="process-explorer-page__list-state">
+              <mat-progress-spinner diameter="32" mode="indeterminate" />
+              <p>Loading blueprints...</p>
             </div>
+          } @else if (blueprintActivityLoading()) {
+            <div class="process-explorer-page__list-state">
+              <mat-progress-spinner diameter="32" mode="indeterminate" />
+              <p>Loading blueprint activity...</p>
+            </div>
+          } @else if (blueprintActivityError()) {
+            <div class="process-explorer-page__list-state">
+              <mat-icon>error</mat-icon>
+              <p>{{ blueprintActivityError() }}</p>
+            </div>
+          } @else if (blueprintActivities().length === 0) {
+            <div class="process-explorer-page__list-state">
+              <mat-icon>search_off</mat-icon>
+              <p>No blueprints with processes match that search.</p>
+            </div>
+          } @else {
+            <mat-nav-list>
+              @for (activity of blueprintActivities(); track trackBlueprintActivity($index, activity)) {
+                <button
+                  mat-list-item
+                  type="button"
+                  class="process-explorer-page__history-item"
+                  [class.is-selected]="selectedBlueprintId() === activity.blueprintDefinitionId"
+                  (click)="selectBlueprintActivity(activity)"
+                >
+                  <div matListItemTitle>{{ activity.blueprintName }}</div>
+                  <div matListItemLine>{{ blueprintActivityCountLabel(activity) }}</div>
+                  <div matListItemLine>
+                    Latest process {{ activity.latestProcessAt | date: 'dd MMM, HH:mm:ss' }}
+                  </div>
+                </button>
+              }
+            </mat-nav-list>
 
-            <button mat-icon-button type="button" (click)="closeStepDrawer()" aria-label="Close step details">
-              <mat-icon>right_panel_close</mat-icon>
+            @if (blueprintActivityHasMore()) {
+              <button
+                mat-stroked-button
+                type="button"
+                class="process-explorer-page__load-more"
+                (click)="loadMoreBlueprintActivities()"
+                [disabled]="blueprintActivityLoadingMore()"
+              >
+                <mat-icon>{{ blueprintActivityLoadingMore() ? 'hourglass_top' : 'expand_more' }}</mat-icon>
+                {{ blueprintActivityLoadingMore() ? 'Loading...' : 'Load more blueprints' }}
+              </button>
+            }
+          }
+        } @else if (historyPanelMode() === 'processes') {
+          <button mat-button type="button" class="process-explorer-page__back-button" (click)="returnToBlueprintPicker()">
+            <mat-icon>arrow_back</mat-icon>
+            {{ selectedBlueprintTitle() }}
+          </button>
+
+          <p class="process-explorer-page__process-count">{{ selectedBlueprintProcessCountLabel() }}</p>
+
+          @if (loading()) {
+            <div class="process-explorer-page__list-state">
+              <mat-progress-spinner diameter="32" mode="indeterminate" />
+              <p>Loading blueprints...</p>
+            </div>
+          } @else if (processHistoryLoading()) {
+            <div class="process-explorer-page__list-state">
+              <mat-progress-spinner diameter="32" mode="indeterminate" />
+              <p>Loading process history...</p>
+            </div>
+          } @else if (processHistoryError()) {
+            <div class="process-explorer-page__list-state">
+              <mat-icon>error</mat-icon>
+              <p>{{ processHistoryError() }}</p>
+            </div>
+          } @else if (!selectedBlueprintId()) {
+            <div class="process-explorer-page__list-state">
+              <mat-icon>account_tree</mat-icon>
+              <p>Select a blueprint to see its processes.</p>
+            </div>
+          } @else if (processHistoryRows().length === 0) {
+            <div class="process-explorer-page__list-state">
+              <mat-icon>receipt_long</mat-icon>
+              <p>No processes have been loaded for this blueprint yet.</p>
+            </div>
+          } @else {
+            <mat-nav-list>
+              @for (processRow of processHistoryRows(); track trackProcess($index, processRow)) {
+                <button
+                  mat-list-item
+                  type="button"
+                  class="process-explorer-page__history-item"
+                  [class.is-selected]="activeProcessId() === processRow.processId"
+                  (click)="selectProcess(processRow)"
+                >
+                  <div matListItemTitle class="process-explorer-page__process-title">
+                    <span>{{ processRow.blueprintName }}</span>
+                    <mat-chip class="process-explorer-page__status-chip" [ngClass]="'status-chip--' + processRow.status.toLowerCase()">
+                      {{ statusLabel(processRow.status) }}
+                    </mat-chip>
+                  </div>
+                  <div matListItemLine>Version {{ processRow.blueprintVersionNumber }}</div>
+                  <div matListItemLine [attr.title]="processRow.processId">{{ processIdLabel(processRow) }}</div>
+                  <div matListItemLine>
+                    {{ processRow.createdAt | date: 'dd MMM, HH:mm:ss' }}
+                  </div>
+                </button>
+              }
+            </mat-nav-list>
+
+            @if (processHistoryHasMore()) {
+              <button
+                mat-stroked-button
+                type="button"
+                class="process-explorer-page__load-more"
+                (click)="loadMoreProcessHistory()"
+                [disabled]="processHistoryLoadingMore()"
+              >
+                <mat-icon>{{ processHistoryLoadingMore() ? 'hourglass_top' : 'expand_more' }}</mat-icon>
+                {{ processHistoryLoadingMore() ? 'Loading...' : 'Load more processes' }}
+              </button>
+            }
+          }
+        } @else {
+          <div class="process-explorer-page__search-actions">
+            <button mat-button type="button" (click)="openAdvancedSearch()">
+              <mat-icon>edit</mat-icon>
+              Edit filters
+            </button>
+
+            <button mat-button type="button" (click)="clearAdvancedSearch()">
+              <mat-icon>close</mat-icon>
+              Clear search
             </button>
           </div>
 
-          <div class="app-chip-row">
-            <mat-chip class="process-explorer-page__status-chip" [ngClass]="'status-chip--' + selectedStepStatus().toLowerCase()">
-              <mat-icon>{{ statusIcon(selectedStepStatus()) }}</mat-icon>
-              {{ statusLabel(selectedStepStatus()) }}
-            </mat-chip>
-          </div>
-
-          <div class="process-explorer-page__meta-grid">
-            <mat-card appearance="outlined">
-              <mat-card-subtitle>Duration</mat-card-subtitle>
-              <mat-card-title>{{ formatDuration(selectedStepDurationMs()) }}</mat-card-title>
-            </mat-card>
-            <mat-card appearance="outlined">
-              <mat-card-subtitle>Resolved version</mat-card-subtitle>
-              <mat-card-title>{{ selectedStepResolvedVersion() ?? 'Not resolved yet' }}</mat-card-title>
-            </mat-card>
-            <mat-card appearance="outlined">
-              <mat-card-subtitle>Start time</mat-card-subtitle>
-              <mat-card-title>
-                {{ selectedStepStartedAt() ? (selectedStepStartedAt() | date: 'dd MMM yyyy, HH:mm:ss') : 'Not started' }}
-              </mat-card-title>
-            </mat-card>
-            <mat-card appearance="outlined">
-              <mat-card-subtitle>End time</mat-card-subtitle>
-              <mat-card-title>
-                {{ selectedStepEndedAt() ? (selectedStepEndedAt() | date: 'dd MMM yyyy, HH:mm:ss') : 'Still running' }}
-              </mat-card-title>
-            </mat-card>
-          </div>
-
-          @if (selectedStepFailureMessage()) {
-            <mat-card appearance="outlined" class="process-explorer-page__alert-card">
-              <mat-card-subtitle>Failure message</mat-card-subtitle>
-              <mat-card-content>{{ selectedStepFailureMessage() }}</mat-card-content>
-            </mat-card>
+          @if (activeSearchSummaryChips().length > 0) {
+            <div class="app-chip-row">
+              @for (chip of activeSearchSummaryChips(); track chip) {
+                <mat-chip>{{ chip }}</mat-chip>
+              }
+            </div>
           }
 
-          <mat-tab-group [selectedIndex]="stepTabIndex()" (selectedIndexChange)="onStepTabIndexChange($event)">
-            <mat-tab label="Inputs">
-              <div class="process-explorer-page__tab-body">
-                @if (stepDetailError()) {
-                  <p class="process-explorer-page__drawer-state">{{ stepDetailError() }}</p>
-                } @else if (stepDetailLoading() && !hasStructuredPayload(selectedStepInputs())) {
-                  <p class="process-explorer-page__drawer-state">Loading step inputs...</p>
-                } @else if (hasStructuredPayload(selectedStepInputs())) {
-                  <pre class="app-json-block">{{ formatStructuredPayload(selectedStepInputs()) }}</pre>
-                } @else {
-                  <p class="process-explorer-page__drawer-state">No inputs were captured for this step.</p>
-                }
-              </div>
-            </mat-tab>
+          @if (searchResultsLoading()) {
+            <div class="process-explorer-page__list-state">
+              <mat-progress-spinner diameter="32" mode="indeterminate" />
+              <p>Searching processes...</p>
+            </div>
+          } @else if (searchResultsError()) {
+            <div class="process-explorer-page__list-state">
+              <mat-icon>error</mat-icon>
+              <p>{{ searchResultsError() }}</p>
+            </div>
+          } @else if (searchResultsRows().length === 0) {
+            <div class="process-explorer-page__list-state">
+              <mat-icon>manage_search</mat-icon>
+              <p>No processes matched the current filters.</p>
+            </div>
+          } @else {
+            <mat-nav-list>
+              @for (processRow of searchResultsRows(); track trackProcess($index, processRow)) {
+                <button
+                  mat-list-item
+                  type="button"
+                  class="process-explorer-page__history-item"
+                  [class.is-selected]="selectedProcessId() === processRow.processId"
+                  (click)="selectProcess(processRow)"
+                >
+                  <div matListItemTitle class="process-explorer-page__process-title">
+                    <span>{{ processRow.blueprintName }}</span>
+                    <mat-chip class="process-explorer-page__status-chip" [ngClass]="'status-chip--' + processRow.status.toLowerCase()">
+                      {{ statusLabel(processRow.status) }}
+                    </mat-chip>
+                  </div>
+                  <div matListItemLine>Version {{ processRow.blueprintVersionNumber }}</div>
+                  <div matListItemLine [attr.title]="processRow.processId">{{ processIdLabel(processRow) }}</div>
+                  <div matListItemLine>
+                    {{ processRow.createdAt | date: 'dd MMM, HH:mm:ss' }}
+                  </div>
+                </button>
+              }
+            </mat-nav-list>
 
-            <mat-tab label="Outputs">
-              <div class="process-explorer-page__tab-body">
-                @if (stepDetailError()) {
-                  <p class="process-explorer-page__drawer-state">{{ stepDetailError() }}</p>
-                } @else if (stepDetailLoading() && !hasStructuredPayload(selectedStepOutputs())) {
-                  <p class="process-explorer-page__drawer-state">Loading step outputs...</p>
-                } @else if (hasStructuredPayload(selectedStepOutputs())) {
-                  <pre class="app-json-block">{{ formatStructuredPayload(selectedStepOutputs()) }}</pre>
-                } @else {
-                  <p class="process-explorer-page__drawer-state">No outputs were captured for this step.</p>
-                }
-              </div>
-            </mat-tab>
-
-            <mat-tab label="Dataflow">
-              <div class="process-explorer-page__tab-body">
-                <mat-card appearance="outlined">
-                  <mat-card-header>
-                    <mat-card-title>Incoming transfers</mat-card-title>
-                    <mat-card-subtitle>{{ selectedStepIncomingMappings().length }} inbound bindings</mat-card-subtitle>
-                  </mat-card-header>
-                  <mat-card-content>
-                    @if (selectedStepIncomingMappings().length === 0) {
-                      <p class="process-explorer-page__drawer-state">No inbound mappings are configured for this step.</p>
-                    } @else {
-                      <div class="process-explorer-page__mapping-list">
-                        @for (mapping of selectedStepIncomingMappings(); track trackIncomingMapping($index, mapping)) {
-                          <mat-card appearance="outlined">
-                            <mat-card-title>{{ mapping.sourceName }}</mat-card-title>
-                            <mat-card-subtitle>{{ mapping.channelName ?? 'Default output channel' }}</mat-card-subtitle>
-                            <mat-card-content class="app-chip-row">
-                              @for (propertyMapping of mapping.propertyMappings; track propertyMapping.sourceProperty + ':' + propertyMapping.targetProperty) {
-                                <mat-chip>{{ propertyMapping.sourceProperty }} → {{ propertyMapping.targetProperty }}</mat-chip>
-                              }
-                            </mat-card-content>
-                          </mat-card>
-                        }
-                      </div>
-                    }
-                  </mat-card-content>
-                </mat-card>
-
-                <mat-card appearance="outlined">
-                  <mat-card-header>
-                    <mat-card-title>Design-time fixed values</mat-card-title>
-                  </mat-card-header>
-                  <mat-card-content>
-                    @if (hasStructuredPayload(selectedStepDesignTimeOverrides())) {
-                      <pre class="app-json-block">{{ formatStructuredPayload(selectedStepDesignTimeOverrides()) }}</pre>
-                    } @else {
-                      <p class="process-explorer-page__drawer-state">No design-time fixed values are configured for this step.</p>
-                    }
-                  </mat-card-content>
-                </mat-card>
-
-                <mat-card appearance="outlined">
-                  <mat-card-header>
-                    <mat-card-title>Runtime overrides</mat-card-title>
-                  </mat-card-header>
-                  <mat-card-content>
-                    @if (hasStructuredPayload(selectedStepRuntimeOverrides())) {
-                      <pre class="app-json-block">{{ formatStructuredPayload(selectedStepRuntimeOverrides()) }}</pre>
-                    } @else {
-                      <p class="process-explorer-page__drawer-state">No runtime overrides were applied to this step.</p>
-                    }
-                  </mat-card-content>
-                </mat-card>
-              </div>
-            </mat-tab>
-
-            <mat-tab label="Logs">
-              <div class="process-explorer-page__tab-body">
-                <div class="app-chip-row">
-                  @if (selectedStepStatus() === 'InProgress') {
-                    <mat-chip>{{ stepLogStreamConnected() ? 'Streaming live updates' : 'Waiting for live updates' }}</mat-chip>
-                  } @else {
-                    <mat-chip>Historical logs</mat-chip>
-                  }
-                </div>
-
-                @if (stepLogsLoading()) {
-                  <p class="process-explorer-page__drawer-state">Loading step logs...</p>
-                } @else if (stepLogsError()) {
-                  <p class="process-explorer-page__drawer-state">{{ stepLogsError() }}</p>
-                } @else if (stepLogs().length === 0) {
-                  <p class="process-explorer-page__drawer-state">No logs are available for this step yet.</p>
-                } @else {
-                  <mat-list class="process-explorer-page__log-list">
-                    @for (entry of stepLogs(); track trackStepLog($index, entry)) {
-                      <mat-list-item class="process-explorer-page__log-item">
-                        <div matListItemTitle>
-                          {{ entry.timestamp | date: 'HH:mm:ss.SSS' }} · {{ stepLogLabel(entry) }}
-                        </div>
-                        <div matListItemLine>{{ entry.level ?? 'Info' }}</div>
-                        <div matListItemLine class="process-explorer-page__log-message">{{ entry.message }}</div>
-                      </mat-list-item>
-                    }
-                  </mat-list>
-                }
-              </div>
-            </mat-tab>
-          </mat-tab-group>
-        </div>
-      </mat-drawer>
-
-      <mat-drawer-content class="process-explorer-page__content">
-        @if (historyCollapsed()) {
-          <button mat-mini-fab type="button" class="process-explorer-page__history-toggle" (click)="toggleHistoryPanel()" aria-label="Expand history">
-            <mat-icon>left_panel_open</mat-icon>
-          </button>
+            @if (searchResultsHasMore()) {
+              <button
+                mat-stroked-button
+                type="button"
+                class="process-explorer-page__load-more"
+                (click)="loadMoreSearchResults()"
+                [disabled]="searchResultsLoadingMore()"
+              >
+                <mat-icon>{{ searchResultsLoadingMore() ? 'hourglass_top' : 'expand_more' }}</mat-icon>
+                {{ searchResultsLoadingMore() ? 'Loading...' : 'Load more results' }}
+              </button>
+            }
+          }
         }
+      </div>
+    </mat-drawer>
+
+    <mat-drawer
+      class="process-explorer-page__step-drawer"
+      mode="side"
+      position="end"
+      [opened]="stepDrawerOpen() && selectedProcess() !== null"
+    >
+      <div class="process-explorer-page__step-shell">
+        <div class="app-section-heading">
+          <div>
+            <p class="app-hero-card__eyebrow">Process Step</p>
+            <h3>{{ selectedStepTitle() }}</h3>
+          </div>
+
+          <button mat-icon-button type="button" (click)="closeStepDrawer()" aria-label="Close step details">
+            <mat-icon>right_panel_close</mat-icon>
+          </button>
+        </div>
+
+        <div class="app-chip-row">
+          <mat-chip class="process-explorer-page__status-chip" [ngClass]="'status-chip--' + selectedStepStatus().toLowerCase()">
+            <mat-icon>{{ statusIcon(selectedStepStatus()) }}</mat-icon>
+            {{ statusLabel(selectedStepStatus()) }}
+          </mat-chip>
+        </div>
+
+        <div class="process-explorer-page__meta-grid">
+          <mat-card appearance="outlined">
+            <mat-card-subtitle>Duration</mat-card-subtitle>
+            <mat-card-title>{{ formatDuration(selectedStepDurationMs()) }}</mat-card-title>
+          </mat-card>
+          <mat-card appearance="outlined">
+            <mat-card-subtitle>Resolved version</mat-card-subtitle>
+            <mat-card-title>{{ selectedStepResolvedVersion() ?? 'Not resolved yet' }}</mat-card-title>
+          </mat-card>
+          <mat-card appearance="outlined">
+            <mat-card-subtitle>Start time</mat-card-subtitle>
+            <mat-card-title>
+              {{ selectedStepStartedAt() ? (selectedStepStartedAt() | date: 'dd MMM yyyy, HH:mm:ss') : 'Not started' }}
+            </mat-card-title>
+          </mat-card>
+          <mat-card appearance="outlined">
+            <mat-card-subtitle>End time</mat-card-subtitle>
+            <mat-card-title>
+              {{ selectedStepEndedAt() ? (selectedStepEndedAt() | date: 'dd MMM yyyy, HH:mm:ss') : 'Still running' }}
+            </mat-card-title>
+          </mat-card>
+        </div>
+
+        @if (selectedStepFailureMessage()) {
+          <mat-card appearance="outlined" class="process-explorer-page__alert-card">
+            <mat-card-subtitle>Failure message</mat-card-subtitle>
+            <mat-card-content>{{ selectedStepFailureMessage() }}</mat-card-content>
+          </mat-card>
+        }
+
+        <mat-tab-group [selectedIndex]="stepTabIndex()" (selectedIndexChange)="onStepTabIndexChange($event)">
+          <mat-tab label="Inputs">
+            <div class="process-explorer-page__tab-body">
+              @if (stepDetailError()) {
+                <p class="process-explorer-page__drawer-state">{{ stepDetailError() }}</p>
+              } @else if (stepDetailLoading() && !hasStructuredPayload(selectedStepInputs())) {
+                <p class="process-explorer-page__drawer-state">Loading step inputs...</p>
+              } @else if (hasStructuredPayload(selectedStepInputs())) {
+                <pre class="app-json-block">{{ formatStructuredPayload(selectedStepInputs()) }}</pre>
+              } @else {
+                <p class="process-explorer-page__drawer-state">No inputs were captured for this step.</p>
+              }
+            </div>
+          </mat-tab>
+
+          <mat-tab label="Outputs">
+            <div class="process-explorer-page__tab-body">
+              @if (stepDetailError()) {
+                <p class="process-explorer-page__drawer-state">{{ stepDetailError() }}</p>
+              } @else if (stepDetailLoading() && !hasStructuredPayload(selectedStepOutputs())) {
+                <p class="process-explorer-page__drawer-state">Loading step outputs...</p>
+              } @else if (hasStructuredPayload(selectedStepOutputs())) {
+                <pre class="app-json-block">{{ formatStructuredPayload(selectedStepOutputs()) }}</pre>
+              } @else {
+                <p class="process-explorer-page__drawer-state">No outputs were captured for this step.</p>
+              }
+            </div>
+          </mat-tab>
+
+          <mat-tab label="Dataflow">
+            <div class="process-explorer-page__tab-body">
+              <mat-card appearance="outlined">
+                <mat-card-header>
+                  <mat-card-title>Incoming transfers</mat-card-title>
+                  <mat-card-subtitle>{{ selectedStepIncomingMappings().length }} inbound bindings</mat-card-subtitle>
+                </mat-card-header>
+                <mat-card-content>
+                  @if (selectedStepIncomingMappings().length === 0) {
+                    <p class="process-explorer-page__drawer-state">No inbound mappings are configured for this step.</p>
+                  } @else {
+                    <div class="process-explorer-page__mapping-list">
+                      @for (mapping of selectedStepIncomingMappings(); track trackIncomingMapping($index, mapping)) {
+                        <mat-card appearance="outlined">
+                          <mat-card-title>{{ mapping.sourceName }}</mat-card-title>
+                          <mat-card-subtitle>{{ mapping.channelName ?? 'Default output channel' }}</mat-card-subtitle>
+                          <mat-card-content class="app-chip-row">
+                            @for (propertyMapping of mapping.propertyMappings; track propertyMapping.sourceProperty + ':' + propertyMapping.targetProperty) {
+                              <mat-chip>{{ propertyMapping.sourceProperty }} → {{ propertyMapping.targetProperty }}</mat-chip>
+                            }
+                          </mat-card-content>
+                        </mat-card>
+                      }
+                    </div>
+                  }
+                </mat-card-content>
+              </mat-card>
+
+              <mat-card appearance="outlined">
+                <mat-card-header>
+                  <mat-card-title>Design-time fixed values</mat-card-title>
+                </mat-card-header>
+                <mat-card-content>
+                  @if (hasStructuredPayload(selectedStepDesignTimeOverrides())) {
+                    <pre class="app-json-block">{{ formatStructuredPayload(selectedStepDesignTimeOverrides()) }}</pre>
+                  } @else {
+                    <p class="process-explorer-page__drawer-state">No design-time fixed values are configured for this step.</p>
+                  }
+                </mat-card-content>
+              </mat-card>
+
+              <mat-card appearance="outlined">
+                <mat-card-header>
+                  <mat-card-title>Runtime overrides</mat-card-title>
+                </mat-card-header>
+                <mat-card-content>
+                  @if (hasStructuredPayload(selectedStepRuntimeOverrides())) {
+                    <pre class="app-json-block">{{ formatStructuredPayload(selectedStepRuntimeOverrides()) }}</pre>
+                  } @else {
+                    <p class="process-explorer-page__drawer-state">No runtime overrides were applied to this step.</p>
+                  }
+                </mat-card-content>
+              </mat-card>
+            </div>
+          </mat-tab>
+
+          <mat-tab label="Logs">
+            <div class="process-explorer-page__tab-body">
+              <div class="app-chip-row">
+                @if (selectedStepStatus() === 'InProgress') {
+                  <mat-chip>{{ stepLogStreamConnected() ? 'Streaming live updates' : 'Waiting for live updates' }}</mat-chip>
+                } @else {
+                  <mat-chip>Historical logs</mat-chip>
+                }
+              </div>
+
+              @if (stepLogsLoading()) {
+                <p class="process-explorer-page__drawer-state">Loading step logs...</p>
+              } @else if (stepLogsError()) {
+                <p class="process-explorer-page__drawer-state">{{ stepLogsError() }}</p>
+              } @else if (stepLogs().length === 0) {
+                <p class="process-explorer-page__drawer-state">No logs are available for this step yet.</p>
+              } @else {
+                <mat-list class="process-explorer-page__log-list">
+                  @for (entry of stepLogs(); track trackStepLog($index, entry)) {
+                    <mat-list-item class="process-explorer-page__log-item">
+                      <div matListItemTitle>
+                        {{ entry.timestamp | date: 'HH:mm:ss.SSS' }} · {{ stepLogLabel(entry) }}
+                      </div>
+                      <div matListItemLine>{{ entry.level ?? 'Info' }}</div>
+                      <div matListItemLine class="process-explorer-page__log-message">{{ entry.message }}</div>
+                    </mat-list-item>
+                  }
+                </mat-list>
+              }
+            </div>
+          </mat-tab>
+        </mat-tab-group>
+      </div>
+    </mat-drawer>
+
+    <mat-drawer-content class="process-explorer-page__content">
+      @if (historyCollapsed()) {
+        <button mat-mini-fab type="button" class="process-explorer-page__history-toggle" (click)="toggleHistoryPanel()" aria-label="Expand history">
+          <mat-icon>left_panel_open</mat-icon>
+        </button>
+      }
+
+      @if (selectedProcess(); as process) {
+        <mat-menu #processActionsMenu="matMenu" xPosition="before" yPosition="below">
+          <a mat-menu-item [href]="selectedProcessGrafanaLogsUrl()" target="_blank" rel="noreferrer">
+            <mat-icon>open_in_new</mat-icon>
+            <span>Loki Explore</span>
+          </a>
+          <a mat-menu-item [href]="selectedProcessGrafanaTraceUrl()" target="_blank" rel="noreferrer">
+            <mat-icon>open_in_new</mat-icon>
+            <span>Tempo Explore</span>
+          </a>
+        </mat-menu>
 
         <div class="process-explorer-page__canvas-layout">
           <mat-card class="process-explorer-page__summary" appearance="outlined">
@@ -433,33 +525,25 @@
             </div>
           </mat-card>
         </div>
-      </mat-drawer-content>
-    </mat-drawer-container>
-
-    <mat-menu #processActionsMenu="matMenu" xPosition="before" yPosition="below">
-      <a mat-menu-item [href]="selectedProcessGrafanaLogsUrl()" target="_blank" rel="noreferrer">
-        <mat-icon>open_in_new</mat-icon>
-        <span>Loki Explore</span>
-      </a>
-      <a mat-menu-item [href]="selectedProcessGrafanaTraceUrl()" target="_blank" rel="noreferrer">
-        <mat-icon>open_in_new</mat-icon>
-        <span>Tempo Explore</span>
-      </a>
-    </mat-menu>
-  } @else {
-    <mat-card class="app-state-card" appearance="outlined">
-      <div class="app-state-card__content">
-        @if (errorMessage()) {
-          <mat-icon>error</mat-icon>
-          <p>{{ errorMessage() }}</p>
-        } @else if (loading()) {
-          <mat-progress-spinner diameter="48" mode="indeterminate" />
-          <p>Loading process explorer...</p>
-        } @else {
-          <mat-icon>receipt_long</mat-icon>
-          <p>Select a blueprint and process to inspect its steps.</p>
-        }
-      </div>
-    </mat-card>
-  }
+      } @else {
+        <mat-card class="app-state-card process-explorer-page__empty-state" appearance="outlined">
+          <div class="app-state-card__content">
+            @if (errorMessage()) {
+              <mat-icon>error</mat-icon>
+              <p>{{ errorMessage() }}</p>
+            } @else if (loading() || searchResultsLoading() || detailLoading()) {
+              <mat-progress-spinner diameter="48" mode="indeterminate" />
+              <p>Loading process explorer...</p>
+            } @else if (historyPanelMode() === 'search-results') {
+              <mat-icon>manage_search</mat-icon>
+              <p>Select a search result to inspect its steps.</p>
+            } @else {
+              <mat-icon>receipt_long</mat-icon>
+              <p>Select a blueprint and process to inspect its steps.</p>
+            }
+          </div>
+        </mat-card>
+      }
+    </mat-drawer-content>
+  </mat-drawer-container>
 </section>

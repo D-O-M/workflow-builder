@@ -1,10 +1,96 @@
-.start-process-page__hero-copy {
-  display: grid;
-  gap: 0.75rem;
+.start-process-page {
+  --start-process-picker-border: rgba(102, 129, 170, 0.16);
+  --start-process-picker-surface: rgba(255, 255, 255, 0.9);
 }
 
-.start-process-page__hero-copy h2,
-.start-process-page__hero-copy p {
+.start-process-page__picker-surface {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.start-process-page__picker-bar {
+  display: flex;
+  align-items: flex-start;
+}
+
+.start-process-page__picker-shell {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  min-height: 3.75rem;
+  padding: 0.35rem 0.45rem 0.35rem 0.85rem;
+  border: 1px solid var(--start-process-picker-border);
+  border-radius: 999px;
+  background: var(--start-process-picker-surface);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--app-shadow-1);
+  transition:
+    border-radius 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.start-process-page__picker-shell.is-panel-open {
+  border-top-left-radius: var(--app-radius-large);
+  border-top-right-radius: var(--app-radius-large);
+  border-bottom-color: transparent;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.start-process-page__picker-leading-icon {
+  color: var(--app-text-muted);
+}
+
+.start-process-page__picker-input,
+.start-process-page__picker-trigger {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.start-process-page__picker-input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 1.08rem;
+  line-height: 1.35;
+}
+
+.start-process-page__picker-input::placeholder {
+  color: var(--app-text-muted);
+}
+
+.start-process-page__picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 3rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--app-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.start-process-page__picker-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.08rem;
+  font-weight: 600;
+}
+
+.start-process-page__picker-icon-button {
+  flex: 0 0 auto;
+  color: var(--app-text-secondary);
+}
+
+.start-process-page__picker-support {
   margin: 0;
 }
 
@@ -76,8 +162,88 @@
   gap: 0.75rem;
 }
 
+.start-process-page__picker-option {
+  width: 100%;
+}
+
+.start-process-page__picker-option-copy {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.start-process-page__picker-option-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.start-process-page__picker-option-support {
+  display: block;
+  color: var(--app-text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+:host ::ng-deep .start-process-page__picker-autocomplete {
+  --mat-autocomplete-container-shape: var(--app-radius-large);
+  --mat-option-label-text-color: var(--app-text);
+  --mat-option-selected-state-label-text-color: var(--app-text);
+  --mat-option-selected-state-layer-color: transparent;
+  --mat-option-hover-state-layer-color: rgba(21, 35, 60, 0.06);
+  --mat-option-focus-state-layer-color: rgba(0, 92, 187, 0.08);
+  --mat-pseudo-checkbox-minimal-selected-checkmark-color: var(--app-status-info);
+
+  overflow: hidden;
+  border: 1px solid rgba(102, 129, 170, 0.18);
+  border-radius: var(--app-radius-medium);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--app-shadow-2);
+}
+
+:host ::ng-deep .cdk-overlay-pane:not(.mat-mdc-autocomplete-panel-above)
+  .start-process-page__picker-autocomplete.mat-mdc-autocomplete-panel {
+  border-top-color: transparent;
+}
+
+:host ::ng-deep .start-process-page__picker-autocomplete .mat-mdc-option {
+  min-height: 3.5rem;
+  padding-inline: 1rem;
+}
+
+:host ::ng-deep .start-process-page__picker-autocomplete .mat-mdc-option .mdc-list-item__primary-text {
+  width: 100%;
+}
+
+:host ::ng-deep .start-process-page__picker-autocomplete .mat-mdc-option:hover:not(.mdc-list-item--disabled),
+:host ::ng-deep .start-process-page__picker-autocomplete .mat-mdc-option.mat-mdc-option-active:not(.mdc-list-item--disabled) {
+  background: rgba(214, 227, 255, 0.38);
+}
+
+:host ::ng-deep .start-process-page__picker-autocomplete .mat-mdc-option.is-active,
+:host ::ng-deep .start-process-page__picker-autocomplete .mat-mdc-option.mdc-list-item--selected:not(.mat-mdc-option-multiple) {
+  background: rgba(214, 227, 255, 0.62);
+}
+
+:host ::ng-deep .start-process-page__picker-autocomplete .mat-mdc-option.is-active .start-process-page__picker-option-support {
+  color: var(--app-status-info);
+}
+
+:host ::ng-deep .start-process-page__picker-autocomplete .mat-mdc-option .mat-pseudo-checkbox {
+  color: var(--app-status-info);
+}
+
 @media (min-width: 840px) {
   .start-process-form__field-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .start-process-page__picker-shell {
+    min-height: 3.4rem;
+    padding-inline: 0.75rem 0.35rem;
   }
 }

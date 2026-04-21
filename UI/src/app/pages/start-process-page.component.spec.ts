@@ -65,6 +65,17 @@ function createBlueprint(): BlueprintViewModel {
   };
 }
 
+function createBlueprints(): BlueprintViewModel[] {
+  return [
+    createBlueprint(),
+    {
+      ...createBlueprint(),
+      id: 2,
+      name: 'Showcase Town Weekend Recommendation',
+    },
+  ];
+}
+
 function createTaskDefinitions(): ITaskDefinition[] {
   return [
     {
@@ -118,6 +129,7 @@ describe('StartProcessPageComponent', () => {
   let injector: EnvironmentInjector;
   let startResponse: BlueprintProcessAcceptedViewModel;
   let taskDefinitions: ITaskDefinition[];
+  let blueprints: BlueprintViewModel[];
 
   let editorService: {
     getBlueprints: ReturnType<typeof vi.fn>;
@@ -130,6 +142,7 @@ describe('StartProcessPageComponent', () => {
 
   beforeEach(async () => {
     taskDefinitions = createTaskDefinitions();
+    blueprints = createBlueprints();
     startResponse = {
       processId: 'process-123',
       blueprintId: 1,
@@ -137,8 +150,9 @@ describe('StartProcessPageComponent', () => {
     };
 
     editorService = {
-      getBlueprints: vi.fn(() => of([createBlueprint()])),
-      getBlueprintById: vi.fn(() => of(createBlueprint())),
+      getBlueprints: vi.fn(() => of(blueprints)),
+      getBlueprintById: vi.fn((blueprintId: number) =>
+        of(blueprints.find((blueprint) => blueprint.id === blueprintId) ?? blueprints[0])),
       startProcess: vi.fn(() => of(startResponse)),
     };
 
@@ -216,6 +230,20 @@ describe('StartProcessPageComponent', () => {
     expect(router.navigate).toHaveBeenCalled();
   });
 
+  it('starts the process when runtime overrides are left empty', async () => {
+    component.form.controls.blueprintId.setValue(1);
+    await flushSignals();
+
+    await component.execute();
+
+    expect(editorService.startProcess).toHaveBeenCalledWith(1, {
+      globalState: {},
+      initialTaskInput: {},
+      nodeOverrides: {},
+    });
+    expect((component as any).executeErrorMessage()).toBeNull();
+  });
+
   it('blocks execution when a structured runtime override editor is invalid', async () => {
     component.form.controls.blueprintId.setValue(1);
     await flushSignals();
@@ -259,5 +287,30 @@ describe('StartProcessPageComponent', () => {
     expect(afterSignalsSettle['node-2'].overrides).toEqual({
       town: 'York',
     });
+  });
+
+  it('filters blueprint suggestions using the picker query', async () => {
+    (component as any).blueprintSearch.setValue('showcase');
+    await flushSignals();
+
+    expect((component as any).pickerSuggestions()).toEqual([
+      {
+        blueprint: blueprints[1],
+        isActive: false,
+      },
+    ]);
+  });
+
+  it('selects a blueprint from the picker suggestions and switches to selected mode', async () => {
+    (component as any).onBlueprintSuggestionSelected({
+      option: {
+        value: 2,
+      },
+    });
+    await flushSignals();
+
+    expect(component.form.controls.blueprintId.value).toBe(2);
+    expect((component as any).pickerMode()).toBe('selected');
+    expect((component as any).pickerDisplayName()).toBe('Showcase Town Weekend Recommendation');
   });
 });

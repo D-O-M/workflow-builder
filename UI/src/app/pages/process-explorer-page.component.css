@@ -24,6 +24,18 @@
   gap: 1rem;
 }
 
+.process-explorer-page__history-heading {
+  align-items: flex-start;
+}
+
+.process-explorer-page__history-heading-actions,
+.process-explorer-page__search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .process-explorer-page__list-state,
 .process-explorer-page__drawer-state {
   display: grid;
@@ -48,6 +60,10 @@
   justify-self: start;
 }
 
+.process-explorer-page__search-actions {
+  justify-content: flex-start;
+}
+
 .process-explorer-page__process-count {
   margin: 0;
   color: var(--app-text-secondary);
@@ -63,6 +79,10 @@
 .process-explorer-page__content {
   min-width: 0;
   padding-inline: 1rem;
+}
+
+.process-explorer-page__empty-state {
+  height: 100%;
 }
 
 .process-explorer-page__history-toggle {
@@ -181,5 +201,10 @@
 
   .process-explorer-page__content {
     padding-inline: 0.5rem;
+  }
+
+  .process-explorer-page__history-heading-actions,
+  .process-explorer-page__search-actions {
+    width: 100%;
   }
 }

@@ -156,18 +156,18 @@ function Save-XmlDocument([xml] $xml, [string] $path) {
 
 function Set-ProjectVersion([string] $csprojPath, [Version] $version) {
   [xml]$xml = Get-Content -LiteralPath $csprojPath -Raw -Encoding UTF8
-  $projectNode = $xml.Project
+  $projectNode = $xml.SelectSingleNode("/*[local-name()='Project']")
   if ($null -eq $projectNode) {
     throw "Could not load project XML for $csprojPath."
   }
 
-  $propertyGroup = $projectNode.PropertyGroup | Select-Object -First 1
+  $propertyGroup = $projectNode.SelectSingleNode("*[local-name()='PropertyGroup']")
   if ($null -eq $propertyGroup) {
     $propertyGroup = $xml.CreateElement("PropertyGroup")
     $projectNode.AppendChild($propertyGroup) | Out-Null
   }
 
-  $versionNode = $propertyGroup.Version | Select-Object -First 1
+  $versionNode = $propertyGroup.SelectSingleNode("*[local-name()='Version']")
   if ($null -eq $versionNode) {
     $versionNode = $xml.CreateElement("Version")
     $propertyGroup.AppendChild($versionNode) | Out-Null

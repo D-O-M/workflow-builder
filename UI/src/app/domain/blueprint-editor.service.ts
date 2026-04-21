@@ -143,6 +143,41 @@ export interface BlueprintProcessHistoryPageViewModel {
   hasMore: boolean;
 }
 
+export type ProcessSearchStatus = 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+export type ProcessSearchPropertyScope = 'GlobalState' | 'NodeInput' | 'NodeOutput';
+
+export interface ProcessSearchNodeFilter {
+  blueprintDefinitionId: number;
+  blueprintNodeId: string;
+  statuses: ProcessSearchStatus[];
+}
+
+export interface ProcessSearchPropertyFilter {
+  scope: ProcessSearchPropertyScope;
+  blueprintDefinitionId?: number | null;
+  blueprintNodeId?: string | null;
+  propertyKey: string;
+  propertyType: TaskPropertyType;
+  value: string;
+}
+
+export interface ProcessSearchRequest {
+  blueprintDefinitionIds: number[];
+  processStatuses: ProcessSearchStatus[];
+  createdFrom: string;
+  createdTo: string;
+  nodeFilters: ProcessSearchNodeFilter[];
+  propertyFilters: ProcessSearchPropertyFilter[];
+  limit: number;
+  cursor?: string | null;
+}
+
+export interface ProcessSearchPageViewModel {
+  items: BlueprintProcessHistoryEntryViewModel[];
+  nextCursor?: string | null;
+  hasMore: boolean;
+}
+
 export interface ProcessStepViewModel {
   instanceId: string;
   taskDefinitionId: number;
@@ -461,6 +496,10 @@ export class BlueprintEditorService {
         ...(cursor ? { cursor } : {}),
       },
     });
+  }
+
+  searchProcesses(request: ProcessSearchRequest): Observable<ProcessSearchPageViewModel> {
+    return this.http.post<ProcessSearchPageViewModel>('api/processes/search', request);
   }
 
   getBlueprintProcess(definitionId: number, processId: string): Observable<ProcessDetailViewModel> {

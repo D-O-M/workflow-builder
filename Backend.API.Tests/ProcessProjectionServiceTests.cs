@@ -209,6 +209,16 @@ public sealed class ProcessProjectionServiceTests
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<ProcessStateSummaryPage> GetProcessStateSummaryPageForBlueprint(
+            int blueprintVersionId,
+            string? continuationToken,
+            int maxItemCount,
+            DateTimeOffset? createdFrom,
+            DateTimeOffset? createdTo,
+            IReadOnlyCollection<ProcessStatus>? statuses,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> UpdateProcessState(
             ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
             CancellationToken cancellationToken) =>

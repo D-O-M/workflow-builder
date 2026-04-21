@@ -229,7 +229,9 @@ export class PropertyOverrideEditorComponent {
     this.stateChange.emit({
       editorId: this.editorId(),
       overrides: this.serializeOverrides(),
-      valid: this.form.valid,
+      // Treat an untouched editor with all controls disabled as valid so optional
+      // override sections never block submission on their own.
+      valid: !this.form.invalid,
     });
   }
 

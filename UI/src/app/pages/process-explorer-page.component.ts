@@ -16,6 +16,7 @@ import { ActivatedRoute } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -44,6 +45,7 @@ import {
   BlueprintProcessHistoryEntryViewModel,
   BlueprintViewModel,
   ProcessDetailViewModel,
+  ProcessSearchRequest,
   ProcessStepDetailViewModel,
 } from '../domain/blueprint-editor.service';
 import {
@@ -69,6 +71,9 @@ import {
   readyRequestState,
 } from '../domain/request-state';
 import { RuntimeClientConfigService } from '../domain/runtime-client-config.service';
+import { TaskDefinitionsService } from '../domain/task-definitions.service';
+import { ITaskDefinition } from '../interfaces/ITaskDefinition';
+import { ProcessSearchDialogComponent } from '../components/process-search-dialog.component';
 
 interface ProcessRouteSelection {
   blueprintId: number | null;
@@ -83,7 +88,7 @@ interface StepLogHistoryRequest {
   to: string | null;
 }
 
-type HistoryPanelMode = 'blueprints' | 'processes';
+type HistoryPanelMode = 'blueprints' | 'processes' | 'search-results';
 type StepInspectorTab = 'inputs' | 'outputs' | 'dataflow' | 'logs';
 
 @Component({
@@ -93,6 +98,7 @@ type StepInspectorTab = 'inputs' | 'outputs' | 'dataflow' | 'logs';
     MatButtonModule,
     MatCardModule,
     MatChipsModule,
+    MatDialogModule,
     MatDividerModule,
     MatFormFieldModule,
     MatIconModule,
@@ -113,9 +119,11 @@ type StepInspectorTab = 'inputs' | 'outputs' | 'dataflow' | 'logs';
 })
 export class ProcessExplorerPageComponent {
   private readonly blueprintService = inject(BlueprintEditorService);
+  private readonly dialog = inject(MatDialog);
   private readonly processRealtime = inject(ProcessRealtimeService);
   private readonly observabilityService = inject(ObservabilityService);
   private readonly runtimeClientConfig = inject(RuntimeClientConfigService);
+  private readonly taskDefinitionsService = inject(TaskDefinitionsService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
   private readonly canvasViewport = viewChild(BlueprintCanvasComponent);
@@ -158,6 +166,14 @@ export class ProcessExplorerPageComponent {
   protected readonly stepLogStreamConnected = signal(false);
   protected readonly processInfoOpen = signal(false);
   protected readonly blueprintSearch = new FormControl('', { nonNullable: true });
+  protected readonly taskDefinitions = toSignal(this.taskDefinitionsService.getTaskDefinitions(), { initialValue: [] as ITaskDefinition[] });
+  protected readonly activeSearchRequest = signal<ProcessSearchRequest | null>(null);
+  private readonly searchResultRows = signal<BlueprintProcessHistoryEntryViewModel[]>([]);
+  private readonly searchResultsNextCursor = signal<string | null>(null);
+  private readonly searchResultsHasMoreState = signal(false);
+  protected readonly searchResultsLoading = signal(false);
+  protected readonly searchResultsLoadingMore = signal(false);
+  protected readonly searchResultsError = signal<string | null>(null);
 
   private readonly blueprintSearchQuery = toSignal(
     this.blueprintSearch.valueChanges.pipe(
@@ -232,6 +248,8 @@ export class ProcessExplorerPageComponent {
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
   });
   protected readonly processHistoryHasMore = computed(() => this.processHistoryHasMoreState());
+  protected readonly searchResultsRows = computed(() => this.searchResultRows());
+  protected readonly searchResultsHasMore = computed(() => this.searchResultsHasMoreState());
   protected readonly activeProcessId = computed(() => {
     const currentProcessId = this.selectedProcessId();
     if (currentProcessId) {
@@ -241,6 +259,10 @@ export class ProcessExplorerPageComponent {
     const preferredProcessIdValue = this.preferredProcessId();
     if (preferredProcessIdValue) {
       return preferredProcessIdValue;
+    }
+
+    if (this.historyPanelMode() === 'search-results') {
+      return null;
     }
 
     return this.processHistoryRows()[0]?.processId ?? null;
@@ -547,6 +569,10 @@ export class ProcessExplorerPageComponent {
     return `${this.runtimeClientConfig.grafanaBaseUrl}/explore?orgId=1&left=${left}`;
   });
   protected readonly historyPaneSummary = computed(() => {
+    if (this.historyPanelMode() === 'search-results') {
+      return this.searchResultsCountLabel();
+    }
+
     if (this.historyPanelMode() === 'processes') {
       return this.selectedBlueprintProcessCountLabel();
     }
@@ -576,6 +602,39 @@ export class ProcessExplorerPageComponent {
 
     return count === 1 ? '1 process' : `${count} processes`;
   });
+  protected readonly searchResultsCountLabel = computed(() => {
+    const count = this.searchResultsRows().length;
+    if (count === 0) {
+      return this.searchResultsLoading() ? 'Searching processes' : 'No matching processes';
+    }
+
+    if (this.searchResultsHasMore()) {
+      return `${count}+ matching processes`;
+    }
+
+    return count === 1 ? '1 matching process' : `${count} matching processes`;
+  });
+  protected readonly activeSearchSummaryChips = computed(() => {
+    const request = this.activeSearchRequest();
+    if (!request) {
+      return [];
+    }
+
+    const chips = [this.searchWindowLabel(request)];
+    if (request.blueprintDefinitionIds.length > 0) {
+      chips.push(request.blueprintDefinitionIds.length === 1 ? '1 blueprint' : `${request.blueprintDefinitionIds.length} blueprints`);
+    }
+    if (request.nodeFilters.length > 0) {
+      chips.push(request.nodeFilters.length === 1 ? '1 node filter' : `${request.nodeFilters.length} node filters`);
+    }
+    if (request.propertyFilters.length > 0) {
+      chips.push(request.propertyFilters.length === 1 ? '1 property filter' : `${request.propertyFilters.length} property filters`);
+    }
+    if (request.processStatuses.length > 0) {
+      chips.push(request.processStatuses.length === 1 ? '1 status' : `${request.processStatuses.length} statuses`);
+    }
+    return chips;
+  });
   protected readonly errorMessage = computed(() => {
     const blueprintsState = this.blueprintsState();
     if (isErrorRequestState(blueprintsState)) {
@@ -584,6 +643,10 @@ export class ProcessExplorerPageComponent {
 
     if (this.historyPanelMode() === 'blueprints' && this.blueprintActivityError()) {
       return this.blueprintActivityError();
+    }
+
+    if (this.historyPanelMode() === 'search-results' && this.searchResultsError()) {
+      return this.searchResultsError();
     }
 
     if (this.historyPanelMode() === 'processes' && this.processHistoryError()) {
@@ -877,6 +940,26 @@ export class ProcessExplorerPageComponent {
     this.applyBlueprintSelection(activity.blueprintDefinitionId, null, 'processes');
   }
 
+  protected async openAdvancedSearch(): Promise<void> {
+    const dialogRef = this.dialog.open(ProcessSearchDialogComponent, {
+      width: 'min(56rem, calc(100vw - 2rem))',
+      maxWidth: '100vw',
+      autoFocus: false,
+      data: {
+        blueprints: this.blueprints(),
+        taskDefinitions: this.taskDefinitions(),
+        initialRequest: this.activeSearchRequest(),
+      },
+    });
+
+    const result = await firstValueFrom(dialogRef.afterClosed());
+    if (!result) {
+      return;
+    }
+
+    await this.applyAdvancedSearch(result);
+  }
+
   protected returnToBlueprintPicker(): void {
     this.historyPanelMode.set('blueprints');
   }
@@ -917,6 +1000,9 @@ export class ProcessExplorerPageComponent {
 
   protected selectProcess(process: BlueprintProcessHistoryEntryViewModel): void {
     this.closeProcessInfo();
+    if (this.historyPanelMode() === 'search-results') {
+      this.selectedBlueprintId.set(process.blueprintDefinitionId);
+    }
     this.selectedProcessId.set(process.processId);
     this.preferredProcessId.set(null);
   }
@@ -1016,6 +1102,46 @@ export class ProcessExplorerPageComponent {
     } finally {
       this.processHistoryLoadingMore.set(false);
     }
+  }
+
+  protected async loadMoreSearchResults(): Promise<void> {
+    const request = this.activeSearchRequest();
+    const cursor = this.searchResultsNextCursor();
+
+    if (!request || !cursor || this.searchResultsLoadingMore()) {
+      return;
+    }
+
+    this.searchResultsLoadingMore.set(true);
+    this.searchResultsError.set(null);
+
+    try {
+      const response = await firstValueFrom(this.blueprintService.searchProcesses({
+        ...request,
+        cursor,
+      }));
+
+      if (request !== this.activeSearchRequest() || cursor !== this.searchResultsNextCursor()) {
+        return;
+      }
+
+      this.searchResultRows.update((currentRows) =>
+        this.mergeProcessHistoryRows(currentRows, response.items),
+      );
+      this.searchResultsNextCursor.set(response.nextCursor ?? null);
+      this.searchResultsHasMoreState.set(response.hasMore);
+    } catch {
+      if (request === this.activeSearchRequest()) {
+        this.searchResultsError.set('Unable to load more search results.');
+      }
+    } finally {
+      this.searchResultsLoadingMore.set(false);
+    }
+  }
+
+  protected clearAdvancedSearch(): void {
+    this.resetSearchResultsState();
+    this.historyPanelMode.set(this.selectedBlueprintId() ? 'processes' : 'blueprints');
   }
 
   protected resetView(): void {
@@ -1131,6 +1257,17 @@ export class ProcessExplorerPageComponent {
     return `${minutes}m ${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
   }
 
+  protected searchWindowLabel(request: ProcessSearchRequest): string {
+    const formatter = new Intl.DateTimeFormat('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    return `${formatter.format(new Date(request.createdFrom))} → ${formatter.format(new Date(request.createdTo))}`;
+  }
+
   @HostListener('document:click', ['$event'])
   protected onDocumentClick(event: MouseEvent): void {
     if (!this.processInfoOpen()) {
@@ -1175,6 +1312,55 @@ export class ProcessExplorerPageComponent {
     this.closeStepDrawer();
     this.realtimeSummaryOverrides.set(new Map());
     this.realtimeNodeOverrides.set(new Map());
+    if (historyPanelMode !== 'search-results') {
+      this.resetSearchResultsState();
+    }
+  }
+
+  private async applyAdvancedSearch(request: ProcessSearchRequest): Promise<void> {
+    this.closeProcessInfo();
+    this.closeStepDrawer();
+    this.historyCollapsed.set(false);
+    this.searchResultsLoading.set(true);
+    this.searchResultsLoadingMore.set(false);
+    this.searchResultsError.set(null);
+    this.searchResultRows.set([]);
+    this.searchResultsNextCursor.set(null);
+    this.searchResultsHasMoreState.set(false);
+    this.selectedProcessId.set(null);
+    this.preferredProcessId.set(null);
+    this.selectedBlueprintId.set(null);
+    this.historyPanelMode.set('search-results');
+    this.activeSearchRequest.set(request);
+
+    try {
+      const response = await firstValueFrom(this.blueprintService.searchProcesses(request));
+      if (request !== this.activeSearchRequest()) {
+        return;
+      }
+
+      this.searchResultRows.set(response.items);
+      this.searchResultsNextCursor.set(response.nextCursor ?? null);
+      this.searchResultsHasMoreState.set(response.hasMore);
+    } catch {
+      if (request === this.activeSearchRequest()) {
+        this.searchResultsError.set('Unable to search processes with the selected filters.');
+      }
+    } finally {
+      if (request === this.activeSearchRequest()) {
+        this.searchResultsLoading.set(false);
+      }
+    }
+  }
+
+  private resetSearchResultsState(): void {
+    this.activeSearchRequest.set(null);
+    this.searchResultRows.set([]);
+    this.searchResultsNextCursor.set(null);
+    this.searchResultsHasMoreState.set(false);
+    this.searchResultsLoading.set(false);
+    this.searchResultsLoadingMore.set(false);
+    this.searchResultsError.set(null);
   }
 
   private applyRealtimeSummaryUpdates(updates: ProcessSummaryUpdatedEvent[]): void {

@@ -122,7 +122,7 @@ export class BlueprintEditorPageComponent {
   protected readonly blueprints = signal<BlueprintViewModel[]>([]);
   protected readonly selectedBlueprintId = signal<number | null>(null);
   protected readonly selectedBlueprintVersionId = signal<number | null>(null);
-  protected readonly drawerCollapsed = signal(false);
+  protected readonly drawerCollapsed = signal(true);
   protected readonly compactDrawerViewport = signal(this.isCompactDrawerViewport());
   protected readonly pickerMode = signal<BlueprintPickerMode>('search');
   protected readonly pickerPanelOpen = signal(false);
