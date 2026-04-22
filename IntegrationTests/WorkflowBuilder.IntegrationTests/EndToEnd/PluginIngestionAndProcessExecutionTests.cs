@@ -47,6 +47,9 @@ public sealed class PluginIngestionAndProcessExecutionTests
         tasks.ShouldContain(task =>
             task.Name == PluginBundleCatalog.FailurePlugin &&
             task.Versions.Any(version => VersionsMatch(version.Version, _environment.Settings.RunVersion)));
+        tasks.ShouldContain(task =>
+            task.Name == PluginBundleCatalog.JoinProbePlugin &&
+            task.Versions.Any(version => VersionsMatch(version.Version, _environment.Settings.RunVersion)));
     }
 
     [Test]

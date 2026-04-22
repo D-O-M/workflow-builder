@@ -47,6 +47,44 @@ internal static class ProcessAssertions
                 snapshot.RealSteps.Any(step => step.Status == ProcessStepStatus.Failed),
             cancellationToken);
 
+    public static Task<ProcessSnapshot> WaitForRealStepsAsync(
+        DistributedAppTestEnvironment environment,
+        Guid processId,
+        int blueprintVersionId,
+        IReadOnlyDictionary<Guid, ProcessStepStatus> expectedSteps,
+        CancellationToken cancellationToken) =>
+        WaitForSnapshotAsync(
+            environment,
+            processId,
+            blueprintVersionId,
+            snapshot =>
+                snapshot.RealSteps.Count == expectedSteps.Count &&
+                expectedSteps.All(expected =>
+                    snapshot.RealSteps.Count(step =>
+                        step.BlueprintNodeId == expected.Key.ToString() &&
+                        step.Status == expected.Value) == 1),
+            cancellationToken);
+
+    public static ProcessStepRecord GetRealStep(ProcessSnapshot snapshot, Guid blueprintNodeId) =>
+        snapshot.RealSteps.Single(step => step.BlueprintNodeId == blueprintNodeId.ToString());
+
+    public static void AssertNodeExecutedOnce(ProcessSnapshot snapshot, Guid blueprintNodeId)
+    {
+        snapshot.RealSteps.Count(step => step.BlueprintNodeId == blueprintNodeId.ToString()).ShouldBe(1);
+    }
+
+    public static void AssertNodeDidNotExecute(ProcessSnapshot snapshot, Guid blueprintNodeId)
+    {
+        snapshot.RealSteps.ShouldNotContain(step => step.BlueprintNodeId == blueprintNodeId.ToString());
+    }
+
+    public static JsonElement GetInput(ProcessStepRecord step, string channelName)
+    {
+        step.InputData.ShouldNotBeNull();
+        step.InputData!.ContainsKey(channelName).ShouldBeTrue();
+        return step.InputData[channelName];
+    }
+
     public static JsonElement GetOutput(ProcessStepRecord step, string channelName)
     {
         step.OutputData.ShouldNotBeNull();

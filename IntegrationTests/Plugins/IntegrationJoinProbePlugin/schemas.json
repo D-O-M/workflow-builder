@@ -1,0 +1,66 @@
+{
+  "components": {
+    "schemas": {
+      "WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin.JoinProbeRequest": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "LeftText": {
+            "type": "string"
+          },
+          "RightText": {
+            "type": "string"
+          },
+          "CombinedScore": {
+            "type": "integer"
+          },
+          "Mode": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin.JoinProbeSuccess": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Summary": {
+            "type": "string"
+          },
+          "CombinedScore": {
+            "type": "integer"
+          },
+          "Mode": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin.IntegrationWorkflowState": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "RunLabel": {
+            "type": "string"
+          },
+          "StepsCompleted": {
+            "type": "integer"
+          },
+          "TotalScore": {
+            "type": "integer"
+          },
+          "LastStage": {
+            "type": "string"
+          },
+          "ShouldFail": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

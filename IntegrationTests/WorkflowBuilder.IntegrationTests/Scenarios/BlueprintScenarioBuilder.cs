@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
 using Shouldly;
@@ -14,6 +15,23 @@ internal static class BlueprintScenarioBuilder
         Guid FirstBlueprintNodeId,
         Guid MiddleBlueprintNodeId,
         Guid FinalBlueprintNodeId);
+
+    public sealed record FanOutScenario(
+        int BlueprintDefinitionId,
+        int BlueprintVersionId,
+        Guid SeedBlueprintNodeId,
+        Guid LeftBlueprintNodeId,
+        Guid RightBlueprintNodeId);
+
+    public sealed record JoinScenario(
+        int BlueprintDefinitionId,
+        int BlueprintVersionId,
+        Guid SeedBlueprintNodeId,
+        Guid LeftBlueprintNodeId,
+        Guid RightBlueprintNodeId,
+        Guid JoinBlueprintNodeId);
+
+    private sealed record TaskVersionReference(int TaskDefinitionId, string Version);
 
     public static Task<BlueprintScenario> CreateHappyPathAsync(
         DistributedAppTestEnvironment environment,
@@ -41,6 +59,245 @@ internal static class BlueprintScenarioBuilder
             ],
             cancellationToken);
 
+    public static async Task<FanOutScenario> CreateFanOutScenarioAsync(
+        DistributedAppTestEnvironment environment,
+        CancellationToken cancellationToken)
+    {
+        var tasks = await environment.GetTasksAsync(cancellationToken);
+        var seedTaskVersion = GetTaskVersion(tasks, PluginBundleCatalog.SeedPlugin, environment.Settings.RunVersion);
+        var leftTaskVersion = GetTaskVersion(tasks, PluginBundleCatalog.TransformPlugin, environment.Settings.RunVersion);
+        var rightTaskVersion = GetTaskVersion(tasks, PluginBundleCatalog.TransformPlugin, environment.Settings.RunVersion);
+
+        var seedNodeId = Guid.NewGuid();
+        var leftNodeId = Guid.NewGuid();
+        var rightNodeId = Guid.NewGuid();
+
+        var createdVersion = await CreateBlueprintAsync(
+            environment,
+            new BlueprintInputModel
+            {
+                Name = $"{PluginBundleCatalog.SeedPlugin}-fanout-{Guid.NewGuid():N}",
+                Description = "Integration test blueprint with fan out.",
+                StartingBlueprintNodeId = seedNodeId,
+                Tasks =
+                [
+                    CreateTask(
+                        seedNodeId,
+                        seedTaskVersion,
+                        120,
+                        200,
+                        outgoingConnections:
+                        [
+                            CreateConnection(leftNodeId, "Success"),
+                            CreateConnection(rightNodeId, "Success")
+                        ]),
+                    CreateTask(leftNodeId, leftTaskVersion, 470, 110),
+                    CreateTask(rightNodeId, rightTaskVersion, 470, 290)
+                ]
+            },
+            cancellationToken);
+
+        return new FanOutScenario(
+            createdVersion.BlueprintDefinitionId,
+            createdVersion.BlueprintVersionId,
+            seedNodeId,
+            leftNodeId,
+            rightNodeId);
+    }
+
+    public static Task<JoinScenario> CreateJoinScenarioAsync(
+        DistributedAppTestEnvironment environment,
+        CancellationToken cancellationToken) =>
+        CreateJoinScenarioInternalAsync(
+            environment,
+            $"{PluginBundleCatalog.SeedPlugin}-join-{Guid.NewGuid():N}",
+            PluginBundleCatalog.TransformPlugin,
+            rightDesignTimeOverrides: CreateOverrides(
+                ("normalizedName", "RIGHT"),
+                ("score", 7)),
+            joinDesignTimeOverrides: null,
+            rightPropertyMappings:
+            [
+                ("message", "rightText"),
+                ("finalScore", "combinedScore")
+            ],
+            cancellationToken);
+
+    public static Task<JoinScenario> CreateDesignTimeOverrideScenarioAsync(
+        DistributedAppTestEnvironment environment,
+        CancellationToken cancellationToken) =>
+        CreateJoinScenarioInternalAsync(
+            environment,
+            $"{PluginBundleCatalog.SeedPlugin}-design-time-{Guid.NewGuid():N}",
+            PluginBundleCatalog.TransformPlugin,
+            rightDesignTimeOverrides: CreateOverrides(
+                ("normalizedName", "RIGHT"),
+                ("score", 7)),
+            joinDesignTimeOverrides: CreateOverrides(
+                ("leftText", "DESIGN-LEFT"),
+                ("mode", "design-mode")),
+            rightPropertyMappings:
+            [
+                ("message", "rightText"),
+                ("finalScore", "combinedScore")
+            ],
+            cancellationToken);
+
+    public static Task<JoinScenario> CreateRuntimeOverrideScenarioAsync(
+        DistributedAppTestEnvironment environment,
+        CancellationToken cancellationToken) =>
+        CreateJoinScenarioInternalAsync(
+            environment,
+            $"{PluginBundleCatalog.SeedPlugin}-runtime-{Guid.NewGuid():N}",
+            PluginBundleCatalog.TransformPlugin,
+            rightDesignTimeOverrides: CreateOverrides(
+                ("normalizedName", "RIGHT"),
+                ("score", 7)),
+            joinDesignTimeOverrides: null,
+            rightPropertyMappings:
+            [
+                ("message", "rightText"),
+                ("finalScore", "combinedScore")
+            ],
+            cancellationToken);
+
+    public static Task<JoinScenario> CreateOverridePrecedenceScenarioAsync(
+        DistributedAppTestEnvironment environment,
+        CancellationToken cancellationToken) =>
+        CreateJoinScenarioInternalAsync(
+            environment,
+            $"{PluginBundleCatalog.SeedPlugin}-precedence-{Guid.NewGuid():N}",
+            PluginBundleCatalog.TransformPlugin,
+            rightDesignTimeOverrides: CreateOverrides(
+                ("normalizedName", "RIGHT"),
+                ("score", 7)),
+            joinDesignTimeOverrides: CreateOverrides(
+                ("leftText", "DESIGN-LEFT"),
+                ("mode", "design-mode")),
+            rightPropertyMappings:
+            [
+                ("message", "rightText"),
+                ("finalScore", "combinedScore")
+            ],
+            cancellationToken);
+
+    public static Task<JoinScenario> CreateFailedBranchJoinScenarioAsync(
+        DistributedAppTestEnvironment environment,
+        CancellationToken cancellationToken) =>
+        CreateJoinScenarioInternalAsync(
+            environment,
+            $"{PluginBundleCatalog.SeedPlugin}-failed-join-{Guid.NewGuid():N}",
+            PluginBundleCatalog.FailurePlugin,
+            rightDesignTimeOverrides: null,
+            joinDesignTimeOverrides: null,
+            rightPropertyMappings:
+            [
+                ("outcome", "rightText")
+            ],
+            cancellationToken);
+
+    public static BlueprintProcessInputModel CreateProcessInput<TGlobalState, TInitialTaskInput>(
+        TGlobalState globalState,
+        TInitialTaskInput initialTaskInput,
+        IReadOnlyDictionary<Guid, Dictionary<string, JsonElement>>? nodeOverrides = null)
+    {
+        var serializedNodeOverrides = nodeOverrides is null
+            ? new Dictionary<Guid, Dictionary<string, JsonElement>>()
+            : nodeOverrides.ToDictionary(
+                entry => entry.Key,
+                entry => entry.Value.ToDictionary(
+                    property => property.Key,
+                    property => property.Value.Clone(),
+                    StringComparer.Ordinal));
+
+        return new BlueprintProcessInputModel
+        {
+            GlobalState = ToJsonDictionary(globalState),
+            InitialTaskInput = ToJsonDictionary(initialTaskInput),
+            NodeOverrides = serializedNodeOverrides
+        };
+    }
+
+    private static async Task<JoinScenario> CreateJoinScenarioInternalAsync(
+        DistributedAppTestEnvironment environment,
+        string blueprintName,
+        string rightPluginName,
+        IReadOnlyDictionary<string, JsonElement>? rightDesignTimeOverrides,
+        IReadOnlyDictionary<string, JsonElement>? joinDesignTimeOverrides,
+        IReadOnlyList<(string SourceProperty, string TargetProperty)> rightPropertyMappings,
+        CancellationToken cancellationToken)
+    {
+        var tasks = await environment.GetTasksAsync(cancellationToken);
+        var seedTaskVersion = GetTaskVersion(tasks, PluginBundleCatalog.SeedPlugin, environment.Settings.RunVersion);
+        var leftTaskVersion = GetTaskVersion(tasks, PluginBundleCatalog.TransformPlugin, environment.Settings.RunVersion);
+        var rightTaskVersion = GetTaskVersion(tasks, rightPluginName, environment.Settings.RunVersion);
+        var joinTaskVersion = GetTaskVersion(tasks, PluginBundleCatalog.JoinProbePlugin, environment.Settings.RunVersion);
+
+        var seedNodeId = Guid.NewGuid();
+        var leftNodeId = Guid.NewGuid();
+        var rightNodeId = Guid.NewGuid();
+        var joinNodeId = Guid.NewGuid();
+
+        var createdVersion = await CreateBlueprintAsync(
+            environment,
+            new BlueprintInputModel
+            {
+                Name = blueprintName,
+                Description = "Integration test blueprint with join and override coverage.",
+                StartingBlueprintNodeId = seedNodeId,
+                Tasks =
+                [
+                    CreateTask(
+                        seedNodeId,
+                        seedTaskVersion,
+                        120,
+                        200,
+                        outgoingConnections:
+                        [
+                            CreateConnection(leftNodeId, "Success"),
+                            CreateConnection(rightNodeId, "Success")
+                        ]),
+                    CreateTask(
+                        leftNodeId,
+                        leftTaskVersion,
+                        440,
+                        110,
+                        outgoingConnections:
+                        [
+                            CreateConnection(
+                                joinNodeId,
+                                "Success",
+                                ("message", "leftText"))
+                        ]),
+                    CreateTask(
+                        rightNodeId,
+                        rightTaskVersion,
+                        440,
+                        290,
+                        designTimeOverrides: rightDesignTimeOverrides,
+                        outgoingConnections:
+                        [
+                            CreateConnection(joinNodeId, "Success", rightPropertyMappings.ToArray())
+                        ]),
+                    CreateTask(
+                        joinNodeId,
+                        joinTaskVersion,
+                        780,
+                        200,
+                        designTimeOverrides: joinDesignTimeOverrides)
+                ]
+            },
+            cancellationToken);
+
+        return new JoinScenario(
+            createdVersion.BlueprintDefinitionId,
+            createdVersion.BlueprintVersionId,
+            seedNodeId,
+            leftNodeId,
+            rightNodeId,
+            joinNodeId);
+    }
+
     private static async Task<BlueprintScenario> CreateVersionedBlueprintAsync(
         DistributedAppTestEnvironment environment,
         string blueprintName,
@@ -64,21 +321,29 @@ internal static class BlueprintScenarioBuilder
             StartingBlueprintNodeId = firstTaskIdV1,
             Tasks =
             [
-                CreateTask(firstTaskIdV1, firstTaskVersion.TaskDefinitionId, firstTaskVersion.Version, 100, 120, middleTaskIdV1),
-                CreateTask(middleTaskIdV1, middleTaskVersion.TaskDefinitionId, middleTaskVersion.Version, 420, 120, finalTaskIdV1),
-                CreateTask(finalTaskIdV1, finalTaskVersion.TaskDefinitionId, finalTaskVersion.Version, 740, 120)
+                CreateTask(
+                    firstTaskIdV1,
+                    firstTaskVersion,
+                    100,
+                    120,
+                    outgoingConnections:
+                    [
+                        CreateConnection(middleTaskIdV1, "Success")
+                    ]),
+                CreateTask(
+                    middleTaskIdV1,
+                    middleTaskVersion,
+                    420,
+                    120,
+                    outgoingConnections:
+                    [
+                        CreateConnection(finalTaskIdV1, "Success")
+                    ]),
+                CreateTask(finalTaskIdV1, finalTaskVersion, 740, 120)
             ]
         };
 
-        var createResponse = await environment.ApiClient.PostAsJsonAsync(
-            "/api/blueprints",
-            initialBlueprint,
-            cancellationToken);
-
-        createResponse.IsSuccessStatusCode.ShouldBeTrue(await createResponse.Content.ReadAsStringAsync(cancellationToken));
-
-        var createdBlueprint = await createResponse.Content.ReadFromJsonAsync<BlueprintViewModel>(cancellationToken: cancellationToken);
-        createdBlueprint.ShouldNotBeNull();
+        var createdBlueprint = await PostBlueprintAsync(environment, initialBlueprint, cancellationToken);
 
         var firstTaskIdV2 = Guid.NewGuid();
         var middleTaskIdV2 = Guid.NewGuid();
@@ -92,9 +357,25 @@ internal static class BlueprintScenarioBuilder
             StartingBlueprintNodeId = firstTaskIdV2,
             Tasks =
             [
-                CreateTask(firstTaskIdV2, firstTaskVersion.TaskDefinitionId, firstTaskVersion.Version, 120, 160, middleTaskIdV2),
-                CreateTask(middleTaskIdV2, middleTaskVersion.TaskDefinitionId, middleTaskVersion.Version, 460, 160, finalTaskIdV2),
-                CreateTask(finalTaskIdV2, finalTaskVersion.TaskDefinitionId, finalTaskVersion.Version, 780, 160)
+                CreateTask(
+                    firstTaskIdV2,
+                    firstTaskVersion,
+                    120,
+                    160,
+                    outgoingConnections:
+                    [
+                        CreateConnection(middleTaskIdV2, "Success")
+                    ]),
+                CreateTask(
+                    middleTaskIdV2,
+                    middleTaskVersion,
+                    460,
+                    160,
+                    outgoingConnections:
+                    [
+                        CreateConnection(finalTaskIdV2, "Success")
+                    ]),
+                CreateTask(finalTaskIdV2, finalTaskVersion, 780, 160)
             ]
         };
 
@@ -116,40 +397,86 @@ internal static class BlueprintScenarioBuilder
             finalTaskIdV2);
     }
 
+    private static async Task<(int BlueprintDefinitionId, int BlueprintVersionId)> CreateBlueprintAsync(
+        DistributedAppTestEnvironment environment,
+        BlueprintInputModel blueprint,
+        CancellationToken cancellationToken)
+    {
+        var createdBlueprint = await PostBlueprintAsync(environment, blueprint, cancellationToken);
+        var createdVersion = createdBlueprint.Versions
+            .OrderByDescending(version => version.Version)
+            .FirstOrDefault();
+
+        createdVersion.ShouldNotBeNull();
+        return (createdBlueprint.Id, createdVersion.BlueprintVersionId);
+    }
+
+    private static async Task<BlueprintViewModel> PostBlueprintAsync(
+        DistributedAppTestEnvironment environment,
+        BlueprintInputModel blueprint,
+        CancellationToken cancellationToken)
+    {
+        var createResponse = await environment.ApiClient.PostAsJsonAsync(
+            "/api/blueprints",
+            blueprint,
+            cancellationToken);
+
+        createResponse.IsSuccessStatusCode.ShouldBeTrue(await createResponse.Content.ReadAsStringAsync(cancellationToken));
+
+        var createdBlueprint = await createResponse.Content.ReadFromJsonAsync<BlueprintViewModel>(cancellationToken: cancellationToken);
+        createdBlueprint.ShouldNotBeNull();
+        return createdBlueprint;
+    }
+
     private static BlueprintNodeInputModel CreateTask(
         Guid instanceId,
-        int taskDefinitionId,
-        string version,
+        TaskVersionReference taskVersion,
         int x,
         int y,
-        Guid? nextBlueprintNodeId = null)
+        IReadOnlyDictionary<string, JsonElement>? designTimeOverrides = null,
+        IReadOnlyCollection<BlueprintConnectionInputModel>? outgoingConnections = null)
     {
-        var (allowedMajor, allowedMinor) = GetVersionLane(version);
+        var (allowedMajor, allowedMinor) = GetVersionLane(taskVersion.Version);
         var task = new BlueprintNodeInputModel
         {
             InstanceId = instanceId,
-            TaskDefinitionId = taskDefinitionId,
+            TaskDefinitionId = taskVersion.TaskDefinitionId,
             AllowedMajor = allowedMajor,
             AllowedMinor = allowedMinor,
-            Position = new CoordinatesViewModel { X = x, Y = y }
+            Position = new CoordinatesViewModel { X = x, Y = y },
+            DesignTimeInputOverrides = CloneOverrides(designTimeOverrides)
         };
 
-        if (nextBlueprintNodeId is not null)
+        if (outgoingConnections is not null)
         {
-            task.OutgoingConnections.Add(new BlueprintConnectionInputModel
-            {
-                ChannelName = "Success",
-                ConnectedBlueprintNodeId = nextBlueprintNodeId.Value,
-                Anchor = 0,
-                Side = "right",
-                Position = 0
-            });
+            task.OutgoingConnections.AddRange(outgoingConnections);
         }
 
         return task;
     }
 
-    private static (int TaskDefinitionId, string Version) GetTaskVersion(
+    private static BlueprintConnectionInputModel CreateConnection(
+        Guid connectedBlueprintNodeId,
+        string channelName,
+        params (string SourceProperty, string TargetProperty)[] propertyMappings) =>
+        new()
+        {
+            ConnectedBlueprintNodeId = connectedBlueprintNodeId,
+            ChannelName = channelName,
+            Anchor = 0,
+            Side = "right",
+            Position = 0,
+            PropertyMappings =
+            [
+                .. propertyMappings.Select(mapping => new BlueprintPropertyMappingInputModel
+                {
+                    SourceProperty = mapping.SourceProperty,
+                    TargetProperty = mapping.TargetProperty
+                })
+            ]
+        };
+
+    private static TaskVersionReference GetTaskVersion(
         IEnumerable<TaskDefinitionViewModel> tasks,
         string pluginName,
         string version)
@@ -158,7 +485,7 @@ internal static class BlueprintScenarioBuilder
         var taskVersion = taskDefinition.Versions
             .Single(versionViewModel => VersionsMatch(versionViewModel.Version, version));
 
-        return (taskDefinition.Id, taskVersion.Version);
+        return new TaskVersionReference(taskDefinition.Id, taskVersion.Version);
     }
 
     private static bool VersionsMatch(string left, string right)
@@ -175,5 +502,32 @@ internal static class BlueprintScenarioBuilder
     {
         var parsed = Version.Parse(version);
         return (parsed.Major, parsed.Minor);
+    }
+
+    private static Dictionary<string, JsonElement> ToJsonDictionary<T>(T value) =>
+        JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+            JsonSerializer.Serialize(value, JsonSerializerOptions.Web),
+            JsonSerializerOptions.Web)
+        ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+
+    private static Dictionary<string, JsonElement> CreateOverrides(
+        params (string Key, object? Value)[] entries) =>
+        entries.ToDictionary(
+            entry => entry.Key,
+            entry => JsonSerializer.SerializeToElement(entry.Value, JsonSerializerOptions.Web),
+            StringComparer.Ordinal);
+
+    private static Dictionary<string, JsonElement> CloneOverrides(
+        IReadOnlyDictionary<string, JsonElement>? overrides)
+    {
+        if (overrides is null)
+        {
+            return new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        }
+
+        return overrides.ToDictionary(
+            entry => entry.Key,
+            entry => entry.Value.Clone(),
+            StringComparer.Ordinal);
     }
 }

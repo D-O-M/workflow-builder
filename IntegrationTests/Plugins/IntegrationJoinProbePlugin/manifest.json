@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Integration Join Probe Plugin",
+  "InputChannel": {
+    "Name": "Request",
+    "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin.JoinProbeRequest"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Success",
+      "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin.JoinProbeSuccess"
+    }
+  ],
+  "GlobalState": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin.IntegrationWorkflowState"
+}

@@ -6,6 +6,7 @@ internal sealed class PluginBundleCatalog
     public const string TransformPlugin = "IntegrationTransformPlugin";
     public const string ResultPlugin = "IntegrationResultPlugin";
     public const string FailurePlugin = "IntegrationFailurePlugin";
+    public const string JoinProbePlugin = "IntegrationJoinProbePlugin";
 
     private readonly IReadOnlyDictionary<string, string> _bundlePathsByPluginName;
 

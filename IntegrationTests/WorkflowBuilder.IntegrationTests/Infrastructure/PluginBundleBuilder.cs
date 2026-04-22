@@ -58,6 +58,7 @@ internal sealed class PluginBundleBuilder
         bundlePathsByName.Keys.ShouldContain(PluginBundleCatalog.TransformPlugin);
         bundlePathsByName.Keys.ShouldContain(PluginBundleCatalog.ResultPlugin);
         bundlePathsByName.Keys.ShouldContain(PluginBundleCatalog.FailurePlugin);
+        bundlePathsByName.Keys.ShouldContain(PluginBundleCatalog.JoinProbePlugin);
 
         return new PluginBundleCatalog(bundlePathsByName);
     }
