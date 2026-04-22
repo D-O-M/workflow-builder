@@ -24,6 +24,7 @@ public class PluginRuntimeAgent
     private readonly TaskCompletionSource _readySignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task? _runTask;
     private readonly StringBuilder _stdoutBuffer = new();
+    private int _stopRequested;
 
     private string _name = string.Empty;
     public string Name => _name;
@@ -49,6 +50,7 @@ public class PluginRuntimeAgent
     {
         ArgumentNullException.ThrowIfNull(entryPoint);
         _name = name;
+        _stopRequested = 0;
 
         if (_process is not null)
         {
@@ -142,11 +144,29 @@ public class PluginRuntimeAgent
                         break;
                     case ExitedCommandEvent exited:
                         await FlushBufferedOutputAsync(processRemainingText: true);
-                        _logger.LogCritical("{PluginName} Process exited; Code: {ExitCode}", Name, exited.ExitCode);
-                        if (!ready)
+                        var stopWasRequested = Volatile.Read(ref _stopRequested) == 1 ||
+                                               _processCancellation?.IsCancellationRequested == true;
+
+                        if (stopWasRequested)
+                        {
+                            _logger.LogInformation(
+                                "{PluginName} Process exited during shutdown; Code: {ExitCode}",
+                                Name,
+                                exited.ExitCode);
+                        }
+                        else
+                        {
+                            _logger.LogCritical("{PluginName} Process exited; Code: {ExitCode}", Name, exited.ExitCode);
+                        }
+
+                        if (!ready && !stopWasRequested)
                         {
                             _readySignal.TrySetException(
                                 new InvalidOperationException($"{Name} exited before signalling readiness. Exit code: {exited.ExitCode}."));
+                        }
+                        else if (!ready)
+                        {
+                            _readySignal.TrySetCanceled();
                         }
 
                         _processCancellation?.Cancel();
@@ -322,6 +342,8 @@ public class PluginRuntimeAgent
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        Interlocked.Exchange(ref _stopRequested, 1);
+
         if (_processCancellation is not null)
         {
             _processCancellation.Cancel();

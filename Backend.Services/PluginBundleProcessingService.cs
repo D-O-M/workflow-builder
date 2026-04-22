@@ -9,12 +9,14 @@ using Backend.Plugins.Communication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
 
 [assembly: InternalsVisibleTo("DynamicProxyGenAssembly2")]
 namespace Backend.Services;
 
 public sealed class PluginBundleProcessingService : IPluginBundleProcessingService
 {
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _pluginProcessingGates = new(StringComparer.OrdinalIgnoreCase);
     private readonly IPluginBundleSource _pluginBundleSource;
     private readonly IPluginWorkspaceFactoryUtility _workspaceFactory;
     private readonly IPluginManifestParsingUtility _manifestParser;
@@ -45,80 +47,90 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
     {
         _logger.LogInformation("Processing plugin {Plugin} ({Version}) from blob {BlobName}", pluginInfo.PluginName, pluginInfo.Version, pluginInfo.BlobName);
 
-        using var serviceScope = _scopeFactory.CreateScope();
-        var taskDefinitionRepository = serviceScope.ServiceProvider.GetRequiredService<ITaskDefinitionRepository>();
-        var existingTasks = await taskDefinitionRepository.GetAll(cancellationToken);
-        var alreadyRegistered = existingTasks.Any(task =>
-            task.Name == pluginInfo.PluginName &&
-            task.Version == pluginInfo.Version);
+        var pluginGate = _pluginProcessingGates.GetOrAdd(
+            pluginInfo.PluginName,
+            static _ => new SemaphoreSlim(1, 1));
 
-        if (alreadyRegistered)
-        {
-            _logger.LogInformation(
-                "Plugin {Plugin} ({Version}) already registered; skipping processing.",
-                pluginInfo.PluginName,
-                pluginInfo.Version);
-            return;
-        }
-
-        var workspaceDirectory = await _workspaceFactory.CreateWorkspaceAsync(pluginInfo.PluginName, pluginInfo.Version, cancellationToken);
-
-        await _pluginBundleSource.ExtractBundleAsync(pluginInfo, workspaceDirectory, cancellationToken);
-
-        var manifest = await _manifestParser.ReadAsync(workspaceDirectory, cancellationToken);
-        if (manifest is null)
-        {
-            _logger.LogWarning("Manifest not found for plugin {Plugin} ({Version}). Processing aborted.", pluginInfo.PluginName, pluginInfo.Version);
-            return;
-        }
-
-        var schemas = await _schemaAggregator.LoadAsync(workspaceDirectory, cancellationToken);
-        LogProcessingSummary(pluginInfo, manifest, schemas);
-
-        if (schemas is null) throw new Exception();
-
-        var entryPoint = FindEntryPoint(workspaceDirectory, pluginInfo.PluginName);
-
-        var version = new TaskVersionDomainModel
-        {
-            Name = pluginInfo.PluginName,
-            Version = pluginInfo.Version,
-            WorkspaceEntryPointPath = entryPoint,
-            RequiredGlobalState = GetGlobalStateRequirements(pluginInfo, manifest, schemas),
-            InputChannelDefinition = GetInputChannelDefinition(pluginInfo, manifest, schemas),
-            OutputChannelDefinitions = GetOutputChannelDefinitions(pluginInfo, manifest, schemas)
-        };
-
+        await pluginGate.WaitAsync(cancellationToken);
         try
         {
-            var registrationResult = await taskDefinitionRepository.CreateVersion(version, cancellationToken);
-            await _pluginReloadQueueWriter.EnqueueAsync(
-                new PluginReloadRequestMessage
-                {
-                    TaskDefinitionId = registrationResult.TaskDefinitionId,
-                    TaskVersionId = registrationResult.TaskVersionId,
-                    TaskName = registrationResult.TaskName,
-                    Version = registrationResult.Version.ToString(),
-                    ChangeKind = registrationResult.ChangeKind.ToString(),
-                    RequestedAt = DateTimeOffset.UtcNow
-                },
-                cancellationToken);
-        }
-        catch (DbUpdateException ex) when (IsDuplicateRegistrationRace(ex))
-        {
-            _logger.LogInformation(
-                ex,
-                "Plugin {Plugin} ({Version}) was registered by another concurrent detector invocation; skipping duplicate registration.",
-                pluginInfo.PluginName,
-                pluginInfo.Version);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex,
-                "Failed to create task definition version for plugin {Plugin} ({Version}).",
-                pluginInfo.PluginName, pluginInfo.Version);
-        }
+            using var serviceScope = _scopeFactory.CreateScope();
+            var taskDefinitionRepository = serviceScope.ServiceProvider.GetRequiredService<ITaskDefinitionRepository>();
+            var existingTasks = await taskDefinitionRepository.GetAll(cancellationToken);
+            var alreadyRegistered = existingTasks.Any(task =>
+                task.Name == pluginInfo.PluginName &&
+                task.Version == pluginInfo.Version);
 
+            if (alreadyRegistered)
+            {
+                _logger.LogInformation(
+                    "Plugin {Plugin} ({Version}) already registered; skipping processing.",
+                    pluginInfo.PluginName,
+                    pluginInfo.Version);
+                return;
+            }
+
+            var workspaceDirectory = await _workspaceFactory.CreateWorkspaceAsync(pluginInfo.PluginName, pluginInfo.Version, cancellationToken);
+
+            await _pluginBundleSource.ExtractBundleAsync(pluginInfo, workspaceDirectory, cancellationToken);
+
+            var manifest = await _manifestParser.ReadAsync(workspaceDirectory, cancellationToken);
+            if (manifest is null)
+            {
+                _logger.LogWarning("Manifest not found for plugin {Plugin} ({Version}). Processing aborted.", pluginInfo.PluginName, pluginInfo.Version);
+                return;
+            }
+
+            var schemas = await _schemaAggregator.LoadAsync(workspaceDirectory, cancellationToken);
+            LogProcessingSummary(pluginInfo, manifest, schemas);
+
+            if (schemas is null) throw new Exception();
+
+            var entryPoint = FindEntryPoint(workspaceDirectory, pluginInfo.PluginName);
+
+            var version = new TaskVersionDomainModel
+            {
+                Name = pluginInfo.PluginName,
+                Version = pluginInfo.Version,
+                WorkspaceEntryPointPath = entryPoint,
+                RequiredGlobalState = GetGlobalStateRequirements(pluginInfo, manifest, schemas),
+                InputChannelDefinition = GetInputChannelDefinition(pluginInfo, manifest, schemas),
+                OutputChannelDefinitions = GetOutputChannelDefinitions(pluginInfo, manifest, schemas)
+            };
+
+            try
+            {
+                var registrationResult = await taskDefinitionRepository.CreateVersion(version, cancellationToken);
+                await _pluginReloadQueueWriter.EnqueueAsync(
+                    new PluginReloadRequestMessage
+                    {
+                        TaskDefinitionId = registrationResult.TaskDefinitionId,
+                        TaskVersionId = registrationResult.TaskVersionId,
+                        TaskName = registrationResult.TaskName,
+                        Version = registrationResult.Version.ToString(),
+                        ChangeKind = registrationResult.ChangeKind.ToString(),
+                        RequestedAt = DateTimeOffset.UtcNow
+                    },
+                    cancellationToken);
+            }
+            catch (DbUpdateException ex) when (IsDuplicateRegistrationRace(ex))
+            {
+                _logger.LogInformation(
+                    "Plugin {Plugin} ({Version}) was registered by another concurrent detector invocation; skipping duplicate registration.",
+                    pluginInfo.PluginName,
+                    pluginInfo.Version);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Failed to create task definition version for plugin {Plugin} ({Version}).",
+                    pluginInfo.PluginName, pluginInfo.Version);
+            }
+        }
+        finally
+        {
+            pluginGate.Release();
+        }
     }
 
     private void LogProcessingSummary(PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult? schemas)
