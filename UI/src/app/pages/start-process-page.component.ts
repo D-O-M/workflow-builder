@@ -24,6 +24,7 @@ import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatStepperModule } from '@angular/material/stepper';
 import { catchError, distinctUntilChanged, firstValueFrom, forkJoin, map, of, startWith } from 'rxjs';
 import { BlueprintEditorService, BlueprintViewModel, BlueprintVersionViewModel } from '../domain/blueprint-editor.service';
 import { DynamicFieldDefinition, DynamicFormFieldComponent } from '../components/dynamic-form-field.component';
@@ -207,6 +208,7 @@ function filterBlueprintSuggestions(
     MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
+    MatStepperModule,
     DynamicFormFieldComponent,
     PropertyOverrideEditorComponent,
   ],
@@ -223,10 +225,10 @@ export class StartProcessPageComponent {
   protected readonly executing = signal(false);
   protected readonly executeErrorMessage = signal<string | null>(null);
   protected readonly successMessage = signal<string | null>(null);
-  protected readonly advancedOverridesExpanded = signal(false);
   protected readonly runtimeOverrideStates = signal<Record<string, PropertyOverrideEditorState>>({});
   protected readonly pickerMode = signal<'search' | 'selected'>('search');
   protected readonly pickerPanelOpen = signal(false);
+  protected readonly wizardStepIndex = signal(0);
   private readonly pickerSelectionInProgress = signal(false);
   private readonly pickerFocusRequested = signal(false);
   private readonly blueprintPickerInput = viewChild<ElementRef<HTMLInputElement>>('blueprintPickerInput');
@@ -257,6 +259,18 @@ export class StartProcessPageComponent {
   private readonly selectedBlueprintId = toSignal(
     this.form.controls.blueprintId.valueChanges.pipe(startWith(this.form.controls.blueprintId.value)),
     { initialValue: this.form.controls.blueprintId.value },
+  );
+  private readonly initialTaskInputStatus = toSignal(
+    this.form.controls.initialTaskInput.statusChanges.pipe(startWith(this.form.controls.initialTaskInput.status)),
+    { initialValue: this.form.controls.initialTaskInput.status },
+  );
+  private readonly globalStateStatus = toSignal(
+    this.form.controls.globalState.statusChanges.pipe(startWith(this.form.controls.globalState.status)),
+    { initialValue: this.form.controls.globalState.status },
+  );
+  private readonly formStatus = toSignal(
+    this.form.statusChanges.pipe(startWith(this.form.status)),
+    { initialValue: this.form.status },
   );
 
   private readonly selectedBlueprintState = toSignal(
@@ -355,6 +369,24 @@ export class StartProcessPageComponent {
   );
   protected readonly firstTaskFields = computed(() =>
     createTaskPropertyFieldDefinitions(this.firstTaskVersion()?.inputChannel?.properties ?? null),
+  );
+  protected readonly selectedBlueprintConfigured = computed(() => this.selectedBlueprintId() !== null);
+  protected readonly canAdvanceFromInitialisation = computed(() =>
+    this.selectedBlueprintConfigured()
+    && !this.blueprintLoading()
+    && this.initialTaskInputStatus() === 'VALID',
+  );
+  protected readonly canAdvanceFromGlobalState = computed(() =>
+    this.selectedBlueprintConfigured()
+    && !this.blueprintLoading()
+    && this.globalStateStatus() === 'VALID',
+  );
+  protected readonly canStartProcess = computed(() =>
+    !this.executing()
+    && !this.blueprintLoading()
+    && !this.loading()
+    && this.formStatus() === 'VALID'
+    && this.runtimeOverridesValid(),
   );
 
   protected readonly runtimeOverrideNodes = computed<RuntimeOverrideNode[]>(() => {
@@ -485,20 +517,16 @@ export class StartProcessPageComponent {
     }
   }
 
-  protected toggleAdvancedOverrides(): void {
-    this.advancedOverridesExpanded.update((expanded) => !expanded);
-  }
-
-  protected setAdvancedOverridesExpanded(expanded: boolean): void {
-    this.advancedOverridesExpanded.set(expanded);
-  }
-
   protected runtimeOverrideResetKey(node: RuntimeOverrideNode): string {
     return `${this.selectedBlueprintVersion()?.blueprintVersionId ?? 'none'}:${node.instanceId}`;
   }
 
   protected runtimeOverrideInitialOverrides(nodeId: string): Record<string, unknown> {
     return this.runtimeOverrideStates()[nodeId]?.overrides ?? {};
+  }
+
+  protected runtimeOverrideConfiguredCount(nodeId: string): number {
+    return Object.keys(this.runtimeOverrideStates()[nodeId]?.overrides ?? {}).length;
   }
 
   protected onRuntimeOverrideStateChanged(state: PropertyOverrideEditorState): void {
@@ -520,7 +548,19 @@ export class StartProcessPageComponent {
     this.runtimeOverrideStates.set({});
     this.successMessage.set(null);
     this.executeErrorMessage.set(null);
-    this.advancedOverridesExpanded.set(false);
+    this.wizardStepIndex.set(0);
+  }
+
+  protected onWizardStepIndexChanged(index: number): void {
+    this.wizardStepIndex.set(index);
+  }
+
+  protected goToNextWizardStep(): void {
+    this.wizardStepIndex.update((currentStep) => Math.min(currentStep + 1, 2));
+  }
+
+  protected goToPreviousWizardStep(): void {
+    this.wizardStepIndex.update((currentStep) => Math.max(currentStep - 1, 0));
   }
 
   protected beginBlueprintSearch(): void {
@@ -575,6 +615,7 @@ export class StartProcessPageComponent {
     this.form.controls.blueprintId.setValue(blueprintId);
     this.blueprintSearch.setValue('');
     this.pickerMode.set('selected');
+    this.wizardStepIndex.set(0);
   }
 
   private resetGroup(group: FormGroup, fields: DynamicFieldDefinition[]): void {

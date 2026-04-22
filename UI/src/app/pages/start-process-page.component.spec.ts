@@ -7,7 +7,7 @@ import {
   ɵChangeDetectionScheduler as ChangeDetectionScheduler,
   ɵEffectScheduler as EffectScheduler,
 } from '@angular/core';
-import { FormBuilder } from '@angular/forms';
+import { FormBuilder, FormControl, Validators } from '@angular/forms';
 import { of } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Router } from '@angular/router';
@@ -312,5 +312,47 @@ describe('StartProcessPageComponent', () => {
     expect(component.form.controls.blueprintId.value).toBe(2);
     expect((component as any).pickerMode()).toBe('selected');
     expect((component as any).pickerDisplayName()).toBe('Showcase Town Weekend Recommendation');
+  });
+
+  it('recomputes the initialisation step gate when form validity changes', async () => {
+    component.form.controls.blueprintId.setValue(1);
+    await flushSignals();
+
+    component.form.controls.initialTaskInput.addControl(
+      'requestedTownName',
+      new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    );
+    await flushSignals();
+
+    expect((component as any).canAdvanceFromInitialisation()).toBe(false);
+
+    component.form.controls.initialTaskInput.controls['requestedTownName'].setValue('New Alexandria');
+    await flushSignals();
+
+    expect((component as any).canAdvanceFromInitialisation()).toBe(true);
+  });
+
+  it('resets the wizard back to the first step when the blueprint changes', async () => {
+    (component as any).onWizardStepIndexChanged(2);
+    (component as any).onBlueprintSuggestionSelected({
+      option: {
+        value: 2,
+      },
+    });
+    await flushSignals();
+
+    expect((component as any).wizardStepIndex()).toBe(0);
+  });
+
+  it('clears the wizard state when the configuration is reset', async () => {
+    component.form.controls.blueprintId.setValue(1);
+    await flushSignals();
+
+    (component as any).onWizardStepIndexChanged(2);
+    component.resetConfiguration();
+
+    expect((component as any).wizardStepIndex()).toBe(0);
+    expect(component.form.controls.blueprintId.value).toBeNull();
+    expect((component as any).pickerMode()).toBe('search');
   });
 });

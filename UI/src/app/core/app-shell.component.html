@@ -1,4 +1,8 @@
-<mat-sidenav-container class="app-shell" [autosize]="!compactViewport()">
+<mat-sidenav-container
+  class="app-shell"
+  [style.--app-shell-nav-width]="navDrawerWidth()"
+  [style.--app-shell-content-offset]="contentOffset()"
+>
   <mat-sidenav
     id="app-primary-navigation"
     class="app-shell__nav"

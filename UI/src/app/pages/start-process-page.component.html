@@ -55,10 +55,6 @@
             }
           </div>
         </div>
-
-        <p class="app-section-support start-process-page__picker-support">
-          Choose a blueprint, then provide runtime inputs for the starting step and any optional downstream overrides.
-        </p>
       </div>
 
       <mat-autocomplete
@@ -90,134 +86,301 @@
       </mat-autocomplete>
 
       <form id="trigger-form" class="start-process-form" [formGroup]="form" (ngSubmit)="execute()">
-        <mat-accordion class="start-process-form__accordion" multi>
-            <mat-expansion-panel expanded>
-              <mat-expansion-panel-header>
-                <mat-panel-title>Initialisation Parameters</mat-panel-title>
-                <mat-panel-description>
-                  {{ firstTaskName() ?? 'Select a blueprint first' }}
-                </mat-panel-description>
-              </mat-expansion-panel-header>
-
-              @if (blueprintLoading()) {
-                <div class="start-process-form__panel-state">
-                  <mat-progress-spinner diameter="32" mode="indeterminate" />
-                  <p>Loading blueprint details...</p>
-                </div>
-              } @else if (firstTaskFields().length === 0) {
-                <p class="start-process-form__empty">The starting task has no input properties.</p>
-              } @else {
-                <div class="start-process-form__field-grid" [formGroup]="form.controls.initialTaskInput">
-                  @for (field of firstTaskFields(); track field.key) {
-                    <app-dynamic-form-field [group]="form.controls.initialTaskInput" [field]="field" />
-                  }
-                </div>
-              }
-            </mat-expansion-panel>
-
-            <mat-expansion-panel expanded>
-              <mat-expansion-panel-header>
-                <mat-panel-title>Global State</mat-panel-title>
-                <mat-panel-description>Required runtime context</mat-panel-description>
-              </mat-expansion-panel-header>
-
-              @if (blueprintLoading()) {
-                <div class="start-process-form__panel-state">
-                  <mat-progress-spinner diameter="32" mode="indeterminate" />
-                  <p>Loading global state requirements...</p>
-                </div>
-              } @else if (globalStateFields().length === 0) {
-                <p class="start-process-form__empty">No required global state properties.</p>
-              } @else {
-                <div class="start-process-form__field-grid" [formGroup]="form.controls.globalState">
-                  @for (field of globalStateFields(); track field.key) {
-                    <app-dynamic-form-field [group]="form.controls.globalState" [field]="field" />
-                  }
-                </div>
-              }
-            </mat-expansion-panel>
-
-            <mat-expansion-panel
-              [expanded]="advancedOverridesExpanded()"
-              (opened)="setAdvancedOverridesExpanded(true)"
-              (closed)="setAdvancedOverridesExpanded(false)"
-            >
-              <mat-expansion-panel-header>
-                <mat-panel-title>Runtime Overrides</mat-panel-title>
-                <mat-panel-description>
-                  {{ configuredRuntimeOverrideCount() }} configured · {{ overrideCount() }} nodes available
-                </mat-panel-description>
-              </mat-expansion-panel-header>
-
-              <div class="app-chip-row">
-                <mat-chip class="start-process-form__chip">{{ overrideCount() }} nodes</mat-chip>
-                <mat-chip class="start-process-form__chip">
-                  {{ configuredRuntimeOverrideCount() }} configured
-                </mat-chip>
+        <mat-card appearance="outlined" class="start-process-form__wizard-shell">
+          <mat-card-content class="start-process-form__wizard-card-content">
+            <div class="start-process-form__progress-strip" aria-label="Process launch steps">
+              <div class="start-process-form__progress-step" [class.is-active]="wizardStepIndex() === 0" [class.is-complete]="wizardStepIndex() > 0">
+                <span class="start-process-form__progress-indicator">1</span>
+                <span class="start-process-form__progress-label">Initialization</span>
               </div>
-
-              @if (runtimeOverrideNodes().length === 0) {
-                <p class="start-process-form__empty">
-                  No downstream node inputs are available for runtime overrides.
-                </p>
-              } @else {
-                <mat-accordion class="start-process-form__override-accordion" multi>
-                  @for (node of runtimeOverrideNodes(); track node.instanceId) {
-                    <mat-expansion-panel>
-                      <mat-expansion-panel-header>
-                        <mat-panel-title>{{ node.name }}</mat-panel-title>
-                        <mat-panel-description>
-                          {{ node.propertyCount }} schema-backed input properties
-                        </mat-panel-description>
-                      </mat-expansion-panel-header>
-
-                      <app-property-override-editor
-                        [editorId]="node.instanceId"
-                        [properties]="node.inputProperties"
-                        [initialOverrides]="runtimeOverrideInitialOverrides(node.instanceId)"
-                        [resetKey]="runtimeOverrideResetKey(node)"
-                        emptyMessage="This node has no overrideable input properties."
-                        (stateChange)="onRuntimeOverrideStateChanged($event)"
-                      />
-                    </mat-expansion-panel>
-                  }
-                </mat-accordion>
-              }
-            </mat-expansion-panel>
-        </mat-accordion>
-
-        <mat-card appearance="outlined">
-          <mat-card-content class="start-process-form__footer">
-            <div class="start-process-form__feedback">
-              @if (errorMessage()) {
-                <mat-chip class="start-process-form__feedback-chip start-process-form__feedback-chip--error">
-                  <mat-icon>error</mat-icon>
-                  {{ errorMessage() }}
-                </mat-chip>
-              }
-
-              @if (successMessage()) {
-                <mat-chip class="start-process-form__feedback-chip start-process-form__feedback-chip--success">
-                  <mat-icon>check_circle</mat-icon>
-                  {{ successMessage() }}
-                </mat-chip>
-              }
+              <span class="start-process-form__progress-line" [class.is-complete]="wizardStepIndex() > 0"></span>
+              <div class="start-process-form__progress-step" [class.is-active]="wizardStepIndex() === 1" [class.is-complete]="wizardStepIndex() > 1">
+                <span class="start-process-form__progress-indicator">2</span>
+                <span class="start-process-form__progress-label">Global State</span>
+              </div>
+              <span class="start-process-form__progress-line" [class.is-complete]="wizardStepIndex() > 1"></span>
+              <div class="start-process-form__progress-step" [class.is-active]="wizardStepIndex() === 2">
+                <span class="start-process-form__progress-indicator">3</span>
+                <span class="start-process-form__progress-label">Runtime Overrides</span>
+              </div>
             </div>
 
-            <div class="start-process-form__actions">
-              <button mat-stroked-button type="button" (click)="resetConfiguration()">
-                Discard Configuration
-              </button>
-              <button
-                mat-flat-button
-                color="primary"
-                type="submit"
-                [disabled]="executing() || blueprintLoading() || loading()"
-              >
-                <mat-icon>rocket_launch</mat-icon>
-                {{ executing() ? 'Starting...' : 'Start Process' }}
-              </button>
-            </div>
+            <mat-stepper
+              class="start-process-form__stepper"
+              [linear]="true"
+              [selectedIndex]="wizardStepIndex()"
+              (selectedIndexChange)="onWizardStepIndexChanged($event)"
+            >
+              <mat-step [completed]="canAdvanceFromInitialisation()" label="Initialization">
+                <section class="start-process-form__step-surface">
+                  <div class="start-process-form__step-banner">
+                    <div class="start-process-form__step-copy">
+                      <h3 class="start-process-form__step-heading">Shape the starting step</h3>
+                      <p class="app-section-support start-process-form__step-support">
+                        Define the environmental parameters for this specific process instance.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="start-process-form__step-body">
+                    @if (!selectedBlueprintConfigured()) {
+                      <div class="start-process-form__panel-state">
+                        <mat-icon>account_tree</mat-icon>
+                        <p>Select a blueprint above to unlock the launch flow.</p>
+                      </div>
+                    } @else if (blueprintLoading()) {
+                      <div class="start-process-form__panel-state">
+                        <mat-progress-spinner diameter="32" mode="indeterminate" />
+                        <p>Loading blueprint details...</p>
+                      </div>
+                    } @else if (firstTaskFields().length === 0) {
+                      <p class="start-process-form__empty">The starting step has no input properties.</p>
+                    } @else {
+                      <div class="start-process-form__field-grid" [formGroup]="form.controls.initialTaskInput">
+                        @for (field of firstTaskFields(); track field.key) {
+                          <app-dynamic-form-field [group]="form.controls.initialTaskInput" [field]="field" />
+                        }
+                      </div>
+                    }
+
+                    <div class="start-process-form__insight-grid">
+                      <article class="start-process-form__insight-card">
+                        <p class="start-process-form__insight-eyebrow">System Notice</p>
+                        <p class="start-process-form__insight-body">
+                          Initialization parameters are immutable once the process starts. Confirm accuracy before launch.
+                        </p>
+                      </article>
+
+                      <article class="start-process-form__insight-card start-process-form__insight-card--with-icon">
+                        <span class="start-process-form__insight-icon">
+                          <mat-icon>info</mat-icon>
+                        </span>
+                        <div class="start-process-form__insight-copy">
+                          <p class="start-process-form__insight-title">Auto-validation</p>
+                          <p class="start-process-form__insight-body">
+                            Schema validation stays active while you configure launch input.
+                          </p>
+                        </div>
+                      </article>
+                    </div>
+
+                    <div class="start-process-form__step-actions">
+                      <button mat-button type="button" class="start-process-form__secondary-action" (click)="resetConfiguration()">
+                        Reset Flow
+                      </button>
+                      <button
+                        mat-flat-button
+                        color="primary"
+                        type="button"
+                        class="start-process-form__primary-action"
+                        [disabled]="!canAdvanceFromInitialisation()"
+                        (click)="goToNextWizardStep()"
+                      >
+                        Continue to Global State
+                        <mat-icon>arrow_forward</mat-icon>
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              </mat-step>
+
+              <mat-step [completed]="canAdvanceFromGlobalState()" label="Global State">
+                <section class="start-process-form__step-surface">
+                  <div class="start-process-form__step-banner">
+                    <div class="start-process-form__step-copy">
+                      <h3 class="start-process-form__step-heading">Prepare shared runtime context</h3>
+                      <p class="app-section-support start-process-form__step-support">
+                        Capture the shared state that every downstream step can reference during execution.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="start-process-form__step-body">
+                    @if (!selectedBlueprintConfigured()) {
+                      <div class="start-process-form__panel-state">
+                        <mat-icon>public</mat-icon>
+                        <p>Select a blueprint to reveal global state requirements.</p>
+                      </div>
+                    } @else if (blueprintLoading()) {
+                      <div class="start-process-form__panel-state">
+                        <mat-progress-spinner diameter="32" mode="indeterminate" />
+                        <p>Loading global state requirements...</p>
+                      </div>
+                    } @else if (globalStateFields().length === 0) {
+                      <p class="start-process-form__empty">No required global state properties.</p>
+                    } @else {
+                      <div class="start-process-form__field-grid" [formGroup]="form.controls.globalState">
+                        @for (field of globalStateFields(); track field.key) {
+                          <app-dynamic-form-field [group]="form.controls.globalState" [field]="field" />
+                        }
+                      </div>
+                    }
+
+                    <div class="start-process-form__insight-grid">
+                      <article class="start-process-form__insight-card">
+                        <p class="start-process-form__insight-eyebrow">Shared Context</p>
+                        <p class="start-process-form__insight-body">
+                          Global state is available to every step in the process, so keep it stable and broadly useful.
+                        </p>
+                      </article>
+
+                      <article class="start-process-form__insight-card start-process-form__insight-card--with-icon">
+                        <span class="start-process-form__insight-icon">
+                          <mat-icon>hub</mat-icon>
+                        </span>
+                        <div class="start-process-form__insight-copy">
+                          <p class="start-process-form__insight-title">Consistent keys</p>
+                          <p class="start-process-form__insight-body">
+                            Prefer concise names and durable values that downstream tasks can reliably consume.
+                          </p>
+                        </div>
+                      </article>
+                    </div>
+
+                    <div class="start-process-form__step-actions">
+                      <button mat-button type="button" class="start-process-form__secondary-action" (click)="goToPreviousWizardStep()">
+                        <mat-icon>arrow_back</mat-icon>
+                        Back
+                      </button>
+                      <button
+                        mat-flat-button
+                        color="primary"
+                        type="button"
+                        class="start-process-form__primary-action"
+                        [disabled]="!canAdvanceFromGlobalState()"
+                        (click)="goToNextWizardStep()"
+                      >
+                        Continue to Runtime Overrides
+                        <mat-icon>arrow_forward</mat-icon>
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              </mat-step>
+
+              <mat-step optional label="Runtime Overrides">
+                <section class="start-process-form__step-surface">
+                  <div class="start-process-form__step-banner">
+                    <div class="start-process-form__step-copy">
+                      <h3 class="start-process-form__step-heading">Tune optional downstream input</h3>
+                      <p class="app-section-support start-process-form__step-support">
+                        Apply launch-time overrides only where this process needs to diverge from the blueprint defaults.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="start-process-form__step-body">
+                    @if (!selectedBlueprintConfigured()) {
+                      <div class="start-process-form__panel-state">
+                        <mat-icon>tune</mat-icon>
+                        <p>Select a blueprint to review optional runtime overrides.</p>
+                      </div>
+                    } @else if (blueprintLoading()) {
+                      <div class="start-process-form__panel-state">
+                        <mat-progress-spinner diameter="32" mode="indeterminate" />
+                        <p>Loading downstream node inputs...</p>
+                      </div>
+                    } @else if (runtimeOverrideNodes().length === 0) {
+                      <p class="start-process-form__empty">
+                        No downstream node inputs are available for runtime overrides.
+                      </p>
+                    } @else {
+                      <mat-accordion class="start-process-form__override-accordion" multi>
+                        @for (node of runtimeOverrideNodes(); track node.instanceId) {
+                          <mat-expansion-panel class="start-process-form__override-panel" hideToggle>
+                            <mat-expansion-panel-header class="start-process-form__override-panel-header">
+                              <div class="start-process-form__override-panel-copy">
+                                <mat-panel-title>{{ node.name }}</mat-panel-title>
+                                <mat-panel-description>
+                                  {{ node.propertyCount }} schema-backed input properties
+                                </mat-panel-description>
+                              </div>
+
+                              <div class="start-process-form__override-panel-meta">
+                                @if (runtimeOverrideConfiguredCount(node.instanceId) > 0) {
+                                  <span class="start-process-form__override-badge">
+                                    {{ runtimeOverrideConfiguredCount(node.instanceId) }} configured
+                                  </span>
+                                }
+                                <mat-icon class="start-process-form__override-chevron">expand_more</mat-icon>
+                              </div>
+                            </mat-expansion-panel-header>
+
+                            <app-property-override-editor
+                              [editorId]="node.instanceId"
+                              [properties]="node.inputProperties"
+                              [initialOverrides]="runtimeOverrideInitialOverrides(node.instanceId)"
+                              [resetKey]="runtimeOverrideResetKey(node)"
+                              emptyMessage="This node has no overrideable input properties."
+                              (stateChange)="onRuntimeOverrideStateChanged($event)"
+                            />
+                          </mat-expansion-panel>
+                        }
+                      </mat-accordion>
+                    }
+
+                    <div class="start-process-form__insight-grid">
+                      <article class="start-process-form__insight-card">
+                        <p class="start-process-form__insight-eyebrow">Optional Layer</p>
+                        <p class="start-process-form__insight-body">
+                          Leave runtime overrides empty to follow the blueprint configuration exactly.
+                        </p>
+                      </article>
+
+                      <article class="start-process-form__insight-card start-process-form__insight-card--with-icon">
+                        <span class="start-process-form__insight-icon">
+                          <mat-icon>priority_high</mat-icon>
+                        </span>
+                        <div class="start-process-form__insight-copy">
+                          <p class="start-process-form__insight-title">Override precedence</p>
+                          <p class="start-process-form__insight-body">
+                            Runtime overrides win over design-time overrides for this process launch only.
+                          </p>
+                        </div>
+                      </article>
+                    </div>
+
+                    <div class="start-process-form__launch-footer">
+                      <div class="start-process-form__feedback">
+                        @if (errorMessage()) {
+                          <mat-chip class="start-process-form__feedback-chip start-process-form__feedback-chip--error">
+                            <mat-icon>error</mat-icon>
+                            {{ errorMessage() }}
+                          </mat-chip>
+                        }
+
+                        @if (successMessage()) {
+                          <mat-chip class="start-process-form__feedback-chip start-process-form__feedback-chip--success">
+                            <mat-icon>check_circle</mat-icon>
+                            {{ successMessage() }}
+                          </mat-chip>
+                        }
+                      </div>
+
+                      <div class="start-process-form__actions">
+                        <button mat-button type="button" class="start-process-form__secondary-action" (click)="goToPreviousWizardStep()">
+                          <mat-icon>arrow_back</mat-icon>
+                          Back
+                        </button>
+                        <button mat-button type="button" class="start-process-form__secondary-action" (click)="resetConfiguration()">
+                          Reset Flow
+                        </button>
+                        <button
+                          mat-flat-button
+                          color="primary"
+                          type="submit"
+                          class="start-process-form__primary-action"
+                          [disabled]="!canStartProcess()"
+                        >
+                          <mat-icon>rocket_launch</mat-icon>
+                          {{ executing() ? 'Starting...' : 'Start Process' }}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </mat-step>
+            </mat-stepper>
           </mat-card-content>
         </mat-card>
       </form>

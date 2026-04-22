@@ -1,25 +1,21 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  computed,
   effect,
   input,
   output,
-  signal,
   untracked,
 } from '@angular/core';
-import { FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { MatCardModule } from '@angular/material/card';
-import { MatChipsModule } from '@angular/material/chips';
-import { MatDividerModule } from '@angular/material/divider';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
-import { DynamicFieldDefinition, DynamicFormFieldComponent } from './dynamic-form-field.component';
+import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import { DynamicFieldDefinition } from './dynamic-form-field.component';
 import { TaskPropertyType } from '../domain/node-model';
 import {
   createTaskPropertyControl,
   createTaskPropertyFieldDefinitions,
-  serializeTaskPropertyControlValue,
   taskPropertyKindLabel,
 } from '../domain/task-property-form-utils';
 
@@ -33,53 +29,60 @@ export interface PropertyOverrideEditorState {
   selector: 'app-property-override-editor',
   imports: [
     ReactiveFormsModule,
-    DynamicFormFieldComponent,
-    MatCardModule,
-    MatChipsModule,
-    MatDividerModule,
-    MatSlideToggleModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatSelectModule,
   ],
   template: `
     <div class="override-editor-shell">
-      @if (fields().length === 0) {
+      @if (fields.length === 0) {
         <p class="override-editor-shell__empty">{{ emptyMessage() }}</p>
       } @else {
-        <div class="override-editor-shell__rows">
-          @for (field of fields(); track field.key) {
-            <mat-card class="override-editor-shell__row" appearance="outlined">
+        <p class="override-editor-shell__support">
+          Leave a field blank to keep the blueprint value.
+        </p>
+
+        <div class="override-editor-shell__rows" [formGroup]="form">
+          @for (field of fields; track field.key) {
+            <div class="override-editor-shell__row">
               <div class="override-editor-shell__row-header">
-                <div class="override-editor-shell__row-copy">
-                  <mat-slide-toggle
-                    [checked]="isEnabled(field.key)"
-                    (change)="toggleField(field.key, $event.checked)"
-                  >
-                    {{ field.label }}
-                  </mat-slide-toggle>
-
-                  <p>
-                    {{
-                      isEnabled(field.key)
-                        ? 'Fixed value overlays inbound data before any runtime override.'
-                        : 'No fixed value is configured for this property.'
-                    }}
-                  </p>
-                </div>
-
-                <mat-chip-set>
-                  <mat-chip>{{ kindLabel(field) }}</mat-chip>
-                </mat-chip-set>
+                <label class="override-editor-shell__label" [attr.for]="inputId(field)">
+                  {{ field.label }}
+                </label>
+                <span class="override-editor-shell__kind">{{ kindLabel(field) }}</span>
               </div>
 
-              <mat-divider />
-
-              @if (isEnabled(field.key)) {
-                <div class="override-editor-shell__field">
-                  <app-dynamic-form-field [group]="form" [field]="field" />
-                </div>
+              @if (field.kind === 'boolean') {
+                <mat-form-field class="override-editor-shell__control" appearance="outline" subscriptSizing="dynamic">
+                  <mat-select [id]="inputId(field)" [formControlName]="field.key">
+                    <mat-option value="">Use blueprint value</mat-option>
+                    <mat-option value="true">True</mat-option>
+                    <mat-option value="false">False</mat-option>
+                  </mat-select>
+                </mat-form-field>
               } @else {
-                <p class="override-editor-shell__hint">Toggle this on to set a fixed value.</p>
+                <mat-form-field class="override-editor-shell__control" appearance="outline" subscriptSizing="dynamic">
+                  <input
+                    matInput
+                    [id]="inputId(field)"
+                    [type]="inputType(field)"
+                    [formControlName]="field.key"
+                    [attr.inputmode]="field.kind === 'number' ? 'decimal' : null"
+                    [attr.autocomplete]="field.kind === 'guid' ? 'off' : null"
+                    [attr.step]="field.kind === 'number' ? 'any' : null"
+                    placeholder="Use blueprint value"
+                  />
+                </mat-form-field>
               }
-            </mat-card>
+
+              @if (field.kind === 'guid') {
+                <p class="override-editor-shell__hint">GUID format expected when provided.</p>
+              }
+
+              @if (controlInvalid(field.key)) {
+                <p class="override-editor-shell__error">{{ errorMessage(field) }}</p>
+              }
+            </div>
           }
         </div>
       }
@@ -87,14 +90,15 @@ export interface PropertyOverrideEditorState {
   `,
   styles: [`
     .override-editor-shell {
-      display: flex;
-      flex-direction: column;
+      display: grid;
       gap: 1rem;
     }
 
-    .override-editor-shell__empty {
+    .override-editor-shell__empty,
+    .override-editor-shell__support {
       margin: 0;
       color: var(--app-text-secondary);
+      font-size: 0.92rem;
     }
 
     .override-editor-shell__rows {
@@ -104,38 +108,68 @@ export interface PropertyOverrideEditorState {
 
     .override-editor-shell__row {
       display: grid;
-      gap: 1rem;
-      padding: 1rem;
-      background: rgba(255, 255, 255, 0.88);
+      gap: 0.5rem;
+      padding: 1rem 0;
+      border-bottom: 1px solid rgba(102, 129, 170, 0.12);
+    }
+
+    .override-editor-shell__row:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
     }
 
     .override-editor-shell__row-header {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
       gap: 1rem;
       flex-wrap: wrap;
     }
 
-    .override-editor-shell__row-copy {
-      display: grid;
-      gap: 0.5rem;
+    .override-editor-shell__label {
+      color: var(--app-text);
+      font-size: 0.95rem;
+      font-weight: 700;
+      line-height: 1.35;
     }
 
-    .override-editor-shell__row-copy p {
+    .override-editor-shell__kind {
+      color: var(--app-text-muted);
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .override-editor-shell__control {
+      width: 100%;
+    }
+
+    .override-editor-shell__hint,
+    .override-editor-shell__error {
       margin: 0;
-      color: var(--app-text-secondary);
-      font-size: 0.92rem;
-    }
-
-    .override-editor-shell__field {
-      padding-top: 0.25rem;
+      font-size: 0.84rem;
+      line-height: 1.35;
     }
 
     .override-editor-shell__hint {
-      margin: 0;
-      color: var(--app-text-secondary);
-      font-size: 0.9rem;
+      color: var(--app-text-muted);
+    }
+
+    .override-editor-shell__error {
+      color: var(--app-status-danger);
+    }
+
+    @media (min-width: 900px) {
+      .override-editor-shell__rows {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 1.25rem;
+      }
+
+      .override-editor-shell__row {
+        align-content: start;
+      }
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -149,16 +183,12 @@ export class PropertyOverrideEditorComponent {
   readonly stateChange = output<PropertyOverrideEditorState>();
 
   protected readonly form = new FormGroup({});
-  protected readonly fields = computed<DynamicFieldDefinition[]>(() =>
-    createTaskPropertyFieldDefinitions(this.properties(), true),
-  );
-
-  private readonly enabledFields = signal<Record<string, boolean>>({});
+  protected fields: DynamicFieldDefinition[] = [];
 
   constructor() {
     effect(() => {
       this.resetKey();
-      const fields = this.fields();
+      const fields = createTaskPropertyFieldDefinitions(this.properties(), false);
       const initialOverrides = untracked(() => this.initialOverrides());
       this.rebuildForm(fields, initialOverrides);
     });
@@ -168,88 +198,120 @@ export class PropertyOverrideEditorComponent {
       .subscribe(() => this.emitState());
   }
 
-  protected isEnabled(fieldKey: string): boolean {
-    return this.enabledFields()[fieldKey] ?? false;
-  }
-
   protected kindLabel(field: DynamicFieldDefinition): string {
     return taskPropertyKindLabel(field.kind);
   }
 
-  protected toggleField(fieldKey: string, enabled: boolean): void {
-    this.enabledFields.update((current) => ({
-      ...current,
-      [fieldKey]: enabled,
-    }));
+  protected inputId(field: DynamicFieldDefinition): string {
+    return `${this.editorId()}-${field.key}`;
+  }
 
+  protected inputType(field: DynamicFieldDefinition): 'text' | 'number' {
+    return field.kind === 'number' ? 'number' : 'text';
+  }
+
+  protected controlInvalid(fieldKey: string): boolean {
     const control = this.form.get(fieldKey);
-    if (!control) {
-      return;
+    return !!control && control.invalid && (control.touched || control.dirty);
+  }
+
+  protected errorMessage(field: DynamicFieldDefinition): string {
+    const control = this.form.get(field.key);
+    if (!control?.errors) {
+      return '';
     }
 
-    if (enabled) {
-      control.enable({ emitEvent: false });
-      if (control.invalid) {
-        control.markAsTouched();
-      }
-    } else {
-      control.disable({ emitEvent: false });
-      control.markAsPristine();
-      control.markAsUntouched();
+    if (control.errors['pattern']) {
+      return `${field.label} must be a valid GUID.`;
     }
 
-    this.emitState();
+    return `${field.label} is invalid.`;
   }
 
   private rebuildForm(
     fields: DynamicFieldDefinition[],
     initialOverrides: Record<string, unknown>,
   ): void {
+    this.fields = fields;
+
     for (const controlName of Object.keys(this.form.controls)) {
       this.form.removeControl(controlName);
     }
 
-    const nextEnabled: Record<string, boolean> = {};
     for (const field of fields) {
-      const hasOverride = Object.prototype.hasOwnProperty.call(initialOverrides, field.key);
-      const control = createTaskPropertyControl(field, initialOverrides[field.key]);
-      this.form.addControl(field.key, control);
-
-      nextEnabled[field.key] = hasOverride;
-      if (!hasOverride) {
-        control.disable({ emitEvent: false });
-      }
+      this.form.addControl(field.key, this.createOverrideControl(field, initialOverrides[field.key]));
     }
 
-    this.enabledFields.set(nextEnabled);
     this.emitState();
+  }
+
+  private createOverrideControl(
+    field: DynamicFieldDefinition,
+    initialValue: unknown,
+  ): FormControl {
+    if (field.kind === 'boolean') {
+      return new FormControl(this.normalizeBooleanOverrideValue(initialValue), { nonNullable: true });
+    }
+
+    return createTaskPropertyControl(field, initialValue) as FormControl;
   }
 
   private emitState(): void {
     this.stateChange.emit({
       editorId: this.editorId(),
       overrides: this.serializeOverrides(),
-      // Treat an untouched editor with all controls disabled as valid so optional
-      // override sections never block submission on their own.
       valid: !this.form.invalid,
     });
   }
 
   private serializeOverrides(): Record<string, unknown> {
     const overrides: Record<string, unknown> = {};
-    for (const field of this.fields()) {
-      if (!this.isEnabled(field.key)) {
-        continue;
-      }
-
+    for (const field of this.fields) {
       const control = this.form.get(field.key);
       if (!control) {
         continue;
       }
 
-      overrides[field.key] = serializeTaskPropertyControlValue(field, control.value);
+      const serializedValue = this.serializeOverrideValue(field, control.value);
+      if (serializedValue === undefined) {
+        continue;
+      }
+
+      overrides[field.key] = serializedValue;
     }
 
     return overrides;
+  }
+
+  private serializeOverrideValue(
+    field: DynamicFieldDefinition,
+    value: unknown,
+  ): unknown {
+    switch (field.kind) {
+      case 'boolean':
+        if (value !== 'true' && value !== 'false') {
+          return undefined;
+        }
+
+        return value === 'true';
+      case 'number':
+        return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+      default: {
+        const normalized = typeof value === 'string' ? value.trim() : '';
+        return normalized.length > 0 ? normalized : undefined;
+      }
+    }
+  }
+
+  private normalizeBooleanOverrideValue(value: unknown): string {
+    if (value === true) {
+      return 'true';
+    }
+
+    if (value === false) {
+      return 'false';
+    }
+
+    return '';
   }
 }

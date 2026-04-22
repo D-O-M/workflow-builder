@@ -99,10 +99,222 @@
   gap: 1.5rem;
 }
 
-.start-process-form__accordion,
+.start-process-form__wizard-shell {
+  overflow: hidden;
+  border-color: rgba(102, 129, 170, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.96) 100%);
+  box-shadow: var(--app-shadow-1);
+}
+
+.start-process-form__wizard-card-content {
+  display: grid;
+  gap: 1.8rem;
+  padding: 0;
+}
+
+.start-process-form__progress-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: clamp(1.25rem, 1rem + 0.6vw, 1.9rem) clamp(1.25rem, 1rem + 0.6vw, 1.9rem) 0;
+}
+
+.start-process-form__progress-step {
+  display: grid;
+  justify-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.start-process-form__progress-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  border: 1px solid rgba(53, 90, 191, 0.18);
+  border-radius: 999px;
+  background: rgba(214, 227, 255, 0.92);
+  color: var(--app-text-secondary);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.start-process-form__progress-step.is-active .start-process-form__progress-indicator,
+.start-process-form__progress-step.is-complete .start-process-form__progress-indicator {
+  border-color: rgba(53, 90, 191, 0.8);
+  background: linear-gradient(180deg, #3b63f1 0%, #2751de 100%);
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(39, 81, 222, 0.18);
+}
+
+.start-process-form__progress-label {
+  color: var(--app-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.start-process-form__progress-step.is-active .start-process-form__progress-label {
+  color: var(--app-status-info);
+}
+
+.start-process-form__progress-line {
+  flex: 1 1 auto;
+  align-self: flex-start;
+  height: 2px;
+  margin-top: 1.05rem;
+  background: rgba(102, 129, 170, 0.2);
+}
+
+.start-process-form__progress-line.is-complete {
+  background: linear-gradient(90deg, #3b63f1 0%, #2751de 100%);
+}
+
 .start-process-form__override-accordion {
   display: grid;
   gap: 1rem;
+}
+
+.start-process-form__override-panel-copy {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.start-process-form__override-panel-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-left: auto;
+}
+
+.start-process-form__override-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.9rem;
+  padding-inline: 0.75rem;
+  border-radius: 999px;
+  background: rgba(214, 227, 255, 0.9);
+  color: var(--app-status-info);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.start-process-form__override-chevron {
+  color: var(--app-text-muted);
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.start-process-form__stepper {
+  --mat-stepper-container-color: transparent;
+}
+
+:host ::ng-deep .start-process-form__stepper .mat-horizontal-stepper-header-container {
+  display: none;
+}
+
+:host ::ng-deep .start-process-form__stepper .mat-horizontal-content-container {
+  padding: 0;
+}
+
+:host ::ng-deep .start-process-form__override-panel {
+  border-radius: calc(var(--app-radius-large) - 8px) !important;
+  border: 1px solid rgba(102, 129, 170, 0.14) !important;
+  background: linear-gradient(180deg, rgba(250, 252, 255, 0.96) 0%, rgba(244, 248, 255, 0.92) 100%) !important;
+  box-shadow: none !important;
+}
+
+:host ::ng-deep .start-process-form__override-panel::before {
+  display: none;
+}
+
+:host ::ng-deep .start-process-form__override-panel .mat-expansion-panel-header {
+  min-height: 5rem;
+  padding: 1rem 1.2rem;
+}
+
+:host ::ng-deep .start-process-form__override-panel .mat-expansion-panel-header.cdk-keyboard-focused,
+:host ::ng-deep .start-process-form__override-panel .mat-expansion-panel-header.cdk-program-focused,
+:host ::ng-deep .start-process-form__override-panel .mat-expansion-panel-header:hover {
+  background: rgba(214, 227, 255, 0.26);
+}
+
+:host ::ng-deep .start-process-form__override-panel .mat-expansion-panel-header.mat-expanded {
+  min-height: 5rem;
+  border-bottom: 1px solid rgba(102, 129, 170, 0.1);
+}
+
+:host ::ng-deep .start-process-form__override-panel .mat-content {
+  align-items: center;
+  gap: 1rem;
+}
+
+:host ::ng-deep .start-process-form__override-panel .mat-expansion-panel-header-title {
+  margin-right: 0;
+  color: var(--app-text);
+  font-weight: 700;
+}
+
+:host ::ng-deep .start-process-form__override-panel .mat-expansion-panel-header-description {
+  margin-right: 0;
+  color: var(--app-text-secondary);
+  font-size: 0.88rem;
+}
+
+:host ::ng-deep .start-process-form__override-panel .mat-expansion-panel-body {
+  padding: 1rem 1.2rem 1.2rem;
+}
+
+:host ::ng-deep .start-process-form__override-panel.mat-expanded .start-process-form__override-chevron {
+  transform: rotate(180deg);
+  color: var(--app-status-info);
+}
+
+.start-process-form__step-surface {
+  display: grid;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.start-process-form__step-banner {
+  padding: 1.55rem 1.7rem;
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.96) 0%, rgba(243, 247, 254, 0.92) 100%);
+  border-bottom: 1px solid rgba(102, 129, 170, 0.1);
+}
+
+.start-process-form__step-copy {
+  display: grid;
+  gap: 0.55rem;
+  max-width: 42rem;
+}
+
+.start-process-form__step-heading {
+  margin: 0;
+  color: var(--app-text);
+  font-size: clamp(1.2rem, 1.08rem + 0.45vw, 1.45rem);
+  line-height: 1.2;
+}
+
+.start-process-form__step-support {
+  margin: 0;
+}
+
+.start-process-form__step-body {
+  display: grid;
+  gap: 1.6rem;
+  padding: 1.7rem;
+  background: transparent;
 }
 
 .start-process-form__field-grid {
@@ -113,23 +325,97 @@
 .start-process-form__panel-state,
 .start-process-form__empty {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.9rem;
   justify-items: center;
   color: var(--app-text-secondary);
   text-align: center;
-  padding: 1rem 0;
+  padding: 1.5rem 0.5rem;
 }
 
-.start-process-form__chip {
-  border: 1px solid rgba(102, 129, 170, 0.16);
+.start-process-form__panel-state mat-icon {
+  color: var(--app-status-info);
+  font-size: 2rem;
+  width: 2rem;
+  height: 2rem;
 }
 
-.start-process-form__footer {
+.start-process-form__insight-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.start-process-form__insight-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1.2rem 1.25rem;
+  border: 1px solid rgba(102, 129, 170, 0.14);
+  border-radius: 1.65rem;
+  background: linear-gradient(180deg, rgba(241, 246, 255, 0.92) 0%, rgba(235, 241, 252, 0.88) 100%);
+}
+
+.start-process-form__insight-card--with-icon {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.85rem;
+}
+
+.start-process-form__insight-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 999px;
+  background: rgba(59, 99, 241, 0.12);
+  color: var(--app-status-info);
+}
+
+.start-process-form__insight-copy {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.start-process-form__insight-eyebrow,
+.start-process-form__insight-title {
+  margin: 0;
+  color: var(--app-status-info);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.start-process-form__insight-title {
+  color: var(--app-text);
+  font-size: 0.94rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.start-process-form__insight-body {
+  margin: 0;
+  color: var(--app-text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.start-process-form__step-actions,
+.start-process-form__launch-footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+}
+
+.start-process-form__step-actions {
+  padding-top: 0.15rem;
+  border-top: 1px solid rgba(102, 129, 170, 0.12);
+}
+
+.start-process-form__launch-footer {
+  padding-top: 1rem;
+  border-top: 1px solid rgba(102, 129, 170, 0.12);
 }
 
 .start-process-form__feedback {
@@ -160,6 +446,19 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.75rem;
+}
+
+.start-process-form__primary-action {
+  min-height: 3rem;
+  padding-inline: 1.35rem;
+  border-radius: 999px;
+  box-shadow: 0 16px 34px rgba(39, 81, 222, 0.18);
+}
+
+.start-process-form__secondary-action {
+  min-height: 2.75rem;
+  padding-inline: 0.35rem;
+  color: var(--app-text-secondary);
 }
 
 .start-process-page__picker-option {
@@ -239,11 +538,66 @@
   .start-process-form__field-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .start-process-form__insight-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 960px) {
+  .start-process-form__progress-strip {
+    gap: 0.5rem;
+  }
+
+  .start-process-form__progress-label {
+    font-size: 0.66rem;
+  }
 }
 
 @media (max-width: 760px) {
   .start-process-page__picker-shell {
     min-height: 3.4rem;
     padding-inline: 0.75rem 0.35rem;
+  }
+
+  .start-process-form__wizard-card-content {
+    gap: 1rem;
+  }
+
+  .start-process-form__progress-strip {
+    padding: 1rem 1rem 0;
+  }
+
+  .start-process-form__step-banner,
+  .start-process-form__step-body {
+    padding: 1rem;
+  }
+
+  :host ::ng-deep .start-process-form__override-panel .mat-expansion-panel-header {
+    padding-inline: 1rem;
+  }
+
+  :host ::ng-deep .start-process-form__override-panel .mat-expansion-panel-body {
+    padding: 0.9rem 1rem 1rem;
+  }
+
+  .start-process-form__step-actions,
+  .start-process-form__launch-footer,
+  .start-process-form__actions {
+    justify-content: flex-start;
+  }
+
+  .start-process-form__override-panel-meta {
+    gap: 0.45rem;
+  }
+
+  .start-process-form__override-badge {
+    padding-inline: 0.6rem;
+    font-size: 0.76rem;
+  }
+
+  .start-process-form__progress-label {
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
   }
 }

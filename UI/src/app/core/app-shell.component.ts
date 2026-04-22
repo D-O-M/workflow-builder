@@ -69,6 +69,12 @@ export class AppShellComponent {
   protected readonly sidenavOpened = computed(() =>
     this.compactViewport() ? this.mobileSidebarOpen() : true,
   );
+  protected readonly navDrawerWidth = computed(() =>
+    this.compactViewport() ? '18rem' : (this.sidebarCollapsed() ? '5.5rem' : '18rem'),
+  );
+  protected readonly contentOffset = computed(() =>
+    this.compactViewport() ? '0px' : (this.sidebarCollapsed() ? '5.5rem' : '18rem'),
+  );
   protected readonly profileInitial = computed(() =>
     this.shellState().title.trim().charAt(0).toUpperCase() || 'W',
   );
