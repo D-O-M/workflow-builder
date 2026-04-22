@@ -82,13 +82,13 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
 
             inputPropertiesByNodeId[task.InstanceId] = inputChannel.Properties.ToDictionary(
                 property => property.Name,
-                property => property.Type.ToString(),
+                property => property.Kind.ToString(),
                 StringComparer.Ordinal);
             outputPropertiesByNodeId[task.InstanceId] = resolvedVersion.OutputChannels.ToDictionary(
                 channel => channel.Name,
                 channel => channel.Properties.ToDictionary(
                     property => property.Name,
-                    property => property.Type.ToString(),
+                    property => property.Kind.ToString(),
                     StringComparer.Ordinal),
                 StringComparer.Ordinal);
 

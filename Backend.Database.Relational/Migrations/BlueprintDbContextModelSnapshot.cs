@@ -192,12 +192,18 @@ namespace Backend.Database.Relational.Migrations
                     b.Property<int>("ChannelId")
                         .HasColumnType("int");
 
+                    b.Property<string>("EnumValuesJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("Type")
-                        .HasColumnType("int");
 
                     b.HasKey("Id");
 

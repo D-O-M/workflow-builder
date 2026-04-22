@@ -1,0 +1,20 @@
+<Project>
+  <PropertyGroup Condition="'$(WorkflowBuilderPluginProject)' == 'true'">
+    <WorkflowBuilderPluginContractOutputDir>$(MSBuildProjectDirectory)\$(BaseIntermediateOutputPath)$(Configuration)\$(TargetFramework)\plugin-contract</WorkflowBuilderPluginContractOutputDir>
+    <WorkflowBuilderPluginVisibleContractManifestPath>$(MSBuildProjectDirectory)\manifest.json</WorkflowBuilderPluginVisibleContractManifestPath>
+    <WorkflowBuilderPluginVisibleContractSchemasPath>$(MSBuildProjectDirectory)\schemas.json</WorkflowBuilderPluginVisibleContractSchemasPath>
+  </PropertyGroup>
+
+  <Target Name="GeneratePluginContract"
+          AfterTargets="Build"
+          Condition="'$(WorkflowBuilderPluginProject)' == 'true' and '$(DesignTimeBuild)' != 'true' and Exists('$(TargetPath)')">
+    <MakeDir Directories="$(WorkflowBuilderPluginContractOutputDir)" />
+    <Exec Command='dotnet run --project &quot;$(MSBuildThisFileDirectory)..\Backend.Plugins.Harness.ContractEmitter\Backend.Plugins.Harness.ContractEmitter.csproj&quot; --no-launch-profile --configuration $(Configuration) -- &quot;$(TargetPath)&quot; &quot;$(WorkflowBuilderPluginContractOutputDir)&quot;' />
+    <Copy SourceFiles="$(WorkflowBuilderPluginContractOutputDir)\manifest.json"
+          DestinationFiles="$(WorkflowBuilderPluginVisibleContractManifestPath)"
+          SkipUnchangedFiles="false" />
+    <Copy SourceFiles="$(WorkflowBuilderPluginContractOutputDir)\schemas.json"
+          DestinationFiles="$(WorkflowBuilderPluginVisibleContractSchemasPath)"
+          SkipUnchangedFiles="false" />
+  </Target>
+</Project>

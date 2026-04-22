@@ -592,9 +592,12 @@ public sealed class ProcessQueryService
                 filter.PropertyKey,
                 filter.PropertyType,
                 filter.StringValue,
-                filter.NumberValue,
+                filter.IntegerValue,
+                filter.DecimalValue,
                 filter.BooleanValue,
                 filter.GuidValue,
+                filter.DateValue,
+                filter.DateTimeValue,
                 ResolveMatchingVersionIds(filter, versionMetadata)))
             .ToList();
 
@@ -794,15 +797,26 @@ public sealed class ProcessQueryService
         {
             SearchPropertyType.String => TryGetString(propertyValue, out var stringValue)
                 && string.Equals(stringValue, filter.StringValue, StringComparison.Ordinal),
+            SearchPropertyType.Enum => TryGetString(propertyValue, out var enumValue)
+                && string.Equals(enumValue, filter.StringValue, StringComparison.Ordinal),
             SearchPropertyType.Guid => TryGetGuid(propertyValue, out var guidValue)
                 && filter.GuidValue.HasValue
                 && guidValue == filter.GuidValue.Value,
             SearchPropertyType.Boolean => TryGetBoolean(propertyValue, out var booleanValue)
                 && filter.BooleanValue.HasValue
                 && booleanValue == filter.BooleanValue.Value,
-            SearchPropertyType.Number => TryGetNumber(propertyValue, out var numberValue)
-                && filter.NumberValue.HasValue
-                && numberValue == filter.NumberValue.Value,
+            SearchPropertyType.Integer => TryGetInteger(propertyValue, out var integerValue)
+                && filter.IntegerValue.HasValue
+                && integerValue == filter.IntegerValue.Value,
+            SearchPropertyType.Decimal => TryGetDecimal(propertyValue, out var decimalValue)
+                && filter.DecimalValue.HasValue
+                && decimalValue == filter.DecimalValue.Value,
+            SearchPropertyType.Date => TryGetDate(propertyValue, out var dateValue)
+                && filter.DateValue.HasValue
+                && dateValue == filter.DateValue.Value,
+            SearchPropertyType.DateTime => TryGetDateTime(propertyValue, out var dateTimeValue)
+                && filter.DateTimeValue.HasValue
+                && dateTimeValue.ToUniversalTime() == filter.DateTimeValue.Value.ToUniversalTime(),
             _ => false,
         };
 
@@ -847,7 +861,20 @@ public sealed class ProcessQueryService
         }
     }
 
-    private static bool TryGetNumber(JsonElement value, out decimal numberValue)
+    private static bool TryGetInteger(JsonElement value, out decimal integerValue)
+    {
+        if (TryGetDecimal(value, out var parsedDecimal)
+            && parsedDecimal == decimal.Truncate(parsedDecimal))
+        {
+            integerValue = parsedDecimal;
+            return true;
+        }
+
+        integerValue = 0;
+        return false;
+    }
+
+    private static bool TryGetDecimal(JsonElement value, out decimal numberValue)
     {
         switch (value.ValueKind)
         {
@@ -869,6 +896,47 @@ public sealed class ProcessQueryService
                 return false;
         }
     }
+
+    private static bool TryGetDate(JsonElement value, out DateOnly dateValue)
+    {
+        if (value.ValueKind == JsonValueKind.String
+            && TryParseDate(value.GetString(), out dateValue))
+        {
+            return true;
+        }
+
+        dateValue = default;
+        return false;
+    }
+
+    private static bool TryGetDateTime(JsonElement value, out DateTimeOffset dateTimeValue)
+    {
+        if (value.ValueKind == JsonValueKind.String
+            && TryParseDateTime(value.GetString(), out dateTimeValue))
+        {
+            return true;
+        }
+
+        dateTimeValue = default;
+        return false;
+    }
+
+    private static bool TryParseDate(string? value, out DateOnly dateValue)
+    {
+        if (DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out dateValue))
+        {
+            return true;
+        }
+
+        return DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out dateValue);
+    }
+
+    private static bool TryParseDateTime(string? value, out DateTimeOffset dateTimeValue) =>
+        DateTimeOffset.TryParse(
+            value,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.RoundtripKind,
+            out dateTimeValue);
 
     private static string EncodeCursor(IReadOnlyList<ProcessHistoryPartitionState> partitionStates)
     {
@@ -1015,9 +1083,12 @@ public sealed class ProcessQueryService
                     filter.PropertyKey,
                     PropertyType = filter.PropertyType.ToString(),
                     filter.StringValue,
-                    filter.NumberValue,
+                    filter.IntegerValue,
+                    filter.DecimalValue,
                     filter.BooleanValue,
                     filter.GuidValue,
+                    filter.DateValue,
+                    DateTimeValue = filter.DateTimeValue?.ToString("O", CultureInfo.InvariantCulture),
                 })
                 .OrderBy(filter => filter.Scope)
                 .ThenBy(filter => filter.BlueprintDefinitionId)
@@ -1097,19 +1168,33 @@ public sealed class ProcessQueryService
             throw new ArgumentException("Property filters must include a value.", nameof(filter));
         }
 
-        decimal? numberValue = null;
+        decimal? integerValue = null;
+        decimal? decimalValue = null;
         bool? booleanValue = null;
         Guid? guidValue = null;
+        DateOnly? dateValue = null;
+        DateTimeOffset? dateTimeValue = null;
 
         switch (propertyType)
         {
-            case SearchPropertyType.Number:
-                if (!decimal.TryParse(rawValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedNumber))
+            case SearchPropertyType.Integer:
+                if (!decimal.TryParse(rawValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedInteger)
+                    || parsedInteger != decimal.Truncate(parsedInteger))
                 {
-                    throw new ArgumentException($"'{rawValue}' is not a valid numeric property value.", nameof(filter));
+                    throw new ArgumentException($"'{rawValue}' is not a valid integer property value.", nameof(filter));
                 }
 
-                numberValue = parsedNumber;
+                integerValue = parsedInteger;
+                rawValue = parsedInteger.ToString(CultureInfo.InvariantCulture);
+                break;
+            case SearchPropertyType.Decimal:
+                if (!decimal.TryParse(rawValue, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsedDecimal))
+                {
+                    throw new ArgumentException($"'{rawValue}' is not a valid decimal property value.", nameof(filter));
+                }
+
+                decimalValue = parsedDecimal;
+                rawValue = parsedDecimal.ToString(CultureInfo.InvariantCulture);
                 break;
             case SearchPropertyType.Boolean:
                 if (!bool.TryParse(rawValue, out var parsedBoolean))
@@ -1129,6 +1214,24 @@ public sealed class ProcessQueryService
                 guidValue = parsedGuid;
                 rawValue = parsedGuid.ToString("D");
                 break;
+            case SearchPropertyType.Date:
+                if (!TryParseDate(rawValue, out var parsedDate))
+                {
+                    throw new ArgumentException($"'{rawValue}' is not a valid date property value.", nameof(filter));
+                }
+
+                dateValue = parsedDate;
+                rawValue = parsedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                break;
+            case SearchPropertyType.DateTime:
+                if (!TryParseDateTime(rawValue, out var parsedDateTime))
+                {
+                    throw new ArgumentException($"'{rawValue}' is not a valid date-time property value.", nameof(filter));
+                }
+
+                dateTimeValue = parsedDateTime.ToUniversalTime();
+                rawValue = dateTimeValue.Value.ToString("O", CultureInfo.InvariantCulture);
+                break;
         }
 
         if (scope is SearchPropertyScope.NodeInput or SearchPropertyScope.NodeOutput)
@@ -1146,9 +1249,12 @@ public sealed class ProcessQueryService
             propertyKey,
             propertyType,
             rawValue,
-            numberValue,
+            integerValue,
+            decimalValue,
             booleanValue,
-            guidValue);
+            guidValue,
+            dateValue,
+            dateTimeValue);
     }
 
     private static ProcessStatus ParseProcessStatus(string status) =>
@@ -1232,9 +1338,12 @@ public sealed class ProcessQueryService
         string PropertyKey,
         SearchPropertyType PropertyType,
         string StringValue,
-        decimal? NumberValue,
+        decimal? IntegerValue,
+        decimal? DecimalValue,
         bool? BooleanValue,
-        Guid? GuidValue);
+        Guid? GuidValue,
+        DateOnly? DateValue,
+        DateTimeOffset? DateTimeValue);
 
     private sealed record SearchVersionMetadata(
         int BlueprintDefinitionId,
@@ -1256,9 +1365,12 @@ public sealed class ProcessQueryService
         string PropertyKey,
         SearchPropertyType PropertyType,
         string StringValue,
-        decimal? NumberValue,
+        decimal? IntegerValue,
+        decimal? DecimalValue,
         bool? BooleanValue,
         Guid? GuidValue,
+        DateOnly? DateValue,
+        DateTimeOffset? DateTimeValue,
         HashSet<int> MatchingVersionIds);
 
     private sealed class SearchPartitionState
@@ -1301,8 +1413,12 @@ public sealed class ProcessQueryService
     private enum SearchPropertyType
     {
         String,
-        Number,
+        Integer,
+        Decimal,
         Boolean,
         Guid,
+        Date,
+        DateTime,
+        Enum,
     }
 }

@@ -12,12 +12,12 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { DynamicFieldDefinition } from './dynamic-form-field.component';
-import { TaskPropertyType } from '../domain/node-model';
 import {
   createTaskPropertyControl,
   createTaskPropertyFieldDefinitions,
   taskPropertyKindLabel,
 } from '../domain/task-property-form-utils';
+import { ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
 export interface PropertyOverrideEditorState {
   editorId: string;
@@ -52,12 +52,18 @@ export interface PropertyOverrideEditorState {
                 <span class="override-editor-shell__kind">{{ kindLabel(field) }}</span>
               </div>
 
-              @if (field.kind === 'boolean') {
+              @if (field.kind === 'boolean' || field.kind === 'enum') {
                 <mat-form-field class="override-editor-shell__control" appearance="outline" subscriptSizing="dynamic">
                   <mat-select [id]="inputId(field)" [formControlName]="field.key">
                     <mat-option value="">Use blueprint value</mat-option>
-                    <mat-option value="true">True</mat-option>
-                    <mat-option value="false">False</mat-option>
+                    @if (field.kind === 'boolean') {
+                      <mat-option value="true">True</mat-option>
+                      <mat-option value="false">False</mat-option>
+                    } @else {
+                      @for (option of field.options ?? []; track option) {
+                        <mat-option [value]="option">{{ option }}</mat-option>
+                      }
+                    }
                   </mat-select>
                 </mat-form-field>
               } @else {
@@ -67,9 +73,9 @@ export interface PropertyOverrideEditorState {
                     [id]="inputId(field)"
                     [type]="inputType(field)"
                     [formControlName]="field.key"
-                    [attr.inputmode]="field.kind === 'number' ? 'decimal' : null"
+                    [attr.inputmode]="field.kind === 'integer' || field.kind === 'decimal' ? 'decimal' : null"
                     [attr.autocomplete]="field.kind === 'guid' ? 'off' : null"
-                    [attr.step]="field.kind === 'number' ? 'any' : null"
+                    [attr.step]="numberStep(field)"
                     placeholder="Use blueprint value"
                   />
                 </mat-form-field>
@@ -176,7 +182,7 @@ export interface PropertyOverrideEditorState {
 })
 export class PropertyOverrideEditorComponent {
   readonly editorId = input.required<string>();
-  readonly properties = input<Record<string, TaskPropertyType>>({});
+  readonly properties = input<ITaskPropertyDefinition[]>([]);
   readonly initialOverrides = input<Record<string, unknown>>({});
   readonly resetKey = input('');
   readonly emptyMessage = input('No input properties are available for overrides.');
@@ -206,8 +212,24 @@ export class PropertyOverrideEditorComponent {
     return `${this.editorId()}-${field.key}`;
   }
 
-  protected inputType(field: DynamicFieldDefinition): 'text' | 'number' {
-    return field.kind === 'number' ? 'number' : 'text';
+  protected inputType(field: DynamicFieldDefinition): 'text' | 'number' | 'date' | 'datetime-local' {
+    if (field.kind === 'integer' || field.kind === 'decimal') {
+      return 'number';
+    }
+
+    if (field.kind === 'date') {
+      return 'date';
+    }
+
+    if (field.kind === 'datetime') {
+      return 'datetime-local';
+    }
+
+    return 'text';
+  }
+
+  protected numberStep(field: DynamicFieldDefinition): string | null {
+    return field.kind === 'integer' ? '1' : field.kind === 'decimal' ? 'any' : null;
   }
 
   protected controlInvalid(fieldKey: string): boolean {
@@ -294,7 +316,8 @@ export class PropertyOverrideEditorComponent {
         }
 
         return value === 'true';
-      case 'number':
+      case 'integer':
+      case 'decimal':
         return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
       default: {
         const normalized = typeof value === 'string' ? value.trim() : '';

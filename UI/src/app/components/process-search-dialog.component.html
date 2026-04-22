@@ -263,12 +263,23 @@
 
                     <mat-form-field appearance="outline">
                       <mat-label>Value</mat-label>
-                      <input
-                        matInput
-                        [type]="propertyInputType(row.option?.propertyType ?? 'String')"
-                        [value]="row.value"
-                        [placeholder]="valuePlaceholder(row.option?.propertyType ?? 'String')"
-                        (input)="updatePropertyValue(row.id, ($any($event.target)).value)" />
+                      @if (propertyUsesSelect(row.option?.propertyType ?? 'String')) {
+                        <mat-select
+                          [value]="row.value"
+                          (valueChange)="updatePropertyValue(row.id, $event)">
+                          <mat-option value="">Select</mat-option>
+                          @for (option of propertySelectOptions(row.option); track option) {
+                            <mat-option [value]="option">{{ option }}</mat-option>
+                          }
+                        </mat-select>
+                      } @else {
+                        <input
+                          matInput
+                          [type]="propertyInputType(row.option?.propertyType ?? 'String')"
+                          [value]="row.value"
+                          [placeholder]="valuePlaceholder(row.option?.propertyType ?? 'String')"
+                          (input)="updatePropertyValue(row.id, ($any($event.target)).value)" />
+                      }
                       @if (row.option) {
                         <mat-hint>{{ row.option.propertyType }}</mat-hint>
                       }

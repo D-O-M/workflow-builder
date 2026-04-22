@@ -1,14 +1,1 @@
-{
-  "DisplayName": "Airport traffic snapshot",
-  "InputChannel": {
-    "Name": "Input",
-    "Type": "AirportTrafficSnapshot.AirportTrafficInput"
-  },
-  "OutputChannels": [
-    {
-      "Name": "Traffic",
-      "Type": "AirportTrafficSnapshot.AirportTrafficResult"
-    }
-  ],
-  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
-}
+{"displayName":"Airport traffic snapshot","inputChannel":{"name":"Input","type":"AirportTrafficSnapshot.AirportTrafficInput","properties":[{"name":"AirportCode","kind":"String","required":true},{"name":"Latitude","kind":"Decimal","required":true},{"name":"Longitude","kind":"Decimal","required":true}]},"outputChannels":[{"name":"Traffic","type":"AirportTrafficSnapshot.AirportTrafficResult","properties":[{"name":"AirportCode","kind":"String","required":true},{"name":"GroundAircraftCount","kind":"Integer","required":true},{"name":"NearbyAircraftCount","kind":"Integer","required":true},{"name":"Summary","kind":"String","required":true},{"name":"TrafficPressureScore","kind":"Integer","required":true}]}],"globalState":{"name":"GlobalState","type":"Backend.Plugins.Harness.GlobalStateStub","properties":[{"name":"Empty","kind":"Boolean","required":true}]}}

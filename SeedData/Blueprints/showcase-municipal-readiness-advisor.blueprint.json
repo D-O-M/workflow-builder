@@ -8,18 +8,18 @@
       "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d001",
       "taskDefinitionName": "WeatherTownGeocode",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
         "x": 120,
-        "y": 260
+        "y": 340
       },
       "outgoingConnections": [
         {
           "channelName": "Location",
           "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d002",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "Town",
@@ -42,9 +42,9 @@
         {
           "channelName": "Location",
           "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d003",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "Town",
@@ -59,9 +59,9 @@
         {
           "channelName": "Location",
           "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d004",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "Town",
@@ -80,9 +80,9 @@
         {
           "channelName": "Location",
           "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d005",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "Town",
@@ -101,9 +101,9 @@
         {
           "channelName": "Location",
           "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d006",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "Town",
@@ -117,18 +117,18 @@
       "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d002",
       "taskDefinitionName": "WeatherWeekendForecast",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 430,
-        "y": 260
+        "x": 560,
+        "y": 340
       },
       "outgoingConnections": [
         {
           "channelName": "Forecast",
           "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d003",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "WeekendStart",
@@ -143,9 +143,9 @@
         {
           "channelName": "Forecast",
           "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d004",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "WeekendStart",
@@ -160,9 +160,9 @@
         {
           "channelName": "Forecast",
           "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d005",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "WeekendStart",
@@ -177,9 +177,9 @@
         {
           "channelName": "Forecast",
           "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d006",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "WeatherSuitabilityScore",
@@ -197,18 +197,18 @@
       "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d003",
       "taskDefinitionName": "PublicHolidayWindow",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 760,
-        "y": 90
+        "x": 1000,
+        "y": 40
       },
       "outgoingConnections": [
         {
           "channelName": "WindowHoliday",
           "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d006",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "HolidayPressureScore",
@@ -226,18 +226,18 @@
       "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d004",
       "taskDefinitionName": "PublicDaylightWindow",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 760,
-        "y": 260
+        "x": 1000,
+        "y": 340
       },
       "outgoingConnections": [
         {
           "channelName": "Daylight",
           "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d006",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "DaylightScore",
@@ -255,18 +255,18 @@
       "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d005",
       "taskDefinitionName": "PublicAirQualityOutlook",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 760,
-        "y": 430
+        "x": 1000,
+        "y": 640
       },
       "outgoingConnections": [
         {
           "channelName": "AirQuality",
           "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d006",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "AirQualityScore",
@@ -284,10 +284,10 @@
       "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d006",
       "taskDefinitionName": "MunicipalReadinessAdvisor",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 1100,
-        "y": 260
+        "x": 1440,
+        "y": 340
       },
       "designTimeInputOverrides": {
         "SensitivityMultiplier": 1.0,

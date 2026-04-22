@@ -26,17 +26,17 @@ public sealed class ProcessProjectionServiceTests
             database.Context,
             "Lookup",
             null,
-            ("TownResult", new Dictionary<string, PrimitiveTypes>
+            ("TownResult", new Dictionary<string, WorkflowPropertyKind>
             {
-                ["town"] = PrimitiveTypes.String,
+                ["town"] = WorkflowPropertyKind.String,
             }));
         var targetDefinition = await SeedTaskDefinitionWithChannelsAsync(
             database.Context,
             "Recommend",
-            new Dictionary<string, PrimitiveTypes>
+            new Dictionary<string, WorkflowPropertyKind>
             {
-                ["mappedTown"] = PrimitiveTypes.String,
-                ["mode"] = PrimitiveTypes.String,
+                ["mappedTown"] = WorkflowPropertyKind.String,
+                ["mode"] = WorkflowPropertyKind.String,
             });
 
         var repository = new BlueprintRepository(database.Context);
@@ -138,8 +138,8 @@ public sealed class ProcessProjectionServiceTests
     private static async Task<TaskDefinition> SeedTaskDefinitionWithChannelsAsync(
         Backend.Database.Relational.BlueprintDbContext context,
         string name,
-        Dictionary<string, PrimitiveTypes>? inputProperties,
-        params (string ChannelName, Dictionary<string, PrimitiveTypes> Properties)[] outputChannels)
+        Dictionary<string, WorkflowPropertyKind>? inputProperties,
+        params (string ChannelName, Dictionary<string, WorkflowPropertyKind> Properties)[] outputChannels)
     {
         var taskDefinition = new TaskDefinition
         {
@@ -259,8 +259,8 @@ public sealed class ProcessProjectionServiceTests
     }
 
     private static List<Channel> BuildChannels(
-        Dictionary<string, PrimitiveTypes>? inputProperties,
-        IReadOnlyCollection<(string ChannelName, Dictionary<string, PrimitiveTypes> Properties)> outputChannels)
+        Dictionary<string, WorkflowPropertyKind>? inputProperties,
+        IReadOnlyCollection<(string ChannelName, Dictionary<string, WorkflowPropertyKind> Properties)> outputChannels)
     {
         var channels = new List<Channel>();
 
@@ -273,7 +273,8 @@ public sealed class ProcessProjectionServiceTests
                     .Select(property => new ChannelProperty
                     {
                         Name = property.Key,
-                        Type = property.Value,
+                        Kind = property.Value,
+                        IsRequired = true,
                     })
                     .ToList()
             });
@@ -286,7 +287,8 @@ public sealed class ProcessProjectionServiceTests
                 .Select(property => new ChannelProperty
                 {
                     Name = property.Key,
-                    Type = property.Value,
+                    Kind = property.Value,
+                    IsRequired = true,
                 })
                 .ToList()
         }));

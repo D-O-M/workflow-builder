@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Backend.Database.Relational.Entities;
 using Backend.Models;
 using Backend.Interfaces.Repositories;
@@ -76,18 +77,7 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
             versionEntity.GlobalState = new GlobalStateDefinition
             {
                 Name = "GlobalState",
-                Properties = version.RequiredGlobalState.Select(p => new ChannelProperty
-                {
-                    Name = p.Name,
-                    Type = p.TypeName switch
-                    {
-                        "string" => PrimitiveTypes.String,
-                        "integer" or "number" => PrimitiveTypes.Number,
-                        "boolean" => PrimitiveTypes.Boolean,
-                        "guid" => PrimitiveTypes.Guid,
-                        _ => throw new InvalidDataException($"Unsupported property type: {p.TypeName}")
-                    }
-                }).ToList()
+                Properties = version.RequiredGlobalState.Select(MapProperty).ToList()
             };
         }
 
@@ -96,18 +86,7 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
             versionEntity.Channels.Add(new InputChannelDefinition
             {
                 Name = version.InputChannelDefinition.Name,
-                Properties = version.InputChannelDefinition.Properties.Select(p => new ChannelProperty
-                {
-                    Name = p.Name,
-                    Type = p.TypeName switch
-                    {
-                        "string" => PrimitiveTypes.String,
-                        "integer" or "number" => PrimitiveTypes.Number,
-                        "boolean" => PrimitiveTypes.Boolean,
-                        "guid" => PrimitiveTypes.Guid,
-                        _ => throw new InvalidDataException($"Unsupported property type: {p.TypeName}")
-                    }
-                }).ToList()
+                Properties = version.InputChannelDefinition.Properties.Select(MapProperty).ToList()
             });
         }
 
@@ -118,18 +97,7 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
                 versionEntity.Channels.Add(new OutputChannelDefinition
                 {
                     Name = outputChannel.Name,
-                    Properties = outputChannel.Properties.Select(p => new ChannelProperty
-                    {
-                        Name = p.Name,
-                        Type = p.TypeName switch
-                        {
-                            "string" => PrimitiveTypes.String,
-                            "integer" or "number" => PrimitiveTypes.Number,
-                            "boolean" => PrimitiveTypes.Boolean,
-                            "guid" => PrimitiveTypes.Guid,
-                            _ => throw new InvalidDataException($"Unsupported property type: {p.TypeName}")
-                        }
-                    }).ToList()
+                    Properties = outputChannel.Properties.Select(MapProperty).ToList()
                 });
             }
         }
@@ -241,4 +209,15 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
 
         return PluginVersionChangeKind.Major;
     }
+
+    private static ChannelProperty MapProperty(PropertyDefinitionDomainModel property) =>
+        new()
+        {
+            Name = property.Name,
+            Kind = property.Kind,
+            IsRequired = property.IsRequired,
+            EnumValuesJson = property.EnumValues.Count > 0
+                ? JsonSerializer.Serialize(property.EnumValues)
+                : null
+        };
 }

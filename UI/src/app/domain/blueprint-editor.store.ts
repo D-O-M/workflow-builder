@@ -1,7 +1,8 @@
 import { Injectable, computed, signal } from '@angular/core';
 import { ConnectionModel, ConnectionPropertyMappingModel } from './connection-model';
 import { NodeModel, Point } from './node-model';
-import { ITaskDefinition } from '../interfaces/ITaskDefinition';
+import { ITaskDefinition, ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
+import { taskPropertyKindMap } from './task-property-form-utils';
 
 interface GraphNodeSnapshot {
   id: number;
@@ -21,6 +22,7 @@ interface GraphNodeSnapshot {
   renderStatus: NodeModel['renderStatus'];
   failureMessage: string | null;
   inputProperties: NodeModel['inputProperties'];
+  inputPropertyDefinitions: NodeModel['inputPropertyDefinitions'];
   outputChannelProperties: NodeModel['outputChannelProperties'];
   designTimeInputOverrides: NodeModel['designTimeInputOverrides'];
 }
@@ -153,9 +155,10 @@ export class BlueprintEditorStore {
       false,
       null,
       null,
-      version.inputChannel?.properties ?? {},
-      Object.fromEntries(version.outputChannels.map((channel) => [channel.name, channel.properties])),
+      taskPropertyKindMap(version.inputChannel?.properties ?? []),
+      Object.fromEntries(version.outputChannels.map((channel) => [channel.name, taskPropertyKindMap(channel.properties)])),
       {},
+      this.clonePropertyDefinitions(version.inputChannel?.properties ?? []),
     );
 
     this._nodes.update((nodes) => [...nodes, node]);
@@ -196,6 +199,7 @@ export class BlueprintEditorStore {
         node.inputProperties,
         node.outputChannelProperties,
         node.designTimeInputOverrides,
+        this.clonePropertyDefinitions(node.inputPropertyDefinitions),
       );
     });
 
@@ -266,6 +270,7 @@ export class BlueprintEditorStore {
           candidate.inputProperties,
           candidate.outputChannelProperties,
           { ...overrides },
+          this.clonePropertyDefinitions(candidate.inputPropertyDefinitions),
         ),
     ));
     this._connections.set(this.rebindConnections(this._connections(), this._nodes()));
@@ -438,6 +443,7 @@ export class BlueprintEditorStore {
         nodeSnapshot.inputProperties,
         nodeSnapshot.outputChannelProperties,
         nodeSnapshot.designTimeInputOverrides,
+        this.clonePropertyDefinitions(nodeSnapshot.inputPropertyDefinitions),
       ));
     }
 
@@ -567,6 +573,7 @@ export class BlueprintEditorStore {
       renderStatus: node.renderStatus,
       failureMessage: node.failureMessage,
       inputProperties: { ...node.inputProperties },
+      inputPropertyDefinitions: this.clonePropertyDefinitions(node.inputPropertyDefinitions),
       outputChannelProperties: Object.fromEntries(
         Object.entries(node.outputChannelProperties).map(([key, value]) => [key, { ...value }]),
       ),
@@ -607,7 +614,15 @@ export class BlueprintEditorStore {
       node.inputProperties,
       node.outputChannelProperties,
       node.designTimeInputOverrides,
+      this.clonePropertyDefinitions(node.inputPropertyDefinitions),
     );
+  }
+
+  private clonePropertyDefinitions(properties: ITaskPropertyDefinition[]): ITaskPropertyDefinition[] {
+    return properties.map((property) => ({
+      ...property,
+      enumValues: [...property.enumValues],
+    }));
   }
 
   private computeNextNodeId(nodes: NodeModel[]): number {

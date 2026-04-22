@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
+using Backend.Database.Relational.Entities;
 using Backend.Interfaces.Queues;
 using Backend.Models;
 using Backend.Models.DomainModels;
@@ -170,8 +171,8 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         var inputChannelType = manifest.InputChannel.Type;
         var propDefs = BuildPropertyDefinitions(
             pluginInfo,
+            manifest.InputChannel,
             schemas,
-            inputChannelType,
             "input channel");
 
         return new ChannelDefinitionDomainModel
@@ -192,8 +193,8 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             var channelType = channel.Type;
             var propDefs = BuildPropertyDefinitions(
                 pluginInfo,
+                channel,
                 schemas,
-                channelType,
                 $"output channel {channel.Name}");
 
             if (!channelDefs.Add(new ChannelDefinitionDomainModel
@@ -215,8 +216,8 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
     private HashSet<PropertyDefinitionDomainModel> GetGlobalStateRequirements(
         PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult schemas)
     {
-        var globalStateType = manifest.GlobalState;
-        if (string.IsNullOrWhiteSpace(globalStateType))
+        var globalState = manifest.GlobalState;
+        if (globalState is null || string.IsNullOrWhiteSpace(globalState.Type))
         {
             _logger.LogInformation(
                 "Plugin {Plugin} ({Version}) did not declare a global state schema.",
@@ -227,32 +228,26 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
 
         return BuildPropertyDefinitions(
             pluginInfo,
+            globalState,
             schemas,
-            globalStateType,
             "global state");
     }
 
     private HashSet<PropertyDefinitionDomainModel> BuildPropertyDefinitions(
         PluginBlobInfo pluginInfo,
+        ManifestFileChannelInfo manifestChannel,
         PluginSchemaResult schemas,
-        string schemaType,
         string schemaPurpose)
     {
         var propDefs = new HashSet<PropertyDefinitionDomainModel>();
 
-        foreach (var property in GetSchemaProperties(pluginInfo, schemas, schemaType, schemaPurpose))
+        foreach (var property in GetDeclaredProperties(pluginInfo, manifestChannel, schemas, schemaPurpose))
         {
-            var propDef = new PropertyDefinitionDomainModel
-            {
-                Name = property.Key,
-                TypeName = property.Value
-            };
-
-            if (!propDefs.Add(propDef))
+            if (!propDefs.Add(property))
             {
                 _logger.LogWarning(
                     "Encountered more than one property named {PropertyName} while parsing the {SchemaPurpose} definition for plugin {PluginName} ({PluginVersion}).",
-                    property.Key,
+                    property.Name,
                     schemaPurpose,
                     pluginInfo.PluginName,
                     pluginInfo.Version);
@@ -262,7 +257,37 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         return propDefs;
     }
 
-    private IReadOnlyDictionary<string, string> GetSchemaProperties(
+    private IReadOnlyCollection<PropertyDefinitionDomainModel> GetDeclaredProperties(
+        PluginBlobInfo pluginInfo,
+        ManifestFileChannelInfo manifestChannel,
+        PluginSchemaResult schemas,
+        string schemaPurpose)
+    {
+        if (manifestChannel.Properties.Count > 0)
+        {
+            return manifestChannel.Properties
+                .Select(property => new PropertyDefinitionDomainModel
+                {
+                    Name = property.Name,
+                    Kind = ParseManifestPropertyKind(property.Kind),
+                    IsRequired = property.Required,
+                    EnumValues = property.EnumValues
+                })
+                .ToArray();
+        }
+
+        return GetSchemaProperties(pluginInfo, schemas, manifestChannel.Type, schemaPurpose)
+            .Select(property => new PropertyDefinitionDomainModel
+            {
+                Name = property.Key,
+                Kind = property.Value.Kind,
+                IsRequired = property.Value.IsRequired,
+                EnumValues = property.Value.EnumValues
+            })
+            .ToArray();
+    }
+
+    private IReadOnlyDictionary<string, SchemaPropertyInfo> GetSchemaProperties(
         PluginBlobInfo pluginInfo,
         PluginSchemaResult schemas,
         string schemaType,
@@ -274,7 +299,10 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         {
             return typedSchema.Properties.ToDictionary(
                 property => property.Key,
-                property => property.Value.Type,
+                property => new SchemaPropertyInfo(
+                    ParseSchemaPropertyKind(property.Value.Type, property.Value.Format),
+                    property.Value.Type.All(typeName => !string.Equals(typeName, "null", StringComparison.OrdinalIgnoreCase)),
+                    property.Value.Enum ?? []),
                 StringComparer.Ordinal);
         }
 
@@ -295,15 +323,15 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             schemaPurpose,
             pluginInfo.PluginName,
             pluginInfo.Version);
-        return new Dictionary<string, string>(StringComparer.Ordinal);
+        return new Dictionary<string, SchemaPropertyInfo>(StringComparer.Ordinal);
     }
 
     private static bool TryGetRawSchemaProperties(
         JsonNode aggregateNode,
         string schemaType,
-        out IReadOnlyDictionary<string, string> properties)
+        out IReadOnlyDictionary<string, SchemaPropertyInfo> properties)
     {
-        properties = new Dictionary<string, string>(StringComparer.Ordinal);
+        properties = new Dictionary<string, SchemaPropertyInfo>(StringComparer.Ordinal);
 
         if (aggregateNode is not JsonObject root ||
             root["components"] is not JsonObject components ||
@@ -315,15 +343,15 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
 
         if (schemaObject["properties"] is not JsonObject propertyNodes)
         {
-            properties = new Dictionary<string, string>(StringComparer.Ordinal);
+            properties = new Dictionary<string, SchemaPropertyInfo>(StringComparer.Ordinal);
             return true;
         }
 
-        var parsedProperties = new Dictionary<string, string>(StringComparer.Ordinal);
+        var parsedProperties = new Dictionary<string, SchemaPropertyInfo>(StringComparer.Ordinal);
         foreach (var propertyNode in propertyNodes)
         {
             var propertyType = ResolvePropertyType(propertyNode.Value);
-            if (string.IsNullOrWhiteSpace(propertyType))
+            if (propertyType is null)
             {
                 continue;
             }
@@ -335,37 +363,95 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         return true;
     }
 
-    private static string? ResolvePropertyType(JsonNode? propertyNode)
+    private static SchemaPropertyInfo? ResolvePropertyType(JsonNode? propertyNode)
     {
         if (propertyNode is not JsonObject propertyObject)
         {
             return null;
         }
 
-        if (propertyObject["type"] is JsonValue stringValue &&
+        var typeNames = ReadTypeNames(propertyObject["type"]);
+        if (typeNames.Count == 0)
+        {
+            return null;
+        }
+
+        var format = propertyObject["format"]?.GetValue<string>();
+        var enumValues = propertyObject["enum"] is JsonArray enumArray
+            ? enumArray
+                .Select(value => value?.GetValue<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Cast<string>()
+                .ToArray()
+            : [];
+
+        return new SchemaPropertyInfo(
+            ParseSchemaPropertyKind(typeNames, format),
+            typeNames.All(typeName => !string.Equals(typeName, "null", StringComparison.OrdinalIgnoreCase)),
+            enumValues);
+    }
+
+    private static IReadOnlyList<string> ReadTypeNames(JsonNode? node)
+    {
+        if (node is JsonValue stringValue &&
             stringValue.TryGetValue<string>(out var scalarType) &&
             !string.IsNullOrWhiteSpace(scalarType))
         {
-            return scalarType;
+            return [scalarType];
         }
 
-        if (propertyObject["type"] is JsonArray typeArray)
+        if (node is not JsonArray typeArray)
         {
-            foreach (var candidateNode in typeArray)
-            {
-                if (candidateNode is not JsonValue candidateValue ||
-                    !candidateValue.TryGetValue<string>(out var candidateType) ||
-                    string.IsNullOrWhiteSpace(candidateType) ||
-                    string.Equals(candidateType, "null", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                return candidateType;
-            }
+            return [];
         }
 
-        return null;
+        return typeArray
+            .Select(candidate => candidate?.GetValue<string>())
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
+            .Cast<string>()
+            .ToArray();
+    }
+
+    private static WorkflowPropertyKind ParseManifestPropertyKind(string kind) =>
+        Enum.TryParse<WorkflowPropertyKind>(kind, ignoreCase: true, out var parsedKind)
+            ? parsedKind
+            : throw new InvalidDataException($"Unsupported manifest property kind '{kind}'.");
+
+    private static WorkflowPropertyKind ParseSchemaPropertyKind(
+        IReadOnlyList<string> typeNames,
+        string? format)
+    {
+        if (typeNames.Any(typeName => string.Equals(typeName, "integer", StringComparison.OrdinalIgnoreCase)))
+        {
+            return WorkflowPropertyKind.Integer;
+        }
+
+        if (typeNames.Any(typeName => string.Equals(typeName, "number", StringComparison.OrdinalIgnoreCase)))
+        {
+            return WorkflowPropertyKind.Decimal;
+        }
+
+        if (typeNames.Any(typeName => string.Equals(typeName, "boolean", StringComparison.OrdinalIgnoreCase)))
+        {
+            return WorkflowPropertyKind.Boolean;
+        }
+
+        if (string.Equals(format, "uuid", StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowPropertyKind.Guid;
+        }
+
+        if (string.Equals(format, "date", StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowPropertyKind.Date;
+        }
+
+        if (string.Equals(format, "date-time", StringComparison.OrdinalIgnoreCase))
+        {
+            return WorkflowPropertyKind.DateTime;
+        }
+
+        return WorkflowPropertyKind.String;
     }
 
     private static bool IsDuplicateRegistrationRace(DbUpdateException exception)
@@ -398,4 +484,9 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         _logger.LogWarning("No app entry point found in {AppDirectory}", appDir);
         throw new Exception();
     }
+
+    private sealed record SchemaPropertyInfo(
+        WorkflowPropertyKind Kind,
+        bool IsRequired,
+        IReadOnlyList<string> EnumValues);
 }

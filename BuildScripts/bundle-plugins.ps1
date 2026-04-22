@@ -5,8 +5,8 @@
 .DESCRIPTION
   For each executable SDK-style plugin project under -RootDir, this script:
     1) Publishes the project
-    2) Reads the generated contract artifacts from publish output:
-         manifest.json + (schemas.json OR schemas\*.json)
+    2) Reads the generated contract artifacts from obj\<Configuration>\<TFM>\plugin-contract:
+         manifest.json + schemas.json
     3) Compares that contract with the latest canonical bundle for the same plugin
     4) Updates the project <Version> automatically:
          - first canonical bundle keeps the declared version
@@ -81,8 +81,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-
-$generateContractsOnlyEnvironmentVariable = 'WORKFLOWBUILDER_PLUGIN_GENERATE_CONTRACTS_ONLY'
 
 function Get-AbsolutePath([string] $path, [string] $basePath = (Get-Location).Path) {
   if ([string]::IsNullOrWhiteSpace($path)) {
@@ -275,37 +273,43 @@ function Invoke-PluginPublish($info) {
   return $publishDir
 }
 
-function Invoke-PluginContractGeneration($info) {
-  $arguments = @(
-    'run',
-    '--project', $info.CsprojPath,
-    '-c', 'Debug',
-    '--disable-build-servers',
-    '--no-launch-profile'
-  )
+function Compute-ContractDir($info, [string] $configuration) {
+  if ([string]::IsNullOrWhiteSpace($info.TargetFramework)) {
+    throw "TargetFramework not specified in project $($info.ProjectName).csproj"
+  }
 
-  $previousValue = [System.Environment]::GetEnvironmentVariable(
-    $generateContractsOnlyEnvironmentVariable,
-    [System.EnvironmentVariableTarget]::Process)
+  return Join-Path $info.ProjectDir "obj\$configuration\$($info.TargetFramework)\plugin-contract"
+}
 
-  try {
-    [System.Environment]::SetEnvironmentVariable(
-      $generateContractsOnlyEnvironmentVariable,
-      'true',
-      [System.EnvironmentVariableTarget]::Process)
+function Resolve-ContractDir($info, [string] $configuration, [string] $rid) {
+  $candidateDirs = [System.Collections.Generic.List[string]]::new()
+  $candidateDirs.Add((Get-AbsolutePath (Compute-ContractDir $info $configuration)))
 
-    Write-Host "🧾 Regenerating manifest/schemas for $($info.ProjectName) ..."
-    & dotnet @arguments | Out-Host
-    if ($LASTEXITCODE -ne 0) {
-      throw "dotnet run failed while regenerating manifest/schemas for $($info.ProjectName)."
+  if (-not [string]::IsNullOrWhiteSpace($rid)) {
+    $candidateDirs.Add((Get-AbsolutePath (Join-Path $info.ProjectDir "obj\$configuration\$($info.TargetFramework)\$rid\plugin-contract")))
+  }
+
+  $candidateDirs.Add((Get-AbsolutePath $info.ProjectDir))
+
+  foreach ($candidateDir in $candidateDirs | Select-Object -Unique) {
+    $manifestPath = Join-Path $candidateDir 'manifest.json'
+    if (Test-Path -LiteralPath $manifestPath) {
+      return $candidateDir
     }
   }
-  finally {
-    [System.Environment]::SetEnvironmentVariable(
-      $generateContractsOnlyEnvironmentVariable,
-      $previousValue,
-      [System.EnvironmentVariableTarget]::Process)
+
+  $globRoot = Join-Path $info.ProjectDir "obj\$configuration\$($info.TargetFramework)"
+  if (Test-Path -LiteralPath $globRoot) {
+    $discoveredDir = Get-ChildItem -Path $globRoot -Directory -Recurse |
+      Where-Object { $_.Name -eq 'plugin-contract' -and (Test-Path -LiteralPath (Join-Path $_.FullName 'manifest.json')) } |
+      Select-Object -First 1
+
+    if ($null -ne $discoveredDir) {
+      return $discoveredDir.FullName
+    }
   }
+
+  throw "Generated contract directory not found for $($info.ProjectName). Checked: $($candidateDirs -join ', ')"
 }
 
 function Convert-ToCanonicalJsonValue($value) {
@@ -368,22 +372,17 @@ function Get-CanonicalJsonValueFromFile([string] $path) {
   return Convert-ToCanonicalJsonValue $json
 }
 
-function Get-ContractFingerprintFromRoot([string] $rootPath, [string] $fallbackRootPath = $null) {
+function Get-ContractFingerprintFromRoot([string] $rootPath) {
   $manifestPath = Join-Path $rootPath 'manifest.json'
   if (-not (Test-Path -LiteralPath $manifestPath)) {
-    if ($fallbackRootPath) {
-      $manifestPath = Join-Path $fallbackRootPath 'manifest.json'
-    }
-  }
-  if (-not (Test-Path -LiteralPath $manifestPath)) {
-    throw "manifest.json was not found under $rootPath or fallback root $fallbackRootPath."
+    throw "manifest.json was not found under $rootPath."
   }
 
   $contract = [ordered]@{
     manifest = Get-CanonicalJsonValueFromFile $manifestPath
   }
 
-  $schemaSource = Resolve-ContractSchemaSource $rootPath $fallbackRootPath
+  $schemaSource = Resolve-ContractSchemaSource $rootPath
   if ($schemaSource.Kind -eq 'json') {
     $contract.schemas = Get-CanonicalJsonValueFromFile $schemaSource.Path
   }
@@ -436,7 +435,7 @@ function Get-TempDirectory([string] $prefix) {
   return $path
 }
 
-function Get-NextBundleVersion($info, [string] $publishDir, [string] $searchRoot) {
+function Get-NextBundleVersion($info, [string] $contractRoot, [string] $searchRoot) {
   $declaredVersion = Get-VersionOrThrow $info.Version $info.ProjectName
   $latestBundle = Get-LatestCanonicalBundle $info.ProjectName $searchRoot
 
@@ -452,7 +451,7 @@ function Get-NextBundleVersion($info, [string] $publishDir, [string] $searchRoot
     throw "Declared major version $($declaredVersion.ToString(3)) for $($info.ProjectName) is behind latest canonical bundle version $($latestBundle.Version.ToString(3))."
   }
 
-  $currentContractFingerprint = Get-ContractFingerprintFromRoot $publishDir $info.ProjectDir
+  $currentContractFingerprint = Get-ContractFingerprintFromRoot $contractRoot
   $extractedBundleRoot = Get-TempDirectory "plugin_bundle_compare"
 
   try {
@@ -487,11 +486,8 @@ function Copy-FilePreservingOptionalMinify([string] $sourcePath, [string] $desti
   Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
 }
 
-function Resolve-ContractSchemaSource([string] $primaryRootPath, [string] $fallbackRootPath = $null) {
+function Resolve-ContractSchemaSource([string] $primaryRootPath) {
   $candidateRoots = @($primaryRootPath)
-  if ($fallbackRootPath) {
-    $candidateRoots += $fallbackRootPath
-  }
 
   foreach ($candidateRoot in $candidateRoots) {
     $schemasJsonPath = Join-Path $candidateRoot 'schemas.json'
@@ -517,23 +513,18 @@ function Resolve-ContractSchemaSource([string] $primaryRootPath, [string] $fallb
     }
   }
 
-  throw "Neither schemas.json nor a non-empty schemas/ directory was found under $primaryRootPath or fallback root $fallbackRootPath."
+  throw "Neither schemas.json nor a non-empty schemas/ directory was found under $primaryRootPath."
 }
 
-function Copy-PublishContractToStage([string] $publishDir, [string] $fallbackRootPath, [string] $stageRoot) {
-  $manifestPath = Join-Path $publishDir 'manifest.json'
+function Copy-GeneratedContractToStage([string] $contractRoot, [string] $stageRoot) {
+  $manifestPath = Join-Path $contractRoot 'manifest.json'
   if (-not (Test-Path -LiteralPath $manifestPath)) {
-    if ($fallbackRootPath) {
-      $manifestPath = Join-Path $fallbackRootPath 'manifest.json'
-    }
-  }
-  if (-not (Test-Path -LiteralPath $manifestPath)) {
-    throw "manifest.json was not found in publish output or fallback root for $publishDir."
+    throw "manifest.json was not found in generated contract output for $contractRoot."
   }
 
   Copy-FilePreservingOptionalMinify $manifestPath (Join-Path $stageRoot 'manifest.json')
 
-  $schemaSource = Resolve-ContractSchemaSource $publishDir $fallbackRootPath
+  $schemaSource = Resolve-ContractSchemaSource $contractRoot
   if ($schemaSource.Kind -eq 'json') {
     Copy-FilePreservingOptionalMinify $schemaSource.Path (Join-Path $stageRoot 'schemas.json')
     return
@@ -561,9 +552,10 @@ function Bundle-OneProject([string] $csprojPath, [string] $resolvedOutputDir) {
     return
   }
 
-  Invoke-PluginContractGeneration $info
   $publishDir = Invoke-PluginPublish $info
-  $resolvedVersion = Get-NextBundleVersion $info $publishDir $resolvedOutputDir
+  $contractDir = Resolve-ContractDir $info $Configuration $RuntimeIdentifier
+
+  $resolvedVersion = Get-NextBundleVersion $info $contractDir $resolvedOutputDir
   $declaredVersion = Get-VersionOrThrow $info.Version $info.ProjectName
 
   if ((Compare-VersionCore $resolvedVersion $declaredVersion) -ne 0) {
@@ -571,6 +563,7 @@ function Bundle-OneProject([string] $csprojPath, [string] $resolvedOutputDir) {
     Set-ProjectVersion $csprojPath $resolvedVersion
     $info = Get-CsprojInfo $csprojPath
     $publishDir = Invoke-PluginPublish $info
+    $contractDir = Resolve-ContractDir $info $Configuration $RuntimeIdentifier
   }
 
   $stageRoot = Get-TempDirectory "plugin_stage"
@@ -579,7 +572,7 @@ function Bundle-OneProject([string] $csprojPath, [string] $resolvedOutputDir) {
   try {
     New-Item -ItemType Directory -Path $stageApp -Force | Out-Null
     Get-ChildItem -Path $publishDir -Force | Copy-Item -Destination $stageApp -Recurse -Force -ErrorAction Stop
-    Copy-PublishContractToStage $publishDir $info.ProjectDir $stageRoot
+    Copy-GeneratedContractToStage $contractDir $stageRoot
 
     $bundleMeta = [ordered]@{
       name = $info.ProjectName

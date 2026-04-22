@@ -1,14 +1,1 @@
-{
-  "DisplayName": "Window weather outlook",
-  "InputChannel": {
-    "Name": "Input",
-    "Type": "WindowWeatherOutlook.WindowWeatherInput"
-  },
-  "OutputChannels": [
-    {
-      "Name": "Weather",
-      "Type": "WindowWeatherOutlook.WindowWeatherResult"
-    }
-  ],
-  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
-}
+{"displayName":"Window weather outlook","inputChannel":{"name":"Input","type":"WindowWeatherOutlook.WindowWeatherInput","properties":[{"name":"Latitude","kind":"Decimal","required":true},{"name":"LocationLabel","kind":"String","required":true},{"name":"Longitude","kind":"Decimal","required":true},{"name":"WindowEndIsoDate","kind":"String","required":true},{"name":"WindowStartIsoDate","kind":"String","required":true}]},"outputChannels":[{"name":"Weather","type":"WindowWeatherOutlook.WindowWeatherResult","properties":[{"name":"AverageTemperatureC","kind":"Decimal","required":true},{"name":"LocationLabel","kind":"String","required":true},{"name":"MaxWindSpeedMps","kind":"Decimal","required":true},{"name":"Summary","kind":"String","required":true},{"name":"TotalPrecipitationMm","kind":"Decimal","required":true},{"name":"WeatherRiskScore","kind":"Integer","required":true},{"name":"WindowEndIsoDate","kind":"String","required":true},{"name":"WindowStartIsoDate","kind":"String","required":true}]}],"globalState":{"name":"GlobalState","type":"Backend.Plugins.Harness.GlobalStateStub","properties":[{"name":"Empty","kind":"Boolean","required":true}]}}

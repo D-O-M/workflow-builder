@@ -1,14 +1,1 @@
-{
-  "DisplayName": "Airport METAR snapshot",
-  "InputChannel": {
-    "Name": "Input",
-    "Type": "AirportMetarSnapshot.AirportMetarInput"
-  },
-  "OutputChannels": [
-    {
-      "Name": "Metar",
-      "Type": "AirportMetarSnapshot.AirportMetarResult"
-    }
-  ],
-  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
-}
+{"displayName":"Airport METAR snapshot","inputChannel":{"name":"Input","type":"AirportMetarSnapshot.AirportMetarInput","properties":[{"name":"StationCode","kind":"String","required":true}]},"outputChannels":[{"name":"Metar","type":"AirportMetarSnapshot.AirportMetarResult","properties":[{"name":"CeilingFeet","kind":"Integer","required":true},{"name":"FlightCategory","kind":"String","required":true},{"name":"StationCode","kind":"String","required":true},{"name":"Summary","kind":"String","required":true},{"name":"VisibilityMiles","kind":"Decimal","required":true},{"name":"WindSpeedKnots","kind":"Decimal","required":true}]}],"globalState":{"name":"GlobalState","type":"Backend.Plugins.Harness.GlobalStateStub","properties":[{"name":"Empty","kind":"Boolean","required":true}]}}

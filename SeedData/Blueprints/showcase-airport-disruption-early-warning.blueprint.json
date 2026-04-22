@@ -8,18 +8,18 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e201",
       "taskDefinitionName": "AirportOperationWindow",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 110,
-        "y": 270
+        "x": 120,
+        "y": 320
       },
       "outgoingConnections": [
         {
           "channelName": "Window",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e202",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "AirportCode",
@@ -30,9 +30,9 @@
         {
           "channelName": "Window",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e204",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "WindowStartIsoDate",
@@ -47,9 +47,9 @@
         {
           "channelName": "Window",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e205",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "AirportCode",
@@ -60,9 +60,9 @@
         {
           "channelName": "Window",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e206",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "AirportCode",
@@ -73,9 +73,9 @@
         {
           "channelName": "Window",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e207",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "WindowStartIsoDate",
@@ -90,9 +90,9 @@
         {
           "channelName": "Window",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e208",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "AirportCode",
@@ -103,9 +103,9 @@
         {
           "channelName": "Window",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "AirportCode",
@@ -123,18 +123,18 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e202",
       "taskDefinitionName": "AirportStationLookup",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 380,
-        "y": 270
+        "x": 560,
+        "y": 320
       },
       "outgoingConnections": [
         {
           "channelName": "Station",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e203",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "StationCode",
@@ -145,9 +145,9 @@
         {
           "channelName": "Station",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e204",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "StationCode",
@@ -158,9 +158,9 @@
         {
           "channelName": "Station",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e205",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "Latitude",
@@ -175,9 +175,9 @@
         {
           "channelName": "Station",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e206",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "Latitude",
@@ -192,9 +192,9 @@
         {
           "channelName": "Station",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e207",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "AirportName",
@@ -213,9 +213,9 @@
         {
           "channelName": "Station",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "AirportName",
@@ -229,18 +229,18 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e203",
       "taskDefinitionName": "AirportMetarSnapshot",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 650,
-        "y": 70
+        "x": 1000,
+        "y": 20
       },
       "outgoingConnections": [
         {
           "channelName": "Metar",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e208",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "FlightCategory",
@@ -266,18 +266,18 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e204",
       "taskDefinitionName": "AirportTafOutlook",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 650,
-        "y": 190
+        "x": 1000,
+        "y": 320
       },
       "outgoingConnections": [
         {
           "channelName": "Taf",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e208",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "WorstFlightCategory",
@@ -303,18 +303,18 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e205",
       "taskDefinitionName": "AirportAdvisorySnapshot",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 650,
-        "y": 310
+        "x": 1000,
+        "y": 620
       },
       "outgoingConnections": [
         {
           "channelName": "Advisory",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e208",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "AdvisoryCount",
@@ -332,18 +332,18 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e206",
       "taskDefinitionName": "AirportTrafficSnapshot",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 650,
-        "y": 430
+        "x": 1440,
+        "y": 20
       },
       "outgoingConnections": [
         {
           "channelName": "Traffic",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "NearbyAircraftCount",
@@ -365,18 +365,18 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e207",
       "taskDefinitionName": "PublicDaylightWindow",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 650,
-        "y": 550
+        "x": 1440,
+        "y": 620
       },
       "outgoingConnections": [
         {
           "channelName": "Daylight",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "AverageDaylightHours",
@@ -394,18 +394,18 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e208",
       "taskDefinitionName": "AirportWeatherRisk",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 960,
-        "y": 220
+        "x": 1440,
+        "y": 320
       },
       "outgoingConnections": [
         {
           "channelName": "Risk",
           "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "OperationalWeatherRiskScore",
@@ -423,9 +423,9 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
       "taskDefinitionName": "AirportDisruptionAdvisor",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 1260,
+        "x": 1880,
         "y": 320
       },
       "designTimeInputOverrides": {

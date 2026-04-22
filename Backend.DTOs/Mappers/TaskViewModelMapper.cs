@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Backend.Database.Relational.Entities;
 using Backend.Models.ViewModels;
 
@@ -39,8 +40,24 @@ public class TaskViewModelMapper
         {
             Id = channel.Id,
             Name = channel.Name,
-            Properties = channel.Properties.ToDictionary(
-                prop => prop.Name,
-                prop => prop.Type.ToString())
+            Properties = [..channel.Properties
+                .OrderBy(prop => prop.Name, StringComparer.Ordinal)
+                .Select(prop => new TaskPropertyViewModel
+                {
+                    Name = prop.Name,
+                    Kind = prop.Kind.ToString(),
+                    Required = prop.IsRequired,
+                    EnumValues = DeserializeEnumValues(prop.EnumValuesJson)
+                })]
         };
+
+    private static List<string> DeserializeEnumValues(string? enumValuesJson)
+    {
+        if (string.IsNullOrWhiteSpace(enumValuesJson))
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<List<string>>(enumValuesJson) ?? [];
+    }
 }

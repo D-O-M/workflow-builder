@@ -1,14 +1,1 @@
-{
-  "DisplayName": "Airport operation window",
-  "InputChannel": {
-    "Name": "Input",
-    "Type": "AirportOperationWindow.AirportOperationWindowInput"
-  },
-  "OutputChannels": [
-    {
-      "Name": "Window",
-      "Type": "AirportOperationWindow.AirportOperationWindowResult"
-    }
-  ],
-  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
-}
+{"displayName":"Airport operation window","inputChannel":{"name":"Input","type":"AirportOperationWindow.AirportOperationWindowInput","properties":[{"name":"AirportCode","kind":"String","required":true},{"name":"WindowEndIsoDate","kind":"String","required":true},{"name":"WindowStartIsoDate","kind":"String","required":true}]},"outputChannels":[{"name":"Window","type":"AirportOperationWindow.AirportOperationWindowResult","properties":[{"name":"AirportCode","kind":"String","required":true},{"name":"WindowEndIsoDate","kind":"String","required":true},{"name":"WindowLabel","kind":"String","required":true},{"name":"WindowStartIsoDate","kind":"String","required":true}]}],"globalState":{"name":"GlobalState","type":"Backend.Plugins.Harness.GlobalStateStub","properties":[{"name":"Empty","kind":"Boolean","required":true}]}}

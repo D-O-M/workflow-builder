@@ -1,14 +1,1 @@
-{
-  "DisplayName": "A Test Plugin",
-  "InputChannel": {
-    "Name": "PlayerInput",
-    "Type": "TestPlugin.PlayerInput"
-  },
-  "OutputChannels": [
-    {
-      "Name": "Success",
-      "Type": "TestPlugin.PlayerOutput"
-    }
-  ],
-  "GlobalState": "TestPlugin.State"
-}
+{"displayName":"A Test Plugin","inputChannel":{"name":"PlayerInput","type":"TestPlugin.PlayerInput","properties":[{"name":"Name","kind":"String","required":true},{"name":"Score","kind":"Integer","required":true},{"name":"Speed","kind":"Decimal","required":true}]},"outputChannels":[{"name":"Success","type":"TestPlugin.PlayerOutput","properties":[{"name":"Alive","kind":"Boolean","required":true},{"name":"Health","kind":"Integer","required":true}]}],"globalState":{"name":"State","type":"TestPlugin.State","properties":[{"name":"PlayerIP","kind":"String","required":true},{"name":"PlayerId","kind":"Integer","required":true}]}}

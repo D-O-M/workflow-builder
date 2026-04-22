@@ -1,14 +1,1 @@
-{
-  "DisplayName": "Holiday demand adjuster",
-  "InputChannel": {
-    "Name": "Input",
-    "Type": "WeekendHolidayDemand.HolidayDemandInput"
-  },
-  "OutputChannels": [
-    {
-      "Name": "Demand",
-      "Type": "WeekendHolidayDemand.HolidayDemandResult"
-    }
-  ],
-  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
-}
+{"displayName":"Holiday demand adjuster","inputChannel":{"name":"Input","type":"WeekendHolidayDemand.HolidayDemandInput","properties":[{"name":"CountryCode","kind":"String","required":true},{"name":"Town","kind":"String","required":true},{"name":"WeekendEnd","kind":"Date","required":true},{"name":"WeekendStart","kind":"Date","required":true},{"name":"Year","kind":"Integer","required":true}]},"outputChannels":[{"name":"Demand","type":"WeekendHolidayDemand.HolidayDemandResult","properties":[{"name":"CountryCode","kind":"String","required":true},{"name":"DemandAdjustment","kind":"Decimal","required":true},{"name":"HolidayName","kind":"String","required":true},{"name":"HolidayNearby","kind":"Boolean","required":true},{"name":"Summary","kind":"String","required":true},{"name":"Town","kind":"String","required":true},{"name":"WeekendEnd","kind":"Date","required":true},{"name":"WeekendStart","kind":"Date","required":true}]}],"globalState":{"name":"GlobalState","type":"Backend.Plugins.Harness.GlobalStateStub","properties":[{"name":"Empty","kind":"Boolean","required":true}]}}

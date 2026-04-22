@@ -23,8 +23,6 @@ public class PluginBuilder<TPlugin>
 {
     private const string ProcessStepsContainerName = "processsteps";
     private const string ProcessesContainerName = "processes";
-    private const string GenerateContractsOnlyEnvironmentVariable = "WORKFLOWBUILDER_PLUGIN_GENERATE_CONTRACTS_ONLY";
-
     private readonly string _displayName;
     private Func<TPlugin, object?>? _globalStateGetter;
     private readonly Dictionary<string, PluginChannel> _inputChannels = new();
@@ -199,50 +197,7 @@ public class PluginBuilder<TPlugin>
                 _outputChannels.Values.ToList(),
                 _globalStateGetter ?? (_ => new GlobalStateStub())));
 
-#if DEBUG
-        string? manifestPath = null;
-        string? schemaDir = null;
-        string? aggregated = null;
-        int schemaCount = 0;
-        Exception? pendingError = null;
-
-        try
-        {
-            var projectDir = TryFindProjectDirectory(AppContext.BaseDirectory) ?? AppContext.BaseDirectory;
-
-            var manifest = ManifestGenerator.CreateManifest(
-                displayName: _displayName,
-                inputChannel: _inputChannels.Values.Select(c => new KeyValuePair<string, Type>(c.Name, c.MessageType)).FirstOrDefault(),
-                outputChannels: _outputChannels.Values.Select(c => new KeyValuePair<string, Type>(c.Name, c.MessageType)),
-                globalStateType: _globalStateType);
-
-            (manifestPath, schemaDir, aggregated, schemaCount) =
-                ManifestGenerator.EmitAll(
-                    projectDir: projectDir,
-                    manifest: manifest,
-                    rootTypes: EnumerateRootTypes());
-        }
-        catch (Exception ex)
-        {
-            pendingError = ex;
-        }
-#endif
-
         host = _hostAppBuilder.Build();
-
-#if DEBUG
-        var logger = host.Services.GetService<ILogger<PluginBuilder<TPlugin>>>();
-        if (pendingError is not null)
-        {
-            logger?.LogWarning(pendingError, "Failed to generate manifest/schemas (Debug-only).");
-        }
-        else
-        {
-            logger?.LogInformation(
-                "Generated manifest at {Manifest} and {Count} schema file(s) under {SchemaDir}. Aggregated: {Agg}",
-                manifestPath, schemaCount, schemaDir, aggregated ?? "(none)");
-        }
-#endif
 
         return new Plugin<TPlugin>(this);
     }
@@ -251,42 +206,7 @@ public class PluginBuilder<TPlugin>
     {
         host ??= _hostAppBuilder.Build();
 
-#if DEBUG
-        if (ShouldGenerateContractsOnly())
-        {
-            var logger = host.Services.GetService<ILogger<PluginBuilder<TPlugin>>>();
-            logger?.LogInformation(
-                "Generate-contracts-only mode enabled via {EnvironmentVariable}; exiting before starting the plugin host.",
-                GenerateContractsOnlyEnvironmentVariable);
-
-            if (host is IAsyncDisposable asyncDisposable)
-            {
-                await asyncDisposable.DisposeAsync();
-            }
-            else
-            {
-                host.Dispose();
-            }
-
-            host = null;
-            return;
-        }
-#endif
-
         await host.RunAsync();
-    }
-
-    private static bool ShouldGenerateContractsOnly()
-    {
-        var value = Environment.GetEnvironmentVariable(GenerateContractsOnlyEnvironmentVariable);
-        return bool.TryParse(value, out var enabled) && enabled;
-    }
-
-    private IEnumerable<Type> EnumerateRootTypes()
-    {
-        foreach (var c in _inputChannels.Values) yield return c.MessageType;
-        foreach (var c in _outputChannels.Values) yield return c.MessageType;
-        if (_globalStateType is not null) yield return _globalStateType;
     }
 
     private static PropertyInfo GetPropertyInfo<TChannelType>(
@@ -295,18 +215,6 @@ public class PluginBuilder<TPlugin>
         if (expr.Body is not MemberExpression m || m.Member is not PropertyInfo pi)
             throw new ArgumentException("Selector must be p => p.Property");
         return pi;
-    }
-
-    private static string? TryFindProjectDirectory(string startDir)
-    {
-        var dir = new DirectoryInfo(startDir);
-        while (dir is not null)
-        {
-            if (dir.EnumerateFiles("*.csproj", SearchOption.TopDirectoryOnly).Any())
-                return dir.FullName;
-            dir = dir.Parent;
-        }
-        return null;
     }
 
     private bool UseFileStateStore() =>

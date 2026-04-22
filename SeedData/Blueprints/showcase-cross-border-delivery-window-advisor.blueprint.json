@@ -8,18 +8,18 @@
       "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d101",
       "taskDefinitionName": "DeliveryScenarioNormalizer",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
         "x": 120,
-        "y": 260
+        "y": 320
       },
       "outgoingConnections": [
         {
           "channelName": "Scenario",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d102",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "DestinationTown",
@@ -30,9 +30,9 @@
         {
           "channelName": "Scenario",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d103",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "ShipmentLabel",
@@ -55,9 +55,9 @@
         {
           "channelName": "Scenario",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d104",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "DestinationLabel",
@@ -80,9 +80,9 @@
         {
           "channelName": "Scenario",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d105",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "BaseCurrencyCode",
@@ -97,9 +97,9 @@
         {
           "channelName": "Scenario",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d106",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "DestinationLabel",
@@ -118,9 +118,9 @@
         {
           "channelName": "Scenario",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d107",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "DestinationLabel",
@@ -139,9 +139,9 @@
         {
           "channelName": "Scenario",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "ShipmentLabel",
@@ -167,18 +167,18 @@
       "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d102",
       "taskDefinitionName": "WeatherTownGeocode",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 430,
-        "y": 260
+        "x": 560,
+        "y": 320
       },
       "outgoingConnections": [
         {
           "channelName": "Location",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d106",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "Latitude",
@@ -193,9 +193,9 @@
         {
           "channelName": "Location",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d107",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "Latitude",
@@ -213,18 +213,18 @@
       "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d103",
       "taskDefinitionName": "PublicHolidayWindow",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 730,
-        "y": 80
+        "x": 1000,
+        "y": 20
       },
       "outgoingConnections": [
         {
           "channelName": "WindowHoliday",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "HolidayPressureScore",
@@ -242,18 +242,18 @@
       "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d104",
       "taskDefinitionName": "PublicHolidayWindow",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 730,
-        "y": 200
+        "x": 1000,
+        "y": 320
       },
       "outgoingConnections": [
         {
           "channelName": "WindowHoliday",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "HolidayPressureScore",
@@ -271,18 +271,18 @@
       "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d105",
       "taskDefinitionName": "EcbExchangeRateSnapshot",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 730,
-        "y": 320
+        "x": 1000,
+        "y": 620
       },
       "outgoingConnections": [
         {
           "channelName": "Rate",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "ExchangeRate",
@@ -300,18 +300,18 @@
       "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d106",
       "taskDefinitionName": "PublicDaylightWindow",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 730,
-        "y": 440
+        "x": 1440,
+        "y": 170
       },
       "outgoingConnections": [
         {
           "channelName": "Daylight",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "AverageDaylightHours",
@@ -329,18 +329,18 @@
       "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d107",
       "taskDefinitionName": "WindowWeatherOutlook",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 730,
-        "y": 560
+        "x": 1440,
+        "y": 470
       },
       "outgoingConnections": [
         {
           "channelName": "Weather",
           "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
-          "anchor": 0,
-          "side": "right",
-          "position": 0,
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
           "propertyMappings": [
             {
               "sourceProperty": "WeatherRiskScore",
@@ -358,9 +358,9 @@
       "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
       "taskDefinitionName": "DeliveryWindowAdvisor",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 0,
       "position": {
-        "x": 1080,
+        "x": 1880,
         "y": 320
       },
       "designTimeInputOverrides": {

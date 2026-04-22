@@ -1,14 +1,1 @@
-{
-  "DisplayName": "Airport weather risk",
-  "InputChannel": {
-    "Name": "Input",
-    "Type": "AirportWeatherRisk.AirportWeatherRiskInput"
-  },
-  "OutputChannels": [
-    {
-      "Name": "Risk",
-      "Type": "AirportWeatherRisk.AirportWeatherRiskResult"
-    }
-  ],
-  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
-}
+{"displayName":"Airport weather risk","inputChannel":{"name":"Input","type":"AirportWeatherRisk.AirportWeatherRiskInput","properties":[{"name":"AdvisoryCount","kind":"Integer","required":true},{"name":"AirportCode","kind":"String","required":true},{"name":"HighestAdvisorySeverityScore","kind":"Integer","required":true},{"name":"MetarCeilingFeet","kind":"Integer","required":true},{"name":"MetarFlightCategory","kind":"String","required":true},{"name":"MetarVisibilityMiles","kind":"Decimal","required":true},{"name":"MetarWindSpeedKnots","kind":"Decimal","required":true},{"name":"TafForecastCeilingFeet","kind":"Integer","required":true},{"name":"TafForecastVisibilityMiles","kind":"Decimal","required":true},{"name":"TafForecastWindSpeedKnots","kind":"Decimal","required":true},{"name":"TafWorstFlightCategory","kind":"String","required":true}]},"outputChannels":[{"name":"Risk","type":"AirportWeatherRisk.AirportWeatherRiskResult","properties":[{"name":"AirportCode","kind":"String","required":true},{"name":"OperationalWeatherRiskScore","kind":"Integer","required":true},{"name":"Summary","kind":"String","required":true}]}],"globalState":{"name":"GlobalState","type":"Backend.Plugins.Harness.GlobalStateStub","properties":[{"name":"Empty","kind":"Boolean","required":true}]}}

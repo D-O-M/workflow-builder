@@ -1,38 +1,51 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { AbstractControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
-import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 
-export type DynamicFieldKind = 'string' | 'number' | 'boolean' | 'guid';
+export type DynamicFieldKind = 'string' | 'integer' | 'decimal' | 'boolean' | 'guid' | 'date' | 'datetime' | 'enum';
 
 export interface DynamicFieldDefinition {
   key: string;
   label: string;
   kind: DynamicFieldKind;
   required: boolean;
+  options?: string[];
 }
 
 @Component({
   selector: 'app-dynamic-form-field',
   imports: [
     ReactiveFormsModule,
-    MatCheckboxModule,
     MatFormFieldModule,
     MatInputModule,
+    MatSelectModule,
   ],
   template: `
     <div class="field" [formGroup]="group()">
-      @if (field().kind === 'boolean') {
-        <div class="field__boolean">
-          <mat-checkbox [formControlName]="field().key">
-            {{ field().label }}
-          </mat-checkbox>
+      @if (field().kind === 'boolean' || field().kind === 'enum') {
+        <mat-form-field class="field__control" appearance="outline">
+          <mat-label>{{ field().label }}</mat-label>
+          <mat-select [formControlName]="field().key">
+            @if (!field().required) {
+              <mat-option value="">No value</mat-option>
+            }
+
+            @if (field().kind === 'boolean') {
+              <mat-option value="true">True</mat-option>
+              <mat-option value="false">False</mat-option>
+            } @else {
+              @for (option of field().options ?? []; track option) {
+                <mat-option [value]="option">{{ option }}</mat-option>
+              }
+            }
+          </mat-select>
 
           @if (controlInvalid()) {
-            <p class="field__error">{{ errorMessage() }}</p>
+            <mat-error>{{ errorMessage() }}</mat-error>
           }
-        </div>
+        </mat-form-field>
       } @else {
         <mat-form-field class="field__control" appearance="outline">
           <mat-label>{{ field().label }}</mat-label>
@@ -41,9 +54,9 @@ export interface DynamicFieldDefinition {
             [type]="inputType()"
             [formControlName]="field().key"
             [attr.placeholder]="field().label"
-            [attr.inputmode]="field().kind === 'number' ? 'decimal' : null"
+            [attr.inputmode]="field().kind === 'integer' || field().kind === 'decimal' ? 'decimal' : null"
             [attr.autocomplete]="field().kind === 'guid' ? 'off' : null"
-            [attr.step]="field().kind === 'number' ? 'any' : null"
+            [attr.step]="numberStep()"
           />
 
           @if (field().kind === 'guid') {
@@ -66,17 +79,6 @@ export interface DynamicFieldDefinition {
       width: 100%;
     }
 
-    .field__boolean {
-      display: grid;
-      gap: 0.5rem;
-      padding: 0.5rem 0;
-    }
-
-    .field__error {
-      margin: 0;
-      color: var(--app-status-danger);
-      font-size: 0.83rem;
-    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -85,7 +87,17 @@ export class DynamicFormFieldComponent {
   readonly field = input.required<DynamicFieldDefinition>();
 
   protected readonly inputType = computed(() =>
-    this.field().kind === 'number' ? 'number' : 'text',
+    this.field().kind === 'integer' || this.field().kind === 'decimal'
+      ? 'number'
+      : this.field().kind === 'date'
+        ? 'date'
+        : this.field().kind === 'datetime'
+          ? 'datetime-local'
+          : 'text',
+  );
+
+  protected readonly numberStep = computed(() =>
+    this.field().kind === 'integer' ? '1' : this.field().kind === 'decimal' ? 'any' : null,
   );
 
   private readonly control = computed<AbstractControl | null>(() =>

@@ -1,7 +1,11 @@
+using Backend.Database.Relational.Entities;
+
 namespace Backend.Models.DomainModels;
 
-public class PropertyDefinitionDomainModel
+public sealed record PropertyDefinitionDomainModel
 {
     public required string Name { get; init; }
-    public required string TypeName { get; init; }
+    public required WorkflowPropertyKind Kind { get; init; }
+    public required bool IsRequired { get; init; }
+    public required IReadOnlyList<string> EnumValues { get; init; }
 }

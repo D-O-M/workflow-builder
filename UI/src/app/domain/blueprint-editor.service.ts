@@ -3,7 +3,8 @@ import { HttpClient } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { ConnectionModel, ConnectionPropertyMappingModel } from './connection-model';
 import { NodeModel, Point, Side, TaskPropertyType } from './node-model';
-import { ITaskDefinition } from '../interfaces/ITaskDefinition';
+import { ITaskChannel, ITaskDefinition } from '../interfaces/ITaskDefinition';
+import { taskPropertyKindMap } from './task-property-form-utils';
 
 interface CoordinatesViewModel {
   x: number;
@@ -258,6 +259,7 @@ export class BlueprintEditorService {
     inputProperties: Record<string, TaskPropertyType>,
     outputChannelProperties: Record<string, Record<string, TaskPropertyType>>,
     designTimeInputOverrides: Record<string, unknown>,
+    inputPropertyDefinitions: ITaskChannel['properties'],
     snap?: (v: number) => number,
   ): NodeModel {
     const y = snap ? snap(coordinates.y) : coordinates.y;
@@ -282,6 +284,7 @@ export class BlueprintEditorService {
       inputProperties,
       outputChannelProperties,
       designTimeInputOverrides,
+      this.clonePropertyDefinitions(inputPropertyDefinitions),
     );
   }
 
@@ -425,9 +428,10 @@ export class BlueprintEditorService {
             taskVersion?.inputChannel?.name ?? null,
             taskVersion?.outputChannels.map((channel) => channel.name) ?? [],
             taskDefinition ? this.hasNewerMajorMinorLane(taskDefinition, task.allowedMajor, task.allowedMinor) : false,
-            taskVersion?.inputChannel?.properties ?? {},
-            Object.fromEntries((taskVersion?.outputChannels ?? []).map((channel) => [channel.name, channel.properties])),
+            taskPropertyKindMap(taskVersion?.inputChannel?.properties ?? []),
+            Object.fromEntries((taskVersion?.outputChannels ?? []).map((channel) => [channel.name, this.channelPropertyKindMap(channel)])),
             task.designTimeInputOverrides ?? {},
+            taskVersion?.inputChannel?.properties ?? [],
           );
         });
 
@@ -551,5 +555,16 @@ export class BlueprintEditorService {
   private getVersionLane(version: `${number}.${number}.${number}` | string): [number, number] {
     const [major, minor] = version.split('.').map((segment) => Number(segment));
     return [Number.isFinite(major) ? major : 0, Number.isFinite(minor) ? minor : 0];
+  }
+
+  private channelPropertyKindMap(channel: ITaskChannel): Record<string, TaskPropertyType> {
+    return taskPropertyKindMap(channel.properties);
+  }
+
+  private clonePropertyDefinitions(properties: ITaskChannel['properties']): ITaskChannel['properties'] {
+    return properties.map((property) => ({
+      ...property,
+      enumValues: [...property.enumValues],
+    }));
   }
 }

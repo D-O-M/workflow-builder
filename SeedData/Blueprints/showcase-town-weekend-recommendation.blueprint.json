@@ -17,9 +17,9 @@
         {
           "channelName": "ResolvedTown",
           "connectedTaskKey": "22222222-2222-2222-2222-222222222222",
-          "anchor": 0,
-          "side": "right",
-          "position": 0
+          "anchor": 1,
+          "side": "left",
+          "position": 62
         }
       ]
     },
@@ -29,16 +29,16 @@
       "allowedMajor": 0,
       "allowedMinor": 0,
       "position": {
-        "x": 460,
+        "x": 560,
         "y": 160
       },
       "outgoingConnections": [
         {
           "channelName": "TownWeekendForecast",
           "connectedTaskKey": "33333333-3333-3333-3333-333333333333",
-          "anchor": 0,
-          "side": "right",
-          "position": 0
+          "anchor": 1,
+          "side": "left",
+          "position": 62
         }
       ]
     },
@@ -48,16 +48,16 @@
       "allowedMajor": 0,
       "allowedMinor": 0,
       "position": {
-        "x": 800,
+        "x": 1000,
         "y": 160
       },
       "outgoingConnections": [
         {
           "channelName": "TownWeekendHolidayContext",
           "connectedTaskKey": "44444444-4444-4444-4444-444444444444",
-          "anchor": 0,
-          "side": "right",
-          "position": 0
+          "anchor": 1,
+          "side": "left",
+          "position": 62
         }
       ]
     },
@@ -67,7 +67,7 @@
       "allowedMajor": 0,
       "allowedMinor": 0,
       "position": {
-        "x": 1140,
+        "x": 1440,
         "y": 160
       },
       "outgoingConnections": []

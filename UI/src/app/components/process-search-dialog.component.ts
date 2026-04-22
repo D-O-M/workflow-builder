@@ -31,7 +31,7 @@ import {
   ProcessSearchStatus,
 } from '../domain/blueprint-editor.service';
 import { TaskPropertyType } from '../domain/node-model';
-import { ITaskDefinition } from '../interfaces/ITaskDefinition';
+import { ITaskDefinition, ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
 type QuickRangeKey = '15m' | '1h' | '6h' | '24h' | '7d' | 'custom';
 
@@ -80,6 +80,7 @@ interface PropertyCatalogItem {
   blueprintNodeId?: string | null;
   propertyKey: string;
   propertyType: TaskPropertyType;
+  enumValues: string[];
   label: string;
   subtitle: string;
   searchText: string;
@@ -456,18 +457,47 @@ export class ProcessSearchDialogComponent {
   protected valuePlaceholder(propertyType: TaskPropertyType): string {
     switch (propertyType) {
       case 'Boolean':
-        return 'true or false';
+        return 'Select true or false';
       case 'Guid':
         return 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx';
-      case 'Number':
+      case 'Integer':
+      case 'Decimal':
         return 'Enter a number';
+      case 'Date':
+        return 'Select a date';
+      case 'DateTime':
+        return 'Select a date and time';
+      case 'Enum':
+        return 'Select an option';
       default:
         return 'Enter an exact value';
     }
   }
 
   protected propertyInputType(propertyType: TaskPropertyType): string {
-    return propertyType === 'Number' ? 'number' : 'text';
+    switch (propertyType) {
+      case 'Integer':
+      case 'Decimal':
+        return 'number';
+      case 'Date':
+        return 'date';
+      case 'DateTime':
+        return 'datetime-local';
+      default:
+        return 'text';
+    }
+  }
+
+  protected propertyUsesSelect(propertyType: TaskPropertyType): boolean {
+    return propertyType === 'Boolean' || propertyType === 'Enum';
+  }
+
+  protected propertySelectOptions(option: PropertyCatalogItem | null | undefined): string[] {
+    if (!option) {
+      return [];
+    }
+
+    return option.propertyType === 'Boolean' ? ['true', 'false'] : option.enumValues;
   }
 
   private restoreInitialRequest(initialRequest: ProcessSearchRequest | null): void {
@@ -613,17 +643,18 @@ export class ProcessSearchDialogComponent {
           const nodeKey = `${blueprint.id}:${task.instanceId}`;
           const taskName = taskDefinition?.name ?? `Task ${task.taskDefinitionId}`;
 
-          for (const [propertyKey, propertyType] of Object.entries(taskVersion?.requiredGlobalState?.properties ?? {})) {
+          for (const property of taskVersion?.requiredGlobalState?.properties ?? []) {
             const option: PropertyCatalogItem = {
-              key: `global:${blueprint.id}:${propertyKey}:${propertyType}`,
+              key: `global:${blueprint.id}:${property.name}:${property.kind}`,
               scope: 'GlobalState',
               blueprintDefinitionId: blueprint.id,
               blueprintNodeId: null,
-              propertyKey,
-              propertyType,
-              label: `Global / ${propertyKey}`,
+              propertyKey: property.name,
+              propertyType: property.kind,
+              enumValues: [...property.enumValues],
+              label: `Global / ${property.name}`,
               subtitle: blueprint.name,
-              searchText: `${blueprint.name} global ${propertyKey}`.toLocaleLowerCase(),
+              searchText: `${blueprint.name} global ${property.name}`.toLocaleLowerCase(),
             };
             propertyMap.set(option.key, option);
           }
@@ -632,36 +663,38 @@ export class ProcessSearchDialogComponent {
             continue;
           }
 
-          for (const [propertyKey, propertyType] of Object.entries(taskVersion?.inputChannel?.properties ?? {})) {
+          for (const property of taskVersion?.inputChannel?.properties ?? []) {
             const option: PropertyCatalogItem = {
-              key: `input:${blueprint.id}:${task.instanceId}:${propertyKey}:${propertyType}`,
+              key: `input:${blueprint.id}:${task.instanceId}:${property.name}:${property.kind}`,
               scope: 'NodeInput',
               blueprintDefinitionId: blueprint.id,
               blueprintNodeId: task.instanceId,
-              propertyKey,
-              propertyType,
-              label: `${taskName} Input / ${propertyKey}`,
+              propertyKey: property.name,
+              propertyType: property.kind,
+              enumValues: [...property.enumValues],
+              label: `${taskName} Input / ${property.name}`,
               subtitle: `${blueprint.name} · Version ${version.version}`,
-              searchText: `${blueprint.name} ${taskName} input ${propertyKey}`.toLocaleLowerCase(),
+              searchText: `${blueprint.name} ${taskName} input ${property.name}`.toLocaleLowerCase(),
             };
             propertyMap.set(option.key, option);
           }
 
-          const outputProperties = new Map<string, TaskPropertyType>();
+          const outputProperties = new Map<string, ITaskPropertyDefinition>();
           for (const channel of taskVersion?.outputChannels ?? []) {
-            for (const [propertyKey, propertyType] of Object.entries(channel.properties ?? {})) {
-              outputProperties.set(propertyKey, propertyType);
+            for (const property of channel.properties ?? []) {
+              outputProperties.set(property.name, property);
             }
           }
 
-          for (const [propertyKey, propertyType] of outputProperties) {
+          for (const [propertyKey, property] of outputProperties) {
             const option: PropertyCatalogItem = {
-              key: `output:${blueprint.id}:${task.instanceId}:${propertyKey}:${propertyType}`,
+              key: `output:${blueprint.id}:${task.instanceId}:${propertyKey}:${property.kind}`,
               scope: 'NodeOutput',
               blueprintDefinitionId: blueprint.id,
               blueprintNodeId: task.instanceId,
               propertyKey,
-              propertyType,
+              propertyType: property.kind,
+              enumValues: [...property.enumValues],
               label: `${taskName} Output / ${propertyKey}`,
               subtitle: `${blueprint.name} · Version ${version.version}`,
               searchText: `${blueprint.name} ${taskName} output ${propertyKey}`.toLocaleLowerCase(),

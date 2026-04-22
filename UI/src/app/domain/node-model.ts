@@ -1,3 +1,5 @@
+import { ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
+
 export interface Point {
     x: number;
     y: number;
@@ -5,7 +7,7 @@ export interface Point {
 
 export type Side = 'left' | 'right' | 'top' | 'bottom';
 export type NodeRenderStatus = 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
-export type TaskPropertyType = 'Number' | 'String' | 'Boolean' | 'Guid';
+export type TaskPropertyType = 'String' | 'Integer' | 'Decimal' | 'Boolean' | 'Guid' | 'Date' | 'DateTime' | 'Enum';
 
 export interface NodeAnchor {
     index: number;
@@ -43,6 +45,7 @@ export class NodeModel {
         public inputProperties: Record<string, TaskPropertyType> = {},
         public outputChannelProperties: Record<string, Record<string, TaskPropertyType>> = {},
         public designTimeInputOverrides: Record<string, unknown> = {},
+        public inputPropertyDefinitions: ITaskPropertyDefinition[] = [],
     ) {}
 
     contains(x: number, y: number): boolean {

@@ -1,0 +1,15 @@
+<Project>
+  <PropertyGroup>
+    <WorkflowBuilderPluginProject Condition="'$(OutputType)' == 'Exe' Or '$(OutputType)' == 'WinExe' Or Exists('$(MSBuildProjectDirectory)\Program.cs')">true</WorkflowBuilderPluginProject>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(WorkflowBuilderPluginProject)' == 'true'">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\Backend.Plugins.Harness.Generator\Backend.Plugins.Harness.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+    <Content Remove="manifest.json" />
+    <Content Remove="schemas\**\*.json" />
+    <None Remove="manifest.json" />
+    <None Remove="schemas\**\*.json" />
+  </ItemGroup>
+</Project>

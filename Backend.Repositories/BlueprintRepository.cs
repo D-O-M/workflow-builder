@@ -60,7 +60,7 @@ public class BlueprintRepository : IBlueprintRepository
                 Name = inputChannelEntity.Name,
                 Properties = inputChannelEntity.Properties.ToDictionary(
                     property => property.Name,
-                    property => property.Type.ToString(),
+                    property => property.Kind.ToString(),
                     StringComparer.Ordinal),
                 OutboundBindings = []
             };
@@ -73,7 +73,7 @@ public class BlueprintRepository : IBlueprintRepository
                     Name = channel.Name,
                     Properties = channel.Properties.ToDictionary(
                         property => property.Name,
-                        property => property.Type.ToString(),
+                        property => property.Kind.ToString(),
                         StringComparer.Ordinal),
                     OutboundBindings = []
                 },

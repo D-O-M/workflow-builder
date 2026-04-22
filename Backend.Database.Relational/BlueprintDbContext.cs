@@ -209,7 +209,9 @@ public class BlueprintDbContext : DbContext
             entity.HasKey(e => e.Id);
 
             entity.Property(e => e.Name).IsRequired();
-            entity.Property(e => e.Type).IsRequired();
+            entity.Property(e => e.Kind).IsRequired();
+            entity.Property(e => e.IsRequired).IsRequired();
+            entity.Property(e => e.EnumValuesJson).IsRequired(false);
         });
 
         // Optional: Apply configurations via Fluent API

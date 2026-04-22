@@ -1,14 +1,1 @@
-{
-  "DisplayName": "Public holiday window",
-  "InputChannel": {
-    "Name": "Input",
-    "Type": "PublicHolidayWindow.HolidayWindowInput"
-  },
-  "OutputChannels": [
-    {
-      "Name": "WindowHoliday",
-      "Type": "PublicHolidayWindow.HolidayWindowResult"
-    }
-  ],
-  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
-}
+{"displayName":"Public holiday window","inputChannel":{"name":"Input","type":"PublicHolidayWindow.HolidayWindowInput","properties":[{"name":"CountryCode","kind":"String","required":true},{"name":"LocationLabel","kind":"String","required":true},{"name":"WindowEndIsoDate","kind":"String","required":true},{"name":"WindowStartIsoDate","kind":"String","required":true}]},"outputChannels":[{"name":"WindowHoliday","type":"PublicHolidayWindow.HolidayWindowResult","properties":[{"name":"CountryCode","kind":"String","required":true},{"name":"HeadlineHoliday","kind":"String","required":true},{"name":"HolidayCount","kind":"Integer","required":true},{"name":"HolidayPressureScore","kind":"Integer","required":true},{"name":"LocationLabel","kind":"String","required":true},{"name":"Summary","kind":"String","required":true},{"name":"WindowEndIsoDate","kind":"String","required":true},{"name":"WindowStartIsoDate","kind":"String","required":true}]}],"globalState":{"name":"GlobalState","type":"Backend.Plugins.Harness.GlobalStateStub","properties":[{"name":"Empty","kind":"Boolean","required":true}]}}

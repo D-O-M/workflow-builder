@@ -1,3 +1,5 @@
+import { TaskPropertyType } from '../domain/node-model';
+
 export interface ITaskDefinition {
     id: number;
     name: string;
@@ -17,5 +19,12 @@ export interface ITaskVersion {
 export interface ITaskChannel {
     id: number;
     name: string;
-    properties: Record<string, "Number" | "String" | "Boolean" | "Guid">;
+    properties: ITaskPropertyDefinition[];
+}
+
+export interface ITaskPropertyDefinition {
+    name: string;
+    kind: TaskPropertyType;
+    required: boolean;
+    enumValues: string[];
 }

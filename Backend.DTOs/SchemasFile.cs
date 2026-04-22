@@ -13,10 +13,13 @@ public record SchemasFileComponents
 public record TypeSchema
 {
     public required string[] Type { get; set; }
+    public string[] Required { get; set; } = [];
     public required Dictionary<string, TypeInfo> Properties { get; set; }
 }
 
 public record TypeInfo
 {
-    public required string Type { get; set; }
+    public required string[] Type { get; set; }
+    public string? Format { get; set; }
+    public string[]? Enum { get; set; }
 }

@@ -65,33 +65,33 @@ public sealed class BlueprintRepositoryTests
         var sourceDefinition = await SeedTaskDefinitionWithChannelsAsync(
             database.Context,
             "Lookup",
-            new Dictionary<string, PrimitiveTypes>
+            new Dictionary<string, WorkflowPropertyKind>
             {
-                ["requestId"] = PrimitiveTypes.Guid,
+                ["requestId"] = WorkflowPropertyKind.Guid,
             },
-            ("TownResult", new Dictionary<string, PrimitiveTypes>
+            ("TownResult", new Dictionary<string, WorkflowPropertyKind>
             {
-                ["town"] = PrimitiveTypes.String,
+                ["town"] = WorkflowPropertyKind.String,
             }));
         var holidayDefinition = await SeedTaskDefinitionWithChannelsAsync(
             database.Context,
             "Holiday",
-            new Dictionary<string, PrimitiveTypes>
+            new Dictionary<string, WorkflowPropertyKind>
             {
-                ["requestId"] = PrimitiveTypes.Guid,
+                ["requestId"] = WorkflowPropertyKind.Guid,
             },
-            ("HolidayResult", new Dictionary<string, PrimitiveTypes>
+            ("HolidayResult", new Dictionary<string, WorkflowPropertyKind>
             {
-                ["holiday"] = PrimitiveTypes.String,
+                ["holiday"] = WorkflowPropertyKind.String,
             }));
         var targetDefinition = await SeedTaskDefinitionWithChannelsAsync(
             database.Context,
             "Recommendation",
-            new Dictionary<string, PrimitiveTypes>
+            new Dictionary<string, WorkflowPropertyKind>
             {
-                ["mappedTown"] = PrimitiveTypes.String,
-                ["holiday"] = PrimitiveTypes.String,
-                ["mode"] = PrimitiveTypes.String,
+                ["mappedTown"] = WorkflowPropertyKind.String,
+                ["holiday"] = WorkflowPropertyKind.String,
+                ["mode"] = WorkflowPropertyKind.String,
             });
 
         var repository = new BlueprintRepository(database.Context);
@@ -221,8 +221,8 @@ public sealed class BlueprintRepositoryTests
     private static async Task<TaskDefinition> SeedTaskDefinitionWithChannelsAsync(
         Backend.Database.Relational.BlueprintDbContext context,
         string name,
-        Dictionary<string, PrimitiveTypes> inputProperties,
-        params (string ChannelName, Dictionary<string, PrimitiveTypes> Properties)[] outputChannels)
+        Dictionary<string, WorkflowPropertyKind> inputProperties,
+        params (string ChannelName, Dictionary<string, WorkflowPropertyKind> Properties)[] outputChannels)
     {
         var taskDefinition = new TaskDefinition
         {
@@ -243,7 +243,8 @@ public sealed class BlueprintRepositoryTests
                                 .Select(property => new ChannelProperty
                                 {
                                     Name = property.Key,
-                                    Type = property.Value,
+                                    Kind = property.Value,
+                                    IsRequired = true,
                                 })
                                 .ToList()
                         },
@@ -254,7 +255,8 @@ public sealed class BlueprintRepositoryTests
                                 .Select(property => new ChannelProperty
                                 {
                                     Name = property.Key,
-                                    Type = property.Value,
+                                    Kind = property.Value,
+                                    IsRequired = true,
                                 })
                                 .ToList()
                         })

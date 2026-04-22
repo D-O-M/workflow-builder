@@ -1,18 +1,24 @@
 namespace Backend.Database.Relational.Entities;
 
-public enum PrimitiveTypes
+public enum WorkflowPropertyKind
 {
-    Number = 0,
-    String = 1,
-    Guid = 2,
-    Boolean = 3
+    String = 0,
+    Integer = 1,
+    Decimal = 2,
+    Boolean = 3,
+    Guid = 4,
+    Date = 5,
+    DateTime = 6,
+    Enum = 7
 }
 
 public class ChannelProperty
 {
     public int Id { get; set; }
     public string Name { get; set; } = null!;
-    public PrimitiveTypes Type { get; set; }
+    public WorkflowPropertyKind Kind { get; set; }
+    public bool IsRequired { get; set; }
+    public string? EnumValuesJson { get; set; }
 
     public int ChannelId { get; set; }
     public Channel Channel { get; set; } = null!;

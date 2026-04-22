@@ -22,5 +22,13 @@ public record TaskChannel
 {
     public int Id { get; init; }
     public required string Name { get; init; }
-    public required Dictionary<string, string> Properties { get; init; } = new();
-} 
+    public required List<TaskPropertyViewModel> Properties { get; init; } = [];
+}
+
+public record TaskPropertyViewModel
+{
+    public required string Name { get; init; }
+    public required string Kind { get; init; }
+    public required bool Required { get; init; }
+    public required List<string> EnumValues { get; init; } = [];
+}

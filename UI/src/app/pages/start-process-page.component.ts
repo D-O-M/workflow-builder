@@ -43,16 +43,16 @@ import {
   readyRequestState,
 } from '../domain/request-state';
 import { TaskDefinitionsService } from '../domain/task-definitions.service';
-import { TaskPropertyType } from '../domain/node-model';
 import {
   createTaskPropertyControl,
   createTaskPropertyFieldDefinitions,
 } from '../domain/task-property-form-utils';
+import { ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
 interface RuntimeOverrideNode {
   instanceId: string;
   name: string;
-  inputProperties: Record<string, TaskPropertyType>;
+  inputProperties: ITaskPropertyDefinition[];
   propertyCount: number;
 }
 
@@ -403,8 +403,8 @@ export class StartProcessPageComponent {
           instanceId: task.instanceId,
           name: this.taskDefinitionById().get(task.taskDefinitionId)?.name
             ?? `Node ${task.instanceId}`,
-          inputProperties: { ...(taskVersion?.inputChannel?.properties ?? {}) },
-          propertyCount: Object.keys(taskVersion?.inputChannel?.properties ?? {}).length,
+          inputProperties: [...(taskVersion?.inputChannel?.properties ?? [])],
+          propertyCount: (taskVersion?.inputChannel?.properties ?? []).length,
         };
       })
       .filter((node) => node.propertyCount > 0);

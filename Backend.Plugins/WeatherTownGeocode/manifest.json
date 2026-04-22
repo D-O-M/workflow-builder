@@ -1,14 +1,1 @@
-{
-  "DisplayName": "Town geocoder",
-  "InputChannel": {
-    "Name": "Input",
-    "Type": "WeatherTownGeocode.TownInput"
-  },
-  "OutputChannels": [
-    {
-      "Name": "Location",
-      "Type": "WeatherTownGeocode.GeoLocation"
-    }
-  ],
-  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
-}
+{"displayName":"Town geocoder","inputChannel":{"name":"Input","type":"WeatherTownGeocode.TownInput","properties":[{"name":"Town","kind":"String","required":true}]},"outputChannels":[{"name":"Location","type":"WeatherTownGeocode.GeoLocation","properties":[{"name":"CountryCode","kind":"String","required":true},{"name":"DisplayName","kind":"String","required":true},{"name":"Latitude","kind":"Decimal","required":true},{"name":"Longitude","kind":"Decimal","required":true},{"name":"Town","kind":"String","required":true}]}],"globalState":{"name":"GlobalState","type":"Backend.Plugins.Harness.GlobalStateStub","properties":[{"name":"Empty","kind":"Boolean","required":true}]}}

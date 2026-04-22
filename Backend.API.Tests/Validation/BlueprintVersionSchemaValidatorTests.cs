@@ -22,19 +22,19 @@ public sealed class BlueprintVersionSchemaValidatorTests
         var sourceDefinition = await SeedTaskDefinitionAsync(
             database.Context,
             "Source",
-            inputProperties: new Dictionary<string, PrimitiveTypes> { ["requestId"] = PrimitiveTypes.Guid },
-            ("Result", new Dictionary<string, PrimitiveTypes>
+            inputProperties: new Dictionary<string, WorkflowPropertyKind> { ["requestId"] = WorkflowPropertyKind.Guid },
+            ("Result", new Dictionary<string, WorkflowPropertyKind>
             {
-                ["town"] = PrimitiveTypes.String,
-                ["holiday"] = PrimitiveTypes.String,
+                ["town"] = WorkflowPropertyKind.String,
+                ["holiday"] = WorkflowPropertyKind.String,
             }));
         var targetDefinition = await SeedTaskDefinitionAsync(
             database.Context,
             "Target",
-            inputProperties: new Dictionary<string, PrimitiveTypes>
+            inputProperties: new Dictionary<string, WorkflowPropertyKind>
             {
-                ["mappedTown"] = PrimitiveTypes.String,
-                ["holiday"] = PrimitiveTypes.String,
+                ["mappedTown"] = WorkflowPropertyKind.String,
+                ["holiday"] = WorkflowPropertyKind.String,
             });
 
         var a = Guid.NewGuid();
@@ -73,19 +73,19 @@ public sealed class BlueprintVersionSchemaValidatorTests
         var sourceDefinition = await SeedTaskDefinitionAsync(
             database.Context,
             "Source",
-            inputProperties: new Dictionary<string, PrimitiveTypes> { ["requestId"] = PrimitiveTypes.Guid },
-            ("Result", new Dictionary<string, PrimitiveTypes>
+            inputProperties: new Dictionary<string, WorkflowPropertyKind> { ["requestId"] = WorkflowPropertyKind.Guid },
+            ("Result", new Dictionary<string, WorkflowPropertyKind>
             {
-                ["town"] = PrimitiveTypes.String,
-                ["holiday"] = PrimitiveTypes.String,
+                ["town"] = WorkflowPropertyKind.String,
+                ["holiday"] = WorkflowPropertyKind.String,
             }));
         var targetDefinition = await SeedTaskDefinitionAsync(
             database.Context,
             "Target",
-            inputProperties: new Dictionary<string, PrimitiveTypes>
+            inputProperties: new Dictionary<string, WorkflowPropertyKind>
             {
-                ["mappedTown"] = PrimitiveTypes.String,
-                ["holiday"] = PrimitiveTypes.String,
+                ["mappedTown"] = WorkflowPropertyKind.String,
+                ["holiday"] = WorkflowPropertyKind.String,
             });
 
         var a = Guid.NewGuid();
@@ -124,9 +124,9 @@ public sealed class BlueprintVersionSchemaValidatorTests
         var targetDefinition = await SeedTaskDefinitionAsync(
             database.Context,
             "Target",
-            inputProperties: new Dictionary<string, PrimitiveTypes>
+            inputProperties: new Dictionary<string, WorkflowPropertyKind>
             {
-                ["mappedTown"] = PrimitiveTypes.String,
+                ["mappedTown"] = WorkflowPropertyKind.String,
             });
 
         var taskId = Guid.NewGuid();
@@ -191,8 +191,8 @@ public sealed class BlueprintVersionSchemaValidatorTests
     private static async Task<TaskDefinition> SeedTaskDefinitionAsync(
         Backend.Database.Relational.BlueprintDbContext context,
         string name,
-        IReadOnlyDictionary<string, PrimitiveTypes> inputProperties,
-        params (string ChannelName, IReadOnlyDictionary<string, PrimitiveTypes> Properties)[] outputChannels)
+        IReadOnlyDictionary<string, WorkflowPropertyKind> inputProperties,
+        params (string ChannelName, IReadOnlyDictionary<string, WorkflowPropertyKind> Properties)[] outputChannels)
     {
         var taskDefinition = new TaskDefinition
         {
@@ -213,7 +213,8 @@ public sealed class BlueprintVersionSchemaValidatorTests
                                 .Select(property => new ChannelProperty
                                 {
                                     Name = property.Key,
-                                    Type = property.Value
+                                    Kind = property.Value,
+                                    IsRequired = true,
                                 })
                                 .ToList()
                         },
@@ -224,7 +225,8 @@ public sealed class BlueprintVersionSchemaValidatorTests
                                 .Select(property => new ChannelProperty
                                 {
                                     Name = property.Key,
-                                    Type = property.Value
+                                    Kind = property.Value,
+                                    IsRequired = true,
                                 })
                                 .ToList()
                         })

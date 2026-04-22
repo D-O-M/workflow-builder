@@ -1,14 +1,1 @@
-{
-  "DisplayName": "ECB exchange rate snapshot",
-  "InputChannel": {
-    "Name": "Input",
-    "Type": "EcbExchangeRateSnapshot.EcbExchangeRateInput"
-  },
-  "OutputChannels": [
-    {
-      "Name": "Rate",
-      "Type": "EcbExchangeRateSnapshot.EcbExchangeRateResult"
-    }
-  ],
-  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
-}
+{"displayName":"ECB exchange rate snapshot","inputChannel":{"name":"Input","type":"EcbExchangeRateSnapshot.EcbExchangeRateInput","properties":[{"name":"BaseCurrencyCode","kind":"String","required":true},{"name":"QuoteCurrencyCode","kind":"String","required":true}]},"outputChannels":[{"name":"Rate","type":"EcbExchangeRateSnapshot.EcbExchangeRateResult","properties":[{"name":"BaseCurrencyCode","kind":"String","required":true},{"name":"ExchangeRate","kind":"Decimal","required":true},{"name":"InverseRate","kind":"Decimal","required":true},{"name":"QuoteCurrencyCode","kind":"String","required":true},{"name":"Summary","kind":"String","required":true}]}],"globalState":{"name":"GlobalState","type":"Backend.Plugins.Harness.GlobalStateStub","properties":[{"name":"Empty","kind":"Boolean","required":true}]}}

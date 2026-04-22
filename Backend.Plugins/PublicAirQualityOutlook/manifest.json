@@ -1,14 +1,1 @@
-{
-  "DisplayName": "Public air quality outlook",
-  "InputChannel": {
-    "Name": "Input",
-    "Type": "PublicAirQualityOutlook.AirQualityWindowInput"
-  },
-  "OutputChannels": [
-    {
-      "Name": "AirQuality",
-      "Type": "PublicAirQualityOutlook.AirQualityWindowResult"
-    }
-  ],
-  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
-}
+{"displayName":"Public air quality outlook","inputChannel":{"name":"Input","type":"PublicAirQualityOutlook.AirQualityWindowInput","properties":[{"name":"Latitude","kind":"Decimal","required":true},{"name":"LocationLabel","kind":"String","required":true},{"name":"Longitude","kind":"Decimal","required":true},{"name":"WindowEndIsoDate","kind":"String","required":true},{"name":"WindowStartIsoDate","kind":"String","required":true}]},"outputChannels":[{"name":"AirQuality","type":"PublicAirQualityOutlook.AirQualityWindowResult","properties":[{"name":"AirQualityScore","kind":"Integer","required":true},{"name":"AverageAirQualityIndex","kind":"Decimal","required":true},{"name":"LocationLabel","kind":"String","required":true},{"name":"Summary","kind":"String","required":true},{"name":"WindowEndIsoDate","kind":"String","required":true},{"name":"WindowStartIsoDate","kind":"String","required":true}]}],"globalState":{"name":"GlobalState","type":"Backend.Plugins.Harness.GlobalStateStub","properties":[{"name":"Empty","kind":"Boolean","required":true}]}}
