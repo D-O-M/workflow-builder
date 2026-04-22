@@ -1,0 +1,84 @@
+{
+  "components": {
+    "schemas": {
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      },
+      "MunicipalReadinessAdvisor.MunicipalReadinessInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "LocationLabel": {
+            "type": "string"
+          },
+          "WeatherSuitabilityScore": {
+            "type": "integer"
+          },
+          "WeatherSummary": {
+            "type": "string"
+          },
+          "HolidayPressureScore": {
+            "type": "integer"
+          },
+          "HolidaySummary": {
+            "type": "string"
+          },
+          "DaylightScore": {
+            "type": "integer"
+          },
+          "DaylightSummary": {
+            "type": "string"
+          },
+          "AirQualityScore": {
+            "type": "integer"
+          },
+          "AirQualitySummary": {
+            "type": "string"
+          },
+          "SensitivityMultiplier": {
+            "type": "number"
+          },
+          "GoThreshold": {
+            "type": "integer"
+          },
+          "WatchThreshold": {
+            "type": "integer"
+          }
+        }
+      },
+      "MunicipalReadinessAdvisor.MunicipalReadinessResult": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "LocationLabel": {
+            "type": "string"
+          },
+          "ReadinessScore": {
+            "type": "integer"
+          },
+          "RecommendationBand": {
+            "type": "string"
+          },
+          "RecommendedAction": {
+            "type": "string"
+          },
+          "Summary": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

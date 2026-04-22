@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Delivery scenario normalizer",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "DeliveryScenarioNormalizer.DeliveryScenarioInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Scenario",
+      "Type": "DeliveryScenarioNormalizer.DeliveryScenarioResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

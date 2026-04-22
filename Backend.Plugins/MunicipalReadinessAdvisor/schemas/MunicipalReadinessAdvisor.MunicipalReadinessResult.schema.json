@@ -1,0 +1,23 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "LocationLabel": {
+      "type": "string"
+    },
+    "ReadinessScore": {
+      "type": "integer"
+    },
+    "RecommendationBand": {
+      "type": "string"
+    },
+    "RecommendedAction": {
+      "type": "string"
+    },
+    "Summary": {
+      "type": "string"
+    }
+  }
+}

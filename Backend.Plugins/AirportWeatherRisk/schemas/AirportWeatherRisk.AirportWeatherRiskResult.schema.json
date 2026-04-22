@@ -1,0 +1,17 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "AirportCode": {
+      "type": "string"
+    },
+    "OperationalWeatherRiskScore": {
+      "type": "integer"
+    },
+    "Summary": {
+      "type": "string"
+    }
+  }
+}

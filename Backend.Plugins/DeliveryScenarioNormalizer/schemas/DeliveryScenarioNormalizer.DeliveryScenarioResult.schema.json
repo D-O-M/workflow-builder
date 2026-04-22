@@ -1,0 +1,38 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "ShipmentLabel": {
+      "type": "string"
+    },
+    "DestinationTown": {
+      "type": "string"
+    },
+    "DestinationCountryCode": {
+      "type": "string"
+    },
+    "SupplierCountryCode": {
+      "type": "string"
+    },
+    "ReceiverCountryCode": {
+      "type": "string"
+    },
+    "BaseCurrencyCode": {
+      "type": "string"
+    },
+    "QuoteCurrencyCode": {
+      "type": "string"
+    },
+    "WindowStartIsoDate": {
+      "type": "string"
+    },
+    "WindowEndIsoDate": {
+      "type": "string"
+    },
+    "DestinationLabel": {
+      "type": "string"
+    }
+  }
+}

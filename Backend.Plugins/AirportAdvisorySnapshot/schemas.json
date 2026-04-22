@@ -1,0 +1,54 @@
+{
+  "components": {
+    "schemas": {
+      "AirportAdvisorySnapshot.AirportAdvisoryInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "AirportCode": {
+            "type": "string"
+          },
+          "Latitude": {
+            "type": "number"
+          },
+          "Longitude": {
+            "type": "number"
+          }
+        }
+      },
+      "AirportAdvisorySnapshot.AirportAdvisoryResult": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "AirportCode": {
+            "type": "string"
+          },
+          "AdvisoryCount": {
+            "type": "integer"
+          },
+          "HighestAdvisorySeverityScore": {
+            "type": "integer"
+          },
+          "Summary": {
+            "type": "string"
+          }
+        }
+      },
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

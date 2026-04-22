@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Public air quality outlook",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "PublicAirQualityOutlook.AirQualityWindowInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "AirQuality",
+      "Type": "PublicAirQualityOutlook.AirQualityWindowResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

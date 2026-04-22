@@ -1,0 +1,54 @@
+{
+  "components": {
+    "schemas": {
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      },
+      "EcbExchangeRateSnapshot.EcbExchangeRateInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "BaseCurrencyCode": {
+            "type": "string"
+          },
+          "QuoteCurrencyCode": {
+            "type": "string"
+          }
+        }
+      },
+      "EcbExchangeRateSnapshot.EcbExchangeRateResult": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "BaseCurrencyCode": {
+            "type": "string"
+          },
+          "QuoteCurrencyCode": {
+            "type": "string"
+          },
+          "ExchangeRate": {
+            "type": "number"
+          },
+          "InverseRate": {
+            "type": "number"
+          },
+          "Summary": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

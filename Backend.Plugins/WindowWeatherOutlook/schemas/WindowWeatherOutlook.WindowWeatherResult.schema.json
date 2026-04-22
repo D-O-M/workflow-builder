@@ -1,0 +1,32 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "LocationLabel": {
+      "type": "string"
+    },
+    "WindowStartIsoDate": {
+      "type": "string"
+    },
+    "WindowEndIsoDate": {
+      "type": "string"
+    },
+    "AverageTemperatureC": {
+      "type": "number"
+    },
+    "TotalPrecipitationMm": {
+      "type": "number"
+    },
+    "MaxWindSpeedMps": {
+      "type": "number"
+    },
+    "WeatherRiskScore": {
+      "type": "integer"
+    },
+    "Summary": {
+      "type": "string"
+    }
+  }
+}

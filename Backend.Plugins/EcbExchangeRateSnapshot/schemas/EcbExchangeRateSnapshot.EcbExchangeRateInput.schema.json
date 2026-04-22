@@ -1,0 +1,14 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "BaseCurrencyCode": {
+      "type": "string"
+    },
+    "QuoteCurrencyCode": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "StationCode": {
+      "type": "string"
+    },
+    "WorstFlightCategory": {
+      "type": "string"
+    },
+    "ForecastWindSpeedKnots": {
+      "type": "number"
+    },
+    "ForecastVisibilityMiles": {
+      "type": "number"
+    },
+    "ForecastCeilingFeet": {
+      "type": "integer"
+    },
+    "Summary": {
+      "type": "string"
+    }
+  }
+}

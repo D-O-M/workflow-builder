@@ -23,6 +23,7 @@ public class PluginBuilder<TPlugin>
 {
     private const string ProcessStepsContainerName = "processsteps";
     private const string ProcessesContainerName = "processes";
+    private const string GenerateContractsOnlyEnvironmentVariable = "WORKFLOWBUILDER_PLUGIN_GENERATE_CONTRACTS_ONLY";
 
     private readonly string _displayName;
     private Func<TPlugin, object?>? _globalStateGetter;
@@ -188,12 +189,6 @@ public class PluginBuilder<TPlugin>
 
     public Plugin<TPlugin> Build()
     {
-        string? manifestPath = null;
-        string? schemaDir = null;
-        string? aggregated = null;
-        int schemaCount = 0;
-        Exception? pendingError = null;
-
         if (_globalStateType is null)
         {
             WithGlobalState(p => p.GlobalState);
@@ -205,6 +200,12 @@ public class PluginBuilder<TPlugin>
                 _globalStateGetter ?? (_ => new GlobalStateStub())));
 
 #if DEBUG
+        string? manifestPath = null;
+        string? schemaDir = null;
+        string? aggregated = null;
+        int schemaCount = 0;
+        Exception? pendingError = null;
+
         try
         {
             var projectDir = TryFindProjectDirectory(AppContext.BaseDirectory) ?? AppContext.BaseDirectory;
@@ -249,7 +250,36 @@ public class PluginBuilder<TPlugin>
     internal async Task RunAsync()
     {
         host ??= _hostAppBuilder.Build();
+
+#if DEBUG
+        if (ShouldGenerateContractsOnly())
+        {
+            var logger = host.Services.GetService<ILogger<PluginBuilder<TPlugin>>>();
+            logger?.LogInformation(
+                "Generate-contracts-only mode enabled via {EnvironmentVariable}; exiting before starting the plugin host.",
+                GenerateContractsOnlyEnvironmentVariable);
+
+            if (host is IAsyncDisposable asyncDisposable)
+            {
+                await asyncDisposable.DisposeAsync();
+            }
+            else
+            {
+                host.Dispose();
+            }
+
+            host = null;
+            return;
+        }
+#endif
+
         await host.RunAsync();
+    }
+
+    private static bool ShouldGenerateContractsOnly()
+    {
+        var value = Environment.GetEnvironmentVariable(GenerateContractsOnlyEnvironmentVariable);
+        return bool.TryParse(value, out var enabled) && enabled;
     }
 
     private IEnumerable<Type> EnumerateRootTypes()

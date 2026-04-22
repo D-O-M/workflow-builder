@@ -1,0 +1,60 @@
+{
+  "components": {
+    "schemas": {
+      "AirportTafOutlook.AirportTafInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "StationCode": {
+            "type": "string"
+          },
+          "WindowStartIsoDate": {
+            "type": "string"
+          },
+          "WindowEndIsoDate": {
+            "type": "string"
+          }
+        }
+      },
+      "AirportTafOutlook.AirportTafResult": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "StationCode": {
+            "type": "string"
+          },
+          "WorstFlightCategory": {
+            "type": "string"
+          },
+          "ForecastWindSpeedKnots": {
+            "type": "number"
+          },
+          "ForecastVisibilityMiles": {
+            "type": "number"
+          },
+          "ForecastCeilingFeet": {
+            "type": "integer"
+          },
+          "Summary": {
+            "type": "string"
+          }
+        }
+      },
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

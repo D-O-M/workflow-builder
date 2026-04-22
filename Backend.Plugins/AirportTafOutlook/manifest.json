@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Airport TAF outlook",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "AirportTafOutlook.AirportTafInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Taf",
+      "Type": "AirportTafOutlook.AirportTafResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

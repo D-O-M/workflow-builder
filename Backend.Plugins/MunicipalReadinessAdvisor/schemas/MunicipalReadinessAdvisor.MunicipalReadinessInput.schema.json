@@ -1,0 +1,44 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "LocationLabel": {
+      "type": "string"
+    },
+    "WeatherSuitabilityScore": {
+      "type": "integer"
+    },
+    "WeatherSummary": {
+      "type": "string"
+    },
+    "HolidayPressureScore": {
+      "type": "integer"
+    },
+    "HolidaySummary": {
+      "type": "string"
+    },
+    "DaylightScore": {
+      "type": "integer"
+    },
+    "DaylightSummary": {
+      "type": "string"
+    },
+    "AirQualityScore": {
+      "type": "integer"
+    },
+    "AirQualitySummary": {
+      "type": "string"
+    },
+    "SensitivityMultiplier": {
+      "type": "number"
+    },
+    "GoThreshold": {
+      "type": "integer"
+    },
+    "WatchThreshold": {
+      "type": "integer"
+    }
+  }
+}

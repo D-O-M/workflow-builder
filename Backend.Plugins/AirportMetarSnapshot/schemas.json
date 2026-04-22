@@ -1,0 +1,54 @@
+{
+  "components": {
+    "schemas": {
+      "AirportMetarSnapshot.AirportMetarInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "StationCode": {
+            "type": "string"
+          }
+        }
+      },
+      "AirportMetarSnapshot.AirportMetarResult": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "StationCode": {
+            "type": "string"
+          },
+          "FlightCategory": {
+            "type": "string"
+          },
+          "WindSpeedKnots": {
+            "type": "number"
+          },
+          "VisibilityMiles": {
+            "type": "number"
+          },
+          "CeilingFeet": {
+            "type": "integer"
+          },
+          "Summary": {
+            "type": "string"
+          }
+        }
+      },
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

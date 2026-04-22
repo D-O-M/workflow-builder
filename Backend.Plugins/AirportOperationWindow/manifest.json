@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Airport operation window",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "AirportOperationWindow.AirportOperationWindowInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Window",
+      "Type": "AirportOperationWindow.AirportOperationWindowResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

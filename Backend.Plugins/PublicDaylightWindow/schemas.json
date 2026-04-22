@@ -1,0 +1,66 @@
+{
+  "components": {
+    "schemas": {
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PublicDaylightWindow.DaylightWindowInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "LocationLabel": {
+            "type": "string"
+          },
+          "Latitude": {
+            "type": "number"
+          },
+          "Longitude": {
+            "type": "number"
+          },
+          "WindowStartIsoDate": {
+            "type": "string"
+          },
+          "WindowEndIsoDate": {
+            "type": "string"
+          }
+        }
+      },
+      "PublicDaylightWindow.DaylightWindowResult": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "LocationLabel": {
+            "type": "string"
+          },
+          "WindowStartIsoDate": {
+            "type": "string"
+          },
+          "WindowEndIsoDate": {
+            "type": "string"
+          },
+          "AverageDaylightHours": {
+            "type": "number"
+          },
+          "DaylightScore": {
+            "type": "integer"
+          },
+          "Summary": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

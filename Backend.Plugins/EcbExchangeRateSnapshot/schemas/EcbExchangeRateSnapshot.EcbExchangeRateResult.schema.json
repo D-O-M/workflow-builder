@@ -1,0 +1,23 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "BaseCurrencyCode": {
+      "type": "string"
+    },
+    "QuoteCurrencyCode": {
+      "type": "string"
+    },
+    "ExchangeRate": {
+      "type": "number"
+    },
+    "InverseRate": {
+      "type": "number"
+    },
+    "Summary": {
+      "type": "string"
+    }
+  }
+}

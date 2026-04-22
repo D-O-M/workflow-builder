@@ -1,0 +1,23 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "LocationLabel": {
+      "type": "string"
+    },
+    "Latitude": {
+      "type": "number"
+    },
+    "Longitude": {
+      "type": "number"
+    },
+    "WindowStartIsoDate": {
+      "type": "string"
+    },
+    "WindowEndIsoDate": {
+      "type": "string"
+    }
+  }
+}

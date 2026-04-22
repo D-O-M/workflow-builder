@@ -37,6 +37,7 @@ The canonical bundle script is:
 
 It is responsible for:
 
+- running each plugin once in Debug contract-generation mode to refresh `manifest.json` and schema artifacts
 - publishing plugin projects
 - reading emitted manifest and schema artifacts
 - applying the repo’s canonical versioning behavior

@@ -1,0 +1,54 @@
+{
+  "components": {
+    "schemas": {
+      "AirportStationLookup.AirportStationLookupInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "AirportCode": {
+            "type": "string"
+          }
+        }
+      },
+      "AirportStationLookup.AirportStationLookupResult": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "AirportCode": {
+            "type": "string"
+          },
+          "StationCode": {
+            "type": "string"
+          },
+          "AirportName": {
+            "type": "string"
+          },
+          "Latitude": {
+            "type": "number"
+          },
+          "Longitude": {
+            "type": "number"
+          },
+          "CountryCode": {
+            "type": "string"
+          }
+        }
+      },
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

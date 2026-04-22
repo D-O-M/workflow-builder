@@ -1,0 +1,375 @@
+{
+  "schemaVersion": 3,
+  "definitionKey": "showcase-cross-border-delivery-window-advisor",
+  "displayName": "Showcase Cross-Border Delivery Window Advisor",
+  "startingTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d101",
+  "tasks": [
+    {
+      "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d101",
+      "taskDefinitionName": "DeliveryScenarioNormalizer",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 120,
+        "y": 260
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Scenario",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d102",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "DestinationTown",
+              "targetProperty": "Town"
+            }
+          ]
+        },
+        {
+          "channelName": "Scenario",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d103",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "ShipmentLabel",
+              "targetProperty": "LocationLabel"
+            },
+            {
+              "sourceProperty": "SupplierCountryCode",
+              "targetProperty": "CountryCode"
+            },
+            {
+              "sourceProperty": "WindowStartIsoDate",
+              "targetProperty": "WindowStartIsoDate"
+            },
+            {
+              "sourceProperty": "WindowEndIsoDate",
+              "targetProperty": "WindowEndIsoDate"
+            }
+          ]
+        },
+        {
+          "channelName": "Scenario",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d104",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "DestinationLabel",
+              "targetProperty": "LocationLabel"
+            },
+            {
+              "sourceProperty": "ReceiverCountryCode",
+              "targetProperty": "CountryCode"
+            },
+            {
+              "sourceProperty": "WindowStartIsoDate",
+              "targetProperty": "WindowStartIsoDate"
+            },
+            {
+              "sourceProperty": "WindowEndIsoDate",
+              "targetProperty": "WindowEndIsoDate"
+            }
+          ]
+        },
+        {
+          "channelName": "Scenario",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d105",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "BaseCurrencyCode",
+              "targetProperty": "BaseCurrencyCode"
+            },
+            {
+              "sourceProperty": "QuoteCurrencyCode",
+              "targetProperty": "QuoteCurrencyCode"
+            }
+          ]
+        },
+        {
+          "channelName": "Scenario",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d106",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "DestinationLabel",
+              "targetProperty": "LocationLabel"
+            },
+            {
+              "sourceProperty": "WindowStartIsoDate",
+              "targetProperty": "WindowStartIsoDate"
+            },
+            {
+              "sourceProperty": "WindowEndIsoDate",
+              "targetProperty": "WindowEndIsoDate"
+            }
+          ]
+        },
+        {
+          "channelName": "Scenario",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d107",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "DestinationLabel",
+              "targetProperty": "LocationLabel"
+            },
+            {
+              "sourceProperty": "WindowStartIsoDate",
+              "targetProperty": "WindowStartIsoDate"
+            },
+            {
+              "sourceProperty": "WindowEndIsoDate",
+              "targetProperty": "WindowEndIsoDate"
+            }
+          ]
+        },
+        {
+          "channelName": "Scenario",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "ShipmentLabel",
+              "targetProperty": "ShipmentLabel"
+            },
+            {
+              "sourceProperty": "DestinationLabel",
+              "targetProperty": "DestinationLabel"
+            },
+            {
+              "sourceProperty": "BaseCurrencyCode",
+              "targetProperty": "BaseCurrencyCode"
+            },
+            {
+              "sourceProperty": "QuoteCurrencyCode",
+              "targetProperty": "QuoteCurrencyCode"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d102",
+      "taskDefinitionName": "WeatherTownGeocode",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 430,
+        "y": 260
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Location",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d106",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "Latitude",
+              "targetProperty": "Latitude"
+            },
+            {
+              "sourceProperty": "Longitude",
+              "targetProperty": "Longitude"
+            }
+          ]
+        },
+        {
+          "channelName": "Location",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d107",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "Latitude",
+              "targetProperty": "Latitude"
+            },
+            {
+              "sourceProperty": "Longitude",
+              "targetProperty": "Longitude"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d103",
+      "taskDefinitionName": "PublicHolidayWindow",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 730,
+        "y": 80
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "WindowHoliday",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "HolidayPressureScore",
+              "targetProperty": "SupplierHolidayPressureScore"
+            },
+            {
+              "sourceProperty": "Summary",
+              "targetProperty": "SupplierHolidaySummary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d104",
+      "taskDefinitionName": "PublicHolidayWindow",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 730,
+        "y": 200
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "WindowHoliday",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "HolidayPressureScore",
+              "targetProperty": "ReceiverHolidayPressureScore"
+            },
+            {
+              "sourceProperty": "Summary",
+              "targetProperty": "ReceiverHolidaySummary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d105",
+      "taskDefinitionName": "EcbExchangeRateSnapshot",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 730,
+        "y": 320
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Rate",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "ExchangeRate",
+              "targetProperty": "ExchangeRate"
+            },
+            {
+              "sourceProperty": "Summary",
+              "targetProperty": "FxSummary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d106",
+      "taskDefinitionName": "PublicDaylightWindow",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 730,
+        "y": 440
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Daylight",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "AverageDaylightHours",
+              "targetProperty": "AverageDaylightHours"
+            },
+            {
+              "sourceProperty": "Summary",
+              "targetProperty": "DaylightSummary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d107",
+      "taskDefinitionName": "WindowWeatherOutlook",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 730,
+        "y": 560
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Weather",
+          "connectedTaskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "WeatherRiskScore",
+              "targetProperty": "WeatherRiskScore"
+            },
+            {
+              "sourceProperty": "Summary",
+              "targetProperty": "WeatherSummary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "5b0ef351-4746-43f2-b8af-6f7f9df0d108",
+      "taskDefinitionName": "DeliveryWindowAdvisor",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 1080,
+        "y": 320
+      },
+      "designTimeInputOverrides": {
+        "TargetExchangeRate": 0.95,
+        "SensitivityMultiplier": 1.0,
+        "GoThreshold": 72,
+        "WatchThreshold": 50
+      },
+      "outgoingConnections": []
+    }
+  ]
+}

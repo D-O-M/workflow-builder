@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Airport station lookup",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "AirportStationLookup.AirportStationLookupInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Station",
+      "Type": "AirportStationLookup.AirportStationLookupResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

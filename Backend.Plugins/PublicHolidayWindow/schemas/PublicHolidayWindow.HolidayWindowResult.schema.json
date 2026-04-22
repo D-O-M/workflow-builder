@@ -1,0 +1,32 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "LocationLabel": {
+      "type": "string"
+    },
+    "CountryCode": {
+      "type": "string"
+    },
+    "WindowStartIsoDate": {
+      "type": "string"
+    },
+    "WindowEndIsoDate": {
+      "type": "string"
+    },
+    "HolidayCount": {
+      "type": "integer"
+    },
+    "HeadlineHoliday": {
+      "type": "string"
+    },
+    "HolidayPressureScore": {
+      "type": "integer"
+    },
+    "Summary": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "AirportCode": {
+      "type": "string"
+    },
+    "AirportName": {
+      "type": "string"
+    },
+    "WindowLabel": {
+      "type": "string"
+    },
+    "OperationalWeatherRiskScore": {
+      "type": "integer"
+    },
+    "WeatherSummary": {
+      "type": "string"
+    },
+    "NearbyAircraftCount": {
+      "type": "integer"
+    },
+    "GroundAircraftCount": {
+      "type": "integer"
+    },
+    "TrafficPressureScore": {
+      "type": "integer"
+    },
+    "AverageDaylightHours": {
+      "type": "number"
+    },
+    "DaylightSummary": {
+      "type": "string"
+    },
+    "SensitivityMultiplier": {
+      "type": "number"
+    },
+    "EscalateThreshold": {
+      "type": "integer"
+    },
+    "MonitorThreshold": {
+      "type": "integer"
+    }
+  }
+}

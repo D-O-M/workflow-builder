@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Airport disruption advisor",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "AirportDisruptionAdvisor.AirportDisruptionAdvisorInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Advisory",
+      "Type": "AirportDisruptionAdvisor.AirportDisruptionAdvisorResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

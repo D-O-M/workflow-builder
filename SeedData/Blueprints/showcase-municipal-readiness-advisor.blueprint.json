@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 3,
+  "definitionKey": "showcase-municipal-readiness-advisor",
+  "displayName": "Showcase Municipal Readiness Advisor",
+  "startingTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d001",
+  "tasks": [
+    {
+      "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d001",
+      "taskDefinitionName": "WeatherTownGeocode",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 120,
+        "y": 260
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Location",
+          "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d002",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "Town",
+              "targetProperty": "Town"
+            },
+            {
+              "sourceProperty": "Latitude",
+              "targetProperty": "Latitude"
+            },
+            {
+              "sourceProperty": "Longitude",
+              "targetProperty": "Longitude"
+            },
+            {
+              "sourceProperty": "CountryCode",
+              "targetProperty": "CountryCode"
+            }
+          ]
+        },
+        {
+          "channelName": "Location",
+          "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d003",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "Town",
+              "targetProperty": "LocationLabel"
+            },
+            {
+              "sourceProperty": "CountryCode",
+              "targetProperty": "CountryCode"
+            }
+          ]
+        },
+        {
+          "channelName": "Location",
+          "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d004",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "Town",
+              "targetProperty": "LocationLabel"
+            },
+            {
+              "sourceProperty": "Latitude",
+              "targetProperty": "Latitude"
+            },
+            {
+              "sourceProperty": "Longitude",
+              "targetProperty": "Longitude"
+            }
+          ]
+        },
+        {
+          "channelName": "Location",
+          "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d005",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "Town",
+              "targetProperty": "LocationLabel"
+            },
+            {
+              "sourceProperty": "Latitude",
+              "targetProperty": "Latitude"
+            },
+            {
+              "sourceProperty": "Longitude",
+              "targetProperty": "Longitude"
+            }
+          ]
+        },
+        {
+          "channelName": "Location",
+          "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d006",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "Town",
+              "targetProperty": "LocationLabel"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d002",
+      "taskDefinitionName": "WeatherWeekendForecast",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 430,
+        "y": 260
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Forecast",
+          "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d003",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "WeekendStart",
+              "targetProperty": "WindowStartIsoDate"
+            },
+            {
+              "sourceProperty": "WeekendEnd",
+              "targetProperty": "WindowEndIsoDate"
+            }
+          ]
+        },
+        {
+          "channelName": "Forecast",
+          "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d004",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "WeekendStart",
+              "targetProperty": "WindowStartIsoDate"
+            },
+            {
+              "sourceProperty": "WeekendEnd",
+              "targetProperty": "WindowEndIsoDate"
+            }
+          ]
+        },
+        {
+          "channelName": "Forecast",
+          "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d005",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "WeekendStart",
+              "targetProperty": "WindowStartIsoDate"
+            },
+            {
+              "sourceProperty": "WeekendEnd",
+              "targetProperty": "WindowEndIsoDate"
+            }
+          ]
+        },
+        {
+          "channelName": "Forecast",
+          "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d006",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "WeatherSuitabilityScore",
+              "targetProperty": "WeatherSuitabilityScore"
+            },
+            {
+              "sourceProperty": "Summary",
+              "targetProperty": "WeatherSummary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d003",
+      "taskDefinitionName": "PublicHolidayWindow",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 760,
+        "y": 90
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "WindowHoliday",
+          "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d006",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "HolidayPressureScore",
+              "targetProperty": "HolidayPressureScore"
+            },
+            {
+              "sourceProperty": "Summary",
+              "targetProperty": "HolidaySummary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d004",
+      "taskDefinitionName": "PublicDaylightWindow",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 760,
+        "y": 260
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Daylight",
+          "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d006",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "DaylightScore",
+              "targetProperty": "DaylightScore"
+            },
+            {
+              "sourceProperty": "Summary",
+              "targetProperty": "DaylightSummary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d005",
+      "taskDefinitionName": "PublicAirQualityOutlook",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 760,
+        "y": 430
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "AirQuality",
+          "connectedTaskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d006",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "AirQualityScore",
+              "targetProperty": "AirQualityScore"
+            },
+            {
+              "sourceProperty": "Summary",
+              "targetProperty": "AirQualitySummary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d006",
+      "taskDefinitionName": "MunicipalReadinessAdvisor",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 1100,
+        "y": 260
+      },
+      "designTimeInputOverrides": {
+        "SensitivityMultiplier": 1.0,
+        "GoThreshold": 78,
+        "WatchThreshold": 55
+      },
+      "outgoingConnections": []
+    }
+  ]
+}

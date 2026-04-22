@@ -1,0 +1,26 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "AirportCode": {
+      "type": "string"
+    },
+    "AirportName": {
+      "type": "string"
+    },
+    "DisruptionScore": {
+      "type": "integer"
+    },
+    "AdvisoryBand": {
+      "type": "string"
+    },
+    "RecommendedAction": {
+      "type": "string"
+    },
+    "Summary": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "DisplayName": "ECB exchange rate snapshot",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "EcbExchangeRateSnapshot.EcbExchangeRateInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Rate",
+      "Type": "EcbExchangeRateSnapshot.EcbExchangeRateResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Delivery window advisor",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "DeliveryWindowAdvisor.DeliveryWindowAdvisorInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Decision",
+      "Type": "DeliveryWindowAdvisor.DeliveryWindowAdvisorResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

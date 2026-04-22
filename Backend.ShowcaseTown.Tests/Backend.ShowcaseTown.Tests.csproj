@@ -9,9 +9,25 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Backend.Plugins\AirportAdvisorySnapshot\AirportAdvisorySnapshot.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\AirportDisruptionAdvisor\AirportDisruptionAdvisor.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\AirportMetarSnapshot\AirportMetarSnapshot.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\AirportOperationWindow\AirportOperationWindow.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\AirportStationLookup\AirportStationLookup.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\AirportTafOutlook\AirportTafOutlook.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\AirportTrafficSnapshot\AirportTrafficSnapshot.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\AirportWeatherRisk\AirportWeatherRisk.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\DeliveryScenarioNormalizer\DeliveryScenarioNormalizer.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\DeliveryWindowAdvisor\DeliveryWindowAdvisor.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\EcbExchangeRateSnapshot\EcbExchangeRateSnapshot.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\MunicipalReadinessAdvisor\MunicipalReadinessAdvisor.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\PublicAirQualityOutlook\PublicAirQualityOutlook.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\PublicDaylightWindow\PublicDaylightWindow.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\PublicHolidayWindow\PublicHolidayWindow.csproj" />
     <ProjectReference Include="..\Backend.Plugins\ShowcaseTownForecast\ShowcaseTownForecast.csproj" />
     <ProjectReference Include="..\Backend.Plugins\ShowcaseTownHoliday\ShowcaseTownHoliday.csproj" />
     <ProjectReference Include="..\Backend.Plugins\ShowcaseTownRecommendation\ShowcaseTownRecommendation.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\WindowWeatherOutlook\WindowWeatherOutlook.csproj" />
   </ItemGroup>
 
   <ItemGroup>

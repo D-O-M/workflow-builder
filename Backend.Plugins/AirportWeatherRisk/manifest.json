@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Airport weather risk",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "AirportWeatherRisk.AirportWeatherRiskInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Risk",
+      "Type": "AirportWeatherRisk.AirportWeatherRiskResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

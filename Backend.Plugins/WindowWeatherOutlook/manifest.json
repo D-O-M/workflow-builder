@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Window weather outlook",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "WindowWeatherOutlook.WindowWeatherInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Weather",
+      "Type": "WindowWeatherOutlook.WindowWeatherResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

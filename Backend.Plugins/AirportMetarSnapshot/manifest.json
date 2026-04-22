@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Airport METAR snapshot",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "AirportMetarSnapshot.AirportMetarInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Metar",
+      "Type": "AirportMetarSnapshot.AirportMetarResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

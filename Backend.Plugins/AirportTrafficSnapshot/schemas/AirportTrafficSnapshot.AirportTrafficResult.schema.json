@@ -1,0 +1,23 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "AirportCode": {
+      "type": "string"
+    },
+    "NearbyAircraftCount": {
+      "type": "integer"
+    },
+    "GroundAircraftCount": {
+      "type": "integer"
+    },
+    "TrafficPressureScore": {
+      "type": "integer"
+    },
+    "Summary": {
+      "type": "string"
+    }
+  }
+}

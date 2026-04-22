@@ -1,0 +1,54 @@
+{
+  "components": {
+    "schemas": {
+      "AirportOperationWindow.AirportOperationWindowInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "AirportCode": {
+            "type": "string"
+          },
+          "WindowStartIsoDate": {
+            "type": "string"
+          },
+          "WindowEndIsoDate": {
+            "type": "string"
+          }
+        }
+      },
+      "AirportOperationWindow.AirportOperationWindowResult": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "AirportCode": {
+            "type": "string"
+          },
+          "WindowStartIsoDate": {
+            "type": "string"
+          },
+          "WindowEndIsoDate": {
+            "type": "string"
+          },
+          "WindowLabel": {
+            "type": "string"
+          }
+        }
+      },
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

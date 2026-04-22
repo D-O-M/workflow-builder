@@ -1,0 +1,26 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "AirportCode": {
+      "type": "string"
+    },
+    "StationCode": {
+      "type": "string"
+    },
+    "AirportName": {
+      "type": "string"
+    },
+    "Latitude": {
+      "type": "number"
+    },
+    "Longitude": {
+      "type": "number"
+    },
+    "CountryCode": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "AirportCode": {
+      "type": "string"
+    },
+    "MetarFlightCategory": {
+      "type": "string"
+    },
+    "MetarWindSpeedKnots": {
+      "type": "number"
+    },
+    "MetarVisibilityMiles": {
+      "type": "number"
+    },
+    "MetarCeilingFeet": {
+      "type": "integer"
+    },
+    "TafWorstFlightCategory": {
+      "type": "string"
+    },
+    "TafForecastWindSpeedKnots": {
+      "type": "number"
+    },
+    "TafForecastVisibilityMiles": {
+      "type": "number"
+    },
+    "TafForecastCeilingFeet": {
+      "type": "integer"
+    },
+    "AdvisoryCount": {
+      "type": "integer"
+    },
+    "HighestAdvisorySeverityScore": {
+      "type": "integer"
+    }
+  }
+}

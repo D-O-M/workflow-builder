@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Public daylight window",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "PublicDaylightWindow.DaylightWindowInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Daylight",
+      "Type": "PublicDaylightWindow.DaylightWindowResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

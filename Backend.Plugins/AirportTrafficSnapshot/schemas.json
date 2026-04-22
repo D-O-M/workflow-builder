@@ -1,0 +1,57 @@
+{
+  "components": {
+    "schemas": {
+      "AirportTrafficSnapshot.AirportTrafficInput": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "AirportCode": {
+            "type": "string"
+          },
+          "Latitude": {
+            "type": "number"
+          },
+          "Longitude": {
+            "type": "number"
+          }
+        }
+      },
+      "AirportTrafficSnapshot.AirportTrafficResult": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "AirportCode": {
+            "type": "string"
+          },
+          "NearbyAircraftCount": {
+            "type": "integer"
+          },
+          "GroundAircraftCount": {
+            "type": "integer"
+          },
+          "TrafficPressureScore": {
+            "type": "integer"
+          },
+          "Summary": {
+            "type": "string"
+          }
+        }
+      },
+      "Backend.Plugins.Harness.GlobalStateStub": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "Empty": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

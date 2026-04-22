@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Airport traffic snapshot",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "AirportTrafficSnapshot.AirportTrafficInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Traffic",
+      "Type": "AirportTrafficSnapshot.AirportTrafficResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

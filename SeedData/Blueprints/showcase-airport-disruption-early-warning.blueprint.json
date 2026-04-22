@@ -1,0 +1,439 @@
+{
+  "schemaVersion": 3,
+  "definitionKey": "showcase-airport-disruption-early-warning",
+  "displayName": "Showcase Airport Disruption Early Warning",
+  "startingTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e201",
+  "tasks": [
+    {
+      "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e201",
+      "taskDefinitionName": "AirportOperationWindow",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 110,
+        "y": 270
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Window",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e202",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "AirportCode",
+              "targetProperty": "AirportCode"
+            }
+          ]
+        },
+        {
+          "channelName": "Window",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e204",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "WindowStartIsoDate",
+              "targetProperty": "WindowStartIsoDate"
+            },
+            {
+              "sourceProperty": "WindowEndIsoDate",
+              "targetProperty": "WindowEndIsoDate"
+            }
+          ]
+        },
+        {
+          "channelName": "Window",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e205",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "AirportCode",
+              "targetProperty": "AirportCode"
+            }
+          ]
+        },
+        {
+          "channelName": "Window",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e206",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "AirportCode",
+              "targetProperty": "AirportCode"
+            }
+          ]
+        },
+        {
+          "channelName": "Window",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e207",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "WindowStartIsoDate",
+              "targetProperty": "WindowStartIsoDate"
+            },
+            {
+              "sourceProperty": "WindowEndIsoDate",
+              "targetProperty": "WindowEndIsoDate"
+            }
+          ]
+        },
+        {
+          "channelName": "Window",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e208",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "AirportCode",
+              "targetProperty": "AirportCode"
+            }
+          ]
+        },
+        {
+          "channelName": "Window",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "AirportCode",
+              "targetProperty": "AirportCode"
+            },
+            {
+              "sourceProperty": "WindowLabel",
+              "targetProperty": "WindowLabel"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e202",
+      "taskDefinitionName": "AirportStationLookup",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 380,
+        "y": 270
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Station",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e203",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "StationCode",
+              "targetProperty": "StationCode"
+            }
+          ]
+        },
+        {
+          "channelName": "Station",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e204",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "StationCode",
+              "targetProperty": "StationCode"
+            }
+          ]
+        },
+        {
+          "channelName": "Station",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e205",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "Latitude",
+              "targetProperty": "Latitude"
+            },
+            {
+              "sourceProperty": "Longitude",
+              "targetProperty": "Longitude"
+            }
+          ]
+        },
+        {
+          "channelName": "Station",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e206",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "Latitude",
+              "targetProperty": "Latitude"
+            },
+            {
+              "sourceProperty": "Longitude",
+              "targetProperty": "Longitude"
+            }
+          ]
+        },
+        {
+          "channelName": "Station",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e207",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "AirportName",
+              "targetProperty": "LocationLabel"
+            },
+            {
+              "sourceProperty": "Latitude",
+              "targetProperty": "Latitude"
+            },
+            {
+              "sourceProperty": "Longitude",
+              "targetProperty": "Longitude"
+            }
+          ]
+        },
+        {
+          "channelName": "Station",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "AirportName",
+              "targetProperty": "AirportName"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e203",
+      "taskDefinitionName": "AirportMetarSnapshot",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 650,
+        "y": 70
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Metar",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e208",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "FlightCategory",
+              "targetProperty": "MetarFlightCategory"
+            },
+            {
+              "sourceProperty": "WindSpeedKnots",
+              "targetProperty": "MetarWindSpeedKnots"
+            },
+            {
+              "sourceProperty": "VisibilityMiles",
+              "targetProperty": "MetarVisibilityMiles"
+            },
+            {
+              "sourceProperty": "CeilingFeet",
+              "targetProperty": "MetarCeilingFeet"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e204",
+      "taskDefinitionName": "AirportTafOutlook",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 650,
+        "y": 190
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Taf",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e208",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "WorstFlightCategory",
+              "targetProperty": "TafWorstFlightCategory"
+            },
+            {
+              "sourceProperty": "ForecastWindSpeedKnots",
+              "targetProperty": "TafForecastWindSpeedKnots"
+            },
+            {
+              "sourceProperty": "ForecastVisibilityMiles",
+              "targetProperty": "TafForecastVisibilityMiles"
+            },
+            {
+              "sourceProperty": "ForecastCeilingFeet",
+              "targetProperty": "TafForecastCeilingFeet"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e205",
+      "taskDefinitionName": "AirportAdvisorySnapshot",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 650,
+        "y": 310
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Advisory",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e208",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "AdvisoryCount",
+              "targetProperty": "AdvisoryCount"
+            },
+            {
+              "sourceProperty": "HighestAdvisorySeverityScore",
+              "targetProperty": "HighestAdvisorySeverityScore"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e206",
+      "taskDefinitionName": "AirportTrafficSnapshot",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 650,
+        "y": 430
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Traffic",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "NearbyAircraftCount",
+              "targetProperty": "NearbyAircraftCount"
+            },
+            {
+              "sourceProperty": "GroundAircraftCount",
+              "targetProperty": "GroundAircraftCount"
+            },
+            {
+              "sourceProperty": "TrafficPressureScore",
+              "targetProperty": "TrafficPressureScore"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e207",
+      "taskDefinitionName": "PublicDaylightWindow",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 650,
+        "y": 550
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Daylight",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "AverageDaylightHours",
+              "targetProperty": "AverageDaylightHours"
+            },
+            {
+              "sourceProperty": "Summary",
+              "targetProperty": "DaylightSummary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e208",
+      "taskDefinitionName": "AirportWeatherRisk",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 960,
+        "y": 220
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Risk",
+          "connectedTaskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
+          "anchor": 0,
+          "side": "right",
+          "position": 0,
+          "propertyMappings": [
+            {
+              "sourceProperty": "OperationalWeatherRiskScore",
+              "targetProperty": "OperationalWeatherRiskScore"
+            },
+            {
+              "sourceProperty": "Summary",
+              "targetProperty": "WeatherSummary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
+      "taskDefinitionName": "AirportDisruptionAdvisor",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": {
+        "x": 1260,
+        "y": 320
+      },
+      "designTimeInputOverrides": {
+        "SensitivityMultiplier": 1.0,
+        "EscalateThreshold": 70,
+        "MonitorThreshold": 45
+      },
+      "outgoingConnections": []
+    }
+  ]
+}

@@ -21,6 +21,11 @@ namespace Backend.API.Tests;
 
 public sealed class BlueprintPortabilityServiceTests
 {
+    private const string TownSeedFileName = "showcase-town-weekend-recommendation.blueprint.json";
+    private const string MunicipalSeedFileName = "showcase-municipal-readiness-advisor.blueprint.json";
+    private const string DeliverySeedFileName = "showcase-cross-border-delivery-window-advisor.blueprint.json";
+    private const string AirportSeedFileName = "showcase-airport-disruption-early-warning.blueprint.json";
+
     [Test]
     public async Task ExportLatestBlueprint_uses_schema_version_3_without_version_name()
     {
@@ -69,7 +74,8 @@ public sealed class BlueprintPortabilityServiceTests
     public async Task ImportBlueprint_returns_display_name_conflict_for_mismatched_existing_definition()
     {
         await using var database = await SqliteBlueprintDb.CreateAsync();
-        await SeedImportTaskDefinitionsAsync(database.Context);
+        var seed = await LoadSeedBlueprintAsync(TownSeedFileName, ignoreImportedDisplayNameMismatch: false);
+        await SeedImportTaskDefinitionsAsync(database.Context, seed);
         database.Context.BlueprintDefinitions.Add(new BlueprintDefinition
         {
             Key = "showcase-town-weekend-recommendation",
@@ -84,7 +90,7 @@ public sealed class BlueprintPortabilityServiceTests
             new AlwaysValidBlueprintVersionValidator());
 
         var imported = await service.ImportBlueprintAsync(
-            await LoadSeedBlueprintAsync(ignoreImportedDisplayNameMismatch: false),
+            seed,
             CancellationToken.None);
 
         imported.Status.ShouldBe(BlueprintImportStatus.DisplayNameConflict);
@@ -99,7 +105,8 @@ public sealed class BlueprintPortabilityServiceTests
     public async Task ImportBlueprint_with_ignore_flag_preserves_stored_name_and_creates_version()
     {
         await using var database = await SqliteBlueprintDb.CreateAsync();
-        await SeedImportTaskDefinitionsAsync(database.Context);
+        var seed = await LoadSeedBlueprintAsync(TownSeedFileName, ignoreImportedDisplayNameMismatch: true);
+        await SeedImportTaskDefinitionsAsync(database.Context, seed);
         var existingDefinition = new BlueprintDefinition
         {
             Key = "showcase-town-weekend-recommendation",
@@ -116,7 +123,7 @@ public sealed class BlueprintPortabilityServiceTests
             new AlwaysValidBlueprintVersionValidator());
 
         var imported = await service.ImportBlueprintAsync(
-            await LoadSeedBlueprintAsync(ignoreImportedDisplayNameMismatch: true),
+            seed,
             CancellationToken.None);
 
         imported.Status.ShouldBe(BlueprintImportStatus.CreatedVersion);
@@ -124,6 +131,24 @@ public sealed class BlueprintPortabilityServiceTests
         repository.CreatedVersions.Count.ShouldBe(1);
         repository.CreatedBlueprints.Count.ShouldBe(0);
         existingDefinition.DisplayName.ShouldBe("Stored Blueprint Name");
+    }
+
+    [Test]
+    public async Task ImportBlueprint_creates_definition_for_municipal_seed()
+    {
+        await AssertSeedImportCreatesDefinitionAsync(MunicipalSeedFileName);
+    }
+
+    [Test]
+    public async Task ImportBlueprint_creates_definition_for_delivery_seed()
+    {
+        await AssertSeedImportCreatesDefinitionAsync(DeliverySeedFileName);
+    }
+
+    [Test]
+    public async Task ImportBlueprint_creates_definition_for_airport_seed()
+    {
+        await AssertSeedImportCreatesDefinitionAsync(AirportSeedFileName);
     }
 
     private static async Task<TaskDefinition> SeedTaskDefinitionAsync(
@@ -154,17 +179,37 @@ public sealed class BlueprintPortabilityServiceTests
         return taskDefinition;
     }
 
-    private static async Task SeedImportTaskDefinitionsAsync(Backend.Database.Relational.BlueprintDbContext context)
+    private static async Task SeedImportTaskDefinitionsAsync(
+        Backend.Database.Relational.BlueprintDbContext context,
+        ExportedBlueprintInputModel model)
     {
-        await SeedTaskDefinitionAsync(context, "ShowcaseTownLookup", new Version(0, 0, 1), "ResolvedTown");
-        await SeedTaskDefinitionAsync(context, "ShowcaseTownForecast", new Version(0, 0, 1), "TownWeekendForecast");
-        await SeedTaskDefinitionAsync(context, "ShowcaseTownHoliday", new Version(0, 0, 1), "TownWeekendHolidayContext");
-        await SeedTaskDefinitionAsync(context, "ShowcaseTownRecommendation", new Version(0, 0, 1));
+        var seededTaskNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var task in model.Tasks)
+        {
+            if (!seededTaskNames.Add(task.TaskDefinitionName))
+            {
+                continue;
+            }
+
+            var outputChannels = task.OutgoingConnections
+                .Select(connection => connection.ChannelName)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+            await SeedTaskDefinitionAsync(
+                context,
+                task.TaskDefinitionName,
+                new Version(task.AllowedMajor, task.AllowedMinor, 1),
+                outputChannels);
+        }
     }
 
-    private static async Task<ExportedBlueprintInputModel> LoadSeedBlueprintAsync(bool ignoreImportedDisplayNameMismatch)
+    private static async Task<ExportedBlueprintInputModel> LoadSeedBlueprintAsync(
+        string seedFileName,
+        bool ignoreImportedDisplayNameMismatch)
     {
-        var jsonPath = FindSeedBlueprintPath();
+        var jsonPath = FindSeedBlueprintPath(seedFileName);
         var json = await File.ReadAllTextAsync(jsonPath);
         var model = JsonSerializer.Deserialize<ExportedBlueprintInputModel>(
             json,
@@ -182,9 +227,32 @@ public sealed class BlueprintPortabilityServiceTests
         };
     }
 
-    private static string FindSeedBlueprintPath([CallerFilePath] string sourceFilePath = "")
+    private static async Task AssertSeedImportCreatesDefinitionAsync(string seedFileName)
     {
-        const string relativeSeedPath = "SeedData\\Blueprints\\showcase-town-weekend-recommendation.blueprint.json";
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var seed = await LoadSeedBlueprintAsync(seedFileName, ignoreImportedDisplayNameMismatch: false);
+        await SeedImportTaskDefinitionsAsync(database.Context, seed);
+
+        var repository = new RecordingBlueprintRepository();
+        var service = new BlueprintPortabilityService(
+            database.Context,
+            repository,
+            new AlwaysValidBlueprintVersionValidator());
+
+        var imported = await service.ImportBlueprintAsync(seed, CancellationToken.None);
+
+        imported.Status.ShouldBe(BlueprintImportStatus.CreatedDefinition);
+        imported.BlueprintKey.ShouldBe(seed.DefinitionKey);
+        repository.CreatedBlueprints.Count.ShouldBe(1);
+        repository.CreatedVersions.Count.ShouldBe(0);
+        repository.CreatedBlueprints.Single().Tasks.Count.ShouldBe(seed.Tasks.Count);
+    }
+
+    private static string FindSeedBlueprintPath(
+        string seedFileName,
+        [CallerFilePath] string sourceFilePath = "")
+    {
+        var relativeSeedPath = Path.Combine("SeedData", "Blueprints", seedFileName);
 
         var candidateRoots = new List<string?>
         {

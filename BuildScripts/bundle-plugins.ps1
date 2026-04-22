@@ -82,6 +82,8 @@ param(
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
+$generateContractsOnlyEnvironmentVariable = 'WORKFLOWBUILDER_PLUGIN_GENERATE_CONTRACTS_ONLY'
+
 function Get-AbsolutePath([string] $path, [string] $basePath = (Get-Location).Path) {
   if ([string]::IsNullOrWhiteSpace($path)) {
     throw "Path cannot be empty."
@@ -249,6 +251,7 @@ function Invoke-PluginPublish($info) {
     'publish',
     $info.CsprojPath,
     '-c', $Configuration,
+    '--disable-build-servers',
     '-p:DebugType=none'
   )
 
@@ -270,6 +273,39 @@ function Invoke-PluginPublish($info) {
   }
 
   return $publishDir
+}
+
+function Invoke-PluginContractGeneration($info) {
+  $arguments = @(
+    'run',
+    '--project', $info.CsprojPath,
+    '-c', 'Debug',
+    '--disable-build-servers',
+    '--no-launch-profile'
+  )
+
+  $previousValue = [System.Environment]::GetEnvironmentVariable(
+    $generateContractsOnlyEnvironmentVariable,
+    [System.EnvironmentVariableTarget]::Process)
+
+  try {
+    [System.Environment]::SetEnvironmentVariable(
+      $generateContractsOnlyEnvironmentVariable,
+      'true',
+      [System.EnvironmentVariableTarget]::Process)
+
+    Write-Host "🧾 Regenerating manifest/schemas for $($info.ProjectName) ..."
+    & dotnet @arguments | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+      throw "dotnet run failed while regenerating manifest/schemas for $($info.ProjectName)."
+    }
+  }
+  finally {
+    [System.Environment]::SetEnvironmentVariable(
+      $generateContractsOnlyEnvironmentVariable,
+      $previousValue,
+      [System.EnvironmentVariableTarget]::Process)
+  }
 }
 
 function Convert-ToCanonicalJsonValue($value) {
@@ -525,6 +561,7 @@ function Bundle-OneProject([string] $csprojPath, [string] $resolvedOutputDir) {
     return
   }
 
+  Invoke-PluginContractGeneration $info
   $publishDir = Invoke-PluginPublish $info
   $resolvedVersion = Get-NextBundleVersion $info $publishDir $resolvedOutputDir
   $declaredVersion = Get-VersionOrThrow $info.Version $info.ProjectName

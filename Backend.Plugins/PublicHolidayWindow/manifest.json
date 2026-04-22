@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Public holiday window",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "PublicHolidayWindow.HolidayWindowInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "WindowHoliday",
+      "Type": "PublicHolidayWindow.HolidayWindowResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

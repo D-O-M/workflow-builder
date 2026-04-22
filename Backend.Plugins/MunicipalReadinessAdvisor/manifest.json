@@ -1,0 +1,14 @@
+{
+  "DisplayName": "Municipal readiness advisor",
+  "InputChannel": {
+    "Name": "Input",
+    "Type": "MunicipalReadinessAdvisor.MunicipalReadinessInput"
+  },
+  "OutputChannels": [
+    {
+      "Name": "Recommendation",
+      "Type": "MunicipalReadinessAdvisor.MunicipalReadinessResult"
+    }
+  ],
+  "GlobalState": "Backend.Plugins.Harness.GlobalStateStub"
+}

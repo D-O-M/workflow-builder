@@ -1,0 +1,62 @@
+{
+  "type": [
+    "object",
+    "null"
+  ],
+  "properties": {
+    "ShipmentLabel": {
+      "type": "string"
+    },
+    "DestinationLabel": {
+      "type": "string"
+    },
+    "BaseCurrencyCode": {
+      "type": "string"
+    },
+    "QuoteCurrencyCode": {
+      "type": "string"
+    },
+    "WeatherRiskScore": {
+      "type": "integer"
+    },
+    "WeatherSummary": {
+      "type": "string"
+    },
+    "AverageDaylightHours": {
+      "type": "number"
+    },
+    "DaylightSummary": {
+      "type": "string"
+    },
+    "SupplierHolidayPressureScore": {
+      "type": "integer"
+    },
+    "SupplierHolidaySummary": {
+      "type": "string"
+    },
+    "ReceiverHolidayPressureScore": {
+      "type": "integer"
+    },
+    "ReceiverHolidaySummary": {
+      "type": "string"
+    },
+    "ExchangeRate": {
+      "type": "number"
+    },
+    "FxSummary": {
+      "type": "string"
+    },
+    "TargetExchangeRate": {
+      "type": "number"
+    },
+    "SensitivityMultiplier": {
+      "type": "number"
+    },
+    "GoThreshold": {
+      "type": "integer"
+    },
+    "WatchThreshold": {
+      "type": "integer"
+    }
+  }
+}
