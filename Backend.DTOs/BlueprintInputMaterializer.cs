@@ -14,12 +14,14 @@ public static class BlueprintInputMaterializer
             return materialized;
         }
 
-        var sourceProperties = sourcePayload.EnumerateObject()
+        var sourceProperties = sourcePayload.EnumerateObject().ToList();
+        var exactSourceProperties = sourceProperties
             .ToDictionary(property => property.Name, property => property.Value, StringComparer.Ordinal);
 
         foreach (var mapping in mappings)
         {
-            if (sourceProperties.TryGetValue(mapping.SourceProperty, out var value))
+            if (exactSourceProperties.TryGetValue(mapping.SourceProperty, out var value) ||
+                TryGetCompatibleSourceProperty(sourceProperties, mapping.SourceProperty, out value))
             {
                 materialized[mapping.TargetProperty] = value.Clone();
             }
@@ -70,5 +72,23 @@ public static class BlueprintInputMaterializer
         {
             target[key] = value.Clone();
         }
+    }
+
+    private static bool TryGetCompatibleSourceProperty(
+        IReadOnlyCollection<JsonProperty> sourceProperties,
+        string sourceProperty,
+        out JsonElement value)
+    {
+        foreach (var property in sourceProperties)
+        {
+            if (string.Equals(property.Name, sourceProperty, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
     }
 }

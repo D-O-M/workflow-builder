@@ -6,6 +6,8 @@ namespace Backend.Plugins.Harness;
 internal sealed class PluginExecutionResultFactory<TPlugin>
     where TPlugin : class, IPlugin
 {
+    private static readonly JsonSerializerOptions ContractJsonOptions = new(JsonSerializerDefaults.General);
+
     private readonly Func<TPlugin, object?> _globalStateGetter;
     private readonly IReadOnlyCollection<PluginChannel> _outputChannels;
 
@@ -65,7 +67,7 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
             outputData[outputChannel.Name] = JsonSerializer.SerializeToElement(
                 value,
                 value.GetType(),
-                JsonSerializerOptions.Web);
+                ContractJsonOptions);
         }
 
         return outputData;
@@ -80,8 +82,8 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
         }
 
         return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
-                   JsonSerializer.Serialize(value, value.GetType(), JsonSerializerOptions.Web),
-                   JsonSerializerOptions.Web)
+                   JsonSerializer.Serialize(value, value.GetType(), ContractJsonOptions),
+                   ContractJsonOptions)
                ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal);
     }
 }
