@@ -74,6 +74,7 @@ import { RuntimeClientConfigService } from '../domain/runtime-client-config.serv
 import { TaskDefinitionsService } from '../domain/task-definitions.service';
 import { ITaskDefinition } from '../interfaces/ITaskDefinition';
 import { ProcessSearchDialogComponent } from '../components/process-search-dialog.component';
+import { buildProcessCanvasNodes } from '../domain/process-canvas-model';
 
 interface ProcessRouteSelection {
   blueprintId: number | null;
@@ -667,24 +668,7 @@ export class ProcessExplorerPageComponent {
       return [];
     }
 
-    return detail.nodes.map((node, index) => new NodeModel(
-      index + 1,
-      node.taskDefinitionId,
-      node.allowedMajor,
-      node.allowedMinor,
-      node.resolvedVersionId,
-      node.resolvedVersion ?? null,
-      node.name,
-      node.position.x,
-      node.position.y,
-      320,
-      Math.max(220, 168 + Math.max(node.outputChannelNames.length, 1) * 34),
-      node.inputChannelName ?? null,
-      node.outputChannelNames,
-      false,
-      node.status,
-      node.failureMessage ?? null,
-    ));
+    return buildProcessCanvasNodes(detail, this.taskDefinitions());
   });
 
   protected readonly processConnections = computed(() => {
