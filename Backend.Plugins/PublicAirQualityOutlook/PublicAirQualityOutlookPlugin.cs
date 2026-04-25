@@ -25,12 +25,17 @@ public sealed class PublicAirQualityOutlookPlugin : IPlugin
     public async Task Execute()
     {
         var locationLabel = Input.LocationLabel.Trim();
-        var start = ParseIsoDate(Input.WindowStartIsoDate, nameof(Input.WindowStartIsoDate));
-        var end = ParseIsoDate(Input.WindowEndIsoDate, nameof(Input.WindowEndIsoDate));
+        var start = Input.WindowStartIsoDate;
+        var end = Input.WindowEndIsoDate;
 
         if (string.IsNullOrWhiteSpace(locationLabel))
         {
             throw new InvalidDataException("LocationLabel is required.");
+        }
+
+        if (start == default || end == default)
+        {
+            throw new InvalidDataException("WindowStartIsoDate and WindowEndIsoDate are required.");
         }
 
         if (end < start)
@@ -58,22 +63,12 @@ public sealed class PublicAirQualityOutlookPlugin : IPlugin
         AirQuality = new AirQualityWindowResult
         {
             LocationLabel = locationLabel,
-            WindowStartIsoDate = start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            WindowEndIsoDate = end.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            WindowStartIsoDate = start,
+            WindowEndIsoDate = end,
             AverageAirQualityIndex = Math.Round(averageAqi, 1),
             AirQualityScore = score,
             Summary = $"Average European AQI across the execution window is {Math.Round(averageAqi, 1)}."
         };
-    }
-
-    private static DateOnly ParseIsoDate(string value, string propertyName)
-    {
-        if (!DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
-        {
-            throw new InvalidDataException($"{propertyName} must use yyyy-MM-dd format.");
-        }
-
-        return parsed;
     }
 
     private static HttpClient CreateHttpClient()

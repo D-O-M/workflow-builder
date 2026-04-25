@@ -27,8 +27,8 @@ public sealed class ProcurementPortfolioPluginTests
                 ReceiverCountryCode = "nl",
                 BaseCurrencyCode = "usd",
                 QuoteCurrencyCode = "eur",
-                WindowStartIsoDate = "2026-05-12",
-                WindowEndIsoDate = "2026-05-14"
+                WindowStartIsoDate = new DateOnly(2026, 5, 12),
+                WindowEndIsoDate = new DateOnly(2026, 5, 14)
             }
         };
 
@@ -59,8 +59,8 @@ public sealed class ProcurementPortfolioPluginTests
                 LocationLabel = "May Restock / Rotterdam",
                 Latitude = 51.9244,
                 Longitude = 4.4777,
-                WindowStartIsoDate = "2026-05-12",
-                WindowEndIsoDate = "2026-05-14"
+                WindowStartIsoDate = new DateOnly(2026, 5, 12),
+                WindowEndIsoDate = new DateOnly(2026, 5, 14)
             }
         };
 

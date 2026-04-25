@@ -3,8 +3,8 @@ namespace AirportTafOutlook;
 public sealed class AirportTafInput
 {
     public string StationCode { get; set; } = "";
-    public string WindowStartIsoDate { get; set; } = "";
-    public string WindowEndIsoDate { get; set; } = "";
+    public DateOnly WindowStartIsoDate { get; set; }
+    public DateOnly WindowEndIsoDate { get; set; }
 }
 
 public sealed class AirportTafResult

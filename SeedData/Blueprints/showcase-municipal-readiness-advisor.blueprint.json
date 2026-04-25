@@ -197,7 +197,7 @@
       "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d003",
       "taskDefinitionName": "PublicHolidayWindow",
       "allowedMajor": 0,
-      "allowedMinor": 0,
+      "allowedMinor": 1,
       "position": {
         "x": 1000,
         "y": 40
@@ -226,7 +226,7 @@
       "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d004",
       "taskDefinitionName": "PublicDaylightWindow",
       "allowedMajor": 0,
-      "allowedMinor": 0,
+      "allowedMinor": 1,
       "position": {
         "x": 1000,
         "y": 340
@@ -255,7 +255,7 @@
       "taskKey": "7a6f36c1-33d1-4d48-9209-cd8afcb8d005",
       "taskDefinitionName": "PublicAirQualityOutlook",
       "allowedMajor": 0,
-      "allowedMinor": 0,
+      "allowedMinor": 1,
       "position": {
         "x": 1000,
         "y": 640

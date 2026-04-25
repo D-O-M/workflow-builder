@@ -26,8 +26,8 @@ public sealed class PublicHolidayWindowPlugin : IPlugin
     {
         var locationLabel = Input.LocationLabel.Trim();
         var countryCode = Input.CountryCode.Trim().ToUpperInvariant();
-        var start = ParseIsoDate(Input.WindowStartIsoDate, nameof(Input.WindowStartIsoDate));
-        var end = ParseIsoDate(Input.WindowEndIsoDate, nameof(Input.WindowEndIsoDate));
+        var start = Input.WindowStartIsoDate;
+        var end = Input.WindowEndIsoDate;
 
         if (string.IsNullOrWhiteSpace(locationLabel))
         {
@@ -37,6 +37,11 @@ public sealed class PublicHolidayWindowPlugin : IPlugin
         if (string.IsNullOrWhiteSpace(countryCode))
         {
             throw new InvalidDataException("CountryCode is required.");
+        }
+
+        if (start == default || end == default)
+        {
+            throw new InvalidDataException("WindowStartIsoDate and WindowEndIsoDate are required.");
         }
 
         if (end < start)
@@ -76,8 +81,8 @@ public sealed class PublicHolidayWindowPlugin : IPlugin
         {
             LocationLabel = locationLabel,
             CountryCode = countryCode,
-            WindowStartIsoDate = start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            WindowEndIsoDate = end.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            WindowStartIsoDate = start,
+            WindowEndIsoDate = end,
             HolidayCount = count,
             HeadlineHoliday = headline?.Holiday.LocalName
                 ?? headline?.Holiday.Name
@@ -87,16 +92,6 @@ public sealed class PublicHolidayWindowPlugin : IPlugin
                 ? "No public holidays fall inside the selected execution window."
                 : $"{count} public holiday(s) in window; first is {(headline?.Holiday.LocalName ?? headline?.Holiday.Name)} on {headline?.Date:yyyy-MM-dd}."
         };
-    }
-
-    private static DateOnly ParseIsoDate(string value, string propertyName)
-    {
-        if (!DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
-        {
-            throw new InvalidDataException($"{propertyName} must use yyyy-MM-dd format.");
-        }
-
-        return parsed;
     }
 
     private static HttpClient CreateHttpClient()

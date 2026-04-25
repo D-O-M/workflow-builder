@@ -27,8 +27,18 @@ public sealed class ShowcaseTownHolidayPlugin : IPlugin
             return;
         }
 
-        var weekendStart = ParseIsoDate(TownWeekendForecast.WeekendStartIsoDate, nameof(TownWeekendForecast.WeekendStartIsoDate));
-        var weekendEnd = ParseIsoDate(TownWeekendForecast.WeekendEndIsoDate, nameof(TownWeekendForecast.WeekendEndIsoDate));
+        var weekendStart = TownWeekendForecast.WeekendStartIsoDate;
+        var weekendEnd = TownWeekendForecast.WeekendEndIsoDate;
+
+        if (weekendStart == default || weekendEnd == default)
+        {
+            throw new InvalidDataException("WeekendStartIsoDate and WeekendEndIsoDate are required.");
+        }
+
+        if (weekendEnd < weekendStart)
+        {
+            throw new InvalidDataException("WeekendEndIsoDate must be on or after WeekendStartIsoDate.");
+        }
 
         try
         {
@@ -93,14 +103,6 @@ public sealed class ShowcaseTownHolidayPlugin : IPlugin
                 TownWeekendForecast,
                 "Holiday lookup was unavailable, so the workflow continued without any holiday demand adjustment.");
         }
-    }
-
-    private static DateOnly ParseIsoDate(string isoDate, string propertyName)
-    {
-        if (DateOnly.TryParseExact(isoDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var value))
-            return value;
-
-        throw new InvalidDataException($"{propertyName} must be a valid ISO date (yyyy-MM-dd).");
     }
 
     private static HttpClient CreateHttpClient()

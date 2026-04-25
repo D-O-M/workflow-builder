@@ -29,7 +29,7 @@ public sealed class ShowcaseTownRecommendationPlugin : IPlugin
             FinalRecommendationScore = finalRecommendationScore,
             RecommendationBand = recommendationBand,
             RecommendationSummary =
-                $"{TownWeekendHolidayContext.ResolvedTownName} is a {recommendationBand} for {TownWeekendHolidayContext.WeekendStartIsoDate} to {TownWeekendHolidayContext.WeekendEndIsoDate}. Final score {finalRecommendationScore}/100.",
+                $"{TownWeekendHolidayContext.ResolvedTownName} is a {recommendationBand} for {TownWeekendHolidayContext.WeekendStartIsoDate:yyyy-MM-dd} to {TownWeekendHolidayContext.WeekendEndIsoDate:yyyy-MM-dd}. Final score {finalRecommendationScore}/100.",
             WeatherSummary = TownWeekendHolidayContext.WeatherSummary,
             HolidaySummary = TownWeekendHolidayContext.HolidaySummary
         };

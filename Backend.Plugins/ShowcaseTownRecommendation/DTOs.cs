@@ -8,8 +8,8 @@ public sealed class TownWeekendHolidayContext
     public string ResolvedCountryCode { get; set; } = "";
     public double Latitude { get; set; }
     public double Longitude { get; set; }
-    public string WeekendStartIsoDate { get; set; } = "";
-    public string WeekendEndIsoDate { get; set; } = "";
+    public DateOnly WeekendStartIsoDate { get; set; }
+    public DateOnly WeekendEndIsoDate { get; set; }
     public double AverageTemperatureC { get; set; }
     public double MaximumWindSpeedMps { get; set; }
     public double TotalPrecipitationMm { get; set; }
@@ -27,8 +27,8 @@ public sealed class TownRecommendation
 {
     public string ResolvedTownName { get; set; } = "";
     public string ResolvedCountryCode { get; set; } = "";
-    public string WeekendStartIsoDate { get; set; } = "";
-    public string WeekendEndIsoDate { get; set; } = "";
+    public DateOnly WeekendStartIsoDate { get; set; }
+    public DateOnly WeekendEndIsoDate { get; set; }
     public int WeatherSuitabilityScore { get; set; }
     public double HolidayDemandAdjustmentPct { get; set; }
     public int FinalRecommendationScore { get; set; }

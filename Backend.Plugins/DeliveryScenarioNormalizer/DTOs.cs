@@ -9,8 +9,8 @@ public sealed class DeliveryScenarioInput
     public string ReceiverCountryCode { get; set; } = "";
     public string BaseCurrencyCode { get; set; } = "";
     public string QuoteCurrencyCode { get; set; } = "";
-    public string WindowStartIsoDate { get; set; } = "";
-    public string WindowEndIsoDate { get; set; } = "";
+    public DateOnly WindowStartIsoDate { get; set; }
+    public DateOnly WindowEndIsoDate { get; set; }
 }
 
 public sealed class DeliveryScenarioResult
@@ -22,7 +22,7 @@ public sealed class DeliveryScenarioResult
     public string ReceiverCountryCode { get; set; } = "";
     public string BaseCurrencyCode { get; set; } = "";
     public string QuoteCurrencyCode { get; set; } = "";
-    public string WindowStartIsoDate { get; set; } = "";
-    public string WindowEndIsoDate { get; set; } = "";
+    public DateOnly WindowStartIsoDate { get; set; }
+    public DateOnly WindowEndIsoDate { get; set; }
     public string DestinationLabel { get; set; } = "";
 }

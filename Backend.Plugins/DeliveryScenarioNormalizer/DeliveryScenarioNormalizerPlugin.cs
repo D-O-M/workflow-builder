@@ -1,4 +1,3 @@
-using System.Globalization;
 using Backend.Plugins.Harness;
 
 namespace DeliveryScenarioNormalizer;
@@ -17,12 +16,17 @@ public sealed class DeliveryScenarioNormalizerPlugin : IPlugin
         var receiverCountry = Input.ReceiverCountryCode.Trim().ToUpperInvariant();
         var baseCurrency = Input.BaseCurrencyCode.Trim().ToUpperInvariant();
         var quoteCurrency = Input.QuoteCurrencyCode.Trim().ToUpperInvariant();
-        var start = ParseIsoDate(Input.WindowStartIsoDate, nameof(Input.WindowStartIsoDate));
-        var end = ParseIsoDate(Input.WindowEndIsoDate, nameof(Input.WindowEndIsoDate));
+        var start = Input.WindowStartIsoDate;
+        var end = Input.WindowEndIsoDate;
 
         if (string.IsNullOrWhiteSpace(shipmentLabel) || string.IsNullOrWhiteSpace(destinationTown))
         {
             throw new InvalidDataException("ShipmentLabel and DestinationTown are required.");
+        }
+
+        if (start == default || end == default)
+        {
+            throw new InvalidDataException("WindowStartIsoDate and WindowEndIsoDate are required.");
         }
 
         if (end < start)
@@ -39,21 +43,11 @@ public sealed class DeliveryScenarioNormalizerPlugin : IPlugin
             ReceiverCountryCode = receiverCountry,
             BaseCurrencyCode = baseCurrency,
             QuoteCurrencyCode = quoteCurrency,
-            WindowStartIsoDate = start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            WindowEndIsoDate = end.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            WindowStartIsoDate = start,
+            WindowEndIsoDate = end,
             DestinationLabel = $"{shipmentLabel} / {destinationTown}"
         };
 
         return Task.CompletedTask;
-    }
-
-    private static DateOnly ParseIsoDate(string value, string propertyName)
-    {
-        if (!DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
-        {
-            throw new InvalidDataException($"{propertyName} must use yyyy-MM-dd format.");
-        }
-
-        return parsed;
     }
 }

@@ -5,15 +5,15 @@ public sealed class WindowWeatherInput
     public string LocationLabel { get; set; } = "";
     public double Latitude { get; set; }
     public double Longitude { get; set; }
-    public string WindowStartIsoDate { get; set; } = "";
-    public string WindowEndIsoDate { get; set; } = "";
+    public DateOnly WindowStartIsoDate { get; set; }
+    public DateOnly WindowEndIsoDate { get; set; }
 }
 
 public sealed class WindowWeatherResult
 {
     public string LocationLabel { get; set; } = "";
-    public string WindowStartIsoDate { get; set; } = "";
-    public string WindowEndIsoDate { get; set; } = "";
+    public DateOnly WindowStartIsoDate { get; set; }
+    public DateOnly WindowEndIsoDate { get; set; }
     public double AverageTemperatureC { get; set; }
     public double TotalPrecipitationMm { get; set; }
     public double MaxWindSpeedMps { get; set; }

@@ -25,8 +25,8 @@ public sealed class AviationPortfolioPluginTests
             Input = new AirportOperationWindowInput
             {
                 AirportCode = "kjfk",
-                WindowStartIsoDate = "2026-05-12",
-                WindowEndIsoDate = "2026-05-12"
+                WindowStartIsoDate = new DateOnly(2026, 5, 12),
+                WindowEndIsoDate = new DateOnly(2026, 5, 12)
             }
         };
 
@@ -134,8 +134,8 @@ public sealed class AviationPortfolioPluginTests
             Input = new AirportTafInput
             {
                 StationCode = "KJFK",
-                WindowStartIsoDate = "2026-05-04",
-                WindowEndIsoDate = "2026-05-04"
+                WindowStartIsoDate = new DateOnly(2026, 5, 4),
+                WindowEndIsoDate = new DateOnly(2026, 5, 4)
             }
         };
 

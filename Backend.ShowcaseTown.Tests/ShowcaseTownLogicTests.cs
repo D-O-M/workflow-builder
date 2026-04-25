@@ -1,3 +1,4 @@
+using System;
 using Shouldly;
 using ShowcaseTownForecast;
 using ShowcaseTownHoliday;
@@ -47,8 +48,8 @@ public sealed class ShowcaseTownLogicTests
             ResolvedCountryCode = "PT",
             Latitude = 41.1496,
             Longitude = -8.6109,
-            WeekendStartIsoDate = "2026-04-25",
-            WeekendEndIsoDate = "2026-04-26",
+            WeekendStartIsoDate = new DateOnly(2026, 4, 25),
+            WeekendEndIsoDate = new DateOnly(2026, 4, 26),
             AverageTemperatureC = 19.5,
             MaximumWindSpeedMps = 5.2,
             TotalPrecipitationMm = 0.8,

@@ -25,11 +25,21 @@ public sealed class AirportTafOutlookPlugin : IPlugin
     public async Task Execute()
     {
         var stationCode = Input.StationCode.Trim().ToUpperInvariant();
-        var start = ParseIsoDate(Input.WindowStartIsoDate, nameof(Input.WindowStartIsoDate));
-        var end = ParseIsoDate(Input.WindowEndIsoDate, nameof(Input.WindowEndIsoDate));
+        var start = Input.WindowStartIsoDate;
+        var end = Input.WindowEndIsoDate;
         if (string.IsNullOrWhiteSpace(stationCode))
         {
             throw new InvalidDataException("StationCode is required.");
+        }
+
+        if (start == default || end == default)
+        {
+            throw new InvalidDataException("WindowStartIsoDate and WindowEndIsoDate are required.");
+        }
+
+        if (end < start)
+        {
+            throw new InvalidDataException("WindowEndIsoDate must be on or after WindowStartIsoDate.");
         }
 
         var startUtc = new DateTimeOffset(start.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
@@ -83,16 +93,6 @@ public sealed class AirportTafOutlookPlugin : IPlugin
             ForecastCeilingFeet = ranked.Min(candidate => candidate.Ceiling),
             Summary = taf.RawTaf ?? $"{stationCode} TAF worst category {worst.Category}"
         };
-    }
-
-    private static DateOnly ParseIsoDate(string value, string propertyName)
-    {
-        if (!DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
-        {
-            throw new InvalidDataException($"{propertyName} must use yyyy-MM-dd format.");
-        }
-
-        return parsed;
     }
 
     private static double ParseVisibilityMiles(object? visibility)

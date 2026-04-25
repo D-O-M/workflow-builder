@@ -8,7 +8,7 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e201",
       "taskDefinitionName": "AirportOperationWindow",
       "allowedMajor": 0,
-      "allowedMinor": 0,
+      "allowedMinor": 1,
       "position": {
         "x": 120,
         "y": 320
@@ -266,7 +266,7 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e204",
       "taskDefinitionName": "AirportTafOutlook",
       "allowedMajor": 0,
-      "allowedMinor": 0,
+      "allowedMinor": 1,
       "position": {
         "x": 1000,
         "y": 320
@@ -365,7 +365,7 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e207",
       "taskDefinitionName": "PublicDaylightWindow",
       "allowedMajor": 0,
-      "allowedMinor": 0,
+      "allowedMinor": 1,
       "position": {
         "x": 1440,
         "y": 620

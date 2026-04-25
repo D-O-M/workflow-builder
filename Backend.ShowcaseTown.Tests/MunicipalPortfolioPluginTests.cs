@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -27,8 +28,8 @@ public sealed class MunicipalPortfolioPluginTests
             {
                 LocationLabel = "Leeds Centre",
                 CountryCode = "gb",
-                WindowStartIsoDate = "2026-05-24",
-                WindowEndIsoDate = "2026-05-26"
+                WindowStartIsoDate = new DateOnly(2026, 5, 24),
+                WindowEndIsoDate = new DateOnly(2026, 5, 26)
             }
         };
 
@@ -58,8 +59,8 @@ public sealed class MunicipalPortfolioPluginTests
                 LocationLabel = "Leeds Centre",
                 Latitude = 53.7997,
                 Longitude = -1.5492,
-                WindowStartIsoDate = "2026-05-24",
-                WindowEndIsoDate = "2026-05-25"
+                WindowStartIsoDate = new DateOnly(2026, 5, 24),
+                WindowEndIsoDate = new DateOnly(2026, 5, 25)
             }
         };
 
@@ -88,8 +89,8 @@ public sealed class MunicipalPortfolioPluginTests
                 LocationLabel = "Leeds Centre",
                 Latitude = 53.7997,
                 Longitude = -1.5492,
-                WindowStartIsoDate = "2026-05-24",
-                WindowEndIsoDate = "2026-05-25"
+                WindowStartIsoDate = new DateOnly(2026, 5, 24),
+                WindowEndIsoDate = new DateOnly(2026, 5, 25)
             }
         };
 
