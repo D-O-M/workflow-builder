@@ -7,15 +7,22 @@ import {
   untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { provideNativeDateAdapter } from '@angular/material/core';
+import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { DynamicFieldDefinition } from './dynamic-form-field.component';
+import type { DynamicFieldDefinition } from './dynamic-form-field.component';
 import {
   createTaskPropertyControl,
   createTaskPropertyFieldDefinitions,
+  serializeTaskPropertyControlValue,
+  shouldIncludeSerializedTaskPropertyValue,
+  taskPropertyInputHint,
   taskPropertyKindLabel,
+  taskPropertyValidationMessage,
 } from '../domain/task-property-form-utils';
 import { ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
@@ -29,10 +36,13 @@ export interface PropertyOverrideEditorState {
   selector: 'app-property-override-editor',
   imports: [
     ReactiveFormsModule,
+    MatDatepickerModule,
     MatFormFieldModule,
+    MatIconModule,
     MatInputModule,
     MatSelectModule,
   ],
+  providers: [provideNativeDateAdapter()],
   template: `
     <div class="override-editor-shell">
       @if (fields.length === 0) {
@@ -52,7 +62,23 @@ export interface PropertyOverrideEditorState {
                 <span class="override-editor-shell__kind">{{ kindLabel(field) }}</span>
               </div>
 
-              @if (field.kind === 'boolean' || field.kind === 'enum') {
+              @if (field.kind === 'date') {
+                <mat-form-field class="override-editor-shell__control" appearance="outline" subscriptSizing="dynamic">
+                  <input
+                    matInput
+                    [id]="inputId(field)"
+                    [matDatepicker]="overrideDatePicker"
+                    [formControlName]="field.key"
+                    autocomplete="off"
+                    placeholder="Use blueprint value"
+                  />
+                  <mat-datepicker-toggle matIconSuffix [for]="overrideDatePicker" />
+                  <mat-datepicker #overrideDatePicker />
+                  @if (inputHint(field)) {
+                    <mat-hint>{{ inputHint(field) }}</mat-hint>
+                  }
+                </mat-form-field>
+              } @else if (field.kind === 'boolean' || field.kind === 'enum') {
                 <mat-form-field class="override-editor-shell__control" appearance="outline" subscriptSizing="dynamic">
                   <mat-select [id]="inputId(field)" [formControlName]="field.key">
                     <mat-option value="">Use blueprint value</mat-option>
@@ -65,6 +91,10 @@ export interface PropertyOverrideEditorState {
                       }
                     }
                   </mat-select>
+                  <mat-icon matSuffix>{{ inputIcon(field) }}</mat-icon>
+                  @if (inputHint(field)) {
+                    <mat-hint>{{ inputHint(field) }}</mat-hint>
+                  }
                 </mat-form-field>
               } @else {
                 <mat-form-field class="override-editor-shell__control" appearance="outline" subscriptSizing="dynamic">
@@ -73,16 +103,16 @@ export interface PropertyOverrideEditorState {
                     [id]="inputId(field)"
                     [type]="inputType(field)"
                     [formControlName]="field.key"
-                    [attr.inputmode]="field.kind === 'integer' || field.kind === 'decimal' ? 'decimal' : null"
+                    [attr.inputmode]="inputMode(field)"
                     [attr.autocomplete]="field.kind === 'guid' ? 'off' : null"
                     [attr.step]="numberStep(field)"
                     placeholder="Use blueprint value"
                   />
+                  <mat-icon matSuffix>{{ inputIcon(field) }}</mat-icon>
+                  @if (inputHint(field)) {
+                    <mat-hint>{{ inputHint(field) }}</mat-hint>
+                  }
                 </mat-form-field>
-              }
-
-              @if (field.kind === 'guid') {
-                <p class="override-editor-shell__hint">GUID format expected when provided.</p>
               }
 
               @if (controlInvalid(field.key)) {
@@ -212,11 +242,7 @@ export class PropertyOverrideEditorComponent {
     return `${this.editorId()}-${field.key}`;
   }
 
-  protected inputType(field: DynamicFieldDefinition): 'text' | 'number' | 'date' | 'datetime-local' {
-    if (field.kind === 'integer' || field.kind === 'decimal') {
-      return 'number';
-    }
-
+  protected inputType(field: DynamicFieldDefinition): 'text' | 'date' | 'datetime-local' {
     if (field.kind === 'date') {
       return 'date';
     }
@@ -228,8 +254,40 @@ export class PropertyOverrideEditorComponent {
     return 'text';
   }
 
+  protected inputMode(field: DynamicFieldDefinition): string | null {
+    return field.kind === 'integer'
+      ? 'numeric'
+      : field.kind === 'decimal'
+        ? 'decimal'
+        : null;
+  }
+
   protected numberStep(field: DynamicFieldDefinition): string | null {
-    return field.kind === 'integer' ? '1' : field.kind === 'decimal' ? 'any' : null;
+    return field.kind === 'datetime' ? '60' : null;
+  }
+
+  protected inputIcon(field: DynamicFieldDefinition): string {
+    switch (field.kind) {
+      case 'integer':
+      case 'decimal':
+        return 'tag';
+      case 'boolean':
+        return 'toggle_on';
+      case 'guid':
+        return 'fingerprint';
+      case 'date':
+        return 'calendar_month';
+      case 'datetime':
+        return 'event_available';
+      case 'enum':
+        return 'tune';
+      default:
+        return 'edit';
+    }
+  }
+
+  protected inputHint(field: DynamicFieldDefinition): string {
+    return taskPropertyInputHint(field);
   }
 
   protected controlInvalid(fieldKey: string): boolean {
@@ -243,11 +301,7 @@ export class PropertyOverrideEditorComponent {
       return '';
     }
 
-    if (control.errors['pattern']) {
-      return `${field.label} must be a valid GUID.`;
-    }
-
-    return `${field.label} is invalid.`;
+    return taskPropertyValidationMessage(field, control.errors);
   }
 
   private rebuildForm(
@@ -261,21 +315,10 @@ export class PropertyOverrideEditorComponent {
     }
 
     for (const field of fields) {
-      this.form.addControl(field.key, this.createOverrideControl(field, initialOverrides[field.key]));
+      this.form.addControl(field.key, createTaskPropertyControl(field, initialOverrides[field.key]));
     }
 
     this.emitState();
-  }
-
-  private createOverrideControl(
-    field: DynamicFieldDefinition,
-    initialValue: unknown,
-  ): FormControl {
-    if (field.kind === 'boolean') {
-      return new FormControl(this.normalizeBooleanOverrideValue(initialValue), { nonNullable: true });
-    }
-
-    return createTaskPropertyControl(field, initialValue) as FormControl;
   }
 
   private emitState(): void {
@@ -308,33 +351,8 @@ export class PropertyOverrideEditorComponent {
   private serializeOverrideValue(
     field: DynamicFieldDefinition,
     value: unknown,
-  ): unknown {
-    switch (field.kind) {
-      case 'boolean':
-        if (value !== 'true' && value !== 'false') {
-          return undefined;
-        }
-
-        return value === 'true';
-      case 'integer':
-      case 'decimal':
-        return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-      default: {
-        const normalized = typeof value === 'string' ? value.trim() : '';
-        return normalized.length > 0 ? normalized : undefined;
-      }
-    }
-  }
-
-  private normalizeBooleanOverrideValue(value: unknown): string {
-    if (value === true) {
-      return 'true';
-    }
-
-    if (value === false) {
-      return 'false';
-    }
-
-    return '';
+  ): unknown | undefined {
+    const serializedValue = serializeTaskPropertyControlValue(field, value);
+    return shouldIncludeSerializedTaskPropertyValue(serializedValue) ? serializedValue : undefined;
   }
 }

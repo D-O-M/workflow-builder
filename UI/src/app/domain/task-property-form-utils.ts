@@ -1,9 +1,13 @@
-import { AbstractControl, FormControl, Validators } from '@angular/forms';
-import { DynamicFieldDefinition } from '../components/dynamic-form-field.component';
+import { AbstractControl, FormControl, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
+import type { DynamicFieldDefinition } from '../components/dynamic-form-field.component';
 import { TaskPropertyType } from './node-model';
 import { ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
 const GUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+const INTEGER_PATTERN = /^[+-]?\d+$/;
+const DECIMAL_PATTERN = /^[+-]?(?:\d+|\d*\.\d+)$/;
+const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DATETIME_LOCAL_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
 
 export function createTaskPropertyFieldDefinitions(
   properties: ITaskPropertyDefinition[] | Record<string, TaskPropertyType> | null | undefined,
@@ -52,35 +56,44 @@ export function createTaskPropertyControl(
   field: DynamicFieldDefinition,
   initialValue?: unknown,
 ): AbstractControl {
+  const validators = createTaskPropertyValidators(field);
+
   switch (field.kind) {
     case 'boolean':
       return new FormControl(normalizeBooleanValue(initialValue), {
         nonNullable: true,
-        validators: field.required ? [Validators.required] : [],
+        validators,
       });
     case 'integer':
     case 'decimal':
       return new FormControl<number | null>(
         normalizeNumberValue(initialValue),
-        field.required ? [Validators.required] : [],
+        validators,
       );
     case 'enum':
       return new FormControl(normalizeStringValue(initialValue), {
         nonNullable: true,
-        validators: field.required ? [Validators.required] : [],
+        validators,
       });
     case 'guid':
       return new FormControl(normalizeStringValue(initialValue), {
         nonNullable: true,
-        validators: [
-          ...(field.required ? [Validators.required] : []),
-          Validators.pattern(GUID_PATTERN),
-        ],
+        validators,
+      });
+    case 'date':
+      return new FormControl<Date | null>(
+        normalizeDateControlValue(initialValue),
+        validators,
+      );
+    case 'datetime':
+      return new FormControl(normalizeDateTimeValue(initialValue), {
+        nonNullable: true,
+        validators,
       });
     default:
       return new FormControl(normalizeStringValue(initialValue), {
         nonNullable: true,
-        validators: field.required ? [Validators.required] : [],
+        validators,
       });
   }
 }
@@ -96,8 +109,93 @@ export function serializeTaskPropertyControlValue(
       return normalizeIntegerValue(value);
     case 'decimal':
       return normalizeNumberValue(value);
+    case 'date':
+      return normalizeDateValue(value);
+    case 'datetime':
+      return normalizeDateTimeValue(value);
     default:
       return normalizeStringValue(value);
+  }
+}
+
+export function serializeTaskPropertyFormValues(
+  fields: DynamicFieldDefinition[],
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    fields
+      .map((field) => [field.key, serializeTaskPropertyControlValue(field, values[field.key])] as const)
+      .filter(([, value]) => shouldIncludeSerializedTaskPropertyValue(value)),
+  );
+}
+
+export function shouldIncludeSerializedTaskPropertyValue(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+
+  return typeof value !== 'string' || value.trim().length > 0;
+}
+
+export function taskPropertyValidationMessage(
+  field: DynamicFieldDefinition,
+  errors: ValidationErrors | null | undefined,
+): string {
+  if (!errors) {
+    return '';
+  }
+
+  if (errors['required']) {
+    return `${field.label} is required.`;
+  }
+
+  if (errors['boolean']) {
+    return `${field.label} must be either True or False.`;
+  }
+
+  if (errors['integer']) {
+    return `${field.label} must be a whole number.`;
+  }
+
+  if (errors['decimal']) {
+    return `${field.label} must be a valid decimal number.`;
+  }
+
+  if (errors['guid']) {
+    return `${field.label} must be a valid GUID.`;
+  }
+
+  if (errors['date']) {
+    return `${field.label} must be a real calendar date.`;
+  }
+
+  if (errors['datetime']) {
+    return `${field.label} must include a real date and time.`;
+  }
+
+  if (errors['enum']) {
+    return `Choose one of the available ${field.label} options.`;
+  }
+
+  return `${field.label} is invalid.`;
+}
+
+export function taskPropertyInputHint(field: DynamicFieldDefinition, optionalHint = ''): string {
+  switch (field.kind) {
+    case 'integer':
+      return 'Whole numbers only.';
+    case 'decimal':
+      return 'Decimal number, for example 12.5.';
+    case 'guid':
+      return 'GUID format expected.';
+    case 'date':
+      return 'Choose a calendar date.';
+    case 'datetime':
+      return 'Choose a calendar date and local time.';
+    case 'enum':
+      return field.options?.length ? 'Choose one of the available options.' : optionalHint;
+    default:
+      return optionalHint;
   }
 }
 
@@ -143,6 +241,49 @@ function toTaskPropertyFieldKind(type: TaskPropertyType): DynamicFieldDefinition
   }
 }
 
+function createTaskPropertyValidators(field: DynamicFieldDefinition): ValidatorFn[] {
+  const validators: ValidatorFn[] = field.required ? [Validators.required] : [];
+
+  switch (field.kind) {
+    case 'boolean':
+      validators.push(optionalAwareValidator('boolean', isValidBooleanValue));
+      break;
+    case 'integer':
+      validators.push(optionalAwareValidator('integer', isValidIntegerValue));
+      break;
+    case 'decimal':
+      validators.push(optionalAwareValidator('decimal', isValidDecimalValue));
+      break;
+    case 'guid':
+      validators.push(optionalAwareValidator('guid', isValidGuidValue));
+      break;
+    case 'date':
+      validators.push(optionalAwareValidator('date', isValidDateValue));
+      break;
+    case 'datetime':
+      validators.push(optionalAwareValidator('datetime', isValidDateTimeValue));
+      break;
+    case 'enum':
+      validators.push(optionalAwareValidator('enum', (value) => isValidEnumValue(value, field.options ?? [])));
+      break;
+  }
+
+  return validators;
+}
+
+function optionalAwareValidator(
+  errorKey: string,
+  isValid: (value: unknown) => boolean,
+): ValidatorFn {
+  return (control) => {
+    if (isBlankValue(control.value)) {
+      return null;
+    }
+
+    return isValid(control.value) ? null : { [errorKey]: true };
+  };
+}
+
 function formatTaskPropertyLabel(key: string): string {
   return key
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -175,8 +316,11 @@ function normalizeBooleanOutputValue(value: unknown): boolean | null {
 }
 
 function normalizeIntegerValue(value: unknown): number | null {
-  const normalized = normalizeNumberValue(value);
-  return normalized === null ? null : Math.trunc(normalized);
+  if (!isValidIntegerValue(value)) {
+    return null;
+  }
+
+  return Number(value);
 }
 
 function normalizeNumberValue(value: unknown): number | null {
@@ -192,6 +336,48 @@ function normalizeNumberValue(value: unknown): number | null {
   return null;
 }
 
+function normalizeDateValue(value: unknown): string {
+  if (value instanceof Date && isValidDateObject(value)) {
+    return formatDateValue(value);
+  }
+
+  const normalized = normalizeStringValue(value).trim();
+  if (isValidDateText(normalized)) {
+    return normalized;
+  }
+
+  const parsedDate = normalized.length ? new Date(normalized) : null;
+  return parsedDate && isValidDateObject(parsedDate) ? formatDateValue(parsedDate) : normalized;
+}
+
+function normalizeDateControlValue(value: unknown): Date | null {
+  if (value instanceof Date && isValidDateObject(value)) {
+    return value;
+  }
+
+  const normalized = normalizeDateValue(value);
+  if (!isValidDateText(normalized)) {
+    return null;
+  }
+
+  const [year, month, day] = normalized.split('-').map((part) => Number(part));
+  return new Date(year, month - 1, day);
+}
+
+function normalizeDateTimeValue(value: unknown): string {
+  if (value instanceof Date && isValidDateObject(value)) {
+    return formatDateTimeLocalValue(value);
+  }
+
+  const normalized = normalizeStringValue(value).trim();
+  if (isValidDateTimeText(normalized)) {
+    return normalized;
+  }
+
+  const parsedDate = normalized.length ? new Date(normalized) : null;
+  return parsedDate && isValidDateObject(parsedDate) ? formatDateTimeLocalValue(parsedDate) : normalized;
+}
+
 function normalizeStringValue(value: unknown): string {
   if (typeof value === 'string') {
     return value;
@@ -202,4 +388,112 @@ function normalizeStringValue(value: unknown): string {
   }
 
   return String(value);
+}
+
+function isBlankValue(value: unknown): boolean {
+  return value === null || value === undefined || (typeof value === 'string' && value.trim().length === 0);
+}
+
+function isValidBooleanValue(value: unknown): boolean {
+  return value === true || value === false || value === 'true' || value === 'false';
+}
+
+function isValidIntegerValue(value: unknown): boolean {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && Number.isInteger(value);
+  }
+
+  return typeof value === 'string' && INTEGER_PATTERN.test(value.trim());
+}
+
+function isValidDecimalValue(value: unknown): boolean {
+  if (typeof value === 'number') {
+    return Number.isFinite(value);
+  }
+
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return DECIMAL_PATTERN.test(normalized) && Number.isFinite(Number(normalized));
+}
+
+function isValidGuidValue(value: unknown): boolean {
+  return typeof value === 'string' && GUID_PATTERN.test(value.trim());
+}
+
+function isValidEnumValue(value: unknown, options: string[]): boolean {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  return options.length === 0 || options.includes(value);
+}
+
+function isValidDateValue(value: unknown): boolean {
+  if (value instanceof Date) {
+    return isValidDateObject(value);
+  }
+
+  return typeof value === 'string' && isValidDateText(value.trim());
+}
+
+function isValidDateTimeValue(value: unknown): boolean {
+  if (value instanceof Date) {
+    return isValidDateObject(value);
+  }
+
+  return typeof value === 'string' && isValidDateTimeText(value.trim());
+}
+
+function isValidDateText(value: string): boolean {
+  const match = DATE_PATTERN.exec(value);
+  if (!match) {
+    return false;
+  }
+
+  return isValidDateParts(Number(match[1]), Number(match[2]), Number(match[3]));
+}
+
+function isValidDateTimeText(value: string): boolean {
+  const match = DATETIME_LOCAL_PATTERN.exec(value);
+  if (!match) {
+    return false;
+  }
+
+  const hours = Number(match[4]);
+  const minutes = Number(match[5]);
+  const seconds = match[6] === undefined ? 0 : Number(match[6]);
+
+  return isValidDateParts(Number(match[1]), Number(match[2]), Number(match[3]))
+    && hours >= 0
+    && hours <= 23
+    && minutes >= 0
+    && minutes <= 59
+    && seconds >= 0
+    && seconds <= 59;
+}
+
+function isValidDateParts(year: number, month: number, day: number): boolean {
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  return candidate.getUTCFullYear() === year
+    && candidate.getUTCMonth() === month - 1
+    && candidate.getUTCDate() === day;
+}
+
+function isValidDateObject(value: Date): boolean {
+  return !Number.isNaN(value.getTime());
+}
+
+function formatDateValue(value: Date): string {
+  return [
+    value.getFullYear(),
+    padDatePart(value.getMonth() + 1),
+    padDatePart(value.getDate()),
+  ].join('-');
+}
+
+function formatDateTimeLocalValue(value: Date): string {
+  return `${formatDateValue(value)}T${padDatePart(value.getHours())}:${padDatePart(value.getMinutes())}`;
+}
+
+function padDatePart(value: number): string {
+  return String(value).padStart(2, '0');
 }

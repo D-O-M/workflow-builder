@@ -87,8 +87,25 @@ function createTaskDefinitions(): ITaskDefinition[] {
           version: '1.0.0',
           state: 'Active',
           description: 'Start node',
-          requiredGlobalState: null,
-          inputChannel: null,
+          requiredGlobalState: {
+            id: 1,
+            name: 'GlobalState',
+            properties: [
+              { name: 'Empty', kind: 'Boolean', required: false, enumValues: [] },
+              { name: 'LaunchCount', kind: 'Integer', required: false, enumValues: [] },
+              { name: 'TargetScore', kind: 'Decimal', required: false, enumValues: [] },
+              { name: 'OptionalNote', kind: 'String', required: false, enumValues: [] },
+            ],
+          },
+          inputChannel: {
+            id: 2,
+            name: 'Input',
+            properties: [
+              { name: 'Town', kind: 'String', required: false, enumValues: [] },
+              { name: 'StartDate', kind: 'Date', required: false, enumValues: [] },
+              { name: 'LaunchMode', kind: 'Enum', required: false, enumValues: ['DryRun', 'Live'] },
+            ],
+          },
           outputChannels: [
             {
               name: 'Success',
@@ -242,6 +259,53 @@ describe('StartProcessPageComponent', () => {
       nodeOverrides: {},
     });
     expect((component as any).executeErrorMessage()).toBeNull();
+  });
+
+  it('serializes initialization and global state controls as typed JSON values', async () => {
+    component.form.controls.globalState.addControl('Empty', new FormControl('false'));
+    component.form.controls.globalState.addControl('LaunchCount', new FormControl('4'));
+    component.form.controls.globalState.addControl('TargetScore', new FormControl('12.5'));
+    component.form.controls.globalState.addControl('OptionalNote', new FormControl(''));
+    component.form.controls.globalState.patchValue({
+      Empty: 'false',
+      LaunchCount: '4',
+      TargetScore: '12.5',
+      OptionalNote: '',
+    });
+    component.form.controls.initialTaskInput.addControl('Town', new FormControl('York'));
+    component.form.controls.initialTaskInput.addControl('StartDate', new FormControl('2026-04-25'));
+    component.form.controls.initialTaskInput.addControl('LaunchMode', new FormControl('DryRun'));
+    component.form.controls.initialTaskInput.patchValue({
+      Town: 'York',
+      StartDate: '2026-04-25',
+      LaunchMode: 'DryRun',
+    });
+
+    expect((component as any).serializeFieldGroup(
+      [
+        { key: 'Empty', label: 'Empty', kind: 'boolean', required: false },
+        { key: 'LaunchCount', label: 'Launch count', kind: 'integer', required: false },
+        { key: 'TargetScore', label: 'Target score', kind: 'decimal', required: false },
+        { key: 'OptionalNote', label: 'Optional note', kind: 'string', required: false },
+      ],
+      component.form.controls.globalState,
+    )).toEqual({
+        Empty: false,
+        LaunchCount: 4,
+        TargetScore: 12.5,
+      });
+    expect((component as any).serializeFieldGroup(
+      [
+        { key: 'Town', label: 'Town', kind: 'string', required: false },
+        { key: 'StartDate', label: 'Start date', kind: 'date', required: false },
+        { key: 'LaunchMode', label: 'Launch mode', kind: 'enum', required: false, options: ['DryRun', 'Live'] },
+      ],
+      component.form.controls.initialTaskInput,
+    )).toEqual({
+        Town: 'York',
+        StartDate: '2026-04-25',
+        LaunchMode: 'DryRun',
+    });
   });
 
   it('blocks execution when a structured runtime override editor is invalid', async () => {

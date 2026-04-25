@@ -46,6 +46,7 @@ import { TaskDefinitionsService } from '../domain/task-definitions.service';
 import {
   createTaskPropertyControl,
   createTaskPropertyFieldDefinitions,
+  serializeTaskPropertyFormValues,
 } from '../domain/task-property-form-utils';
 import { ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
@@ -495,8 +496,8 @@ export class StartProcessPageComponent {
       const response = await firstValueFrom(this.blueprintService.startProcess(
         this.form.controls.blueprintId.value,
         {
-          globalState: this.form.controls.globalState.getRawValue(),
-          initialTaskInput: this.form.controls.initialTaskInput.getRawValue(),
+          globalState: this.serializeFieldGroup(this.globalStateFields(), this.form.controls.globalState),
+          initialTaskInput: this.serializeFieldGroup(this.firstTaskFields(), this.form.controls.initialTaskInput),
           nodeOverrides: this.collectRuntimeOverrides(),
         },
       ));
@@ -634,6 +635,14 @@ export class StartProcessPageComponent {
         .filter(([, state]) => Object.keys(state.overrides).length > 0)
         .map(([nodeId, state]) => [nodeId, state.overrides]),
     );
+  }
+
+  private serializeFieldGroup(
+    fields: DynamicFieldDefinition[],
+    group: FormGroup,
+  ): Record<string, unknown> {
+    const rawValues = group.getRawValue();
+    return serializeTaskPropertyFormValues(fields, rawValues);
   }
 
   private restorePickerAfterSearch(): void {
