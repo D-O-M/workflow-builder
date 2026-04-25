@@ -10,21 +10,22 @@ import {
   untracked,
   signal,
   viewChild,
+  viewChildren,
 } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import {
   MatAutocompleteModule,
   MatAutocompleteSelectedEvent,
   MatAutocompleteTrigger,
 } from '@angular/material/autocomplete';
-import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatMenuModule, MatMenuTrigger } from '@angular/material/menu';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { firstValueFrom } from 'rxjs';
@@ -33,23 +34,29 @@ import {
   BlueprintVersionViewModel,
   BlueprintViewModel,
 } from '../domain/blueprint-editor.service';
-import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
+import {
+  BlueprintEditorStore,
+  NodeVersionChangeImpact,
+} from '../domain/blueprint-editor.store';
 import { BuilderInputService } from '../domain/builder-input.service';
 import { TaskDefinitionsService } from '../domain/task-definitions.service';
-import { ITaskDefinition } from '../interfaces/ITaskDefinition';
+import { ITaskDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
 import { BlueprintCanvasComponent } from '../components/blueprint-canvas.component';
-import {
-  ConnectionBehaviorSummary,
-  ConnectionModel,
-  buildConnectionMappingSelections,
-  buildConnectionMappingsFromSelections,
-  describeConnectionBehavior,
-} from '../domain/connection-model';
+import type { CanvasValidationFocus } from '../components/blueprint-canvas.component';
 import { NodeModel } from '../domain/node-model';
+import type { Side } from '../domain/node-model';
+import { DynamicFieldDefinition, DynamicFormFieldComponent } from '../components/dynamic-form-field.component';
 import {
-  PropertyOverrideEditorComponent,
-  PropertyOverrideEditorState,
-} from '../components/property-override-editor.component';
+  createTaskPropertyControl,
+  createTaskPropertyFieldDefinitions,
+  serializeTaskPropertyControlValue,
+  taskPropertyKindLabel,
+} from '../domain/task-property-form-utils';
+import { getLatestPatchPerMinorVersion, getLatestTaskVersion, TaskVersionLaneOption } from '../domain/task-version-utils';
+import {
+  BlueprintValidationIssue,
+  validateBlueprintGraph,
+} from '../domain/blueprint-validation';
 
 interface TaskLibraryItem {
   task: ITaskDefinition;
@@ -60,18 +67,19 @@ interface TaskLibraryItem {
   searchText: string;
 }
 
-interface SummaryChip {
-  icon: string;
-  label: string;
-  tone: 'default' | 'mapped' | 'fanOut';
-}
-
 type BlueprintPickerMode = 'search' | 'selected' | 'draft' | 'draft-edit';
 type BlueprintPickerReturnMode = 'selected' | 'draft' | null;
+type BuilderDrawerContent = 'plugin-library' | 'node-settings';
 
 interface BlueprintPickerSuggestion {
   blueprint: BlueprintViewModel;
   isActive: boolean;
+}
+
+interface PendingNodeVersionChange {
+  nodeId: number;
+  version: ITaskVersion;
+  impact: NodeVersionChangeImpact;
 }
 
 const BLUEPRINT_NAME_MAX_LENGTH = 100;
@@ -84,19 +92,20 @@ const DEFAULT_DRAFT_BLUEPRINT_NAME = 'Draft Blueprint';
     MatAutocompleteModule,
     MatButtonModule,
     MatCardModule,
-    MatChipsModule,
     MatDialogModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    MatMenuModule,
     MatSelectModule,
     MatTooltipModule,
     BlueprintCanvasComponent,
-    PropertyOverrideEditorComponent,
+    DynamicFormFieldComponent,
   ],
   templateUrl: './blueprint-editor-page.component.html',
   styleUrl: './blueprint-editor-page.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [BlueprintEditorStore, BuilderInputService],
 })
 export class BlueprintEditorPageComponent {
   protected readonly Math = Math;
@@ -108,21 +117,27 @@ export class BlueprintEditorPageComponent {
   private readonly taskDefinitions = inject(TaskDefinitionsService);
   private readonly builderInput = inject(BuilderInputService);
   private readonly canvasViewport = viewChild(BlueprintCanvasComponent);
+  private readonly validationMenuTriggers = viewChildren<MatMenuTrigger>('validationMenuTrigger');
   private readonly blueprintPickerInput = viewChild<ElementRef<HTMLInputElement>>('blueprintPickerInput');
   private readonly blueprintPickerTrigger = viewChild(MatAutocompleteTrigger);
   private readonly blueprintNameInput = viewChild<ElementRef<HTMLInputElement>>('blueprintNameInput');
-  private readonly mappingDialogTemplate = viewChild<TemplateRef<unknown>>('mappingDialogTemplate');
-  private readonly designTimeOverrideDialogTemplate = viewChild<TemplateRef<unknown>>('designTimeOverrideDialogTemplate');
+  private readonly nodeVersionChangeDialogTemplate = viewChild<TemplateRef<unknown>>('nodeVersionChangeDialogTemplate');
   private readonly gridSize = 20;
-  private mappingDialogRef: MatDialogRef<unknown> | null = null;
-  private designTimeOverrideDialogRef: MatDialogRef<unknown> | null = null;
+  private nodeVersionChangeDialogRef: MatDialogRef<unknown> | null = null;
+  private syncingStaticOverrideForm = false;
+  private staticOverrideFormKey = '';
 
   protected readonly blueprintNameMaxLength = BLUEPRINT_NAME_MAX_LENGTH;
   protected readonly saving = signal(false);
+  protected readonly saveHovered = signal(false);
+  protected readonly validationErrorPulse = signal(false);
+  protected readonly focusedValidationIssueId = signal<string | null>(null);
+  protected readonly validationFocusPulseKey = signal(0);
   protected readonly blueprints = signal<BlueprintViewModel[]>([]);
   protected readonly selectedBlueprintId = signal<number | null>(null);
   protected readonly selectedBlueprintVersionId = signal<number | null>(null);
-  protected readonly drawerCollapsed = signal(true);
+  protected readonly activeDrawer = signal<BuilderDrawerContent | null>(null);
+  protected readonly drawerCollapsed = computed(() => this.activeDrawer() === null);
   protected readonly compactDrawerViewport = signal(this.isCompactDrawerViewport());
   protected readonly pickerMode = signal<BlueprintPickerMode>('search');
   protected readonly pickerPanelOpen = signal(false);
@@ -130,15 +145,11 @@ export class BlueprintEditorPageComponent {
   protected readonly blueprintNameDraft = signal('');
   protected readonly isEditingBlueprintName = signal(false);
   protected readonly blueprintNameTouched = signal(false);
-  protected readonly mappingModalConnectionId = signal<string | null>(null);
-  protected readonly mappingModalSelections = signal<Record<string, string>>({});
-  protected readonly designTimeOverrideModalNodeId = signal<number | null>(null);
-  protected readonly designTimeOverrideState = signal<PropertyOverrideEditorState>({
-    editorId: 'design-time',
-    overrides: {},
-    valid: true,
-  });
-  private readonly designTimeOverrideModalRevision = signal(0);
+  protected readonly nodeSettingsNodeId = signal<number | null>(null);
+  protected readonly staticOverrideDraftKeys = signal<string[]>([]);
+  protected readonly staticOverrideFields = signal<DynamicFieldDefinition[]>([]);
+  protected readonly pendingNodeVersionChange = signal<PendingNodeVersionChange | null>(null);
+  protected readonly staticOverrideForm = new FormGroup({});
   private readonly pickerReturnMode = signal<BlueprintPickerReturnMode>(null);
   private readonly pickerSelectionInProgress = signal(false);
   private readonly pickerFocusRequested = signal(false);
@@ -152,6 +163,7 @@ export class BlueprintEditorPageComponent {
     initialValue: this.pluginLibrarySearch.value,
   });
   protected readonly zoomPercent = computed(() => this.canvasViewport()?.zoomPercent() ?? 100);
+  private readonly canvasRouteValidationErrors = computed(() => this.canvasViewport()?.routeValidationErrors() ?? []);
   protected readonly taskLibraryItems = computed(() =>
     this.buildTaskLibraryItems(this.tasks()),
   );
@@ -208,41 +220,62 @@ export class BlueprintEditorPageComponent {
 
     return this.editorStore.nodes().find((node) => node.id === selectedIds[0]) ?? null;
   });
-  protected readonly selectedConnection = computed<ConnectionModel | null>(() => {
-    const selectedIds = this.editorStore.selectedConnectionIds();
-    if (selectedIds.length !== 1) {
+  protected readonly validationSummary = computed(() =>
+    validateBlueprintGraph({
+      blueprintName: this.normalizedBlueprintName(),
+      nodes: this.editorStore.nodes(),
+      connections: this.editorStore.connections(),
+      routeValidationErrors: this.canvasRouteValidationErrors(),
+    }),
+  );
+  protected readonly validationErrors = computed(() => this.validationSummary().errors);
+  protected readonly validationWarnings = computed(() => this.validationSummary().warnings);
+  protected readonly validationCanvasFocus = computed<CanvasValidationFocus | null>(() => {
+    const focusedIssueId = this.focusedValidationIssueId();
+    if (!focusedIssueId) {
       return null;
     }
 
-    return this.editorStore.connections().find((connection) => connection.id === selectedIds[0]) ?? null;
+    const issue = this.findValidationIssue(focusedIssueId);
+    return issue && this.isIssueCanvasTargetable(issue)
+      ? this.createCanvasValidationFocus(issue, this.validationFocusPulseKey())
+      : null;
   });
-  protected readonly mappingModalConnection = computed<ConnectionModel | null>(() =>
-    this.editorStore.connections().find((connection) => connection.id === this.mappingModalConnectionId()) ?? null,
+  protected readonly validationBadgeGlow = computed(() =>
+    this.saveHovered() &&
+    this.validationSummary().errorCount === 0 &&
+    this.validationSummary().warningCount > 0,
   );
-  protected readonly mappingModalBehavior = computed<ConnectionBehaviorSummary | null>(() => {
-    const connection = this.mappingModalConnection();
-    if (!connection) {
+  protected readonly nodeSettingsNode = computed<NodeModel | null>(() =>
+    this.editorStore.nodes().find((node) => node.id === this.nodeSettingsNodeId()) ?? null,
+  );
+  protected readonly nodeSettingsTaskDefinition = computed<ITaskDefinition | null>(() => {
+    const node = this.nodeSettingsNode();
+    return node ? this.tasks().find((task) => task.id === node.taskDefinitionId) ?? null : null;
+  });
+  protected readonly nodeVersionOptions = computed<TaskVersionLaneOption[]>(() =>
+    getLatestPatchPerMinorVersion(this.nodeSettingsTaskDefinition()?.versions ?? []),
+  );
+  protected readonly selectedNodeVersion = computed<ITaskVersion | null>(() => {
+    const node = this.nodeSettingsNode();
+    const task = this.nodeSettingsTaskDefinition();
+    if (!node || !task) {
       return null;
     }
 
-    return describeConnectionBehavior(connection, this.editorStore.connections());
+    return task.versions.find((version) => version.id === node.resolvedVersionId) ?? null;
   });
-  protected readonly mappingModalChips = computed(() =>
-    this.buildConnectionBehaviorChips(this.mappingModalBehavior()),
-  );
-  protected readonly mappingModalTargetProperties = computed(() =>
-    Object.keys(this.mappingModalConnection()?.to.inputProperties ?? {}).sort((left, right) => left.localeCompare(right)),
-  );
-  protected readonly mappingModalSourceProperties = computed(() =>
-    Object.keys(this.mappingModalConnection()?.from.outputPropertiesForAnchor(this.mappingModalConnection()?.anchor ?? -1) ?? {})
-      .sort((left, right) => left.localeCompare(right)),
-  );
-  protected readonly designTimeOverrideModalNode = computed<NodeModel | null>(() =>
-    this.editorStore.nodes().find((node) => node.id === this.designTimeOverrideModalNodeId()) ?? null,
-  );
-  protected readonly designTimeOverrideResetKey = computed(() =>
-    `${this.designTimeOverrideModalNodeId() ?? 'none'}:${this.designTimeOverrideModalRevision()}`,
-  );
+  protected readonly availableStaticOverrideProperties = computed(() => {
+    const node = this.nodeSettingsNode();
+    if (!node) {
+      return [];
+    }
+
+    const draftKeys = new Set(this.staticOverrideDraftKeys());
+    return [...node.inputPropertyDefinitions]
+      .filter((property) => !draftKeys.has(property.name))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  });
   protected readonly canUndo = this.editorStore.canUndo;
   protected readonly canRedo = this.editorStore.canRedo;
   protected readonly canCopy = this.editorStore.canCopy;
@@ -258,12 +291,21 @@ export class BlueprintEditorPageComponent {
       return 'Saving...';
     }
 
-    return this.isBlueprintNameReadonly() ? 'Save New Version' : 'Create Blueprint';
+    const baseLabel = this.isBlueprintNameReadonly() ? 'Save New Version' : 'Create Blueprint';
+    const validation = this.validationSummary();
+    if (validation.errorCount > 0) {
+      return `${validation.errorCount} validation ${validation.errorCount === 1 ? 'error' : 'errors'} prevent saving.`;
+    }
+
+    if (validation.warningCount > 0) {
+      return `${baseLabel} with ${validation.warningCount} ${validation.warningCount === 1 ? 'warning' : 'warnings'}.`;
+    }
+
+    return baseLabel;
   });
   protected readonly canSave = computed(() =>
     !this.saving() &&
-    this.activeNodeCount() > 0 &&
-    this.hasBlueprintName(),
+    this.validationSummary().canSave,
   );
   protected readonly pluginLibraryDrawerMode = computed<'overlay' | 'overlay-with-backdrop'>(() =>
     this.compactDrawerViewport() ? 'overlay-with-backdrop' : 'overlay',
@@ -271,6 +313,8 @@ export class BlueprintEditorPageComponent {
   protected readonly pluginLibraryHasBackdrop = computed(() =>
     this.pluginLibraryDrawerMode() === 'overlay-with-backdrop',
   );
+  protected readonly isPluginLibraryDrawerOpen = computed(() => this.activeDrawer() === 'plugin-library');
+  protected readonly isNodeSettingsDrawerOpen = computed(() => this.activeDrawer() === 'node-settings');
   protected readonly pickerSuggestions = computed<BlueprintPickerSuggestion[]>(() => {
     const filteredBlueprints = this.filterBlueprints(this.blueprints(), this.blueprintSearchQuery());
     const activeBlueprintId = this.selectedBlueprintId();
@@ -320,39 +364,54 @@ export class BlueprintEditorPageComponent {
     });
 
     effect(() => {
-      const modalConnection = this.mappingModalConnection();
-      if (!modalConnection && this.mappingModalConnectionId() !== null) {
-        this.mappingDialogRef?.close();
-        this.mappingDialogRef = null;
-        this.resetConnectionMappingDialogState();
+      const focusedIssueId = this.focusedValidationIssueId();
+      if (!focusedIssueId) {
+        return;
+      }
+
+      const issue = this.findValidationIssue(focusedIssueId);
+      if (!issue || !this.isIssueCanvasTargetable(issue)) {
+        this.focusedValidationIssueId.set(null);
       }
     });
 
     effect(() => {
-      const modalNode = this.designTimeOverrideModalNode();
-      if (!modalNode && this.designTimeOverrideModalNodeId() !== null) {
-        this.designTimeOverrideDialogRef?.close();
-        this.designTimeOverrideDialogRef = null;
-        this.resetDesignTimeOverrideDialogState();
+      const node = this.nodeSettingsNode();
+      if (!node && this.nodeSettingsNodeId() !== null) {
+        this.closeDrawer();
+        return;
+      }
+
+      if (node) {
+        this.syncStaticOverrideForm(node);
       }
     });
+
+    this.staticOverrideForm.valueChanges
+      .pipe(takeUntilDestroyed())
+      .subscribe(() => this.persistStaticOverridesFromForm());
 
     void this.refreshBlueprints();
   }
 
   protected async save(): Promise<void> {
+    if (this.saving()) {
+      return;
+    }
+
     const nodes = this.editorStore.nodes();
     const blueprintName = this.normalizedBlueprintName();
 
     this.blueprintNameTouched.set(true);
-    if (nodes.length === 0 || !blueprintName) {
+    if (!this.validationSummary().canSave) {
+      this.triggerValidationErrorPulse();
       return;
     }
 
     const connections = this.editorStore.connections();
     const destinationNodeIds = new Set(connections.map((connection) => connection.to.id));
     const rootNodes = nodes.filter((node) => !destinationNodeIds.has(node.id));
-    const startingNodeId = rootNodes[0]?.id ?? nodes[0].id;
+    const startingNodeId = rootNodes[0]?.id ?? nodes[0]!.id;
     let persistedDefinitionId = this.selectedBlueprintId();
 
     this.saving.set(true);
@@ -408,8 +467,7 @@ export class BlueprintEditorPageComponent {
     this.blueprintSearch.setValue('');
     this.isEditingBlueprintName.set(false);
     this.blueprintNameTouched.set(false);
-    this.closeConnectionMappingModal();
-    this.closeDesignTimeOverrideModal();
+    this.closeDrawer();
     this.scheduleUiTask(() => {
       this.canvasViewport()?.resetView();
       this.canvasViewport()?.focusCanvas();
@@ -424,8 +482,7 @@ export class BlueprintEditorPageComponent {
     this.pickerMode.set('draft');
     this.pickerReturnMode.set(null);
     this.blueprintSearch.setValue('');
-    this.closeConnectionMappingModal();
-    this.closeDesignTimeOverrideModal();
+    this.closeDrawer();
     this.scheduleUiTask(() => this.canvasViewport()?.focusCanvas());
   }
 
@@ -556,15 +613,32 @@ export class BlueprintEditorPageComponent {
   }
 
   protected openDrawer(): void {
-    this.drawerCollapsed.set(false);
+    this.nodeSettingsNodeId.set(null);
+    this.activeDrawer.set('plugin-library');
   }
 
   protected closeDrawer(): void {
-    this.drawerCollapsed.set(true);
+    this.activeDrawer.set(null);
+    this.nodeSettingsNodeId.set(null);
+    this.staticOverrideDraftKeys.set([]);
+    this.staticOverrideFields.set([]);
+    this.staticOverrideFormKey = '';
+  }
+
+  protected openNodeSettings(nodeId: number): void {
+    const node = this.editorStore.nodes().find((candidate) => candidate.id === nodeId);
+    if (!node) {
+      return;
+    }
+
+    this.nodeSettingsNodeId.set(node.id);
+    this.editorStore.selectOnlyNode(node.id);
+    this.activeDrawer.set('node-settings');
+    this.syncStaticOverrideForm(node);
   }
 
   protected addTaskFromDrawer(task: ITaskDefinition): void {
-    if (!task.versions[0]?.id) {
+    if (task.versions.length === 0) {
       return;
     }
 
@@ -599,6 +673,47 @@ export class BlueprintEditorPageComponent {
     this.canvasViewport()?.zoomOut();
   }
 
+  protected onSaveHover(value: boolean): void {
+    this.saveHovered.set(value);
+  }
+
+  protected validationStatusTooltip(): string {
+    const validation = this.validationSummary();
+    if (validation.errorCount > 0) {
+      return `${validation.errorCount} validation ${validation.errorCount === 1 ? 'error' : 'errors'} must be fixed before saving.`;
+    }
+
+    if (validation.warningCount > 0) {
+      return 'Blueprint can be saved, but warnings should be reviewed.';
+    }
+
+    return 'Blueprint is ready to save.';
+  }
+
+  protected issueTrackById(issue: BlueprintValidationIssue): string {
+    return issue.id;
+  }
+
+  protected isIssueCanvasTargetable(issue: BlueprintValidationIssue): boolean {
+    return issue.nodeId !== undefined || issue.connectionId !== undefined;
+  }
+
+  protected focusValidationIssue(issue: BlueprintValidationIssue): void {
+    if (!this.isIssueCanvasTargetable(issue)) {
+      return;
+    }
+
+    const nextPulseKey = this.validationFocusPulseKey() + 1;
+    const focus = this.createCanvasValidationFocus(issue, nextPulseKey);
+    this.focusedValidationIssueId.set(issue.id);
+    this.validationFocusPulseKey.set(nextPulseKey);
+    for (const trigger of this.validationMenuTriggers()) {
+      trigger.closeMenu();
+    }
+
+    this.scheduleUiTask(() => this.canvasViewport()?.revealValidationFocus(focus));
+  }
+
   protected undo(): void {
     this.editorStore.undo();
     this.canvasViewport()?.focusCanvas();
@@ -624,157 +739,93 @@ export class BlueprintEditorPageComponent {
     this.canvasViewport()?.focusCanvas();
   }
 
-  protected openConnectionMappingModal(connectionId?: string): void {
-    const targetConnectionId = connectionId ?? this.selectedConnection()?.id ?? null;
-    if (!targetConnectionId) {
+  protected onNodeVersionSelected(versionId: number | null): void {
+    const node = this.nodeSettingsNode();
+    const task = this.nodeSettingsTaskDefinition();
+    if (!node || !task || versionId === null || versionId === node.resolvedVersionId) {
       return;
     }
 
-    const connection = this.editorStore.connections().find((candidate) => candidate.id === targetConnectionId);
-    if (!connection) {
+    const version = task.versions.find((candidate) => candidate.id === versionId);
+    if (!version) {
       return;
     }
 
-    this.mappingModalConnectionId.set(connection.id);
-    this.mappingModalSelections.set(buildConnectionMappingSelections(connection));
-    const template = this.mappingDialogTemplate();
+    const impact = this.editorStore.analyzeNodeVersionChange(node.id, version);
+    if (!impact.hasDestructiveChanges) {
+      this.applyNodeVersionChange(node.id, version);
+      return;
+    }
+
+    this.pendingNodeVersionChange.set({ nodeId: node.id, version, impact });
+    const template = this.nodeVersionChangeDialogTemplate();
     if (!template) {
       return;
     }
 
-    this.mappingDialogRef?.close();
+    this.nodeVersionChangeDialogRef?.close();
     const dialogRef = this.dialog.open(template, {
-      width: 'min(42rem, calc(100vw - 2rem))',
+      width: 'min(32rem, calc(100vw - 2rem))',
       maxWidth: '100vw',
       autoFocus: false,
     });
-    this.mappingDialogRef = dialogRef;
+    this.nodeVersionChangeDialogRef = dialogRef;
     dialogRef.afterClosed().subscribe(() => {
-      if (this.mappingDialogRef === dialogRef) {
-        this.mappingDialogRef = null;
-        this.resetConnectionMappingDialogState();
+      if (this.nodeVersionChangeDialogRef === dialogRef) {
+        this.nodeVersionChangeDialogRef = null;
+        this.pendingNodeVersionChange.set(null);
       }
     });
   }
 
-  protected closeConnectionMappingModal(): void {
-    this.mappingDialogRef?.close();
-    this.mappingDialogRef = null;
-    this.resetConnectionMappingDialogState();
-  }
-
-  protected mappingModalSelectionFor(targetProperty: string): string {
-    return this.mappingModalSelections()[targetProperty] ?? '';
-  }
-
-  protected updateMappingModalSelection(targetProperty: string, sourceProperty: string): void {
-    this.mappingModalSelections.update((current) => ({
-      ...current,
-      [targetProperty]: sourceProperty,
-    }));
-  }
-
-  protected mappingModalHasDirectOption(targetProperty: string): boolean {
-    const connection = this.mappingModalConnection();
-    if (!connection) {
-      return false;
-    }
-
-    return Object.prototype.hasOwnProperty.call(
-      connection.from.outputPropertiesForAnchor(connection.anchor),
-      targetProperty,
-    );
-  }
-
-  protected mappingModalAlternativeSourceProperties(targetProperty: string): string[] {
-    return this.mappingModalSourceProperties().filter((sourceProperty) => sourceProperty !== targetProperty);
-  }
-
-  protected applyConnectionMappingModal(): void {
-    const connection = this.mappingModalConnection();
-    if (!connection) {
+  protected confirmNodeVersionChange(): void {
+    const pendingChange = this.pendingNodeVersionChange();
+    if (!pendingChange) {
       return;
     }
 
-    this.editorStore.updateConnectionPropertyMappings(
-      connection.id,
-      buildConnectionMappingsFromSelections(this.mappingModalSelections()),
-    );
-    this.closeConnectionMappingModal();
+    this.applyNodeVersionChange(pendingChange.nodeId, pendingChange.version);
+    this.nodeVersionChangeDialogRef?.close();
+    this.nodeVersionChangeDialogRef = null;
+    this.pendingNodeVersionChange.set(null);
   }
 
-  protected openDesignTimeOverrideModal(nodeId?: number): void {
-    const targetNodeId = nodeId ?? this.selectedNode()?.id ?? null;
-    if (targetNodeId === null) {
+  protected cancelNodeVersionChange(): void {
+    this.nodeVersionChangeDialogRef?.close();
+    this.nodeVersionChangeDialogRef = null;
+    this.pendingNodeVersionChange.set(null);
+  }
+
+  protected addStaticOverride(propertyName: string): void {
+    const node = this.nodeSettingsNode();
+    if (!node || !node.inputPropertyDefinitions.some((property) => property.name === propertyName)) {
       return;
     }
 
-    const node = this.editorStore.nodes().find((candidate) => candidate.id === targetNodeId);
+    this.staticOverrideDraftKeys.update((keys) =>
+      keys.includes(propertyName)
+        ? keys
+        : [...keys, propertyName].sort((left, right) => left.localeCompare(right)),
+    );
+    this.syncStaticOverrideForm(node, true);
+  }
+
+  protected removeStaticOverride(propertyName: string): void {
+    const node = this.nodeSettingsNode();
     if (!node) {
       return;
     }
 
-    this.designTimeOverrideModalNodeId.set(node.id);
-    this.designTimeOverrideState.set({
-      editorId: 'design-time',
-      overrides: { ...node.designTimeInputOverrides },
-      valid: true,
-    });
-    this.designTimeOverrideModalRevision.update((current) => current + 1);
-    const template = this.designTimeOverrideDialogTemplate();
-    if (!template) {
-      return;
-    }
-
-    this.designTimeOverrideDialogRef?.close();
-    const dialogRef = this.dialog.open(template, {
-      width: 'min(48rem, calc(100vw - 2rem))',
-      maxWidth: '100vw',
-      autoFocus: false,
-    });
-    this.designTimeOverrideDialogRef = dialogRef;
-    dialogRef.afterClosed().subscribe(() => {
-      if (this.designTimeOverrideDialogRef === dialogRef) {
-        this.designTimeOverrideDialogRef = null;
-        this.resetDesignTimeOverrideDialogState();
-      }
-    });
+    this.staticOverrideDraftKeys.update((keys) => keys.filter((key) => key !== propertyName));
+    const nextOverrides = { ...node.designTimeInputOverrides };
+    delete nextOverrides[propertyName];
+    this.editorStore.updateNodeDesignTimeOverrides(node.id, nextOverrides);
+    const refreshedNode = this.editorStore.nodes().find((candidate) => candidate.id === node.id) ?? node;
+    this.syncStaticOverrideForm(refreshedNode, true);
   }
 
-  protected closeDesignTimeOverrideModal(): void {
-    this.designTimeOverrideDialogRef?.close();
-    this.designTimeOverrideDialogRef = null;
-    this.resetDesignTimeOverrideDialogState();
-  }
-
-  protected clearDesignTimeOverrides(): void {
-    this.designTimeOverrideState.set({
-      editorId: 'design-time',
-      overrides: {},
-      valid: true,
-    });
-
-    const node = this.designTimeOverrideModalNode();
-    if (!node) {
-      return;
-    }
-
-    this.editorStore.updateNodeDesignTimeOverrides(node.id, {});
-    this.closeDesignTimeOverrideModal();
-  }
-
-  protected onDesignTimeOverrideStateChanged(state: PropertyOverrideEditorState): void {
-    this.designTimeOverrideState.set(state);
-  }
-
-  protected applyDesignTimeOverrides(): void {
-    const node = this.designTimeOverrideModalNode();
-    if (!node || !this.designTimeOverrideState().valid) {
-      return;
-    }
-
-    this.editorStore.updateNodeDesignTimeOverrides(node.id, this.designTimeOverrideState().overrides);
-    this.closeDesignTimeOverrideModal();
+  protected staticOverrideKindLabel(field: DynamicFieldDefinition): string {
+    return taskPropertyKindLabel(field.kind);
   }
 
   protected formatPropertyLabel(value: string): string {
@@ -831,6 +882,41 @@ export class BlueprintEditorPageComponent {
     this.blueprintNameDraft.set('');
     this.isEditingBlueprintName.set(false);
     this.blueprintNameTouched.set(false);
+  }
+
+  private findValidationIssue(issueId: string): BlueprintValidationIssue | null {
+    return [
+      ...this.validationSummary().errors,
+      ...this.validationSummary().warnings,
+    ].find((issue) => issue.id === issueId) ?? null;
+  }
+
+  private createCanvasValidationFocus(issue: BlueprintValidationIssue, pulseKey: number): CanvasValidationFocus {
+    return {
+      issueId: issue.id,
+      severity: issue.severity,
+      nodeId: issue.nodeId ?? null,
+      connectionId: issue.connectionId ?? null,
+      routeIndex: issue.routeIndex ?? null,
+      propertyName: issue.propertyName ?? null,
+      channelName: issue.channelName ?? null,
+      side: this.validationIssueSide(issue),
+      pulseKey,
+    };
+  }
+
+  private validationIssueSide(issue: BlueprintValidationIssue): Side | null {
+    switch (issue.code) {
+      case 'node.input.requiredMissing':
+      case 'connection.mapping.targetMissing':
+        return 'left';
+      case 'connection.mapping.sourceMissing':
+      case 'node.output.propertyUnused':
+      case 'node.output.channelUnmapped':
+        return 'right';
+      default:
+        return null;
+    }
   }
 
   private getPreferredBlueprintVersionId(
@@ -895,44 +981,109 @@ export class BlueprintEditorPageComponent {
     queueMicrotask(task);
   }
 
-  private resetConnectionMappingDialogState(): void {
-    this.mappingModalConnectionId.set(null);
-    this.mappingModalSelections.set({});
+  private triggerValidationErrorPulse(): void {
+    this.validationErrorPulse.set(false);
+    this.scheduleUiTask(() => this.validationErrorPulse.set(true));
   }
 
-  private resetDesignTimeOverrideDialogState(): void {
-    this.designTimeOverrideModalNodeId.set(null);
+  private applyNodeVersionChange(nodeId: number, version: ITaskVersion): void {
+    this.editorStore.updateNodeTaskVersion(nodeId, version);
+    const node = this.editorStore.nodes().find((candidate) => candidate.id === nodeId) ?? null;
+    if (node) {
+      this.syncStaticOverrideForm(node, true);
+    }
   }
 
-  private buildConnectionBehaviorChips(summary: ConnectionBehaviorSummary | null): SummaryChip[] {
-    if (!summary) {
-      return [];
+  private syncStaticOverrideForm(node: NodeModel, force = false): void {
+    const inputFieldDefinitions = createTaskPropertyFieldDefinitions(node.inputPropertyDefinitions, false);
+    const fieldsByKey = new Map(inputFieldDefinitions.map((field) => [field.key, field] as const));
+    const overrideKeys = Object.keys(node.designTimeInputOverrides)
+      .filter((propertyName) => fieldsByKey.has(propertyName))
+      .sort((left, right) => left.localeCompare(right));
+    const draftKeys = [...new Set([...overrideKeys, ...this.staticOverrideDraftKeys()])]
+      .filter((propertyName) => fieldsByKey.has(propertyName))
+      .sort((left, right) => left.localeCompare(right));
+    const formKey = `${node.id}:${node.resolvedVersionId}:${draftKeys.join('|')}`;
+
+    if (!force && formKey === this.staticOverrideFormKey) {
+      return;
     }
 
-    const chips: SummaryChip[] = [];
-    if (summary.isMappedOrPartial) {
-      chips.push({
-        icon: 'swap_horiz',
-        label: summary.behaviorLabel,
-        tone: 'mapped',
-      });
-    } else {
-      chips.push({
-        icon: 'south_east',
-        label: summary.behaviorLabel,
-        tone: 'default',
-      });
+    this.staticOverrideFormKey = formKey;
+    this.syncingStaticOverrideForm = true;
+    for (const controlName of Object.keys(this.staticOverrideForm.controls)) {
+      this.staticOverrideForm.removeControl(controlName, { emitEvent: false });
     }
 
-    if (summary.isFanOut) {
-      chips.push({
-        icon: 'alt_route',
-        label: `${summary.siblingCount} downstream nodes`,
-        tone: 'fanOut',
-      });
+    const fields = draftKeys
+      .map((propertyName) => fieldsByKey.get(propertyName))
+      .filter((field): field is DynamicFieldDefinition => field !== undefined);
+
+    for (const field of fields) {
+      this.staticOverrideForm.addControl(
+        field.key,
+        createTaskPropertyControl(field, node.designTimeInputOverrides[field.key]),
+        { emitEvent: false },
+      );
     }
 
-    return chips;
+    this.staticOverrideDraftKeys.set(draftKeys);
+    this.staticOverrideFields.set(fields);
+    this.syncingStaticOverrideForm = false;
+  }
+
+  private persistStaticOverridesFromForm(): void {
+    if (this.syncingStaticOverrideForm) {
+      return;
+    }
+
+    const node = this.nodeSettingsNode();
+    if (!node) {
+      return;
+    }
+
+    const overrides: Record<string, unknown> = {};
+    for (const field of this.staticOverrideFields()) {
+      const control = this.staticOverrideForm.get(field.key);
+      if (!control || control.invalid) {
+        continue;
+      }
+
+      const value = this.serializeStaticOverrideValue(field, control.value);
+      if (value !== undefined) {
+        overrides[field.key] = value;
+      }
+    }
+
+    if (this.recordsShallowEqual(node.designTimeInputOverrides, overrides)) {
+      return;
+    }
+
+    this.editorStore.updateNodeDesignTimeOverrides(node.id, overrides);
+  }
+
+  private serializeStaticOverrideValue(field: DynamicFieldDefinition, value: unknown): unknown {
+    const serializedValue = serializeTaskPropertyControlValue(field, value);
+    if (serializedValue === null || serializedValue === undefined) {
+      return undefined;
+    }
+
+    if (typeof serializedValue === 'string') {
+      const normalized = serializedValue.trim();
+      return normalized.length > 0 ? normalized : undefined;
+    }
+
+    return serializedValue;
+  }
+
+  private recordsShallowEqual(left: Record<string, unknown>, right: Record<string, unknown>): boolean {
+    const leftKeys = Object.keys(left).sort();
+    const rightKeys = Object.keys(right).sort();
+    if (leftKeys.length !== rightKeys.length) {
+      return false;
+    }
+
+    return leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
   }
 
   private filterBlueprints(
@@ -1012,7 +1163,7 @@ export class BlueprintEditorPageComponent {
     return [...tasks]
       .map((task) => {
         const category = this.getTaskCategory(task);
-        const description = task.versions[0]?.description?.trim() || 'Available task';
+        const description = getLatestTaskVersion(task.versions)?.description?.trim() || 'Available task';
 
         return {
           task,
@@ -1030,7 +1181,7 @@ export class BlueprintEditorPageComponent {
     label: 'Trigger' | 'Logic' | 'Action';
     tone: 'trigger' | 'logic' | 'action';
   } {
-    const version = task.versions[0];
+    const version = getLatestTaskVersion(task.versions);
     if (!version) {
       return {
         label: 'Action',

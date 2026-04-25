@@ -19,6 +19,7 @@ export interface ITaskVersion {
 export interface ITaskChannel {
     id: number;
     name: string;
+    displayName?: string | null;
     properties: ITaskPropertyDefinition[];
 }
 

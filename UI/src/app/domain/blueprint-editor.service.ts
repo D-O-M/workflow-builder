@@ -5,6 +5,7 @@ import { ConnectionModel, ConnectionPropertyMappingModel } from './connection-mo
 import { NodeModel, Point, Side, TaskPropertyType } from './node-model';
 import { ITaskChannel, ITaskDefinition } from '../interfaces/ITaskDefinition';
 import { taskPropertyKindMap } from './task-property-form-utils';
+import { compareTaskVersions, getTaskVersionLane } from './task-version-utils';
 
 interface CoordinatesViewModel {
   x: number;
@@ -255,9 +256,12 @@ export class BlueprintEditorService {
     coordinates: Point,
     inputChannelName: string | null,
     outputChannelNames: string[],
+    inputChannelDisplayName: string | null,
+    outputChannelDisplayNames: string[],
     hasUpgradeWarning: boolean,
     inputProperties: Record<string, TaskPropertyType>,
     outputChannelProperties: Record<string, Record<string, TaskPropertyType>>,
+    outputChannelPropertyDefinitions: Record<string, ITaskChannel['properties']>,
     designTimeInputOverrides: Record<string, unknown>,
     inputPropertyDefinitions: ITaskChannel['properties'],
     snap?: (v: number) => number,
@@ -285,6 +289,9 @@ export class BlueprintEditorService {
       outputChannelProperties,
       designTimeInputOverrides,
       this.clonePropertyDefinitions(inputPropertyDefinitions),
+      inputChannelDisplayName,
+      [...outputChannelDisplayNames],
+      this.cloneOutputChannelPropertyDefinitions(outputChannelPropertyDefinitions),
     );
   }
 
@@ -427,9 +434,12 @@ export class BlueprintEditorService {
             task.position,
             taskVersion?.inputChannel?.name ?? null,
             taskVersion?.outputChannels.map((channel) => channel.name) ?? [],
+            taskVersion?.inputChannel?.displayName ?? null,
+            (taskVersion?.outputChannels ?? []).map((channel) => channel.displayName?.trim() || channel.name),
             taskDefinition ? this.hasNewerMajorMinorLane(taskDefinition, task.allowedMajor, task.allowedMinor) : false,
             taskPropertyKindMap(taskVersion?.inputChannel?.properties ?? []),
             Object.fromEntries((taskVersion?.outputChannels ?? []).map((channel) => [channel.name, this.channelPropertyKindMap(channel)])),
+            Object.fromEntries((taskVersion?.outputChannels ?? []).map((channel) => [channel.name, this.clonePropertyDefinitions(channel.properties)])),
             task.designTimeInputOverrides ?? {},
             taskVersion?.inputChannel?.properties ?? [],
           );
@@ -522,7 +532,7 @@ export class BlueprintEditorService {
 
   hasNewerMajorMinorLane(taskDefinition: ITaskDefinition, allowedMajor: number, allowedMinor: number): boolean {
     return taskDefinition.versions.some((version) => {
-      const [major, minor] = this.getVersionLane(version.version);
+      const [major, minor] = getTaskVersionLane(version.version);
       return major > allowedMajor || (major === allowedMajor && minor > allowedMinor);
     });
   }
@@ -541,7 +551,7 @@ export class BlueprintEditorService {
     }
 
     const laneVersions = taskDefinition.versions.filter((version) => {
-      const [major, minor] = this.getVersionLane(version.version);
+      const [major, minor] = getTaskVersionLane(version.version);
       return major === allowedMajor && minor === allowedMinor;
     });
 
@@ -549,12 +559,7 @@ export class BlueprintEditorService {
       return null;
     }
 
-    return laneVersions[0];
-  }
-
-  private getVersionLane(version: `${number}.${number}.${number}` | string): [number, number] {
-    const [major, minor] = version.split('.').map((segment) => Number(segment));
-    return [Number.isFinite(major) ? major : 0, Number.isFinite(minor) ? minor : 0];
+    return [...laneVersions].sort((left, right) => compareTaskVersions(right, left))[0];
   }
 
   private channelPropertyKindMap(channel: ITaskChannel): Record<string, TaskPropertyType> {
@@ -566,5 +571,16 @@ export class BlueprintEditorService {
       ...property,
       enumValues: [...property.enumValues],
     }));
+  }
+
+  private cloneOutputChannelPropertyDefinitions(
+    outputChannelProperties: Record<string, ITaskChannel['properties']>,
+  ): Record<string, ITaskChannel['properties']> {
+    return Object.fromEntries(
+      Object.entries(outputChannelProperties).map(([channelName, properties]) => [
+        channelName,
+        this.clonePropertyDefinitions(properties),
+      ]),
+    );
   }
 }

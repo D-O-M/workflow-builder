@@ -1,6 +1,12 @@
 import { NodeModel, Point, Side } from './node-model';
 import { CanvasWrapper } from './canvas-wrapper';
-import { PathfinderOptions, orthogonalSegments } from './pathfinder';
+import {
+  PathfinderOptions,
+  RouteProblemSegment,
+  RouteStatus,
+  orthogonalRoute,
+  subtractRouteProblemSegments,
+} from './pathfinder';
 
 export interface ConnectionPropertyMappingModel {
   sourceProperty: string;
@@ -24,12 +30,17 @@ export interface ConnectionBehaviorSummary {
   showBadge: boolean;
 }
 
-const BEHAVIOR_DASH_PATTERNS: Record<ConnectionBehaviorKind, number[]> = {
-  plain: [],
-  mapped: [16, 8],
-  fanOut: [3, 8],
-  mappedFanOut: [16, 6, 3, 6],
-};
+interface ConnectionVisualRoute {
+  segments: { x1: number; y1: number; x2: number; y2: number }[];
+  status: RouteStatus;
+  problemSegments: RouteProblemSegment[];
+  tip: Point;
+  startSide: Side;
+  side: Side;
+}
+
+const LEGACY_CONNECTION_STROKE_WIDTH = 7.8;
+const LEGACY_CONNECTION_FOCUSED_STROKE_WIDTH = 12;
 
 export function describeConnectionBehavior(
   connection: ConnectionModel,
@@ -109,6 +120,10 @@ export function buildConnectionMappingsFromSelections(
     .sort((left, right) => left.targetProperty.localeCompare(right.targetProperty));
 }
 
+export function resolveEffectivePropertyMappings(connection: ConnectionModel): ConnectionPropertyMappingModel[] {
+  return buildConnectionMappingsFromSelections(buildConnectionMappingSelections(connection));
+}
+
 function behaviorLabelForKind(kind: ConnectionBehaviorKind): string {
   switch (kind) {
     case 'mapped':
@@ -181,75 +196,11 @@ export class ConnectionModel {
   ) {}
 
   segments(options: PathfinderOptions, obstacles: NodeModel[] = []): { x1: number; y1: number; x2: number; y2: number }[] {
-    const start = this.from.anchorPositions()[this.anchor];
-    let end: Point;
-    switch (this.side) {
-      case 'left':
-        end = { x: this.to.x, y: this.to.y + this.pos };
-        break;
-      case 'right':
-        end = { x: this.to.x + this.to.width, y: this.to.y + this.pos };
-        break;
-      case 'top':
-        end = { x: this.to.x + this.pos, y: this.to.y };
-        break;
-      default:
-        end = { x: this.to.x + this.pos, y: this.to.y + this.to.height };
-    }
-
-    const arrowSize = 8;
-    const tipX = Math.round(end.x / options.gridSize) * options.gridSize;
-    const tipY = Math.round(end.y / options.gridSize) * options.gridSize;
-    const baseX = tipX - (this.side === 'right' ? arrowSize : this.side === 'left' ? -arrowSize : 0);
-    const baseY = tipY - (this.side === 'bottom' ? arrowSize : this.side === 'top' ? -arrowSize : 0);
-
-    return orthogonalSegments(
-      start.x,
-      start.y,
-      baseX,
-      baseY,
-      options,
-      obstacles,
-      this.side,
-      this.to,
-      this.from.anchorSide(this.anchor),
-      this.from,
-    );
+    return this.routeSegments(options, obstacles)[0]?.segments ?? [];
   }
 
   badgePosition(options: PathfinderOptions, obstacles: NodeModel[] = []): Point | null {
-    const segments = this.segments(options, obstacles);
-    if (segments.length === 0) {
-      return null;
-    }
-
-    const totalLength = segments.reduce((length, segment) =>
-      length + Math.hypot(segment.x2 - segment.x1, segment.y2 - segment.y1), 0);
-    if (totalLength === 0) {
-      const lastSegment = segments[segments.length - 1];
-      return { x: lastSegment.x2, y: lastSegment.y2 };
-    }
-
-    let remainingLength = totalLength / 2;
-    for (const segment of segments) {
-      const segmentLength = Math.hypot(segment.x2 - segment.x1, segment.y2 - segment.y1);
-      if (segmentLength === 0) {
-        continue;
-      }
-
-      if (remainingLength <= segmentLength) {
-        const ratio = remainingLength / segmentLength;
-        return {
-          x: segment.x1 + (segment.x2 - segment.x1) * ratio,
-          y: segment.y1 + (segment.y2 - segment.y1) * ratio,
-        };
-      }
-
-      remainingLength -= segmentLength;
-    }
-
-    const lastSegment = segments[segments.length - 1];
-    return { x: lastSegment.x2, y: lastSegment.y2 };
+    return null;
   }
 
   draw(
@@ -265,62 +216,44 @@ export class ConnectionModel {
       ? ConnectionModel.themeByStatus[this.from.renderStatus]
       : ConnectionModel.themeByStatus.default;
     const selected = options?.selected ?? false;
-    const behavior = options?.behavior;
+    const routes = this.routeSegments(wrapper.pathfinderOptions(), obstacles);
 
     wrapper.ctx.save();
-    wrapper.ctx.strokeStyle = selected ? '#2563eb' : theme.connectionSoft;
-    wrapper.ctx.fillStyle = selected ? '#2563eb' : theme.connection;
-    wrapper.ctx.lineWidth = selected ? 4 : 2.5;
-    wrapper.ctx.lineCap = 'round';
+    const hasProblemRoutes = routes.some((route) => route.status === 'obstacleViolation');
+    const normalStroke = selected ? '#2563eb' : theme.connectionSoft;
+    const problemStroke = '#d92d20';
+    const problemSoft = 'rgba(217, 45, 32, 0.82)';
+
+    wrapper.ctx.strokeStyle = hasProblemRoutes ? problemSoft : normalStroke;
+    wrapper.ctx.fillStyle = hasProblemRoutes ? problemStroke : normalStroke;
+    wrapper.ctx.lineWidth = selected ? LEGACY_CONNECTION_FOCUSED_STROKE_WIDTH : LEGACY_CONNECTION_STROKE_WIDTH;
+    wrapper.ctx.lineCap = 'butt';
     wrapper.ctx.lineJoin = 'round';
 
-    if (options?.showBehaviorCue && behavior) {
-      wrapper.ctx.setLineDash(BEHAVIOR_DASH_PATTERNS[behavior.kind]);
-    }
-
-    const start = this.from.anchorPositions()[this.anchor];
-    let end: Point;
-    switch (this.side) {
-      case 'left':
-        end = { x: this.to.x, y: this.to.y + this.pos };
-        break;
-      case 'right':
-        end = { x: this.to.x + this.to.width, y: this.to.y + this.pos };
-        break;
-      case 'top':
-        end = { x: this.to.x + this.pos, y: this.to.y };
-        break;
-      default:
-        end = { x: this.to.x + this.pos, y: this.to.y + this.to.height };
-    }
-
-    const tipX = wrapper.snap(end.x);
-    const tipY = wrapper.snap(end.y);
-    const baseX =
-      tipX - (this.side === 'right' ? wrapper.arrowSize : this.side === 'left' ? -wrapper.arrowSize : 0);
-    const baseY =
-      tipY - (this.side === 'bottom' ? wrapper.arrowSize : this.side === 'top' ? -wrapper.arrowSize : 0);
-
-    wrapper.drawOrthogonalLine(
-      start.x,
-      start.y,
-      baseX,
-      baseY,
-      obstacles,
-      this.side,
-      this.to,
-      this.from.anchorSide(this.anchor),
-      this.from,
-    );
-
-    wrapper.ctx.setLineDash([]);
-    wrapper.drawArrowHead(tipX, tipY, this.side);
-
-    if (options?.showBehaviorCue && behavior?.showBadge) {
-      const badge = this.badgePosition(wrapper.pathfinderOptions(), obstacles);
-      if (badge) {
-        wrapper.drawConnectionBadge(badge.x, badge.y, behavior.kind, selected);
+    for (const route of routes) {
+      if (route.segments.length === 0) {
+        continue;
       }
+
+      const lineWidth = selected ? LEGACY_CONNECTION_FOCUSED_STROKE_WIDTH : LEGACY_CONNECTION_STROKE_WIDTH;
+      const routeStroke = route.status === 'obstacleViolation' ? problemSoft : normalStroke;
+      wrapper.ctx.lineWidth = lineWidth;
+      wrapper.ctx.strokeStyle = routeStroke;
+      wrapper.ctx.fillStyle = routeStroke;
+
+      if (route.problemSegments.length > 0) {
+        strokeSegments(wrapper.ctx, subtractRouteProblemSegments(route.segments, route.problemSegments));
+        wrapper.ctx.save();
+        wrapper.ctx.strokeStyle = problemStroke;
+        wrapper.ctx.lineWidth = selected ? 13.5 : 9;
+        wrapper.ctx.setLineDash([8, 6]);
+        strokeSegments(wrapper.ctx, route.problemSegments);
+        wrapper.ctx.restore();
+      } else {
+        strokeContinuousRoute(wrapper.ctx, route.segments);
+      }
+
+      fillRouteEndpointCaps(wrapper.ctx, route, lineWidth);
     }
 
     wrapper.ctx.restore();
@@ -333,8 +266,10 @@ export class ConnectionModel {
     options: PathfinderOptions,
     obstacles: NodeModel[] = [],
   ): boolean {
-    return this.segments(options, obstacles).some((segment) =>
-      distanceToSegment(x, y, segment.x1, segment.y1, segment.x2, segment.y2) <= tolerance,
+    return this.routeSegments(options, obstacles).some((route) =>
+      route.segments.some((segment) =>
+        distanceToSegment(x, y, segment.x1, segment.y1, segment.x2, segment.y2) <= tolerance,
+      ),
     );
   }
 
@@ -347,6 +282,170 @@ export class ConnectionModel {
   ): boolean {
     const badge = this.badgePosition(options, obstacles);
     return !!badge && Math.hypot(x - badge.x, y - badge.y) <= tolerance;
+  }
+
+  private routeSegments(options: PathfinderOptions, obstacles: NodeModel[] = []): ConnectionVisualRoute[] {
+    const sourceSummary = this.from.outputSummaryPort(this.anchor);
+    const targetSummary = this.to.inputSummaryPort();
+    if (!sourceSummary || !targetSummary) {
+      return [];
+    }
+
+    const effectiveMappings = resolveEffectivePropertyMappings(this);
+    const sourceExpanded = this.from.expanded;
+    const targetExpanded = this.to.expanded;
+
+    if ((!sourceExpanded && !targetExpanded) || effectiveMappings.length === 0) {
+      return [this.buildRoute(sourceSummary, targetSummary, options, obstacles)];
+    }
+
+    return effectiveMappings.map((mapping) => {
+      const startPort = sourceExpanded
+        ? this.from.outputPropertyPort(this.anchor, mapping.sourceProperty) ?? sourceSummary
+        : sourceSummary;
+      const endPort = targetExpanded
+        ? this.to.inputPropertyPort(mapping.targetProperty) ?? targetSummary
+        : targetSummary;
+      return this.buildRoute(startPort, endPort, options, obstacles);
+    });
+  }
+
+  private buildRoute(
+    start: { x: number; y: number; side: Side },
+    end: { x: number; y: number; side: Side },
+    options: PathfinderOptions,
+    obstacles: NodeModel[],
+  ): ConnectionVisualRoute {
+    const tipX = end.x;
+    const tipY = end.y;
+    const route = orthogonalRoute(
+      start.x,
+      start.y,
+      tipX,
+      tipY,
+      options,
+      obstacles,
+      end.side,
+      this.to,
+      start.side,
+      this.from,
+    );
+
+    return {
+      segments: route.segments,
+      status: route.status,
+      problemSegments: [...route.problemSegments],
+      tip: { x: tipX, y: tipY },
+      startSide: start.side,
+      side: end.side,
+    };
+  }
+}
+
+function strokeContinuousRoute(ctx: CanvasRenderingContext2D, segments: readonly { x1: number; y1: number; x2: number; y2: number }[]): void {
+  if (segments.length === 0) {
+    return;
+  }
+
+  const points = [
+    { x: segments[0]!.x1, y: segments[0]!.y1 },
+    ...segments.map((segment) => ({ x: segment.x2, y: segment.y2 })),
+  ];
+  if (points.length < 3) {
+    strokeSegments(ctx, segments);
+    return;
+  }
+
+  const cornerRadius = 7;
+  ctx.beginPath();
+  ctx.moveTo(points[0]!.x, points[0]!.y);
+
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const previous = points[index - 1]!;
+    const current = points[index]!;
+    const next = points[index + 1]!;
+
+    if ((previous.x === current.x && current.x === next.x) ||
+      (previous.y === current.y && current.y === next.y)) {
+      ctx.lineTo(current.x, current.y);
+      continue;
+    }
+
+    const previousDistance = Math.abs(current.x - previous.x) + Math.abs(current.y - previous.y);
+    const nextDistance = Math.abs(next.x - current.x) + Math.abs(next.y - current.y);
+    const radius = Math.min(cornerRadius, previousDistance / 2, nextDistance / 2);
+    if (radius <= 0) {
+      ctx.lineTo(current.x, current.y);
+      continue;
+    }
+
+    const startRatio = radius / previousDistance;
+    const endRatio = radius / nextDistance;
+    const cornerStart = {
+      x: current.x + (previous.x - current.x) * startRatio,
+      y: current.y + (previous.y - current.y) * startRatio,
+    };
+    const cornerEnd = {
+      x: current.x + (next.x - current.x) * endRatio,
+      y: current.y + (next.y - current.y) * endRatio,
+    };
+    ctx.lineTo(cornerStart.x, cornerStart.y);
+    ctx.quadraticCurveTo(current.x, current.y, cornerEnd.x, cornerEnd.y);
+  }
+
+  const lastPoint = points[points.length - 1]!;
+  ctx.lineTo(lastPoint.x, lastPoint.y);
+  ctx.stroke();
+}
+
+function strokeSegments(ctx: CanvasRenderingContext2D, segments: readonly { x1: number; y1: number; x2: number; y2: number }[]): void {
+  for (const segment of segments) {
+    ctx.beginPath();
+    ctx.moveTo(segment.x1, segment.y1);
+    ctx.lineTo(segment.x2, segment.y2);
+    ctx.stroke();
+  }
+}
+
+function fillRouteEndpointCaps(ctx: CanvasRenderingContext2D, route: ConnectionVisualRoute, lineWidth: number): void {
+  const firstSegment = route.segments[0];
+  const lastSegment = route.segments[route.segments.length - 1];
+  if (!firstSegment || !lastSegment) {
+    return;
+  }
+
+  fillConnectionEndpointCap(ctx, { x: firstSegment.x1, y: firstSegment.y1 }, route.startSide, lineWidth);
+  fillConnectionEndpointCap(ctx, { x: lastSegment.x2, y: lastSegment.y2 }, route.side, lineWidth);
+}
+
+function fillConnectionEndpointCap(ctx: CanvasRenderingContext2D, point: Point, side: Side, lineWidth: number): void {
+  const inward = inwardVectorForSide(side);
+  const perpendicular = { x: -inward.y, y: inward.x };
+  const length = Math.max(8, lineWidth * 1.25);
+  const halfWidth = Math.max(4, lineWidth * 0.68);
+  const tip = {
+    x: point.x + inward.x * length,
+    y: point.y + inward.y * length,
+  };
+
+  ctx.beginPath();
+  ctx.moveTo(tip.x, tip.y);
+  ctx.lineTo(point.x + perpendicular.x * halfWidth, point.y + perpendicular.y * halfWidth);
+  ctx.lineTo(point.x - perpendicular.x * halfWidth, point.y - perpendicular.y * halfWidth);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function inwardVectorForSide(side: Side): Point {
+  switch (side) {
+    case 'left':
+      return { x: 1, y: 0 };
+    case 'right':
+      return { x: -1, y: 0 };
+    case 'top':
+      return { x: 0, y: 1 };
+    case 'bottom':
+      return { x: 0, y: -1 };
   }
 }
 

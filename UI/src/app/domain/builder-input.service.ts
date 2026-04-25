@@ -2,7 +2,7 @@ import { DOCUMENT } from '@angular/common';
 import { Injectable, OnDestroy, inject } from '@angular/core';
 import { BlueprintEditorStore } from './blueprint-editor.store';
 
-@Injectable({ providedIn: 'root' })
+@Injectable()
 export class BuilderInputService implements OnDestroy {
   private readonly document = inject(DOCUMENT);
   private readonly editorStore = inject(BlueprintEditorStore);

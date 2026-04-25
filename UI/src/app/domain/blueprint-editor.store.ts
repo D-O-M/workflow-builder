@@ -1,8 +1,9 @@
 import { Injectable, computed, signal } from '@angular/core';
 import { ConnectionModel, ConnectionPropertyMappingModel } from './connection-model';
 import { NodeModel, Point } from './node-model';
-import { ITaskDefinition, ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
-import { taskPropertyKindMap } from './task-property-form-utils';
+import { ITaskDefinition, ITaskPropertyDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
+import { normalizeTaskPropertyDefinitions, taskPropertyKindMap } from './task-property-form-utils';
+import { getLatestTaskVersion, getTaskVersionLane } from './task-version-utils';
 
 interface GraphNodeSnapshot {
   id: number;
@@ -25,6 +26,9 @@ interface GraphNodeSnapshot {
   inputPropertyDefinitions: NodeModel['inputPropertyDefinitions'];
   outputChannelProperties: NodeModel['outputChannelProperties'];
   designTimeInputOverrides: NodeModel['designTimeInputOverrides'];
+  inputChannelDisplayName: string | null;
+  outputChannelDisplayNames: string[];
+  outputChannelPropertyDefinitions: Record<string, ITaskPropertyDefinition[]>;
 }
 
 interface GraphConnectionSnapshot {
@@ -60,6 +64,28 @@ export interface NodePositionUpdate {
   coordinates: Point;
 }
 
+export interface NodeVersionMappingImpact {
+  readonly connectionId: string;
+  readonly sourceNodeName: string;
+  readonly targetNodeName: string;
+  readonly properties: readonly string[];
+}
+
+export interface NodeVersionRemovedConnectionImpact {
+  readonly connectionId: string;
+  readonly sourceNodeName: string;
+  readonly targetNodeName: string;
+  readonly reason: string;
+}
+
+export interface NodeVersionChangeImpact {
+  readonly removedOverrideProperties: readonly string[];
+  readonly removedIncomingMappings: readonly NodeVersionMappingImpact[];
+  readonly removedOutgoingMappings: readonly NodeVersionMappingImpact[];
+  readonly removedConnections: readonly NodeVersionRemovedConnectionImpact[];
+  readonly hasDestructiveChanges: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class BlueprintEditorStore {
   private static readonly historyLimit = 100;
@@ -75,6 +101,7 @@ export class BlueprintEditorStore {
   private readonly _future = signal<GraphSnapshot[]>([]);
   private readonly _canvasFocused = signal(false);
   private readonly _modifiers = signal<ModifierState>({ shift: false, ctrlOrMeta: false, space: false });
+  private readonly _graphRevision = signal(0);
 
   private nextNodeId = 1;
   private pasteCount = 0;
@@ -85,6 +112,7 @@ export class BlueprintEditorStore {
   readonly selectedConnectionIds = this._selectedConnectionIds.asReadonly();
   readonly canvasFocused = this._canvasFocused.asReadonly();
   readonly modifiers = this._modifiers.asReadonly();
+  readonly graphRevision = this._graphRevision.asReadonly();
 
   readonly selectedNodeIdSet = computed(() => new Set(this._selectedNodeIds()));
   readonly selectedConnectionIdSet = computed(() => new Set(this._selectedConnectionIds()));
@@ -114,11 +142,14 @@ export class BlueprintEditorStore {
     this._future.set([]);
     this.pasteCount = 0;
     this.nextNodeId = this.computeNextNodeId(nodes);
+    this.bumpGraphRevision();
   }
 
   clearGraph(): void {
     if (this._nodes().length === 0 && this._connections().length === 0) {
       this.clearSelection();
+      this.nextNodeId = 1;
+      this.bumpGraphRevision();
       return;
     }
 
@@ -127,38 +158,28 @@ export class BlueprintEditorStore {
     this._connections.set([]);
     this.clearSelection();
     this.nextNodeId = 1;
+    this.bumpGraphRevision();
   }
 
   createNode(taskDefinition: ITaskDefinition, coordinates: Point): NodeModel {
-    const version = taskDefinition.versions[0];
+    const version = getLatestTaskVersion(taskDefinition.versions);
     if (!version) {
       throw new Error(`Task definition ${taskDefinition.name} has no versions.`);
     }
 
     this.captureHistory();
 
-    const [allowedMajor, allowedMinor] = this.getVersionLane(version.version);
-    const node = new NodeModel(
+    const node = this.createNodeModelFromVersion(
       this.allocateNodeId(),
       taskDefinition.id,
-      allowedMajor,
-      allowedMinor,
-      version.id,
-      version.version,
       taskDefinition.name,
       this.snap(coordinates.x),
       this.snap(coordinates.y),
       320,
-      Math.max(220, 168 + Math.max(version.outputChannels.length, 1) * 34),
-      version.inputChannel?.name ?? null,
-      version.outputChannels.map((channel) => channel.name),
-      false,
       null,
       null,
-      taskPropertyKindMap(version.inputChannel?.properties ?? []),
-      Object.fromEntries(version.outputChannels.map((channel) => [channel.name, taskPropertyKindMap(channel.properties)])),
+      version,
       {},
-      this.clonePropertyDefinitions(version.inputChannel?.properties ?? []),
     );
 
     this._nodes.update((nodes) => [...nodes, node]);
@@ -200,6 +221,9 @@ export class BlueprintEditorStore {
         node.outputChannelProperties,
         node.designTimeInputOverrides,
         this.clonePropertyDefinitions(node.inputPropertyDefinitions),
+        node.inputChannelDisplayName,
+        [...node.outputChannelDisplayNames],
+        this.cloneOutputChannelPropertyDefinitions(node.outputChannelPropertyDefinitions),
       );
     });
 
@@ -216,7 +240,7 @@ export class BlueprintEditorStore {
   ): ConnectionModel | null {
     const from = this.getNodeById(sourceNodeId);
     const to = this.getNodeById(destinationNodeId);
-    if (!from || !to) {
+    if (!from || !to || sourceNodeId === destinationNodeId) {
       return null;
     }
 
@@ -267,13 +291,136 @@ export class BlueprintEditorStore {
           candidate.hasUpgradeWarning,
           candidate.renderStatus,
           candidate.failureMessage,
-          candidate.inputProperties,
-          candidate.outputChannelProperties,
-          { ...overrides },
-          this.clonePropertyDefinitions(candidate.inputPropertyDefinitions),
-        ),
+            candidate.inputProperties,
+            candidate.outputChannelProperties,
+            { ...overrides },
+            this.clonePropertyDefinitions(candidate.inputPropertyDefinitions),
+            candidate.inputChannelDisplayName,
+            [...candidate.outputChannelDisplayNames],
+            this.cloneOutputChannelPropertyDefinitions(candidate.outputChannelPropertyDefinitions),
+          ),
     ));
     this._connections.set(this.rebindConnections(this._connections(), this._nodes()));
+  }
+
+  analyzeNodeVersionChange(nodeId: number, version: ITaskVersion): NodeVersionChangeImpact {
+    const node = this.getNodeById(nodeId);
+    if (!node) {
+      return this.emptyNodeVersionChangeImpact();
+    }
+
+    const nextNode = this.createNodeModelFromVersion(
+      node.id,
+      node.taskDefinitionId,
+      node.name,
+      node.x,
+      node.y,
+      node.width,
+      node.renderStatus,
+      node.failureMessage,
+      version,
+      this.filterCompatibleOverrides(node, version),
+    );
+    const removedOverrideProperties = Object.keys(node.designTimeInputOverrides)
+      .filter((propertyName) => !Object.prototype.hasOwnProperty.call(nextNode.designTimeInputOverrides, propertyName))
+      .sort((left, right) => left.localeCompare(right));
+    const removedIncomingMappings: NodeVersionMappingImpact[] = [];
+    const removedOutgoingMappings: NodeVersionMappingImpact[] = [];
+    const removedConnections: NodeVersionRemovedConnectionImpact[] = [];
+
+    for (const connection of this._connections()) {
+      if (connection.to.id === node.id) {
+        if (!nextNode.inputChannelName) {
+          removedConnections.push({
+            connectionId: connection.id,
+            sourceNodeName: connection.from.name,
+            targetNodeName: connection.to.name,
+            reason: 'The selected version has no input channel.',
+          });
+          continue;
+        }
+
+        const removedProperties = this.removedIncomingMappingProperties(connection, nextNode);
+        if (removedProperties.length > 0) {
+          removedIncomingMappings.push({
+            connectionId: connection.id,
+            sourceNodeName: connection.from.name,
+            targetNodeName: connection.to.name,
+            properties: removedProperties,
+          });
+        }
+      }
+
+      if (connection.from.id === node.id) {
+        const oldChannelName = node.outputChannelNameForAnchor(connection.anchor);
+        const nextAnchor = oldChannelName ? this.outputAnchorIndexByChannel(nextNode, oldChannelName) : null;
+        if (nextAnchor === null) {
+          removedConnections.push({
+            connectionId: connection.id,
+            sourceNodeName: connection.from.name,
+            targetNodeName: connection.to.name,
+            reason: oldChannelName
+              ? `The selected version no longer has the ${oldChannelName} output channel.`
+              : 'The selected version no longer has the connected output channel.',
+          });
+          continue;
+        }
+
+        const removedProperties = this.removedOutgoingMappingProperties(connection, nextNode, nextAnchor);
+        if (removedProperties.length > 0) {
+          removedOutgoingMappings.push({
+            connectionId: connection.id,
+            sourceNodeName: connection.from.name,
+            targetNodeName: connection.to.name,
+            properties: removedProperties,
+          });
+        }
+      }
+    }
+
+    return {
+      removedOverrideProperties,
+      removedIncomingMappings,
+      removedOutgoingMappings,
+      removedConnections,
+      hasDestructiveChanges:
+        removedOverrideProperties.length > 0 ||
+        removedIncomingMappings.length > 0 ||
+        removedOutgoingMappings.length > 0 ||
+        removedConnections.length > 0,
+    };
+  }
+
+  updateNodeTaskVersion(nodeId: number, version: ITaskVersion): void {
+    const node = this.getNodeById(nodeId);
+    if (!node || node.resolvedVersionId === version.id) {
+      return;
+    }
+
+    this.captureHistory();
+    const nextNode = this.createNodeModelFromVersion(
+      node.id,
+      node.taskDefinitionId,
+      node.name,
+      node.x,
+      node.y,
+      node.width,
+      node.renderStatus,
+      node.failureMessage,
+      version,
+      this.filterCompatibleOverrides(node, version),
+    );
+    const nextNodes = this._nodes().map((candidate) => candidate.id === nodeId ? nextNode : candidate);
+    const nodeMap = new Map(nextNodes.map((candidate) => [candidate.id, candidate] as const));
+    const nextConnections = this._connections()
+      .map((connection) => this.reconcileConnectionForNodeVersion(connection, node, nextNode, nodeMap))
+      .filter((connection): connection is ConnectionModel => connection !== null);
+
+    this._nodes.set(nextNodes);
+    this._connections.set(nextConnections);
+    this._selectedConnectionIds.set(this._selectedConnectionIds().filter((connectionId) =>
+      nextConnections.some((connection) => connection.id === connectionId),
+    ));
   }
 
   updateConnectionPropertyMappings(connectionId: string, propertyMappings: ConnectionPropertyMappingModel[]): void {
@@ -444,6 +591,9 @@ export class BlueprintEditorStore {
         nodeSnapshot.outputChannelProperties,
         nodeSnapshot.designTimeInputOverrides,
         this.clonePropertyDefinitions(nodeSnapshot.inputPropertyDefinitions),
+        nodeSnapshot.inputChannelDisplayName,
+        [...nodeSnapshot.outputChannelDisplayNames],
+        this.cloneOutputChannelPropertyDefinitions(nodeSnapshot.outputChannelPropertyDefinitions),
       ));
     }
 
@@ -578,6 +728,9 @@ export class BlueprintEditorStore {
         Object.entries(node.outputChannelProperties).map(([key, value]) => [key, { ...value }]),
       ),
       designTimeInputOverrides: { ...node.designTimeInputOverrides },
+      inputChannelDisplayName: node.inputChannelDisplayName,
+      outputChannelDisplayNames: [...node.outputChannelDisplayNames],
+      outputChannelPropertyDefinitions: this.cloneOutputChannelPropertyDefinitions(node.outputChannelPropertyDefinitions),
     };
   }
 
@@ -615,14 +768,201 @@ export class BlueprintEditorStore {
       node.outputChannelProperties,
       node.designTimeInputOverrides,
       this.clonePropertyDefinitions(node.inputPropertyDefinitions),
+      node.inputChannelDisplayName,
+      [...node.outputChannelDisplayNames],
+      this.cloneOutputChannelPropertyDefinitions(node.outputChannelPropertyDefinitions),
     );
   }
 
-  private clonePropertyDefinitions(properties: ITaskPropertyDefinition[]): ITaskPropertyDefinition[] {
-    return properties.map((property) => ({
-      ...property,
-      enumValues: [...property.enumValues],
-    }));
+  private clonePropertyDefinitions(properties: ITaskPropertyDefinition[] | Record<string, NodeModel['inputProperties'][string]>): ITaskPropertyDefinition[] {
+    return normalizeTaskPropertyDefinitions(properties);
+  }
+
+  private cloneOutputChannelPropertyDefinitions(
+    outputChannels: { name: string; properties: ITaskPropertyDefinition[] }[] | Record<string, ITaskPropertyDefinition[]>,
+  ): Record<string, ITaskPropertyDefinition[]> {
+    if (Array.isArray(outputChannels)) {
+      return Object.fromEntries(outputChannels.map((channel) => [
+        channel.name,
+        this.clonePropertyDefinitions(channel.properties),
+      ]));
+    }
+
+    return Object.fromEntries(
+      Object.entries(outputChannels).map(([channelName, properties]) => [
+        channelName,
+        this.clonePropertyDefinitions(properties),
+      ]),
+    );
+  }
+
+  private createNodeModelFromVersion(
+    nodeId: number,
+    taskDefinitionId: number,
+    taskName: string,
+    x: number,
+    y: number,
+    width: number,
+    renderStatus: NodeModel['renderStatus'],
+    failureMessage: string | null,
+    version: ITaskVersion,
+    designTimeInputOverrides: Record<string, unknown>,
+  ): NodeModel {
+    const [allowedMajor, allowedMinor] = getTaskVersionLane(version.version);
+    const inputPropertyDefinitions = this.clonePropertyDefinitions(version.inputChannel?.properties ?? []);
+    const outputChannelPropertyDefinitions = this.cloneOutputChannelPropertyDefinitions(version.outputChannels);
+
+    return new NodeModel(
+      nodeId,
+      taskDefinitionId,
+      allowedMajor,
+      allowedMinor,
+      version.id,
+      version.version,
+      taskName,
+      x,
+      y,
+      width,
+      Math.max(220, 168 + Math.max(version.outputChannels.length, 1) * 34),
+      version.inputChannel?.name ?? null,
+      version.outputChannels.map((channel) => channel.name),
+      false,
+      renderStatus,
+      failureMessage,
+      taskPropertyKindMap(inputPropertyDefinitions),
+      Object.fromEntries(version.outputChannels.map((channel) => [
+        channel.name,
+        taskPropertyKindMap(channel.properties),
+      ])),
+      { ...designTimeInputOverrides },
+      inputPropertyDefinitions,
+      version.inputChannel?.displayName ?? null,
+      version.outputChannels.map((channel) => channel.displayName?.trim() || channel.name),
+      outputChannelPropertyDefinitions,
+    );
+  }
+
+  private filterCompatibleOverrides(node: NodeModel, version: ITaskVersion): Record<string, unknown> {
+    const nextProperties = new Map(
+      this.clonePropertyDefinitions(version.inputChannel?.properties ?? []).map((property) =>
+        [property.name, property.kind] as const,
+      ),
+    );
+    const currentProperties = new Map(node.inputPropertyDefinitions.map((property) =>
+      [property.name, property.kind] as const,
+    ));
+    const compatibleOverrides: Record<string, unknown> = {};
+
+    for (const [propertyName, value] of Object.entries(node.designTimeInputOverrides)) {
+      const nextKind = nextProperties.get(propertyName);
+      if (!nextKind) {
+        continue;
+      }
+
+      const currentKind = currentProperties.get(propertyName);
+      if (currentKind && currentKind !== nextKind) {
+        continue;
+      }
+
+      compatibleOverrides[propertyName] = value;
+    }
+
+    return compatibleOverrides;
+  }
+
+  private emptyNodeVersionChangeImpact(): NodeVersionChangeImpact {
+    return {
+      removedOverrideProperties: [],
+      removedIncomingMappings: [],
+      removedOutgoingMappings: [],
+      removedConnections: [],
+      hasDestructiveChanges: false,
+    };
+  }
+
+  private removedIncomingMappingProperties(connection: ConnectionModel, nextTargetNode: NodeModel): string[] {
+    const sourceProperties = connection.from.outputPropertiesForAnchor(connection.anchor);
+    return connection.propertyMappings
+      .filter((mapping) =>
+        !Object.prototype.hasOwnProperty.call(nextTargetNode.inputProperties, mapping.targetProperty) ||
+        !Object.prototype.hasOwnProperty.call(sourceProperties, mapping.sourceProperty))
+      .map((mapping) => mapping.targetProperty)
+      .sort((left, right) => left.localeCompare(right));
+  }
+
+  private removedOutgoingMappingProperties(
+    connection: ConnectionModel,
+    nextSourceNode: NodeModel,
+    nextAnchor: number,
+  ): string[] {
+    const sourceProperties = nextSourceNode.outputPropertiesForAnchor(nextAnchor);
+    return connection.propertyMappings
+      .filter((mapping) =>
+        !Object.prototype.hasOwnProperty.call(sourceProperties, mapping.sourceProperty) ||
+        !Object.prototype.hasOwnProperty.call(connection.to.inputProperties, mapping.targetProperty))
+      .map((mapping) => mapping.sourceProperty)
+      .sort((left, right) => left.localeCompare(right));
+  }
+
+  private reconcileConnectionForNodeVersion(
+    connection: ConnectionModel,
+    previousNode: NodeModel,
+    nextNode: NodeModel,
+    nodeMap: ReadonlyMap<number, NodeModel>,
+  ): ConnectionModel | null {
+    const from = connection.from.id === previousNode.id ? nextNode : nodeMap.get(connection.from.id);
+    const to = connection.to.id === previousNode.id ? nextNode : nodeMap.get(connection.to.id);
+    if (!from || !to || from.id === to.id) {
+      return null;
+    }
+
+    if (connection.to.id === previousNode.id && !nextNode.inputChannelName) {
+      return null;
+    }
+
+    let anchor = connection.anchor;
+    if (connection.from.id === previousNode.id) {
+      const previousChannelName = previousNode.outputChannelNameForAnchor(connection.anchor);
+      const nextAnchor = previousChannelName ? this.outputAnchorIndexByChannel(nextNode, previousChannelName) : null;
+      if (nextAnchor === null) {
+        return null;
+      }
+
+      anchor = nextAnchor;
+    }
+
+    return new ConnectionModel(
+      from,
+      to,
+      anchor,
+      connection.side,
+      connection.to.id === previousNode.id ? to.inputAnchorSnap()?.pos ?? connection.pos : connection.pos,
+      connection.id,
+      this.filterCompatibleConnectionMappings(connection.propertyMappings, from, to, anchor),
+    );
+  }
+
+  private filterCompatibleConnectionMappings(
+    mappings: readonly ConnectionPropertyMappingModel[],
+    from: NodeModel,
+    to: NodeModel,
+    anchor: number,
+  ): ConnectionPropertyMappingModel[] {
+    const sourceProperties = from.outputPropertiesForAnchor(anchor);
+    return mappings
+      .filter((mapping) =>
+        Object.prototype.hasOwnProperty.call(sourceProperties, mapping.sourceProperty) &&
+        Object.prototype.hasOwnProperty.call(to.inputProperties, mapping.targetProperty))
+      .map((mapping) => ({ ...mapping }));
+  }
+
+  private outputAnchorIndexByChannel(node: NodeModel, channelName: string): number | null {
+    const outputIndex = node.outputChannelNames.indexOf(channelName);
+    if (outputIndex < 0) {
+      return null;
+    }
+
+    return outputIndex + (node.inputChannelName ? 1 : 0);
   }
 
   private computeNextNodeId(nodes: NodeModel[]): number {
@@ -644,11 +984,6 @@ export class BlueprintEditorStore {
       .map((connection) => connection.id);
   }
 
-  private getVersionLane(version: string): [number, number] {
-    const [major, minor] = version.split('.').map((segment) => Number(segment));
-    return [Number.isFinite(major) ? major : 0, Number.isFinite(minor) ? minor : 0];
-  }
-
   private getNodeById(nodeId: number): NodeModel | undefined {
     return this._nodes().find((node) => node.id === nodeId);
   }
@@ -659,7 +994,7 @@ export class BlueprintEditorStore {
       .map((connection) => {
         const from = nodeMap.get(connection.from.id);
         const to = nodeMap.get(connection.to.id);
-        if (!from || !to) {
+        if (!from || !to || from.id === to.id) {
           return null;
         }
 
@@ -693,5 +1028,9 @@ export class BlueprintEditorStore {
 
   private snap(value: number): number {
     return Math.round(value / BlueprintEditorStore.gridSize) * BlueprintEditorStore.gridSize;
+  }
+
+  private bumpGraphRevision(): void {
+    this._graphRevision.update((revision) => revision + 1);
   }
 }

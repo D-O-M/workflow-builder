@@ -1,6 +1,7 @@
+import '@angular/compiler';
 import { describe, expect, it } from 'vitest';
 import { BlueprintEditorStore } from './blueprint-editor.store';
-import { ITaskDefinition } from '../interfaces/ITaskDefinition';
+import { ITaskDefinition, ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
 function createTaskDefinition(
   id: number,
@@ -37,7 +38,158 @@ function createTaskDefinition(
   };
 }
 
+function property(name: string, kind: ITaskPropertyDefinition['kind'] = 'String'): ITaskPropertyDefinition {
+  return {
+    name,
+    kind,
+    required: false,
+    enumValues: [],
+  };
+}
+
+function createVersionedTaskDefinition(): ITaskDefinition {
+  return {
+    id: 40,
+    name: 'Versioned Task',
+    versions: [
+      {
+        id: 401,
+        version: '1.0.0',
+        state: 'Active',
+        description: 'Old version',
+        requiredGlobalState: null,
+        inputChannel: {
+          id: 4001,
+          name: 'Input',
+          properties: [property('legacyInput')],
+        },
+        outputChannels: [
+          {
+            id: 4010,
+            name: 'Success',
+            properties: [property('legacyOutput')],
+          },
+        ],
+      },
+      {
+        id: 402,
+        version: '1.0.2',
+        state: 'Active',
+        description: 'Patch version',
+        requiredGlobalState: null,
+        inputChannel: {
+          id: 4002,
+          name: 'Input',
+          properties: [property('legacyInput'), property('patchInput')],
+        },
+        outputChannels: [
+          {
+            id: 4011,
+            name: 'Success',
+            properties: [property('legacyOutput'), property('patchOutput')],
+          },
+        ],
+      },
+      {
+        id: 403,
+        version: '2.0.0',
+        state: 'Active',
+        description: 'Major version',
+        requiredGlobalState: null,
+        inputChannel: {
+          id: 4003,
+          name: 'Input',
+          properties: [property('nextInput')],
+        },
+        outputChannels: [
+          {
+            id: 4012,
+            name: 'Done',
+            properties: [property('nextOutput')],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function createMappingTargetTaskDefinition(): ITaskDefinition {
+  return {
+    id: 41,
+    name: 'Target Task',
+    versions: [
+      {
+        id: 410,
+        version: '1.0.0',
+        state: 'Active',
+        description: 'Target',
+        requiredGlobalState: null,
+        inputChannel: {
+          id: 4101,
+          name: 'Input',
+          properties: [property('legacyOutput')],
+        },
+        outputChannels: [],
+      },
+    ],
+  };
+}
+
 describe('BlueprintEditorStore', () => {
+  it('creates new nodes on the latest available semantic version', () => {
+    const store = new BlueprintEditorStore();
+    const node = store.createNode(createVersionedTaskDefinition(), { x: 0, y: 0 });
+
+    expect(node.resolvedVersion).toBe('2.0.0');
+    expect(node.allowedMajor).toBe(2);
+    expect(node.allowedMinor).toBe(0);
+  });
+
+  it('preserves compatible mappings and static overrides when changing patch versions', () => {
+    const store = new BlueprintEditorStore();
+    const versionedTask = createVersionedTaskDefinition();
+    const source = store.createNode(versionedTask, { x: 0, y: 0 });
+    store.updateNodeTaskVersion(source.id, versionedTask.versions[0]!);
+    store.updateNodeDesignTimeOverrides(source.id, { legacyInput: 'fixed' });
+    const oldSource = store.nodes().find((node) => node.id === source.id)!;
+    const target = store.createNode(createMappingTargetTaskDefinition(), { x: 420, y: 0 });
+    const connection = store.createConnection(oldSource.id, target.id, oldSource.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos)!;
+    store.updateConnectionPropertyMappings(connection.id, [{ sourceProperty: 'legacyOutput', targetProperty: 'legacyOutput' }]);
+
+    const impact = store.analyzeNodeVersionChange(oldSource.id, versionedTask.versions[1]!);
+    store.updateNodeTaskVersion(oldSource.id, versionedTask.versions[1]!);
+
+    const updatedSource = store.nodes().find((node) => node.id === oldSource.id)!;
+    expect(impact.hasDestructiveChanges).toBe(false);
+    expect(updatedSource.resolvedVersion).toBe('1.0.2');
+    expect(updatedSource.designTimeInputOverrides).toEqual({ legacyInput: 'fixed' });
+    expect(store.connections()).toHaveLength(1);
+    expect(store.connections()[0]!.propertyMappings).toEqual([
+      { sourceProperty: 'legacyOutput', targetProperty: 'legacyOutput' },
+    ]);
+  });
+
+  it('reports and prunes incompatible mappings and static overrides when changing versions', () => {
+    const store = new BlueprintEditorStore();
+    const versionedTask = createVersionedTaskDefinition();
+    const source = store.createNode(versionedTask, { x: 0, y: 0 });
+    store.updateNodeTaskVersion(source.id, versionedTask.versions[0]!);
+    store.updateNodeDesignTimeOverrides(source.id, { legacyInput: 'fixed' });
+    const oldSource = store.nodes().find((node) => node.id === source.id)!;
+    const target = store.createNode(createMappingTargetTaskDefinition(), { x: 420, y: 0 });
+    store.createConnection(oldSource.id, target.id, oldSource.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos);
+
+    const impact = store.analyzeNodeVersionChange(oldSource.id, versionedTask.versions[2]!);
+    store.updateNodeTaskVersion(oldSource.id, versionedTask.versions[2]!);
+
+    const updatedSource = store.nodes().find((node) => node.id === oldSource.id)!;
+    expect(impact.hasDestructiveChanges).toBe(true);
+    expect(impact.removedOverrideProperties).toEqual(['legacyInput']);
+    expect(impact.removedConnections).toHaveLength(1);
+    expect(updatedSource.designTimeInputOverrides).toEqual({});
+    expect(store.connections()).toEqual([]);
+  });
+
   it('selects enclosed nodes and auto-selects only internal connections', () => {
     const store = new BlueprintEditorStore();
     const sourceTask = createTaskDefinition(1, 'Lookup', { outputChannelNames: ['Success'] });
@@ -148,5 +300,41 @@ describe('BlueprintEditorStore', () => {
     expect(store.connections()).toHaveLength(0);
     expect(store.canRedo()).toBe(false);
     expect(store.canUndo()).toBe(true);
+  });
+
+  it('rejects connections from a node output back into its own input', () => {
+    const store = new BlueprintEditorStore();
+    const task = createTaskDefinition(1, 'Transform', {
+      inputChannelName: 'Input',
+      outputChannelNames: ['Success'],
+    });
+    const node = store.createNode(task, { x: 0, y: 0 });
+
+    const connection = store.createConnection(
+      node.id,
+      node.id,
+      node.outputAnchors()[0]!.index,
+      'left',
+      node.inputAnchorSnap()!.pos,
+    );
+
+    expect(connection).toBeNull();
+    expect(store.connections()).toEqual([]);
+  });
+
+  it('bumps the graph revision when replacing the whole graph state', () => {
+    const store = new BlueprintEditorStore();
+    const task = createTaskDefinition(1, 'Lookup', { outputChannelNames: ['Success'] });
+
+    expect(store.graphRevision()).toBe(0);
+
+    const node = store.createNode(task, { x: 0, y: 0 });
+    store.clearGraph();
+
+    expect(store.graphRevision()).toBe(1);
+
+    store.loadGraph([node], []);
+
+    expect(store.graphRevision()).toBe(2);
   });
 });

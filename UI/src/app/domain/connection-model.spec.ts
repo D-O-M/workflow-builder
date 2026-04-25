@@ -73,8 +73,8 @@ describe('ConnectionModel behavior summaries', () => {
     x: number,
     y: number,
     options: {
-      inputProperties?: Record<string, 'Number' | 'String' | 'Boolean' | 'Guid'>;
-      outputProperties?: Record<string, Record<string, 'Number' | 'String' | 'Boolean' | 'Guid'>>;
+      inputProperties?: Record<string, 'Integer' | 'String' | 'Boolean' | 'Guid'>;
+      outputProperties?: Record<string, Record<string, 'Integer' | 'String' | 'Boolean' | 'Guid'>>;
     },
   ): NodeModel {
     return new NodeModel(

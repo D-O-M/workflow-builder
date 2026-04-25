@@ -20,7 +20,7 @@ import {
 import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
 import { BuilderInputService } from '../domain/builder-input.service';
 import { TaskDefinitionsService } from '../domain/task-definitions.service';
-import { ITaskDefinition } from '../interfaces/ITaskDefinition';
+import { ITaskDefinition, ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
 function createTaskDefinition(
   overrides?: Partial<ITaskDefinition> & {
@@ -91,6 +91,48 @@ function createTargetTaskDefinition(): ITaskDefinition {
         outputChannels: [],
       },
     ],
+  };
+}
+
+function createValidationTaskDefinition(
+  id: number,
+  name: string,
+  options?: {
+    inputProperties?: ITaskPropertyDefinition[];
+    outputChannels?: Record<string, ITaskPropertyDefinition[]>;
+  },
+): ITaskDefinition {
+  return {
+    id,
+    name,
+    versions: [
+      {
+        id: id * 100,
+        version: '1.0.0',
+        state: 'Active',
+        description: `${name} task`,
+        requiredGlobalState: null,
+        inputChannel: options?.inputProperties
+          ? {
+            name: 'Input',
+            properties: options.inputProperties,
+          }
+          : null,
+        outputChannels: Object.entries(options?.outputChannels ?? {}).map(([channelName, properties]) => ({
+          name: channelName,
+          properties,
+        })),
+      },
+    ],
+  };
+}
+
+function property(name: string, required = false): ITaskPropertyDefinition {
+  return {
+    name,
+    kind: 'String',
+    required,
+    enumValues: [],
   };
 }
 
@@ -295,6 +337,108 @@ describe('BlueprintEditorPageComponent', () => {
     expect((component as any).isBlueprintNameReadonly()).toBe(true);
   });
 
+  it('blocks persistence and pulses the error badge when validation has errors', async () => {
+    const sourceTask = createValidationTaskDefinition(41, 'Source', {
+      outputChannels: {
+        Success: [property('other')],
+      },
+    });
+    const targetTask = createValidationTaskDefinition(42, 'Target', {
+      inputProperties: [property('town', true)],
+    });
+    taskDefinitions = [sourceTask, targetTask];
+    (component as any).newBlueprint();
+    (component as any).beginBlueprintNameEdit();
+    (component as any).updateBlueprintNameDraft('Invalid Blueprint');
+    (component as any).commitBlueprintNameEdit();
+    const source = store.createNode(sourceTask, { x: 120, y: 80 });
+    const target = store.createNode(targetTask, { x: 540, y: 80 });
+    store.createConnection(source.id, target.id, source.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos);
+
+    await (component as any).save();
+    await Promise.resolve();
+
+    expect(editorService.createBlueprintGraph).not.toHaveBeenCalled();
+    expect(editorService.createBlueprintVersion).not.toHaveBeenCalled();
+    expect((component as any).validationSummary().errorCount).toBeGreaterThan(0);
+    expect((component as any).validationErrorPulse()).toBe(true);
+  });
+
+  it('focuses targetable validation issues on the canvas and closes the validation menu', () => {
+    const sourceTask = createValidationTaskDefinition(45, 'Source', {
+      outputChannels: {
+        Success: [property('other')],
+      },
+    });
+    const targetTask = createValidationTaskDefinition(46, 'Target', {
+      inputProperties: [property('town', true)],
+    });
+    taskDefinitions = [sourceTask, targetTask];
+    (component as any).newBlueprint();
+    (component as any).beginBlueprintNameEdit();
+    (component as any).updateBlueprintNameDraft('Invalid Blueprint');
+    (component as any).commitBlueprintNameEdit();
+    const source = store.createNode(sourceTask, { x: 120, y: 80 });
+    const target = store.createNode(targetTask, { x: 540, y: 80 });
+    store.createConnection(source.id, target.id, source.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos);
+    const issue = (component as any).validationErrors().find((candidate: { code: string }) =>
+      candidate.code === 'node.input.requiredMissing');
+    const revealValidationFocus = vi.fn();
+    const focusCanvas = vi.fn();
+    const closeMenu = vi.fn();
+    Object.defineProperty(component as any, 'canvasViewport', {
+      value: () => ({ revealValidationFocus, focusCanvas }),
+      configurable: true,
+    });
+    Object.defineProperty(component as any, 'validationMenuTriggers', {
+      value: () => [{ closeMenu }],
+      configurable: true,
+    });
+    (component as any).scheduleUiTask = (task: () => void) => task();
+
+    (component as any).focusValidationIssue(issue);
+
+    expect((component as any).focusedValidationIssueId()).toBe(issue.id);
+    expect(closeMenu).toHaveBeenCalled();
+    expect(revealValidationFocus).toHaveBeenCalledWith(expect.objectContaining({
+      issueId: issue.id,
+      severity: 'error',
+      nodeId: target.id,
+      propertyName: 'town',
+      channelName: 'Input',
+      side: 'left',
+    }));
+  });
+
+  it('allows saving when validation only has warnings', async () => {
+    const sourceTask = createValidationTaskDefinition(43, 'Source', {
+      outputChannels: {
+        Success: [property('town'), property('temperature')],
+        Audit: [property('event')],
+      },
+    });
+    const targetTask = createValidationTaskDefinition(44, 'Target', {
+      inputProperties: [property('town', false)],
+    });
+    taskDefinitions = [sourceTask, targetTask];
+    (component as any).newBlueprint();
+    (component as any).beginBlueprintNameEdit();
+    (component as any).updateBlueprintNameDraft('Warning Blueprint');
+    (component as any).commitBlueprintNameEdit();
+    const source = store.createNode(sourceTask, { x: 120, y: 80 });
+    const target = store.createNode(targetTask, { x: 540, y: 80 });
+    const connection = store.createConnection(source.id, target.id, source.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos)!;
+    store.updateConnectionPropertyMappings(connection.id, [{ sourceProperty: 'town', targetProperty: 'town' }]);
+
+    expect((component as any).validationSummary().errorCount).toBe(0);
+    expect((component as any).validationSummary().warningCount).toBeGreaterThan(0);
+
+    await (component as any).save();
+
+    expect(editorService.createBlueprintGraph).toHaveBeenCalledTimes(1);
+    expect(editorService.createBlueprintVersion).not.toHaveBeenCalled();
+  });
+
   it('creates a new version when saving an existing blueprint', async () => {
     blueprintList = [createBlueprint(7, 'Saved Blueprint', 3)];
     (component as any).blueprints.set(blueprintList);
@@ -456,27 +600,81 @@ describe('BlueprintEditorPageComponent', () => {
     expect((component as any).pluginLibraryHasBackdrop()).toBe(true);
   });
 
-  it('opens the connection mapping modal with structured selections', async () => {
-    taskDefinitions = [createSourceTaskDefinition(), createTargetTaskDefinition()];
-    const sourceNode = store.createNode(taskDefinitions[0], { x: 120, y: 80 });
-    const targetNode = store.createNode(taskDefinitions[1], { x: 520, y: 80 });
-    const connection = store.createConnection(sourceNode.id, targetNode.id, 0, 'left', 62);
-
-    (component as any).openConnectionMappingModal(connection?.id);
-
-    expect((component as any).mappingModalConnection()?.id).toBe(connection?.id);
-    expect((component as any).mappingModalSelections()).toEqual({
-      holiday: 'holiday',
-      mappedTown: '',
-    });
-  });
-
-  it('opens the design-time override modal for a node', () => {
+  it('opens node settings in the shared drawer', () => {
     const node = store.createNode(createTargetTaskDefinition(), { x: 120, y: 80 });
 
-    (component as any).openDesignTimeOverrideModal(node.id);
+    (component as any).openNodeSettings(node.id);
 
-    expect((component as any).designTimeOverrideModalNode()?.id).toBe(node.id);
-    expect((component as any).designTimeOverrideState().overrides).toEqual({});
+    expect((component as any).activeDrawer()).toBe('node-settings');
+    expect((component as any).nodeSettingsNode()?.id).toBe(node.id);
+    expect(store.selectedNodeIds()).toEqual([node.id]);
+  });
+
+  it('adds and removes static override fields from node settings', async () => {
+    const node = store.createNode(createTargetTaskDefinition(), { x: 120, y: 80 });
+    (component as any).openNodeSettings(node.id);
+
+    (component as any).addStaticOverride('holiday');
+    await Promise.resolve();
+
+    expect((component as any).staticOverrideFields().map((field: any) => field.key)).toEqual(['holiday']);
+    expect((component as any).availableStaticOverrideProperties().map((property: any) => property.name)).toEqual(['mappedTown']);
+
+    (component as any).staticOverrideForm.get('holiday')?.setValue('bank holiday');
+    await Promise.resolve();
+
+    expect(store.nodes().find((candidate) => candidate.id === node.id)?.designTimeInputOverrides).toEqual({
+      holiday: 'bank holiday',
+    });
+
+    (component as any).removeStaticOverride('holiday');
+
+    expect((component as any).staticOverrideFields()).toEqual([]);
+    expect(store.nodes().find((candidate) => candidate.id === node.id)?.designTimeInputOverrides).toEqual({});
+  });
+
+  it('uses latest patch options per minor version in node settings', () => {
+    const task: ITaskDefinition = {
+      id: 30,
+      name: 'Versioned',
+      versions: [
+        {
+          id: 301,
+          version: '1.0.0',
+          state: 'Active',
+          description: null,
+          requiredGlobalState: null,
+          inputChannel: null,
+          outputChannels: [],
+        },
+        {
+          id: 302,
+          version: '1.0.3',
+          state: 'Active',
+          description: null,
+          requiredGlobalState: null,
+          inputChannel: null,
+          outputChannels: [],
+        },
+        {
+          id: 303,
+          version: '1.1.0',
+          state: 'Active',
+          description: null,
+          requiredGlobalState: null,
+          inputChannel: null,
+          outputChannels: [],
+        },
+      ],
+    };
+    taskDefinitions.splice(0, taskDefinitions.length, task);
+    const node = store.createNode(task, { x: 120, y: 80 });
+
+    (component as any).openNodeSettings(node.id);
+
+    expect((component as any).nodeVersionOptions().map((option: any) => option.version.version)).toEqual([
+      '1.1.0',
+      '1.0.3',
+    ]);
   });
 });

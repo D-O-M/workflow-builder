@@ -12,6 +12,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlueprintCanvasComponent } from './blueprint-canvas.component';
 import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
+import { BlueprintCanvasStateStore } from '../domain/blueprint-canvas-state.store';
 
 describe('BlueprintCanvasComponent', () => {
   let component: BlueprintCanvasComponent;
@@ -21,6 +22,7 @@ describe('BlueprintCanvasComponent', () => {
   beforeEach(() => {
     const providers: Provider[] = [
       BlueprintEditorStore,
+      BlueprintCanvasStateStore,
       {
         provide: ChangeDetectionScheduler,
         useValue: {
@@ -177,5 +179,234 @@ describe('BlueprintCanvasComponent', () => {
 
     expect(zoomLevel()).toBe(1.1);
     expect(viewportOffset()).toEqual({ x: -18.000000000000057, y: 14 });
+  });
+
+  it('blocks the source node as a connection target while dragging', () => {
+    const blockedTargetNodeIds = (component as any).getBlockedTargetNodeIds(
+      {
+        getConnectedNodeIds: () => new Set([2, 3]),
+      },
+      1,
+    );
+
+    expect([...blockedTargetNodeIds]).toEqual([1, 2, 3]);
+  });
+
+  it('tracks hovered connections when the pointer is not over a node', () => {
+    (component as any).getNodeByCoordinates = vi.fn(() => undefined);
+    (component as any).getConnectionRouteByCoordinates = vi.fn(() => ({
+      connection: { id: 'connection-1' },
+      routeIndex: 2,
+      distance: 0,
+    }));
+
+    (component as any).updateHoverState({ x: 140, y: 220 });
+
+    expect((component as any).hoveredConnectionId()).toBe('connection-1');
+    expect((component as any).hoveredConnectionRoute()).toEqual({ connectionId: 'connection-1', routeIndex: 2 });
+  });
+
+  it('emits node settings requests without toggling all channel sections', () => {
+    const emittedNodeIds: number[] = [];
+    const subscription = component.nodeSettingsRequested.subscribe((nodeId) => emittedNodeIds.push(nodeId));
+
+    (component as any).applyClickSelection({
+      pointerId: 1,
+      startCanvas: { x: 0, y: 0 },
+      startWorld: { x: 0, y: 0 },
+      nodeId: 12,
+      settingsNodeId: 12,
+      connectionId: null,
+      connectionBadgeId: null,
+      shift: false,
+      toggleSectionKey: null,
+    });
+
+    expect(emittedNodeIds).toEqual([12]);
+    expect(store.selectedNodeIds()).toEqual([12]);
+    subscription.unsubscribe();
+  });
+
+  it('chooses the nearest visual connection lane under the pointer', () => {
+    const zoomLevel = signal(1);
+    const farConnection = {
+      id: 'far',
+      nearestVisualRoute: vi.fn(() => ({ routeIndex: 0, distance: 4 })),
+    };
+    const nearConnection = {
+      id: 'near',
+      nearestVisualRoute: vi.fn(() => ({ routeIndex: 1, distance: 1 })),
+    };
+    (component as any).canvasWrapper = {
+      zoomLevel,
+    };
+    Object.defineProperty(component as any, 'renderSnapshot', {
+      value: () => ({
+        queryConnectionsAtPoint: () => [farConnection, nearConnection],
+      }),
+    });
+
+    const hit = (component as any).getConnectionRouteByCoordinates({ x: 20, y: 30 });
+
+    expect(hit.connection.id).toBe('near');
+    expect(hit.routeIndex).toBe(1);
+    expect((component as any).getConnectionByCoordinates({ x: 20, y: 30 }).id).toBe('near');
+  });
+
+  it('centers on validation focus bounds without changing zoom', () => {
+    const viewportOffset = signal({ x: 0, y: 0 });
+    const zoomLevel = signal(1.4);
+    (component as any).canvasRef = () => ({
+      nativeElement: {
+        clientWidth: 800,
+        clientHeight: 600,
+        focus: vi.fn(),
+      },
+    });
+    (component as any).canvasWrapper = {
+      viewportOffset,
+      zoomLevel,
+    };
+
+    component.centerOnBounds({ left: 100, top: 80, right: 300, bottom: 180 });
+
+    expect(zoomLevel()).toBe(1.4);
+    expect(viewportOffset()).toEqual({ x: 120, y: 118 });
+  });
+
+  it('expands the targeted validation property section without toggling it closed', () => {
+    const canvasStateStore = injector.get(BlueprintCanvasStateStore);
+    const renderedNode = {
+      id: 7,
+      inputChannelName: 'Input',
+      outputChannelNames: [],
+    };
+    Object.defineProperty(component as any, 'renderSnapshot', {
+      value: () => ({
+        nodeById: new Map([[7, renderedNode]]),
+      }),
+    });
+
+    (component as any).ensureValidationFocusSectionExpanded({
+      issueId: 'issue-1',
+      severity: 'error',
+      nodeId: 7,
+      channelName: 'Input',
+      propertyName: 'town',
+      side: 'left',
+      pulseKey: 1,
+    });
+    (component as any).ensureValidationFocusSectionExpanded({
+      issueId: 'issue-1',
+      severity: 'error',
+      nodeId: 7,
+      channelName: 'Input',
+      propertyName: 'town',
+      side: 'left',
+      pulseKey: 2,
+    });
+
+    expect(canvasStateStore.expandedNodeSections()).toEqual({
+      7: ['left:Input'],
+    });
+  });
+
+  it('resolves validation focus to an exact input property row and port', () => {
+    const propertyPort = {
+      key: 'left:Input:town',
+      x: 96,
+      y: 146,
+      radius: 5,
+      hitBounds: { x: 84, y: 134, width: 24, height: 24 },
+    };
+    const summaryPort = {
+      key: 'left:Input:summary',
+      x: 92,
+      y: 116,
+      radius: 7,
+      hitBounds: { x: 78, y: 100, width: 28, height: 32 },
+    };
+    const renderedNode = {
+      id: 7,
+      x: 100,
+      y: 80,
+      width: 320,
+      height: 180,
+      inputChannelName: 'Input',
+      outputChannelNames: [],
+      layout: {
+        inputSection: {
+          key: 'left:Input',
+          headerTop: 100,
+          bottom: 164,
+          summaryPort,
+          propertyRows: [
+            {
+              name: 'town',
+              top: 132,
+              height: 30,
+              port: propertyPort,
+            },
+          ],
+        },
+        outputSections: [],
+      },
+    };
+    const snapshot = {
+      nodeById: new Map([[7, renderedNode]]),
+      connectionById: new Map(),
+    };
+
+    const resolved = (component as any).resolveValidationFocus(snapshot, {
+      issueId: 'issue-1',
+      severity: 'error',
+      nodeId: 7,
+      channelName: 'Input',
+      propertyName: 'town',
+      side: 'left',
+      pulseKey: 1,
+    });
+
+    expect(resolved.sectionKey).toBe('left:Input');
+    expect([...resolved.portKeys]).toEqual(['7:left:Input:town']);
+    expect(resolved.bounds.left).toBe(78);
+    expect(resolved.bounds.right).toBe(406);
+  });
+
+  it('resolves validation focus to a specific connection route', () => {
+    const renderedConnection = {
+      id: 'connection-1',
+      from: { id: 1 },
+      to: { id: 2 },
+      anchor: 0,
+      routeBounds: { left: 80, top: 100, right: 420, bottom: 180 },
+      routes: [
+        {
+          bounds: { left: 90, top: 110, right: 410, bottom: 170 },
+          startPortKey: 'right:Success:town',
+          endPortKey: 'left:Input:town',
+        },
+      ],
+    };
+    const snapshot = {
+      nodeById: new Map(),
+      connectionById: new Map([['connection-1', renderedConnection]]),
+    };
+
+    const resolved = (component as any).resolveValidationFocus(snapshot, {
+      issueId: 'issue-1',
+      severity: 'warning',
+      connectionId: 'connection-1',
+      routeIndex: 0,
+      pulseKey: 1,
+    });
+
+    expect(resolved.connectionId).toBe('connection-1');
+    expect(resolved.routeIndex).toBe(0);
+    expect([...resolved.portKeys]).toEqual([
+      '1:right:Success:town',
+      '2:left:Input:town',
+    ]);
+    expect(resolved.bounds).toEqual({ left: 90, top: 110, right: 410, bottom: 170 });
   });
 });

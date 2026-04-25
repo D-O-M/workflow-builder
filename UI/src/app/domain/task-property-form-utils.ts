@@ -6,14 +6,10 @@ import { ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 const GUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 
 export function createTaskPropertyFieldDefinitions(
-  properties: ITaskPropertyDefinition[] | null | undefined,
+  properties: ITaskPropertyDefinition[] | Record<string, TaskPropertyType> | null | undefined,
   required = true,
 ): DynamicFieldDefinition[] {
-  if (!properties) {
-    return [];
-  }
-
-  return [...properties]
+  return normalizeTaskPropertyDefinitions(properties)
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((property) => ({
       key: property.name,
@@ -25,13 +21,31 @@ export function createTaskPropertyFieldDefinitions(
 }
 
 export function taskPropertyKindMap(
-  properties: ITaskPropertyDefinition[] | null | undefined,
+  properties: ITaskPropertyDefinition[] | Record<string, TaskPropertyType> | null | undefined,
 ): Record<string, TaskPropertyType> {
+  return Object.fromEntries(normalizeTaskPropertyDefinitions(properties).map((property) => [property.name, property.kind]));
+}
+
+export function normalizeTaskPropertyDefinitions(
+  properties: ITaskPropertyDefinition[] | Record<string, TaskPropertyType> | null | undefined,
+): ITaskPropertyDefinition[] {
   if (!properties) {
-    return {};
+    return [];
   }
 
-  return Object.fromEntries(properties.map((property) => [property.name, property.kind]));
+  if (Array.isArray(properties)) {
+    return properties.map((property) => ({
+      ...property,
+      enumValues: [...property.enumValues],
+    }));
+  }
+
+  return Object.entries(properties).map(([name, kind]) => ({
+    name,
+    kind,
+    required: false,
+    enumValues: [],
+  }));
 }
 
 export function createTaskPropertyControl(

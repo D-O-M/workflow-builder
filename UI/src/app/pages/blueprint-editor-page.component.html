@@ -4,11 +4,11 @@
       <app-blueprint-canvas
         [nodes]="editorStore.nodes()"
         [connections]="editorStore.connections()"
+        [graphRevision]="editorStore.graphRevision()"
         [backgroundEffect]="canvasBackgroundEffect"
+        [validationFocus]="validationCanvasFocus()"
         mode="edit"
-        (nodeDoubleActivated)="openDesignTimeOverrideModal($event)"
-        (connectionDoubleActivated)="openConnectionMappingModal($event)"
-        (connectionBadgeActivated)="openConnectionMappingModal($event)"
+        (nodeSettingsRequested)="openNodeSettings($event)"
       />
     </div>
 
@@ -164,12 +164,19 @@
     <div class="blueprint-editor-page__action-rail" [class.is-drawer-open]="!drawerCollapsed()">
       <mat-card appearance="outlined">
         <div class="blueprint-editor-page__action-group">
-          <span [matTooltip]="saveButtonLabel()" matTooltipPosition="left">
+          <span
+            [matTooltip]="saveButtonLabel()"
+            matTooltipPosition="left"
+            (mouseenter)="onSaveHover(true)"
+            (mouseleave)="onSaveHover(false)"
+            (focusin)="onSaveHover(true)"
+            (focusout)="onSaveHover(false)"
+          >
             <button
               mat-icon-button
               type="button"
               aria-label="Save blueprint"
-              [disabled]="!canSave()"
+              [disabled]="saving()"
               (click)="save()"
             >
               <mat-icon>save</mat-icon>
@@ -177,18 +184,18 @@
           </span>
 
           <span
-            [matTooltip]="drawerCollapsed() ? 'Open plugin library' : 'Hide plugin library'"
+            [matTooltip]="isPluginLibraryDrawerOpen() ? 'Hide plugin library' : 'Open plugin library'"
             matTooltipPosition="left"
           >
             <button
               mat-icon-button
               type="button"
               class="blueprint-editor-page__plugin-toggle"
-              [class.is-active]="!drawerCollapsed()"
-              [class.is-inactive]="drawerCollapsed()"
+              [class.is-active]="isPluginLibraryDrawerOpen()"
+              [class.is-inactive]="!isPluginLibraryDrawerOpen()"
               aria-label="Toggle plugin library"
-              [attr.aria-pressed]="!drawerCollapsed()"
-              (click)="drawerCollapsed() ? openDrawer() : closeDrawer()"
+              [attr.aria-pressed]="isPluginLibraryDrawerOpen()"
+              (click)="isPluginLibraryDrawerOpen() ? closeDrawer() : openDrawer()"
             >
               <mat-icon>extension</mat-icon>
             </button>
@@ -297,6 +304,122 @@
       </mat-card>
     </div>
 
+    <div
+      class="blueprint-editor-page__validation-cluster"
+      [class.is-drawer-open]="!drawerCollapsed()"
+    >
+      @if (validationSummary().warningCount > 0) {
+        <button
+          type="button"
+          class="blueprint-editor-page__validation-badge blueprint-editor-page__validation-badge--warning"
+          [class.is-glowing]="validationBadgeGlow()"
+          #validationMenuTrigger="matMenuTrigger"
+          [matMenuTriggerFor]="validationIssuesMenu"
+          [matTooltip]="validationStatusTooltip()"
+          matTooltipPosition="above"
+          aria-label="Review blueprint validation warnings"
+        >
+          <mat-icon>warning</mat-icon>
+          <span class="blueprint-editor-page__validation-count">{{ validationSummary().warningCount }}</span>
+        </button>
+      }
+
+      @if (validationSummary().errorCount > 0) {
+        <button
+          type="button"
+          class="blueprint-editor-page__validation-badge blueprint-editor-page__validation-badge--error"
+          [class.is-pulsing]="validationErrorPulse()"
+          #validationMenuTrigger="matMenuTrigger"
+          [matMenuTriggerFor]="validationIssuesMenu"
+          [matTooltip]="validationStatusTooltip()"
+          matTooltipPosition="above"
+          aria-label="Review blueprint validation errors"
+        >
+          <mat-icon>error</mat-icon>
+          <span class="blueprint-editor-page__validation-count">{{ validationSummary().errorCount }}</span>
+        </button>
+      } @else {
+        <button
+          type="button"
+          class="blueprint-editor-page__validation-badge blueprint-editor-page__validation-badge--valid"
+          #validationMenuTrigger="matMenuTrigger"
+          [matMenuTriggerFor]="validationIssuesMenu"
+          [matTooltip]="validationStatusTooltip()"
+          matTooltipPosition="above"
+          aria-label="Blueprint is valid"
+        >
+          <mat-icon>check_circle</mat-icon>
+        </button>
+      }
+    </div>
+
+    <mat-menu
+      #validationIssuesMenu="matMenu"
+      class="blueprint-editor-page__validation-menu"
+      xPosition="before"
+      yPosition="above"
+    >
+      <div class="blueprint-editor-page__validation-menu-panel" (click)="$event.stopPropagation()">
+        <div class="blueprint-editor-page__validation-menu-header">
+          <span>Blueprint validation</span>
+          <strong>
+            {{ validationSummary().errorCount }} errors · {{ validationSummary().warningCount }} warnings
+          </strong>
+        </div>
+
+        @if (validationSummary().errorCount === 0 && validationSummary().warningCount === 0) {
+          <div class="blueprint-editor-page__validation-empty">
+            <mat-icon>check_circle</mat-icon>
+            <span>No validation issues found.</span>
+          </div>
+        } @else {
+          @if (validationErrors().length > 0) {
+            <section class="blueprint-editor-page__validation-section">
+              <h4>Errors</h4>
+              @for (issue of validationErrors(); track issue.id) {
+                <button
+                  type="button"
+                  class="blueprint-editor-page__validation-issue is-error"
+                  [class.is-active]="focusedValidationIssueId() === issue.id"
+                  [class.is-targetable]="isIssueCanvasTargetable(issue)"
+                  [disabled]="!isIssueCanvasTargetable(issue)"
+                  (click)="focusValidationIssue(issue)"
+                >
+                  <mat-icon>error</mat-icon>
+                  <span>{{ issue.message }}</span>
+                  @if (isIssueCanvasTargetable(issue)) {
+                    <mat-icon class="blueprint-editor-page__validation-locate-icon">center_focus_strong</mat-icon>
+                  }
+                </button>
+              }
+            </section>
+          }
+
+          @if (validationWarnings().length > 0) {
+            <section class="blueprint-editor-page__validation-section">
+              <h4>Warnings</h4>
+              @for (issue of validationWarnings(); track issue.id) {
+                <button
+                  type="button"
+                  class="blueprint-editor-page__validation-issue is-warning"
+                  [class.is-active]="focusedValidationIssueId() === issue.id"
+                  [class.is-targetable]="isIssueCanvasTargetable(issue)"
+                  [disabled]="!isIssueCanvasTargetable(issue)"
+                  (click)="focusValidationIssue(issue)"
+                >
+                  <mat-icon>warning</mat-icon>
+                  <span>{{ issue.message }}</span>
+                  @if (isIssueCanvasTargetable(issue)) {
+                    <mat-icon class="blueprint-editor-page__validation-locate-icon">center_focus_strong</mat-icon>
+                  }
+                </button>
+              }
+            </section>
+          }
+        }
+      </div>
+    </mat-menu>
+
     <button
       mat-fab
       color="primary"
@@ -314,166 +437,266 @@
         type="button"
         class="blueprint-editor-page__drawer-backdrop"
         (click)="closeDrawer()"
-        aria-label="Close plugin library"
+        aria-label="Close drawer"
       ></button>
     }
 
     <aside class="blueprint-editor-page__drawer" [class.is-open]="!drawerCollapsed()">
-      <div class="blueprint-editor-page__drawer-shell">
-        <div class="blueprint-editor-page__drawer-header">
-          <h3>Plugin Library</h3>
+      @if (isPluginLibraryDrawerOpen()) {
+        <div class="blueprint-editor-page__drawer-shell">
+          <div class="blueprint-editor-page__drawer-header">
+            <h3>Plugin Library</h3>
 
-          <button
-            mat-icon-button
-            type="button"
-            class="blueprint-editor-page__rail-toggle"
-            (click)="closeDrawer()"
-            aria-label="Close plugin library"
-          >
-            <mat-icon>close</mat-icon>
-          </button>
-        </div>
-
-        <div class="blueprint-editor-page__drawer-search">
-          <div class="blueprint-editor-page__drawer-search-shell">
-            <mat-icon class="blueprint-editor-page__drawer-search-icon">search</mat-icon>
-            <input
-              class="blueprint-editor-page__drawer-search-input"
-              type="search"
-              [formControl]="pluginLibrarySearch"
-              aria-label="Search plugins"
-              placeholder="Search plugins..."
-            />
+            <button
+              mat-icon-button
+              type="button"
+              class="blueprint-editor-page__rail-toggle"
+              (click)="closeDrawer()"
+              aria-label="Close plugin library"
+            >
+              <mat-icon>close</mat-icon>
+            </button>
           </div>
-        </div>
 
-        <div class="blueprint-editor-page__drawer-body">
-          @if (filteredTaskLibraryItems().length === 0) {
-            <div class="blueprint-editor-page__drawer-empty">
-              <mat-icon>search_off</mat-icon>
-              <p>No plugins match that search.</p>
+          <div class="blueprint-editor-page__drawer-search">
+            <div class="blueprint-editor-page__drawer-search-shell">
+              <mat-icon class="blueprint-editor-page__drawer-search-icon">search</mat-icon>
+              <input
+                class="blueprint-editor-page__drawer-search-input"
+                type="search"
+                [formControl]="pluginLibrarySearch"
+                aria-label="Search plugins"
+                placeholder="Search plugins..."
+              />
             </div>
-          } @else {
-            <div class="blueprint-editor-page__drawer-list">
-              @for (item of filteredTaskLibraryItems(); track item.task.id) {
-                <button
-                  type="button"
-                  class="blueprint-editor-page__drawer-card"
-                  (click)="addTaskFromDrawer(item.task)"
-                >
-                  <span
-                    class="blueprint-editor-page__drawer-card-icon"
-                    [class.is-trigger]="item.tone === 'trigger'"
-                    [class.is-logic]="item.tone === 'logic'"
-                    [class.is-action]="item.tone === 'action'"
-                    aria-hidden="true"
-                  >
-                    <mat-icon>{{ item.icon }}</mat-icon>
-                  </span>
+          </div>
 
-                  <span class="blueprint-editor-page__drawer-card-copy">
-                    <span class="blueprint-editor-page__drawer-card-title">{{ item.task.name }}</span>
-                    <span class="blueprint-editor-page__drawer-card-support">
-                      {{ item.categoryLabel }} • {{ item.description }}
+          <div class="blueprint-editor-page__drawer-body">
+            @if (filteredTaskLibraryItems().length === 0) {
+              <div class="blueprint-editor-page__drawer-empty">
+                <mat-icon>search_off</mat-icon>
+                <p>No plugins match that search.</p>
+              </div>
+            } @else {
+              <div class="blueprint-editor-page__drawer-list">
+                @for (item of filteredTaskLibraryItems(); track item.task.id) {
+                  <button
+                    type="button"
+                    class="blueprint-editor-page__drawer-card"
+                    (click)="addTaskFromDrawer(item.task)"
+                  >
+                    <span
+                      class="blueprint-editor-page__drawer-card-icon"
+                      [class.is-trigger]="item.tone === 'trigger'"
+                      [class.is-logic]="item.tone === 'logic'"
+                      [class.is-action]="item.tone === 'action'"
+                      aria-hidden="true"
+                    >
+                      <mat-icon>{{ item.icon }}</mat-icon>
                     </span>
-                  </span>
-                </button>
-              }
-            </div>
-          }
+
+                    <span class="blueprint-editor-page__drawer-card-copy">
+                      <span class="blueprint-editor-page__drawer-card-title">{{ item.task.name }}</span>
+                      <span class="blueprint-editor-page__drawer-card-support">
+                        {{ item.categoryLabel }} • {{ item.description }}
+                      </span>
+                    </span>
+                  </button>
+                }
+              </div>
+            }
+          </div>
+
+          <mat-card appearance="outlined" class="blueprint-editor-page__drawer-tip">
+            <mat-card-content>
+              <div class="blueprint-editor-page__drawer-tip-header">
+                <mat-icon>info</mat-icon>
+                <span>Pro tip</span>
+              </div>
+              <p>Click a plugin card to add it near the current canvas center.</p>
+            </mat-card-content>
+          </mat-card>
         </div>
-
-        <mat-card appearance="outlined" class="blueprint-editor-page__drawer-tip">
-          <mat-card-content>
-            <div class="blueprint-editor-page__drawer-tip-header">
-              <mat-icon>info</mat-icon>
-              <span>Pro tip</span>
+      } @else if (isNodeSettingsDrawerOpen()) {
+        @if (nodeSettingsNode(); as node) {
+          <div class="blueprint-editor-page__drawer-shell blueprint-editor-page__drawer-shell--settings">
+          <div class="blueprint-editor-page__drawer-header blueprint-editor-page__settings-header">
+            <div>
+              <p class="blueprint-editor-page__settings-eyebrow">Node settings</p>
+              <h3>{{ node.name }}</h3>
             </div>
-            <p>Click a plugin card to add it near the current canvas center.</p>
-          </mat-card-content>
-        </mat-card>
-      </div>
-    </aside>
-  </div>
 
-  <ng-template #mappingDialogTemplate>
-    @if (mappingModalConnection(); as connection) {
-      <h2 mat-dialog-title>{{ connection.from.name }} to {{ connection.to.name }}</h2>
-      <div mat-dialog-content class="blueprint-editor-page__dialog-content">
-        <p class="app-section-support">
-          Choose, per destination input property, whether it stays unmapped, transfers directly, or maps from a different source property.
-        </p>
+            <button
+              mat-icon-button
+              type="button"
+              class="blueprint-editor-page__rail-toggle"
+              (click)="closeDrawer()"
+              aria-label="Close node settings"
+            >
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
 
-        <div class="app-chip-row">
-          @for (chip of mappingModalChips(); track chip.icon + chip.label) {
-            <mat-chip [class]="'blueprint-editor-page__chip--' + chip.tone">
-              <mat-icon>{{ chip.icon }}</mat-icon>
-              {{ chip.label }}
-            </mat-chip>
-          }
-        </div>
-
-        <div class="blueprint-editor-page__dialog-grid">
-          @for (targetProperty of mappingModalTargetProperties(); track targetProperty) {
-            <mat-card appearance="outlined">
-              <mat-card-title>{{ formatPropertyLabel(targetProperty) }}</mat-card-title>
-              <mat-card-subtitle>Destination input</mat-card-subtitle>
+          <div class="blueprint-editor-page__drawer-body blueprint-editor-page__settings-body">
+            <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
               <mat-card-content>
-                <mat-form-field appearance="outline">
-                  <mat-label>Transfer mode</mat-label>
+                <div class="blueprint-editor-page__settings-detail-grid">
+                  <span>Task definition</span>
+                  <strong>{{ nodeSettingsTaskDefinition()?.name ?? node.name }}</strong>
+
+                  <span>Current version</span>
+                  <strong>{{ node.resolvedVersion ?? 'Unknown' }}</strong>
+
+                  <span>Node id</span>
+                  <strong>node-{{ node.id }}</strong>
+                </div>
+              </mat-card-content>
+            </mat-card>
+
+            <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
+              <mat-card-content>
+                <div class="blueprint-editor-page__settings-section-heading">
+                  <div>
+                    <h4>Version</h4>
+                    <p>Choose the newest patch available within each major/minor lane.</p>
+                  </div>
+                </div>
+
+                <mat-form-field appearance="outline" class="blueprint-editor-page__settings-control">
+                  <mat-label>Task version</mat-label>
                   <mat-select
-                    [value]="mappingModalSelectionFor(targetProperty)"
-                    (selectionChange)="updateMappingModalSelection(targetProperty, $event.value)"
+                    [value]="node.resolvedVersionId"
+                    panelClass="blueprint-editor-page__version-select-panel"
+                    (selectionChange)="onNodeVersionSelected($event.value)"
                   >
-                    <mat-option value="">Unmapped</mat-option>
-                    @if (mappingModalHasDirectOption(targetProperty)) {
-                      <mat-option [value]="targetProperty">
-                        Direct transfer from {{ formatPropertyLabel(targetProperty) }}
-                      </mat-option>
-                    }
-                    @for (sourceProperty of mappingModalAlternativeSourceProperties(targetProperty); track sourceProperty) {
-                      <mat-option [value]="sourceProperty">
-                        Map from {{ formatPropertyLabel(sourceProperty) }}
+                    <mat-select-trigger>
+                      v{{ node.resolvedVersion ?? 'Unknown' }}
+                    </mat-select-trigger>
+
+                    @for (option of nodeVersionOptions(); track option.version.id) {
+                      <mat-option [value]="option.version.id">
+                        v{{ option.version.version }}
                       </mat-option>
                     }
                   </mat-select>
                 </mat-form-field>
               </mat-card-content>
             </mat-card>
+
+            <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
+              <mat-card-content>
+                <div class="blueprint-editor-page__settings-section-heading">
+                  <div>
+                    <h4>Static overrides</h4>
+                    <p>Only properties added here are fixed on the Blueprint.</p>
+                  </div>
+
+                  <button
+                    mat-icon-button
+                    type="button"
+                    [matMenuTriggerFor]="staticOverridePropertyMenu"
+                    [disabled]="availableStaticOverrideProperties().length === 0"
+                    aria-label="Add static override"
+                  >
+                    <mat-icon>add</mat-icon>
+                  </button>
+                </div>
+
+                <mat-menu #staticOverridePropertyMenu="matMenu">
+                  @for (property of availableStaticOverrideProperties(); track property.name) {
+                    <button mat-menu-item type="button" (click)="addStaticOverride(property.name)">
+                      <span>{{ formatPropertyLabel(property.name) }}</span>
+                    </button>
+                  }
+                </mat-menu>
+
+                @if (staticOverrideFields().length === 0) {
+                  <div class="blueprint-editor-page__settings-empty">
+                    <mat-icon>tune</mat-icon>
+                    <p>No static overrides yet. Add a property when a node needs a fixed value.</p>
+                  </div>
+                } @else {
+                  <div class="blueprint-editor-page__static-override-list" [formGroup]="staticOverrideForm">
+                    @for (field of staticOverrideFields(); track field.key) {
+                      <div class="blueprint-editor-page__static-override-row">
+                        <div class="blueprint-editor-page__static-override-row-header">
+                          <span>{{ field.label }}</span>
+                          <span>{{ staticOverrideKindLabel(field) }}</span>
+                          <button
+                            mat-icon-button
+                            type="button"
+                            (click)="removeStaticOverride(field.key)"
+                            [attr.aria-label]="'Remove ' + field.label + ' override'"
+                          >
+                            <mat-icon>close</mat-icon>
+                          </button>
+                        </div>
+
+                        <app-dynamic-form-field
+                          [group]="staticOverrideForm"
+                          [field]="field"
+                        />
+                      </div>
+                    }
+                  </div>
+                }
+              </mat-card-content>
+            </mat-card>
+          </div>
+          </div>
+        }
+      }
+    </aside>
+  </div>
+
+  <ng-template #nodeVersionChangeDialogTemplate>
+    @if (pendingNodeVersionChange(); as change) {
+      <h2 mat-dialog-title>Change node version?</h2>
+      <div mat-dialog-content class="blueprint-editor-page__dialog-content">
+        <p class="app-section-support">
+          Version {{ change.version.version }} removes properties or channels currently used by this node. Continue only if these stale mappings and overrides should be removed.
+        </p>
+
+        <div class="blueprint-editor-page__version-impact-list">
+          @for (propertyName of change.impact.removedOverrideProperties; track propertyName) {
+            <div class="blueprint-editor-page__version-impact">
+              <mat-icon>tune</mat-icon>
+              <span>Static override for {{ formatPropertyLabel(propertyName) }} will be removed.</span>
+            </div>
+          }
+
+          @for (mapping of change.impact.removedIncomingMappings; track mapping.connectionId) {
+            <div class="blueprint-editor-page__version-impact">
+              <mat-icon>login</mat-icon>
+              <span>
+                Incoming mapping from {{ mapping.sourceNodeName }} loses
+                {{ mapping.properties.join(', ') }}.
+              </span>
+            </div>
+          }
+
+          @for (mapping of change.impact.removedOutgoingMappings; track mapping.connectionId) {
+            <div class="blueprint-editor-page__version-impact">
+              <mat-icon>logout</mat-icon>
+              <span>
+                Outgoing mapping to {{ mapping.targetNodeName }} loses
+                {{ mapping.properties.join(', ') }}.
+              </span>
+            </div>
+          }
+
+          @for (connection of change.impact.removedConnections; track connection.connectionId) {
+            <div class="blueprint-editor-page__version-impact is-danger">
+              <mat-icon>link_off</mat-icon>
+              <span>{{ connection.sourceNodeName }} to {{ connection.targetNodeName }} will be removed. {{ connection.reason }}</span>
+            </div>
           }
         </div>
       </div>
       <div mat-dialog-actions align="end">
-        <button mat-button type="button" (click)="closeConnectionMappingModal()">Cancel</button>
-        <button mat-flat-button color="primary" type="button" (click)="applyConnectionMappingModal()">
-          Apply Mapping
-        </button>
-      </div>
-    }
-  </ng-template>
-
-  <ng-template #designTimeOverrideDialogTemplate>
-    @if (designTimeOverrideModalNode(); as node) {
-      <h2 mat-dialog-title>{{ node.name }}</h2>
-      <div mat-dialog-content class="blueprint-editor-page__dialog-content">
-        <p class="app-section-support">
-          Fixed values overlay destination inputs after mapped data and before runtime overrides.
-        </p>
-
-        <app-property-override-editor
-          editorId="design-time"
-          [properties]="node.inputPropertyDefinitions"
-          [initialOverrides]="node.designTimeInputOverrides"
-          [resetKey]="designTimeOverrideResetKey()"
-          emptyMessage="This node has no input properties available for fixed values."
-          (stateChange)="onDesignTimeOverrideStateChanged($event)"
-        />
-      </div>
-      <div mat-dialog-actions align="end">
-        <button mat-button type="button" (click)="clearDesignTimeOverrides()">Clear Fixed Values</button>
-        <button mat-button type="button" (click)="closeDesignTimeOverrideModal()">Cancel</button>
-        <button mat-flat-button color="primary" type="button" [disabled]="!designTimeOverrideState().valid" (click)="applyDesignTimeOverrides()">
-          Apply Fixed Values
+        <button mat-button type="button" (click)="cancelNodeVersionChange()">Cancel</button>
+        <button mat-flat-button color="warn" type="button" (click)="confirmNodeVersionChange()">
+          Change Version
         </button>
       </div>
     }
