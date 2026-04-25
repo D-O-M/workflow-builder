@@ -31,6 +31,7 @@ import {
   ProcessSearchStatus,
 } from '../domain/blueprint-editor.service';
 import { TaskPropertyType } from '../domain/node-model';
+import { normalizeTaskPropertyDefinitions } from '../domain/task-property-form-utils';
 import { ITaskDefinition, ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
 type QuickRangeKey = '15m' | '1h' | '6h' | '24h' | '7d' | 'custom';
@@ -643,7 +644,7 @@ export class ProcessSearchDialogComponent {
           const nodeKey = `${blueprint.id}:${task.instanceId}`;
           const taskName = taskDefinition?.name ?? `Task ${task.taskDefinitionId}`;
 
-          for (const property of taskVersion?.requiredGlobalState?.properties ?? []) {
+          for (const property of normalizeTaskPropertyDefinitions(taskVersion?.requiredGlobalState?.properties)) {
             const option: PropertyCatalogItem = {
               key: `global:${blueprint.id}:${property.name}:${property.kind}`,
               scope: 'GlobalState',
@@ -663,7 +664,7 @@ export class ProcessSearchDialogComponent {
             continue;
           }
 
-          for (const property of taskVersion?.inputChannel?.properties ?? []) {
+          for (const property of normalizeTaskPropertyDefinitions(taskVersion?.inputChannel?.properties)) {
             const option: PropertyCatalogItem = {
               key: `input:${blueprint.id}:${task.instanceId}:${property.name}:${property.kind}`,
               scope: 'NodeInput',
@@ -681,7 +682,7 @@ export class ProcessSearchDialogComponent {
 
           const outputProperties = new Map<string, ITaskPropertyDefinition>();
           for (const channel of taskVersion?.outputChannels ?? []) {
-            for (const property of channel.properties ?? []) {
+            for (const property of normalizeTaskPropertyDefinitions(channel.properties)) {
               outputProperties.set(property.name, property);
             }
           }
