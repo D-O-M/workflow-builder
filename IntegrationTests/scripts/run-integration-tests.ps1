@@ -10,8 +10,21 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $solutionPath = Join-Path $repoRoot "Backend.slnx"
 $projectPath = Join-Path $repoRoot "IntegrationTests\WorkflowBuilder.IntegrationTests\WorkflowBuilder.IntegrationTests.csproj"
 $liveRunsPath = Join-Path $repoRoot "IntegrationTests\WorkflowBuilder.IntegrationTests\LiveRuns"
+$appHostPath = Join-Path $repoRoot "Backend.AppHost\Backend.AppHost.csproj"
 
 New-Item -ItemType Directory -Force -Path $liveRunsPath | Out-Null
+
+function Stop-StaleAspireAppHost
+{
+    try
+    {
+        & aspire stop --apphost $appHostPath 2>$null
+    }
+    catch
+    {
+        Write-Verbose "No stale Aspire AppHost was stopped: $($_.Exception.Message)"
+    }
+}
 
 function Stop-StaleIntegrationProcesses
 {
@@ -20,7 +33,8 @@ function Stop-StaleIntegrationProcesses
         "IntegrationSeedPlugin",
         "IntegrationTransformPlugin",
         "IntegrationResultPlugin",
-        "IntegrationFailurePlugin"
+        "IntegrationFailurePlugin",
+        "IntegrationJoinProbePlugin"
     )
 
     $staleProcesses = foreach ($processName in $processNames)
@@ -37,11 +51,13 @@ function Stop-StaleIntegrationProcesses
     Start-Sleep -Seconds 1
 }
 
+Stop-StaleAspireAppHost
 Stop-StaleIntegrationProcesses
+& dotnet build-server shutdown | Out-Null
 
 if (-not $NoBuild)
 {
-    & dotnet build $solutionPath -v minimal
+    & dotnet build $projectPath -v minimal
     if ($LASTEXITCODE -ne 0)
     {
         exit $LASTEXITCODE
@@ -57,7 +73,6 @@ $arguments = @(
     "--no-build"
 )
 
-$arguments += "--"
 $arguments += "--maximum-parallel-tests"
 $arguments += "1"
 $arguments += "--output"

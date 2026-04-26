@@ -1,14 +1,1 @@
-{
-  "DisplayName": "Integration Join Probe Plugin",
-  "InputChannel": {
-    "Name": "Request",
-    "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin.JoinProbeRequest"
-  },
-  "OutputChannels": [
-    {
-      "Name": "Success",
-      "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin.JoinProbeSuccess"
-    }
-  ],
-  "GlobalState": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin.IntegrationWorkflowState"
-}
+{"displayName":"Integration Join Probe Plugin","inputChannel":{"name":"Request","type":"WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin.JoinProbeRequest","properties":[{"name":"CombinedScore","kind":"Integer","required":true},{"name":"LeftText","kind":"String","required":true},{"name":"Mode","kind":"String","required":true},{"name":"RightText","kind":"String","required":true}]},"outputChannels":[{"name":"Success","type":"WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin.JoinProbeSuccess","properties":[{"name":"CombinedScore","kind":"Integer","required":true},{"name":"Mode","kind":"String","required":true},{"name":"Summary","kind":"String","required":true}]}],"globalState":{"name":"State","type":"WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin.IntegrationWorkflowState","properties":[{"name":"LastStage","kind":"String","required":true},{"name":"RunLabel","kind":"String","required":true},{"name":"ShouldFail","kind":"Boolean","required":true},{"name":"StepsCompleted","kind":"Integer","required":true},{"name":"TotalScore","kind":"Integer","required":true}]}}

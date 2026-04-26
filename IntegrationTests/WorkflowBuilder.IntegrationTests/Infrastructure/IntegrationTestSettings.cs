@@ -6,6 +6,12 @@ internal sealed class IntegrationTestSettings
 
     public string RunVersion { get; init; } = string.Empty;
 
+    public TimeSpan AppHostStartupTimeout { get; init; } = TimeSpan.FromMinutes(6);
+
+    public TimeSpan AppHostShutdownTimeout { get; init; } = TimeSpan.FromSeconds(45);
+
+    public TimeSpan DiagnosticsTimeout { get; init; } = TimeSpan.FromSeconds(20);
+
     public TimeSpan ResourceTimeout { get; init; } = TimeSpan.FromMinutes(5);
 
     public TimeSpan PollInterval { get; init; } = TimeSpan.FromSeconds(2);

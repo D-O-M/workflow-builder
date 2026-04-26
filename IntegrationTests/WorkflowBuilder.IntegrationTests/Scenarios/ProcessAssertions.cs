@@ -102,30 +102,71 @@ internal static class ProcessAssertions
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(environment.Settings.ResourceTimeout);
 
-        while (!timeoutCts.IsCancellationRequested)
+        ProcessSnapshot? lastSnapshot = null;
+
+        try
         {
-            try
+            while (!timeoutCts.IsCancellationRequested)
             {
-                var steps = await environment.GetProcessStepStateAsync(processId, timeoutCts.Token);
-                var processRecord = await environment.GetProcessStateAsync(
-                    processId,
-                    blueprintVersionId,
-                    timeoutCts.Token);
-
-                var snapshot = new ProcessSnapshot(processRecord, steps);
-                if (predicate(snapshot))
+                try
                 {
-                    return snapshot;
-                }
-            }
-            catch (EntityNotFoundException<ProcessInstanceRecord<Dictionary<string, JsonElement>>>)
-            {
-                // The process document can land slightly after the start response.
-            }
+                    var steps = await environment.GetProcessStepStateAsync(processId, timeoutCts.Token);
+                    var processRecord = await environment.GetProcessStateAsync(
+                        processId,
+                        blueprintVersionId,
+                        timeoutCts.Token);
 
-            await Task.Delay(environment.Settings.PollInterval, timeoutCts.Token);
+                    var snapshot = new ProcessSnapshot(processRecord, steps);
+                    lastSnapshot = snapshot;
+                    if (predicate(snapshot))
+                    {
+                        return snapshot;
+                    }
+                }
+                catch (EntityNotFoundException<ProcessInstanceRecord<Dictionary<string, JsonElement>>>)
+                {
+                    // The process document can land slightly after the start response.
+                }
+
+                await Task.Delay(environment.Settings.PollInterval, timeoutCts.Token);
+            }
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // Fall through to the richer timeout diagnostics below.
         }
 
-        throw new TimeoutException($"Timed out waiting for process {processId} state.");
+        environment.WriteRecentResourceLogs(
+            $"timed out waiting for process {processId} state",
+            "backend-engine",
+            "plugin-detector",
+            "backend-api");
+
+        var snapshotSummary = lastSnapshot is null
+            ? "No process snapshot was observed before timeout."
+            : DescribeSnapshot(lastSnapshot);
+
+        throw new TimeoutException(
+            $"Timed out waiting for process {processId} state.{Environment.NewLine}{snapshotSummary}");
+    }
+
+    private static string DescribeSnapshot(ProcessSnapshot snapshot)
+    {
+        var process = snapshot.Process;
+        var stepLines = snapshot.RealSteps.Count == 0
+            ? ["  <no real steps observed>"]
+            : snapshot.RealSteps
+                .OrderBy(step => step.CreatedAt)
+                .Select(step =>
+                    $"  {step.BlueprintNodeId}: {step.Status} resolved={step.ResolvedTaskVersionId?.ToString() ?? "<none>"} error={step.ErrorMessage ?? "<none>"}")
+                .ToArray();
+
+        return string.Join(
+            Environment.NewLine,
+            [
+                $"Process status: {process.Status}; updatedAt={process.UpdatedAt?.ToString("O") ?? "<none>"}",
+                "Steps:",
+                .. stepLines
+            ]);
     }
 }

@@ -113,13 +113,13 @@ internal static class BlueprintScenarioBuilder
             $"{PluginBundleCatalog.SeedPlugin}-join-{Guid.NewGuid():N}",
             PluginBundleCatalog.TransformPlugin,
             rightDesignTimeOverrides: CreateOverrides(
-                ("normalizedName", "RIGHT"),
-                ("score", 7)),
+                ("NormalizedName", "RIGHT"),
+                ("Score", 7)),
             joinDesignTimeOverrides: null,
             rightPropertyMappings:
             [
-                ("message", "rightText"),
-                ("finalScore", "combinedScore")
+                ("Message", "RightText"),
+                ("FinalScore", "CombinedScore")
             ],
             cancellationToken);
 
@@ -131,15 +131,15 @@ internal static class BlueprintScenarioBuilder
             $"{PluginBundleCatalog.SeedPlugin}-design-time-{Guid.NewGuid():N}",
             PluginBundleCatalog.TransformPlugin,
             rightDesignTimeOverrides: CreateOverrides(
-                ("normalizedName", "RIGHT"),
-                ("score", 7)),
+                ("NormalizedName", "RIGHT"),
+                ("Score", 7)),
             joinDesignTimeOverrides: CreateOverrides(
-                ("leftText", "DESIGN-LEFT"),
-                ("mode", "design-mode")),
+                ("LeftText", "DESIGN-LEFT"),
+                ("Mode", "design-mode")),
             rightPropertyMappings:
             [
-                ("message", "rightText"),
-                ("finalScore", "combinedScore")
+                ("Message", "RightText"),
+                ("FinalScore", "CombinedScore")
             ],
             cancellationToken);
 
@@ -151,13 +151,13 @@ internal static class BlueprintScenarioBuilder
             $"{PluginBundleCatalog.SeedPlugin}-runtime-{Guid.NewGuid():N}",
             PluginBundleCatalog.TransformPlugin,
             rightDesignTimeOverrides: CreateOverrides(
-                ("normalizedName", "RIGHT"),
-                ("score", 7)),
+                ("NormalizedName", "RIGHT"),
+                ("Score", 7)),
             joinDesignTimeOverrides: null,
             rightPropertyMappings:
             [
-                ("message", "rightText"),
-                ("finalScore", "combinedScore")
+                ("Message", "RightText"),
+                ("FinalScore", "CombinedScore")
             ],
             cancellationToken);
 
@@ -169,15 +169,15 @@ internal static class BlueprintScenarioBuilder
             $"{PluginBundleCatalog.SeedPlugin}-precedence-{Guid.NewGuid():N}",
             PluginBundleCatalog.TransformPlugin,
             rightDesignTimeOverrides: CreateOverrides(
-                ("normalizedName", "RIGHT"),
-                ("score", 7)),
+                ("NormalizedName", "RIGHT"),
+                ("Score", 7)),
             joinDesignTimeOverrides: CreateOverrides(
-                ("leftText", "DESIGN-LEFT"),
-                ("mode", "design-mode")),
+                ("LeftText", "DESIGN-LEFT"),
+                ("Mode", "design-mode")),
             rightPropertyMappings:
             [
-                ("message", "rightText"),
-                ("finalScore", "combinedScore")
+                ("Message", "RightText"),
+                ("FinalScore", "CombinedScore")
             ],
             cancellationToken);
 
@@ -192,7 +192,7 @@ internal static class BlueprintScenarioBuilder
             joinDesignTimeOverrides: null,
             rightPropertyMappings:
             [
-                ("outcome", "rightText")
+                ("Outcome", "RightText")
             ],
             cancellationToken);
 
@@ -267,7 +267,7 @@ internal static class BlueprintScenarioBuilder
                             CreateConnection(
                                 joinNodeId,
                                 "Success",
-                                ("message", "leftText"))
+                                ("Message", "LeftText"))
                         ]),
                     CreateTask(
                         rightNodeId,

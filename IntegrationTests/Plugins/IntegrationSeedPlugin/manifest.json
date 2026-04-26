@@ -1,14 +1,1 @@
-{
-  "DisplayName": "Integration Seed Plugin",
-  "InputChannel": {
-    "Name": "Request",
-    "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationSeedPlugin.SeedRequest"
-  },
-  "OutputChannels": [
-    {
-      "Name": "Success",
-      "Type": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationSeedPlugin.SeedSuccess"
-    }
-  ],
-  "GlobalState": "WorkflowBuilder.IntegrationTests.Plugins.IntegrationSeedPlugin.IntegrationWorkflowState"
-}
+{"displayName":"Integration Seed Plugin","inputChannel":{"name":"Request","type":"WorkflowBuilder.IntegrationTests.Plugins.IntegrationSeedPlugin.SeedRequest","properties":[{"name":"BaseScore","kind":"Integer","required":true},{"name":"Name","kind":"String","required":true}]},"outputChannels":[{"name":"Success","type":"WorkflowBuilder.IntegrationTests.Plugins.IntegrationSeedPlugin.SeedSuccess","properties":[{"name":"NormalizedName","kind":"String","required":true},{"name":"Score","kind":"Integer","required":true}]}],"globalState":{"name":"State","type":"WorkflowBuilder.IntegrationTests.Plugins.IntegrationSeedPlugin.IntegrationWorkflowState","properties":[{"name":"LastStage","kind":"String","required":true},{"name":"RunLabel","kind":"String","required":true},{"name":"ShouldFail","kind":"Boolean","required":true},{"name":"StepsCompleted","kind":"Integer","required":true},{"name":"TotalScore","kind":"Integer","required":true}]}}

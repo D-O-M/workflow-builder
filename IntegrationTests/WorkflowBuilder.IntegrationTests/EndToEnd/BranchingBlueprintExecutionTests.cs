@@ -16,16 +16,7 @@ public sealed class BranchingBlueprintExecutionTests
     [Before(Class)]
     public static async Task SetUp(CancellationToken cancellationToken)
     {
-        _environment = await DistributedAppTestEnvironment.CreateReadyAsync(cancellationToken);
-    }
-
-    [After(Class)]
-    public static async Task TearDown(CancellationToken cancellationToken)
-    {
-        if (_environment is not null)
-        {
-            await _environment.DisposeAsync();
-        }
+        _environment = await SharedDistributedAppTestEnvironment.GetReadyAsync(cancellationToken);
     }
 
     [Test]
@@ -83,11 +74,11 @@ public sealed class BranchingBlueprintExecutionTests
             "Success");
 
         leftInput.GetRawText().ShouldBe(rightInput.GetRawText());
-        GetPropertyNames(leftInput).ShouldBe(["normalizedName", "score"]);
-        leftInput.GetProperty("normalizedName").GetString().ShouldBe("CAVEMAN");
-        leftInput.GetProperty("score").GetInt32().ShouldBe(5);
-        leftOutput.GetProperty("message").GetString().ShouldBe("CAVEMAN:15");
-        leftOutput.GetProperty("finalScore").GetInt32().ShouldBe(15);
+        GetPropertyNames(leftInput).ShouldBe(["NormalizedName", "Score"]);
+        leftInput.GetProperty("NormalizedName").GetString().ShouldBe("CAVEMAN");
+        leftInput.GetProperty("Score").GetInt32().ShouldBe(5);
+        leftOutput.GetProperty("Message").GetString().ShouldBe("CAVEMAN:15");
+        leftOutput.GetProperty("FinalScore").GetInt32().ShouldBe(15);
         rightOutput.GetRawText().ShouldBe(leftOutput.GetRawText());
     }
 
@@ -135,16 +126,16 @@ public sealed class BranchingBlueprintExecutionTests
         var joinStep = ProcessAssertions.GetRealStep(snapshot, blueprint.JoinBlueprintNodeId);
         var joinInput = ProcessAssertions.GetInput(joinStep, "Request");
 
-        GetPropertyNames(joinInput).ShouldBe(["combinedScore", "leftText", "rightText"]);
-        joinInput.GetProperty("leftText").GetString().ShouldBe("CAVEMAN:15");
-        joinInput.GetProperty("rightText").GetString().ShouldBe("RIGHT:21");
-        joinInput.GetProperty("combinedScore").GetInt32().ShouldBe(21);
+        GetPropertyNames(joinInput).ShouldBe(["CombinedScore", "LeftText", "RightText"]);
+        joinInput.GetProperty("LeftText").GetString().ShouldBe("CAVEMAN:15");
+        joinInput.GetProperty("RightText").GetString().ShouldBe("RIGHT:21");
+        joinInput.GetProperty("CombinedScore").GetInt32().ShouldBe(21);
 
         leftStep.CompletedAt.ShouldNotBeNull();
         rightStep.CompletedAt.ShouldNotBeNull();
         joinStep.CreatedAt.ShouldBeGreaterThanOrEqualTo(leftStep.CompletedAt.Value);
         joinStep.CreatedAt.ShouldBeGreaterThanOrEqualTo(rightStep.CompletedAt.Value);
-        ProcessAssertions.GetOutput(joinStep, "Success").GetProperty("summary").GetString().ShouldBe("CAVEMAN:15|RIGHT:21|21|");
+        ProcessAssertions.GetOutput(joinStep, "Success").GetProperty("Summary").GetString().ShouldBe("CAVEMAN:15|RIGHT:21|21|");
     }
 
     [Test]
@@ -190,14 +181,14 @@ public sealed class BranchingBlueprintExecutionTests
             ProcessAssertions.GetRealStep(snapshot, blueprint.JoinBlueprintNodeId),
             "Request");
 
-        GetPropertyNames(joinInput).ShouldBe(["combinedScore", "leftText", "mode", "rightText"]);
-        joinInput.GetProperty("leftText").GetString().ShouldBe("DESIGN-LEFT");
-        joinInput.GetProperty("rightText").GetString().ShouldBe("RIGHT:21");
-        joinInput.GetProperty("combinedScore").GetInt32().ShouldBe(21);
-        joinInput.GetProperty("mode").GetString().ShouldBe("design-mode");
+        GetPropertyNames(joinInput).ShouldBe(["CombinedScore", "LeftText", "Mode", "RightText"]);
+        joinInput.GetProperty("LeftText").GetString().ShouldBe("DESIGN-LEFT");
+        joinInput.GetProperty("RightText").GetString().ShouldBe("RIGHT:21");
+        joinInput.GetProperty("CombinedScore").GetInt32().ShouldBe(21);
+        joinInput.GetProperty("Mode").GetString().ShouldBe("design-mode");
         ProcessAssertions.GetOutput(
             ProcessAssertions.GetRealStep(snapshot, blueprint.JoinBlueprintNodeId),
-            "Success").GetProperty("summary").GetString().ShouldBe("DESIGN-LEFT|RIGHT:21|21|design-mode");
+            "Success").GetProperty("Summary").GetString().ShouldBe("DESIGN-LEFT|RIGHT:21|21|design-mode");
     }
 
     [Test]
@@ -227,8 +218,8 @@ public sealed class BranchingBlueprintExecutionTests
                 new Dictionary<Guid, Dictionary<string, JsonElement>>
                 {
                     [blueprint.JoinBlueprintNodeId] = CreateOverrides(
-                        ("leftText", "RUNTIME-LEFT"),
-                        ("mode", "runtime-mode"))
+                        ("LeftText", "RUNTIME-LEFT"),
+                        ("Mode", "runtime-mode"))
                 }),
             cancellationToken);
 
@@ -249,14 +240,14 @@ public sealed class BranchingBlueprintExecutionTests
             ProcessAssertions.GetRealStep(snapshot, blueprint.JoinBlueprintNodeId),
             "Request");
 
-        GetPropertyNames(joinInput).ShouldBe(["combinedScore", "leftText", "mode", "rightText"]);
-        joinInput.GetProperty("leftText").GetString().ShouldBe("RUNTIME-LEFT");
-        joinInput.GetProperty("rightText").GetString().ShouldBe("RIGHT:21");
-        joinInput.GetProperty("combinedScore").GetInt32().ShouldBe(21);
-        joinInput.GetProperty("mode").GetString().ShouldBe("runtime-mode");
+        GetPropertyNames(joinInput).ShouldBe(["CombinedScore", "LeftText", "Mode", "RightText"]);
+        joinInput.GetProperty("LeftText").GetString().ShouldBe("RUNTIME-LEFT");
+        joinInput.GetProperty("RightText").GetString().ShouldBe("RIGHT:21");
+        joinInput.GetProperty("CombinedScore").GetInt32().ShouldBe(21);
+        joinInput.GetProperty("Mode").GetString().ShouldBe("runtime-mode");
         ProcessAssertions.GetOutput(
             ProcessAssertions.GetRealStep(snapshot, blueprint.JoinBlueprintNodeId),
-            "Success").GetProperty("summary").GetString().ShouldBe("RUNTIME-LEFT|RIGHT:21|21|runtime-mode");
+            "Success").GetProperty("Summary").GetString().ShouldBe("RUNTIME-LEFT|RIGHT:21|21|runtime-mode");
     }
 
     [Test]
@@ -286,7 +277,7 @@ public sealed class BranchingBlueprintExecutionTests
                 new Dictionary<Guid, Dictionary<string, JsonElement>>
                 {
                     [blueprint.JoinBlueprintNodeId] = CreateOverrides(
-                        ("leftText", "RUNTIME-LEFT"))
+                        ("LeftText", "RUNTIME-LEFT"))
                 }),
             cancellationToken);
 
@@ -307,14 +298,14 @@ public sealed class BranchingBlueprintExecutionTests
             ProcessAssertions.GetRealStep(snapshot, blueprint.JoinBlueprintNodeId),
             "Request");
 
-        GetPropertyNames(joinInput).ShouldBe(["combinedScore", "leftText", "mode", "rightText"]);
-        joinInput.GetProperty("leftText").GetString().ShouldBe("RUNTIME-LEFT");
-        joinInput.GetProperty("rightText").GetString().ShouldBe("RIGHT:21");
-        joinInput.GetProperty("combinedScore").GetInt32().ShouldBe(21);
-        joinInput.GetProperty("mode").GetString().ShouldBe("design-mode");
+        GetPropertyNames(joinInput).ShouldBe(["CombinedScore", "LeftText", "Mode", "RightText"]);
+        joinInput.GetProperty("LeftText").GetString().ShouldBe("RUNTIME-LEFT");
+        joinInput.GetProperty("RightText").GetString().ShouldBe("RIGHT:21");
+        joinInput.GetProperty("CombinedScore").GetInt32().ShouldBe(21);
+        joinInput.GetProperty("Mode").GetString().ShouldBe("design-mode");
         ProcessAssertions.GetOutput(
             ProcessAssertions.GetRealStep(snapshot, blueprint.JoinBlueprintNodeId),
-            "Success").GetProperty("summary").GetString().ShouldBe("RUNTIME-LEFT|RIGHT:21|21|design-mode");
+            "Success").GetProperty("Summary").GetString().ShouldBe("RUNTIME-LEFT|RIGHT:21|21|design-mode");
     }
 
     [Test]
@@ -362,7 +353,7 @@ public sealed class BranchingBlueprintExecutionTests
         failedStep.ErrorMessage.ShouldContain("Requested failure");
         ProcessAssertions.GetOutput(
             ProcessAssertions.GetRealStep(snapshot, blueprint.LeftBlueprintNodeId),
-            "Success").GetProperty("message").GetString().ShouldBe("CAVEMAN:15");
+            "Success").GetProperty("Message").GetString().ShouldBe("CAVEMAN:15");
     }
 
     private static async Task<AcceptedProcess> StartProcessAsync(

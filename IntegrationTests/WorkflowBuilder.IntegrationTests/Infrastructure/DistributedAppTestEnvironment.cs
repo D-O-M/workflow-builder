@@ -23,13 +23,12 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
     private const string ProcessesContainerName = "processes";
     private const string TasksContainerName = "processsteps";
     private const string PluginsBlobContainerName = "pluginblob";
-    private static readonly TimeSpan DefaultTimeout = TimeSpan.FromMinutes(2);
-
     private readonly DistributedApplication _app;
     private readonly CosmosClient _cosmosClient;
     private readonly BlobContainerClient _pluginBlobContainer;
     private readonly ProcessStepRepository _processStepRepository;
     private readonly ProcessInstanceRepository<Dictionary<string, JsonElement>> _processRepository;
+    private readonly StartupLogCapture _resourceLogCapture;
 
     private DistributedAppTestEnvironment(
         DistributedApplication app,
@@ -40,13 +39,15 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         HttpClient apiClient,
         string signalRBaseUrl,
         IntegrationTestSettings settings,
-        PluginBundleCatalog bundleCatalog)
+        PluginBundleCatalog bundleCatalog,
+        StartupLogCapture resourceLogCapture)
     {
         _app = app;
         _cosmosClient = cosmosClient;
         _pluginBlobContainer = pluginBlobContainer;
         _processStepRepository = processStepRepository;
         _processRepository = processRepository;
+        _resourceLogCapture = resourceLogCapture;
 
         ApiClient = apiClient;
         SignalRBaseUrl = signalRBaseUrl;
@@ -82,6 +83,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
                 $"AzureCosmos:ConnectionName={CosmosConnectionName}",
                 $"AzureCosmos:DatabaseName={CosmosDatabaseName}",
                 "AzureCosmos:PersistData=false",
+                "IntegrationTests:Enabled=true",
                 "AzureStorage:ResourceName=integration-storage",
                 "AzureStorage:BlobContainers:Plugins:ResourceName=plugins",
                 $"AzureStorage:BlobContainers:Plugins:ContainerName={PluginsBlobContainerName}",
@@ -94,6 +96,8 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
                 "AzureServiceBus:Queues:PluginControlQueue:ConnectionName=plugin-control-queue",
                 "AzureServiceBus:Queues:PluginControlQueue:Name=pluginreloadqueue",
                 "SqlServer:PersistData=false",
+                "PluginSeeding:Enabled=false",
+                "BlueprintSeeding:Enabled=false",
             ],
             (options, _) =>
             {
@@ -111,33 +115,35 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         });
 
         var app = await builder.BuildAsync(cancellationToken)
-            .WaitAsync(DefaultTimeout, cancellationToken);
+            .WaitAsync(settings.ResourceTimeout, cancellationToken);
         IntegrationProgressLog.Write("[integration] Distributed application built successfully.");
 
-        using var startupLogCapture = BeginStartupLogCapture(app);
+        var resourceLogCapture = BeginStartupLogCapture(app);
 
         try
         {
             IntegrationProgressLog.Write("[integration] Starting distributed application.");
             await app.StartAsync(cancellationToken)
-                .WaitAsync(DefaultTimeout, cancellationToken);
+                .WaitAsync(settings.AppHostStartupTimeout, cancellationToken);
             IntegrationProgressLog.Write("[integration] Distributed application start completed.");
 
-            await WaitForHealthyResourceAsync(app, "backend-api", cancellationToken);
-            await WaitForHealthyResourceAsync(app, "backend-engine", cancellationToken);
-            await WaitForHealthyResourceAsync(app, "backend-signalr", cancellationToken);
-            await WaitForHealthyResourceAsync(app, "plugin-detector", cancellationToken);
-            await WaitForHealthyResourceAsync(app, "progress-broadcaster", cancellationToken);
+            await WaitForHealthyResourceAsync(app, "backend-api", settings, cancellationToken);
+            await WaitForHealthyResourceAsync(app, "backend-engine", settings, cancellationToken);
+            await WaitForHealthyResourceAsync(app, "backend-signalr", settings, cancellationToken);
+            await WaitForHealthyResourceAsync(app, "plugin-detector", settings, cancellationToken);
+            await WaitForHealthyResourceAsync(app, "progress-broadcaster", settings, cancellationToken);
         }
         catch (Exception exception)
         {
             IntegrationProgressLog.Write($"[integration] Distributed startup failed: {exception}");
-            var diagnostics = await BuildStartupDiagnosticsAsync(
+            var diagnostics = await BuildStartupDiagnosticsWithTimeoutAsync(
                 app,
-                startupLogCapture,
-                cancellationToken);
+                resourceLogCapture,
+                settings);
 
-            await app.DisposeAsync();
+            IntegrationProgressLog.Write("[integration] Stopping distributed application after startup failure.");
+            await StopAndDisposeAppBestEffortAsync(app, settings);
+            resourceLogCapture.Dispose();
             throw new InvalidOperationException(
                 $"Failed to start the Aspire integration environment.{Environment.NewLine}Root exception:{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}{diagnostics}",
                 exception);
@@ -169,6 +175,8 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
             new CosmosClientOptions
             {
                 ConnectionMode = ConnectionMode.Gateway,
+                LimitToEndpoint = true,
+                RequestTimeout = TimeSpan.FromSeconds(10),
                 UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
             });
 
@@ -185,7 +193,8 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
             apiClient,
             signalRBaseUrl,
             settings,
-            bundles);
+            bundles,
+            resourceLogCapture);
 
         try
         {
@@ -200,12 +209,13 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         catch (Exception exception)
         {
             IntegrationProgressLog.Write($"[integration] Runtime readiness failed: {exception}");
-            var diagnostics = await BuildStartupDiagnosticsAsync(
+            var diagnostics = await BuildStartupDiagnosticsWithTimeoutAsync(
                 app,
-                startupLogCapture,
-                cancellationToken);
+                resourceLogCapture,
+                settings);
 
-            await environment.DisposeAsync();
+            IntegrationProgressLog.Write("[integration] Stopping distributed application after runtime readiness failure.");
+            await environment.DisposeAsync().AsTask().WaitAsync(settings.AppHostShutdownTimeout * 2);
             throw new InvalidOperationException(
                 $"Aspire integration environment reached healthy startup but failed during runtime readiness.{Environment.NewLine}Root exception:{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}{diagnostics}",
                 exception);
@@ -314,11 +324,52 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         CancellationToken cancellationToken) =>
         await _processStepRepository.GetProcessStepsForProcess(processId, cancellationToken);
 
+    public Task<ProcessStepRecord> UpdateProcessStepStateAsync(
+        ProcessStepRecord processStep,
+        CancellationToken cancellationToken) =>
+        _processStepRepository.UpdateProcessStep(processStep, cancellationToken);
+
     public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> GetProcessStateAsync(
         Guid processId,
         int blueprintVersionId,
         CancellationToken cancellationToken) =>
         _processRepository.GetProcessStateById(processId, blueprintVersionId, cancellationToken);
+
+    public void WriteRecentResourceLogs(string reason, params string[] resourceNames)
+    {
+        IntegrationProgressLog.Write($"[integration] Runtime diagnostics requested: {reason}.");
+
+        var requestedNames = resourceNames.Length == 0
+            ? _resourceLogCapture.ResourceLogs.Keys.ToArray()
+            : resourceNames;
+
+        foreach (var resourceName in requestedNames)
+        {
+            if (!_resourceLogCapture.ResourceLogs.TryGetValue(resourceName, out var lines))
+            {
+                IntegrationProgressLog.Write($"[integration] No resource log capture exists for {resourceName}.");
+                continue;
+            }
+
+            List<string> capturedLines;
+            lock (lines)
+            {
+                capturedLines = lines.TakeLast(80).ToList();
+            }
+
+            IntegrationProgressLog.Write($"[integration] Recent logs for {resourceName}:");
+            if (capturedLines.Count == 0)
+            {
+                IntegrationProgressLog.Write("  <no captured log lines>");
+                continue;
+            }
+
+            foreach (var line in capturedLines)
+            {
+                IntegrationProgressLog.Write($"  {line}");
+            }
+        }
+    }
 
     private async Task RegisterAllBundlesAsync(CancellationToken cancellationToken)
     {
@@ -357,11 +408,12 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
     private static async Task WaitForHealthyResourceAsync(
         DistributedApplication app,
         string resourceName,
+        IntegrationTestSettings settings,
         CancellationToken cancellationToken)
     {
         IntegrationProgressLog.Write($"[integration] Waiting for resource '{resourceName}' to become healthy.");
         await app.ResourceNotifications.WaitForResourceHealthyAsync(resourceName, cancellationToken)
-            .WaitAsync(DefaultTimeout, cancellationToken);
+            .WaitAsync(settings.ResourceTimeout, cancellationToken);
         IntegrationProgressLog.Write($"[integration] Resource '{resourceName}' is healthy.");
     }
 
@@ -400,8 +452,8 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
     {
         ApiClient.Dispose();
         _cosmosClient.Dispose();
-        await _app.StopAsync();
-        await _app.DisposeAsync();
+        await StopAndDisposeAppBestEffortAsync(_app, Settings);
+        _resourceLogCapture.Dispose();
     }
 
     private static StartupLogCapture BeginStartupLogCapture(DistributedApplication app)
@@ -450,9 +502,9 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
                             lock (lines)
                             {
                                 lines.Add(text);
-                                if (lines.Count > 80)
+                                if (lines.Count > 400)
                                 {
-                                    lines.RemoveRange(0, lines.Count - 80);
+                                    lines.RemoveRange(0, lines.Count - 400);
                                 }
                             }
                         }
@@ -474,15 +526,41 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         return new StartupLogCapture(cancellationSource, resourceLogs, tasks);
     }
 
+    private static async Task<string> BuildStartupDiagnosticsWithTimeoutAsync(
+        DistributedApplication app,
+        StartupLogCapture startupLogCapture,
+        IntegrationTestSettings settings)
+    {
+        try
+        {
+            var diagnostics = await BuildStartupDiagnosticsAsync(
+                    app,
+                    startupLogCapture,
+                    settings)
+                .WaitAsync(settings.DiagnosticsTimeout);
+
+            IntegrationProgressLog.Write("[integration] Startup diagnostics captured.");
+            return diagnostics;
+        }
+        catch (Exception exception)
+        {
+            var message = $"Startup diagnostics could not be captured within {settings.DiagnosticsTimeout}: {exception.Message}";
+            IntegrationProgressLog.Write($"[integration] {message}");
+            return message;
+        }
+    }
+
     private static async Task<string> BuildStartupDiagnosticsAsync(
         DistributedApplication app,
         StartupLogCapture startupLogCapture,
-        CancellationToken cancellationToken)
+        IntegrationTestSettings settings)
     {
         startupLogCapture.CancellationSource.Cancel();
+        using var diagnosticsCts = new CancellationTokenSource(settings.DiagnosticsTimeout);
+
         try
         {
-            await Task.WhenAll(startupLogCapture.Tasks).WaitAsync(TimeSpan.FromSeconds(2), cancellationToken);
+            await Task.WhenAll(startupLogCapture.Tasks).WaitAsync(TimeSpan.FromSeconds(2), diagnosticsCts.Token);
         }
         catch
         {
@@ -541,25 +619,6 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
                 }
             }
 
-            var containerId = snapshot.Properties
-                .FirstOrDefault(property => string.Equals(property.Name, "container.id", StringComparison.OrdinalIgnoreCase))
-                ?.Value?
-                .ToString();
-
-            if (!string.IsNullOrWhiteSpace(containerId))
-            {
-                var dockerLogs = TryRunCommand("docker", $"logs {containerId}");
-                if (!string.IsNullOrWhiteSpace(dockerLogs))
-                {
-                    diagnostics.Add($"  docker logs for {resourceName}:");
-                    diagnostics.AddRange(
-                        dockerLogs
-                            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                            .TakeLast(20)
-                            .Select(line => $"    {line}"));
-                }
-            }
-
             if (!snapshot.HealthReports.IsDefaultOrEmpty)
             {
                 foreach (var report in snapshot.HealthReports)
@@ -590,6 +649,29 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         }
 
         return string.Join(Environment.NewLine, diagnostics);
+    }
+
+    private static async Task StopAndDisposeAppBestEffortAsync(
+        DistributedApplication app,
+        IntegrationTestSettings settings)
+    {
+        try
+        {
+            await app.StopAsync().WaitAsync(settings.AppHostShutdownTimeout);
+        }
+        catch (Exception exception)
+        {
+            IntegrationProgressLog.Write($"[integration] AppHost stop did not complete cleanly: {exception.Message}");
+        }
+
+        try
+        {
+            await app.DisposeAsync().AsTask().WaitAsync(settings.AppHostShutdownTimeout);
+        }
+        catch (Exception exception)
+        {
+            IntegrationProgressLog.Write($"[integration] AppHost dispose did not complete cleanly: {exception.Message}");
+        }
     }
 
     private static bool VersionsMatch(string left, string right)
@@ -624,7 +706,16 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
 
             var output = process.StandardOutput.ReadToEnd();
             var error = process.StandardError.ReadToEnd();
-            process.WaitForExit(5000);
+            if (!process.WaitForExit(5000))
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                }
+            }
 
             return string.IsNullOrWhiteSpace(output)
                 ? error
@@ -643,6 +734,10 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         Dictionary<string, List<string>> ResourceLogs,
         Task[] Tasks) : IDisposable
     {
-        public void Dispose() => CancellationSource.Dispose();
+        public void Dispose()
+        {
+            CancellationSource.Cancel();
+            CancellationSource.Dispose();
+        }
     }
 }

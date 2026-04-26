@@ -17,16 +17,7 @@ public sealed class PluginIngestionAndProcessExecutionTests
     [Before(Class)]
     public static async Task SetUp(CancellationToken cancellationToken)
     {
-        _environment = await DistributedAppTestEnvironment.CreateReadyAsync(cancellationToken);
-    }
-
-    [After(Class)]
-    public static async Task TearDown(CancellationToken cancellationToken)
-    {
-        if (_environment is not null)
-        {
-            await _environment.DisposeAsync();
-        }
+        _environment = await SharedDistributedAppTestEnvironment.GetReadyAsync(cancellationToken);
     }
 
     [Test]
@@ -113,15 +104,15 @@ public sealed class PluginIngestionAndProcessExecutionTests
             expectedRealStepCount: 3,
             cancellationToken);
 
-        snapshot.Process.Status.ShouldBe(ProcessStatus.InProgress);
-        snapshot.Process.GlobalState["stepsCompleted"].GetInt32().ShouldBe(3);
-        snapshot.Process.GlobalState["totalScore"].GetInt32().ShouldBe(20);
-        snapshot.Process.GlobalState["lastStage"].GetString().ShouldBe("result");
+        snapshot.Process.Status.ShouldBe(ProcessStatus.Completed);
+        snapshot.Process.GlobalState["StepsCompleted"].GetInt32().ShouldBe(3);
+        snapshot.Process.GlobalState["TotalScore"].GetInt32().ShouldBe(20);
+        snapshot.Process.GlobalState["LastStage"].GetString().ShouldBe("result");
 
         var finalStep = snapshot.RealSteps.Single(step => step.BlueprintNodeId == blueprint.FinalBlueprintNodeId.ToString());
         var finalOutput = ProcessAssertions.GetOutput(finalStep, "Success");
-        finalOutput.GetProperty("summary").GetString().ShouldBe("Completed CAVEMAN:15");
-        finalOutput.GetProperty("finalScore").GetInt32().ShouldBe(15);
+        finalOutput.GetProperty("Summary").GetString().ShouldBe("Completed CAVEMAN:15");
+        finalOutput.GetProperty("FinalScore").GetInt32().ShouldBe(15);
     }
 
     [Test]
@@ -182,18 +173,49 @@ public sealed class PluginIngestionAndProcessExecutionTests
 
         await connection.InvokeAsync("SubscribeProcess", accepted.ProcessId, cancellationToken);
 
-        await WaitForAsync(
-            () =>
-            {
-                lock (gate)
-                {
-                    return summaryUpdates.Any(update =>
-                        update.GetProperty("processId").GetString() == accepted.ProcessId.ToString())
-                        && nodeUpdates.Any(update =>
-                            update.GetProperty("processId").GetString() == accepted.ProcessId.ToString());
-                }
-            },
+        var snapshot = await ProcessAssertions.WaitForSuccessfulChainAsync(
+            _environment,
+            accepted.ProcessId,
+            blueprint.BlueprintVersionId,
+            expectedRealStepCount: 3,
             cancellationToken);
+
+        lock (gate)
+        {
+            summaryUpdates.Clear();
+            nodeUpdates.Clear();
+        }
+
+        var finalStep = snapshot.RealSteps.Single(step => step.BlueprintNodeId == blueprint.FinalBlueprintNodeId.ToString());
+        finalStep.UpdatedAt = DateTimeOffset.UtcNow;
+        await _environment.UpdateProcessStepStateAsync(finalStep, cancellationToken);
+
+        try
+        {
+            await WaitForAsync(
+                () =>
+                {
+                    lock (gate)
+                    {
+                        return summaryUpdates.Any(update =>
+                            update.GetProperty("processId").GetString() == accepted.ProcessId.ToString())
+                            && nodeUpdates.Any(update =>
+                                update.GetProperty("processId").GetString() == accepted.ProcessId.ToString());
+                    }
+                },
+                cancellationToken);
+        }
+        catch
+        {
+            _environment.WriteRecentResourceLogs(
+                "SignalR process progress was not observed after touching a process step",
+                "progress-broadcaster",
+                "backend-signalr",
+                "backend-api",
+                "backend-engine",
+                "integration-cosmos");
+            throw;
+        }
     }
 
     [Test]
@@ -237,7 +259,7 @@ public sealed class PluginIngestionAndProcessExecutionTests
             cancellationToken);
 
         snapshot.Process.Status.ShouldBe(ProcessStatus.Failed);
-        snapshot.Process.GlobalState["lastStage"].GetString().ShouldBe("failure");
+        snapshot.Process.GlobalState["LastStage"].GetString().ShouldBe("failure");
         snapshot.RealSteps.ShouldNotContain(step => step.BlueprintNodeId == blueprint.FinalBlueprintNodeId.ToString());
         snapshot.RealSteps.ShouldContain(step => step.Status == ProcessStepStatus.Failed);
     }
@@ -269,7 +291,14 @@ public sealed class PluginIngestionAndProcessExecutionTests
                 return;
             }
 
-            await Task.Delay(TimeSpan.FromMilliseconds(250), timeoutCts.Token);
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250), timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
         }
 
         throw new TimeoutException("Timed out waiting for SignalR process progress.");
