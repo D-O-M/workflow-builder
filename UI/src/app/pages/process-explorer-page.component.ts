@@ -2,8 +2,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
-  ElementRef,
-  HostListener,
   computed,
   effect,
   inject,
@@ -17,16 +15,15 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatDividerModule } from '@angular/material/divider';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
-import { MatListModule } from '@angular/material/list';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { MatTabsModule } from '@angular/material/tabs';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
 import {
   catchError,
@@ -47,6 +44,7 @@ import {
   ProcessDetailViewModel,
   ProcessSearchRequest,
   ProcessStepDetailViewModel,
+  ProcessStepViewModel,
 } from '../domain/blueprint-editor.service';
 import {
   ProcessStepsUpdatedEvent,
@@ -92,6 +90,14 @@ interface StepLogHistoryRequest {
 type HistoryPanelMode = 'blueprints' | 'processes' | 'search-results';
 type StepInspectorTab = 'inputs' | 'outputs' | 'dataflow' | 'logs';
 
+interface ProcessStepStatusCounts {
+  total: number;
+  completed: number;
+  failed: number;
+  running: number;
+  pending: number;
+}
+
 @Component({
   selector: 'app-process-explorer-page',
   imports: [
@@ -100,16 +106,15 @@ type StepInspectorTab = 'inputs' | 'outputs' | 'dataflow' | 'logs';
     MatCardModule,
     MatChipsModule,
     MatDialogModule,
-    MatDividerModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
-    MatListModule,
     MatMenuModule,
     MatProgressBarModule,
     MatProgressSpinnerModule,
     MatSidenavModule,
     MatTabsModule,
+    MatTooltipModule,
     NgClass,
     DatePipe,
     BlueprintCanvasComponent,
@@ -128,8 +133,6 @@ export class ProcessExplorerPageComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
   private readonly canvasViewport = viewChild(BlueprintCanvasComponent);
-  private readonly processInfoButton = viewChild<ElementRef<HTMLElement>>('processInfoButton');
-  private readonly processInfoPopover = viewChild<ElementRef<HTMLElement>>('processInfoPopover');
   private readonly refreshVersion = signal(0);
   private readonly preferredProcessId = signal<string | null>(null);
   private readonly realtimeSummaryOverrides = signal(new Map<string, ProcessSummaryUpdatedEvent>());
@@ -165,7 +168,6 @@ export class ProcessExplorerPageComponent {
   protected readonly selectedStepInstanceId = signal<string | null>(null);
   protected readonly stepInspectorTab = signal<StepInspectorTab>('inputs');
   protected readonly stepLogStreamConnected = signal(false);
-  protected readonly processInfoOpen = signal(false);
   protected readonly blueprintSearch = new FormControl('', { nonNullable: true });
   protected readonly taskDefinitions = toSignal(this.taskDefinitionsService.getTaskDefinitions(), { initialValue: [] as ITaskDefinition[] });
   protected readonly activeSearchRequest = signal<ProcessSearchRequest | null>(null);
@@ -335,6 +337,26 @@ export class ProcessExplorerPageComponent {
       }),
     };
   });
+  protected readonly selectedProcessStepCounts = computed<ProcessStepStatusCounts>(() => {
+    const nodes = this.selectedProcess()?.nodes ?? [];
+    return this.countStepStatuses(nodes);
+  });
+  protected readonly selectedProcessProgressLabel = computed(() => {
+    const counts = this.selectedProcessStepCounts();
+    if (counts.total === 0) {
+      return 'No steps';
+    }
+
+    return `${counts.completed}/${counts.total} steps completed`;
+  });
+  protected readonly selectedProcessLastActivityLabel = computed(() => {
+    const process = this.selectedProcess();
+    if (!process) {
+      return 'No process selected';
+    }
+
+    return process.updatedAt ? 'Updated' : 'Created';
+  });
   private readonly processNodeViewByCanvasId = computed(() =>
     new Map(
       (this.selectedProcess()?.nodes ?? []).map((node, index) => [index + 1, node] as const),
@@ -445,6 +467,14 @@ export class ProcessExplorerPageComponent {
   protected readonly selectedStepRuntimeOverrides = computed(() =>
     this.selectedStepDetail()?.runtimeOverrides ?? null,
   );
+  protected readonly selectedStepSummaryLine = computed(() => {
+    const version = this.selectedStepResolvedVersion();
+    const logCount = this.stepLogCount();
+    const versionLabel = version ? `Version ${version}` : 'Version not resolved';
+    const logLabel = logCount === 1 ? '1 log entry' : `${logCount} log entries`;
+
+    return `${versionLabel} · ${logLabel}`;
+  });
   private readonly stepLogHistoryRequest = computed<StepLogHistoryRequest | null>(() => {
     const process = this.selectedProcess();
     const blueprintNodeId = this.selectedStepInstanceId();
@@ -586,6 +616,16 @@ export class ProcessExplorerPageComponent {
     return count === 1
       ? '1 blueprint with activity'
       : `${count} blueprints with activity`;
+  });
+  protected readonly historyPaneEyebrow = computed(() => {
+    switch (this.historyPanelMode()) {
+      case 'search-results':
+        return 'Advanced Search';
+      case 'processes':
+        return 'Blueprint Processes';
+      default:
+        return 'Process Explorer';
+    }
   });
   protected readonly selectedBlueprintTitle = computed(() =>
     this.selectedBlueprint()?.name
@@ -887,7 +927,6 @@ export class ProcessExplorerPageComponent {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe(() => {
-        this.closeProcessInfo();
         this.closeStepDrawer();
       });
 
@@ -983,7 +1022,6 @@ export class ProcessExplorerPageComponent {
   }
 
   protected selectProcess(process: BlueprintProcessHistoryEntryViewModel): void {
-    this.closeProcessInfo();
     if (this.historyPanelMode() === 'search-results') {
       this.selectedBlueprintId.set(process.blueprintDefinitionId);
     }
@@ -1009,15 +1047,6 @@ export class ProcessExplorerPageComponent {
     this.stepInspectorTab.set('inputs');
     this.liveStepLogs.set([]);
     this.stopStepLogStream();
-  }
-
-  protected toggleProcessInfo(event: MouseEvent): void {
-    event.stopPropagation();
-    this.processInfoOpen.update((open) => !open);
-  }
-
-  protected closeProcessInfo(): void {
-    this.processInfoOpen.set(false);
   }
 
   protected selectStepInspectorTab(tab: StepInspectorTab): void {
@@ -1241,6 +1270,20 @@ export class ProcessExplorerPageComponent {
     return `${minutes}m ${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
   }
 
+  protected stepCountSummary(counts: ProcessStepStatusCounts): string {
+    if (counts.total === 0) {
+      return 'No task state captured yet';
+    }
+
+    const parts = [
+      counts.running > 0 ? `${counts.running} running` : null,
+      counts.failed > 0 ? `${counts.failed} failed` : null,
+      counts.pending > 0 ? `${counts.pending} waiting` : null,
+    ].filter((part): part is string => part !== null);
+
+    return parts.length > 0 ? parts.join(' · ') : 'All task steps have settled';
+  }
+
   protected searchWindowLabel(request: ProcessSearchRequest): string {
     const formatter = new Intl.DateTimeFormat('en-GB', {
       day: '2-digit',
@@ -1252,42 +1295,11 @@ export class ProcessExplorerPageComponent {
     return `${formatter.format(new Date(request.createdFrom))} → ${formatter.format(new Date(request.createdTo))}`;
   }
 
-  @HostListener('document:click', ['$event'])
-  protected onDocumentClick(event: MouseEvent): void {
-    if (!this.processInfoOpen()) {
-      return;
-    }
-
-    const target = event.target;
-    if (!(target instanceof Node)) {
-      this.closeProcessInfo();
-      return;
-    }
-
-    const infoButton = this.processInfoButton()?.nativeElement;
-    if (infoButton?.contains(target)) {
-      return;
-    }
-
-    const infoPopover = this.processInfoPopover()?.nativeElement;
-    if (infoPopover?.contains(target)) {
-      return;
-    }
-
-    this.closeProcessInfo();
-  }
-
-  @HostListener('document:keydown.escape')
-  protected onEscapeKey(): void {
-    this.closeProcessInfo();
-  }
-
   private applyBlueprintSelection(
     blueprintId: number | null,
     preferredProcessId: string | null,
     historyPanelMode: HistoryPanelMode,
   ): void {
-    this.closeProcessInfo();
     this.selectedBlueprintId.set(blueprintId);
     this.preferredProcessId.set(preferredProcessId);
     this.historyPanelMode.set(historyPanelMode);
@@ -1302,7 +1314,6 @@ export class ProcessExplorerPageComponent {
   }
 
   private async applyAdvancedSearch(request: ProcessSearchRequest): Promise<void> {
-    this.closeProcessInfo();
     this.closeStepDrawer();
     this.historyCollapsed.set(false);
     this.searchResultsLoading.set(true);
@@ -1449,6 +1460,34 @@ export class ProcessExplorerPageComponent {
 
     return [...rowsByProcessId.values()]
       .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  }
+
+  private countStepStatuses(nodes: ProcessStepViewModel[]): ProcessStepStatusCounts {
+    return nodes.reduce<ProcessStepStatusCounts>((counts, node) => {
+      counts.total += 1;
+      switch (node.status) {
+        case 'Completed':
+          counts.completed += 1;
+          break;
+        case 'Failed':
+          counts.failed += 1;
+          break;
+        case 'InProgress':
+          counts.running += 1;
+          break;
+        default:
+          counts.pending += 1;
+          break;
+      }
+
+      return counts;
+    }, {
+      total: 0,
+      completed: 0,
+      failed: 0,
+      running: 0,
+      pending: 0,
+    });
   }
 }
 
