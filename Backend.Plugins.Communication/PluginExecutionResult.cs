@@ -7,7 +7,7 @@ public sealed record PluginExecutionResult(
     Guid JobId,
     bool Succeeded,
     Dictionary<string, JsonElement> OutputData,
-    Dictionary<string, JsonElement> GlobalState,
+    Dictionary<string, JsonElement>? GlobalState,
     DateTimeOffset StartedAt,
     DateTimeOffset CompletedAt,
     string? ErrorMessage);

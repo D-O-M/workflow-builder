@@ -58,7 +58,7 @@ pwsh -File BuildScripts/bundle-plugins.ps1 `
 ```
 
 Use a runtime identifier appropriate for the local execution environment. The integration helper script derives the current RID automatically.
-The script refreshes plugin `manifest.json` and schema artifacts by running each plugin once in Debug contract-generation mode before the Release publish step.
+The script refreshes plugin `manifest.json` and schema artifacts from the generated design-time contract output under `obj/<Configuration>/<TFM>/plugin-contract` before packaging.
 
 Integration helper:
 

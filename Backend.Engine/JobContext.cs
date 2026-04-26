@@ -186,7 +186,7 @@ public class JobContext
 
     public async Task PersistSuccessAsync(
         Dictionary<string, JsonElement> outputData,
-        Dictionary<string, JsonElement> globalState,
+        Dictionary<string, JsonElement>? globalState,
         DateTimeOffset completedAt,
         CancellationToken cancellationToken)
     {
@@ -209,12 +209,15 @@ public class JobContext
 
         processState.Status = ProcessStatus.InProgress;
         processState.UpdatedAt = completedAt;
-        processState.GlobalState = NormalizeJsonMap(globalState);
+        if (globalState is not null)
+        {
+            processState.GlobalState = NormalizeJsonMap(globalState);
+        }
         await _processInstanceRepository.UpdateProcessState(processState, cancellationToken);
     }
 
     public async Task PersistFailureAsync(
-        Dictionary<string, JsonElement> globalState,
+        Dictionary<string, JsonElement>? globalState,
         string? errorMessage,
         DateTimeOffset failedAt,
         CancellationToken cancellationToken)
@@ -237,7 +240,10 @@ public class JobContext
 
         processState.Status = ProcessStatus.Failed;
         processState.UpdatedAt = failedAt;
-        processState.GlobalState = NormalizeJsonMap(globalState);
+        if (globalState is not null)
+        {
+            processState.GlobalState = NormalizeJsonMap(globalState);
+        }
         await _processInstanceRepository.UpdateProcessState(processState, cancellationToken);
     }
 

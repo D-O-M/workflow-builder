@@ -91,7 +91,7 @@ function createTaskDefinitions(): ITaskDefinition[] {
             id: 1,
             name: 'GlobalState',
             properties: [
-              { name: 'Empty', kind: 'Boolean', required: false, enumValues: [] },
+              { name: 'LaunchEnabled', kind: 'Boolean', required: false, enumValues: [] },
               { name: 'LaunchCount', kind: 'Integer', required: false, enumValues: [] },
               { name: 'TargetScore', kind: 'Decimal', required: false, enumValues: [] },
               { name: 'OptionalNote', kind: 'String', required: false, enumValues: [] },
@@ -262,12 +262,12 @@ describe('StartProcessPageComponent', () => {
   });
 
   it('serializes initialization and global state controls as typed JSON values', async () => {
-    component.form.controls.globalState.addControl('Empty', new FormControl('false'));
+    component.form.controls.globalState.addControl('LaunchEnabled', new FormControl('false'));
     component.form.controls.globalState.addControl('LaunchCount', new FormControl('4'));
     component.form.controls.globalState.addControl('TargetScore', new FormControl('12.5'));
     component.form.controls.globalState.addControl('OptionalNote', new FormControl(''));
     component.form.controls.globalState.patchValue({
-      Empty: 'false',
+      LaunchEnabled: 'false',
       LaunchCount: '4',
       TargetScore: '12.5',
       OptionalNote: '',
@@ -283,14 +283,14 @@ describe('StartProcessPageComponent', () => {
 
     expect((component as any).serializeFieldGroup(
       [
-        { key: 'Empty', label: 'Empty', kind: 'boolean', required: false },
+        { key: 'LaunchEnabled', label: 'Launch enabled', kind: 'boolean', required: false },
         { key: 'LaunchCount', label: 'Launch count', kind: 'integer', required: false },
         { key: 'TargetScore', label: 'Target score', kind: 'decimal', required: false },
         { key: 'OptionalNote', label: 'Optional note', kind: 'string', required: false },
       ],
       component.form.controls.globalState,
     )).toEqual({
-        Empty: false,
+        LaunchEnabled: false,
         LaunchCount: 4,
         TargetScore: 12.5,
       });

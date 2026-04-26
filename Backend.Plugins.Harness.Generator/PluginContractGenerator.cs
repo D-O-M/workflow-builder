@@ -308,15 +308,10 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
             .ToList();
 
         var globalState = invocation.GlobalState is null
-            ? BuildImplicitGlobalStateContract(invocation.Location, diagnostics)
+            ? null
             : BuildChannelContract(invocation.GlobalState, isGlobalState: true, diagnostics);
 
         if (inputChannel is null && invocation.InputChannel is not null)
-        {
-            return null;
-        }
-
-        if (globalState is null)
         {
             return null;
         }
@@ -343,20 +338,6 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
             schemaDictionary);
     }
 
-    private static GeneratedChannelContract? BuildImplicitGlobalStateContract(
-        Location location,
-        ImmutableArray<Diagnostic>.Builder diagnostics)
-    {
-        return BuildChannelContract(
-            new PluginChannelContract(
-                "GlobalState",
-                "Backend.Plugins.Harness.GlobalStateStub",
-                null,
-                location),
-            isGlobalState: true,
-            diagnostics);
-    }
-
     private static GeneratedChannelContract? BuildChannelContract(
         PluginChannelContract channel,
         bool isGlobalState,
@@ -368,8 +349,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
             channelType = null;
         }
 
-        if (channelType is null &&
-            !string.Equals(channel.TypeName, "Backend.Plugins.Harness.GlobalStateStub", StringComparison.Ordinal))
+        if (channelType is null)
         {
             diagnostics.Add(Diagnostic.Create(
                 UnsupportedBuilderShapeRule,
@@ -408,11 +388,6 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                 properties.Add(propertyContract);
             }
         }
-        else if (string.Equals(channel.TypeName, "Backend.Plugins.Harness.GlobalStateStub", StringComparison.Ordinal))
-        {
-            properties.Add(new GeneratedPropertyContract("Empty", WorkflowScalarKind.Boolean, true, null));
-        }
-
         return new GeneratedChannelContract(channel.Name, channel.TypeName, properties.OrderBy(property => property.Name, StringComparer.Ordinal).ToList());
     }
 
@@ -572,7 +547,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                 DisplayName = contract.DisplayName,
                 InputChannel = contract.InputChannel is null ? null : MapChannel(contract.InputChannel),
                 OutputChannels = contract.OutputChannels.Select(MapChannel).ToList(),
-                GlobalState = MapChannel(contract.GlobalState)
+                GlobalState = contract.GlobalState is null ? null : MapChannel(contract.GlobalState)
             });
 
         var schemasJson = SerializeSchemas(
@@ -785,7 +760,14 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         }
         builder.EndArray();
         builder.PropertyName("globalState");
-        WriteChannel(builder, manifest.GlobalState);
+        if (manifest.GlobalState is null)
+        {
+            builder.NullValue();
+        }
+        else
+        {
+            WriteChannel(builder, manifest.GlobalState);
+        }
         builder.EndObject();
         return builder.ToString();
     }
@@ -891,7 +873,7 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         string PluginTypeName,
         GeneratedChannelContract? InputChannel,
         IReadOnlyList<GeneratedChannelContract> OutputChannels,
-        GeneratedChannelContract GlobalState,
+        GeneratedChannelContract? GlobalState,
         IReadOnlyDictionary<string, GeneratedSchemaContract> Schemas);
 
     private sealed record GeneratedChannelContract(
@@ -925,7 +907,7 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         public string DisplayName { get; init; } = string.Empty;
         public ManifestFileChannelInfo? InputChannel { get; init; }
         public List<ManifestFileChannelInfo> OutputChannels { get; init; } = [];
-        public ManifestFileChannelInfo GlobalState { get; init; } = new();
+        public ManifestFileChannelInfo? GlobalState { get; init; }
     }
 
     private sealed class ManifestFileChannelInfo

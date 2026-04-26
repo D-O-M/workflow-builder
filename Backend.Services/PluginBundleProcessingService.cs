@@ -213,7 +213,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         return channelDefs;
     }
 
-    private HashSet<PropertyDefinitionDomainModel> GetGlobalStateRequirements(
+    private HashSet<PropertyDefinitionDomainModel>? GetGlobalStateRequirements(
         PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult schemas)
     {
         var globalState = manifest.GlobalState;
@@ -223,7 +223,16 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                 "Plugin {Plugin} ({Version}) did not declare a global state schema.",
                 pluginInfo.PluginName,
                 pluginInfo.Version);
-            return [];
+            return null;
+        }
+
+        if (IsLegacyGlobalStateStub(globalState, schemas))
+        {
+            _logger.LogInformation(
+                "Plugin {Plugin} ({Version}) declared the legacy GlobalStateStub schema; treating it as no global state.",
+                pluginInfo.PluginName,
+                pluginInfo.Version);
+            return null;
         }
 
         return BuildPropertyDefinitions(
@@ -231,6 +240,38 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             globalState,
             schemas,
             "global state");
+    }
+
+    private static bool IsLegacyGlobalStateStub(ManifestFileChannelInfo globalState, PluginSchemaResult schemas)
+    {
+        if (!string.Equals(globalState.Type, "Backend.Plugins.Harness.GlobalStateStub", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var manifestProperties = globalState.Properties;
+        if (manifestProperties.Count == 1 &&
+            string.Equals(manifestProperties[0].Name, "Empty", StringComparison.Ordinal) &&
+            string.Equals(manifestProperties[0].Kind, WorkflowPropertyKind.Boolean.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (manifestProperties.Count > 0)
+        {
+            return false;
+        }
+
+        if (schemas.TypedSchemas?.Components?.Schemas is not null &&
+            schemas.TypedSchemas.Components.Schemas.TryGetValue(globalState.Type, out var typedSchema) &&
+            typedSchema?.Properties is not null)
+        {
+            return typedSchema.Properties.Count == 1 &&
+                   typedSchema.Properties.TryGetValue("Empty", out var property) &&
+                   ParseSchemaPropertyKind(property.Type, property.Format) == WorkflowPropertyKind.Boolean;
+        }
+
+        return false;
     }
 
     private HashSet<PropertyDefinitionDomainModel> BuildPropertyDefinitions(

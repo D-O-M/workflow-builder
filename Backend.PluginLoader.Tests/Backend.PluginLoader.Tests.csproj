@@ -13,4 +13,8 @@
     <PackageReference Include="Shouldly" />
     <PackageReference Include="TUnit" />
   </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Backend.Services\Backend.Services.csproj" />
+  </ItemGroup>
 </Project>

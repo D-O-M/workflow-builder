@@ -3,7 +3,7 @@
         <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
         <OutputType>Exe</OutputType>
         <TargetFramework>net10.0</TargetFramework>
-        <Version>0.0.1</Version>
+        <Version>0.1.0</Version>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <PublishSingleFile>true</PublishSingleFile>
@@ -20,4 +20,3 @@
         <ProjectReference Include="..\..\Backend.Plugins.Harness\Backend.Plugins.Harness.csproj" />
     </ItemGroup>
 </Project>
-

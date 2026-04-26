@@ -8,12 +8,12 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
 {
     private static readonly JsonSerializerOptions ContractJsonOptions = new(JsonSerializerDefaults.General);
 
-    private readonly Func<TPlugin, object?> _globalStateGetter;
+    private readonly Func<TPlugin, object?>? _globalStateGetter;
     private readonly IReadOnlyCollection<PluginChannel> _outputChannels;
 
     public PluginExecutionResultFactory(
         IReadOnlyCollection<PluginChannel> outputChannels,
-        Func<TPlugin, object?> globalStateGetter)
+        Func<TPlugin, object?>? globalStateGetter)
     {
         _outputChannels = outputChannels;
         _globalStateGetter = globalStateGetter;
@@ -73,10 +73,15 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
         return outputData;
     }
 
-    private Dictionary<string, JsonElement> BuildGlobalState(TPlugin plugin)
+    private Dictionary<string, JsonElement>? BuildGlobalState(TPlugin plugin)
     {
+        if (_globalStateGetter is null)
+        {
+            return null;
+        }
+
         var value = _globalStateGetter(plugin);
-        if (value is null || value is GlobalStateStub)
+        if (value is null)
         {
             return new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         }

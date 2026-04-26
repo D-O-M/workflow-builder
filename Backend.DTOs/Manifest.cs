@@ -10,7 +10,7 @@ public record Manifest(
     string Name,
     string Path,
     Version Version,
-    ManifestModelSchema GlobalState,
+    ManifestModelSchema? GlobalState,
     List<ManifestChannelDefinition> Channels);
 
 public record ManifestModelSchema(

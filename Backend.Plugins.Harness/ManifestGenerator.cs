@@ -35,7 +35,7 @@ public static class ManifestGenerator
             OutputChannels = outputChannels
                 .Select(kv => new ChannelManifest { Name = kv.Key, Type = kv.Value.FullName ?? kv.Value.Name })
                 .ToList(),
-            GlobalState = (globalStateType ?? typeof(IGlobalState)).FullName
+            GlobalState = globalStateType?.FullName
         };
     }
 

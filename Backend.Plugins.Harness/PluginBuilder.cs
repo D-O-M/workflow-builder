@@ -30,8 +30,6 @@ public class PluginBuilder<TPlugin>
     private readonly HostApplicationBuilder _hostAppBuilder;
     private IHost? host = null;
 
-    private Type? _globalStateType;
-
     public IServiceCollection Services => _hostAppBuilder.Services;
 
     public PluginBuilder(string displayName)
@@ -152,7 +150,6 @@ public class PluginBuilder<TPlugin>
             new PluginChannel<TPlugin, TGlobalState>(
                 name, propertySelector.Compile()));
 
-        _globalStateType = typeof(TGlobalState);
         var globalStateGetter = propertySelector.Compile();
         _globalStateGetter = plugin => globalStateGetter(plugin);
 
@@ -187,15 +184,10 @@ public class PluginBuilder<TPlugin>
 
     public Plugin<TPlugin> Build()
     {
-        if (_globalStateType is null)
-        {
-            WithGlobalState(p => p.GlobalState);
-        }
-
         _hostAppBuilder.Services.AddSingleton(
             new PluginExecutionResultFactory<TPlugin>(
                 _outputChannels.Values.ToList(),
-                _globalStateGetter ?? (_ => new GlobalStateStub())));
+                _globalStateGetter));
 
         host = _hostAppBuilder.Build();
 

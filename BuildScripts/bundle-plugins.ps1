@@ -144,6 +144,8 @@ function Save-XmlDocument([xml] $xml, [string] $path) {
   $settings.NewLineChars = "`r`n"
   $settings.NewLineHandling = [System.Xml.NewLineHandling]::Replace
   $settings.OmitXmlDeclaration = $true
+  $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+  $settings.Encoding = $utf8NoBom
 
   $writer = [System.Xml.XmlWriter]::Create($path, $settings)
   try {
@@ -151,6 +153,11 @@ function Save-XmlDocument([xml] $xml, [string] $path) {
   }
   finally {
     $writer.Dispose()
+  }
+
+  $content = [System.IO.File]::ReadAllText($path, $utf8NoBom)
+  if (-not $content.EndsWith("`r`n")) {
+    [System.IO.File]::WriteAllText($path, $content + "`r`n", $utf8NoBom)
   }
 }
 
