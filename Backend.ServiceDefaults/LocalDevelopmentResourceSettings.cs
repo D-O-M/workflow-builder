@@ -342,7 +342,10 @@ public static class LocalDevelopmentResourceSettings
             return configuredConnectionString;
         }
 
-        var normalizedEndpoint = $"{endpointUri.Scheme}://127.0.0.1:{mappedPort.Value}/";
+        // The Aspire preview Cosmos emulator exposes the gateway over plain HTTP on
+        // the Docker-mapped host port, even when a fallback/configured development
+        // connection string uses the legacy HTTPS emulator shape.
+        var normalizedEndpoint = $"http://127.0.0.1:{mappedPort.Value}/";
         return ReplaceConnectionStringSegment(
             configuredConnectionString,
             "AccountEndpoint",

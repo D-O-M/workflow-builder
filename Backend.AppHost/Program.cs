@@ -8,6 +8,7 @@ internal class Program
 {
     private const string ProcessesContainerName = "processes";
     private const string TasksContainerName = "processsteps";
+    private const string NodeActivationsContainerName = "nodeactivations";
     private const string TaskProgressLeaseContainerName = "processstepprogressleases";
 
     private static void Main(string[] args)
@@ -15,13 +16,17 @@ internal class Program
         var builder = DistributedApplication.CreateBuilder(args);
         var repositoryRoot = GetRepositoryRootPath();
         var observabilityRoot = GetObservabilityRootPath(repositoryRoot);
+        var integrationTestsEnabled = builder.Configuration.GetValue("IntegrationTests:Enabled", false);
         var pluginSeedingBundlesRoot = GetPluginSeedingBundlesRoot(builder.Configuration, repositoryRoot);
         var blueprintSeedingRoot = GetBlueprintSeedingRoot(builder.Configuration, repositoryRoot);
 
         var cosmosDatabaseName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureCosmos:DatabaseName");
-        var (cosmos, cosmosDb) = AddCosmos(builder, cosmosDatabaseName);
+        var (cosmos, cosmosDb) = AddCosmos(
+            builder,
+            cosmosDatabaseName,
+            integrationTestsEnabled);
 
         var password = builder.AddParameter("SqlServerPassword", secret: true);
 
@@ -42,6 +47,9 @@ internal class Program
         var (alloy, grafana, loki, tempo, prometheus) = AddObservability(
             builder,
             observabilityRoot);
+        var cosmosResourceName = GetRequiredConfigurationValue(
+            builder.Configuration,
+            "AzureCosmos:ResourceName");
         var cosmosConnectionName =
             TryGetConfigurationValue(builder.Configuration, "AzureCosmos:ConnectionName")
             ?? "enginedb";
@@ -63,9 +71,14 @@ internal class Program
         var tempoHttpEndpoint = tempo.GetEndpoint("http");
         var prometheusHttpEndpoint = prometheus.GetEndpoint("http");
         var migrations = builder.AddProject<Projects.Backend_Database_MigrationService>("backend-database-migrations")
+            .WithReference(cosmos, connectionName: cosmosConnectionName)
+            .WaitFor(cosmosDb)
             .WithReference(sqlDb)
             .WaitFor(sqlDb)
             .WaitFor(alloy);
+        migrations.WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
+            .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
+            .WithEnvironment("AzureCosmos__DatabaseName", cosmosDatabaseName);
         ConfigureTelemetryAndObservability(
             migrations,
             alloyOtlpGrpcEndpoint,
@@ -74,18 +87,11 @@ internal class Program
             tempoHttpEndpoint,
             prometheusHttpEndpoint);
 
-        var cosmosResourceName = GetRequiredConfigurationValue(
-            builder.Configuration,
-            "AzureCosmos:ResourceName");
-
         var api = builder.AddProject<Projects.Backend_API>(
                 "backend-api",
                 launchProfileName: "aspire")
-            .WithHttpEndpoint(
-                port: 5180,
-                name: "http")
-            .WithExternalHttpEndpoints()
             .WithReference(cosmos, connectionName: cosmosConnectionName)
+            .WaitFor(cosmosDb)
             .WithReference(blobs)
             .WaitFor(blobContainer)
             .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
@@ -96,9 +102,22 @@ internal class Program
             .WaitFor(alloy)
             .WaitFor(loki)
             .WaitFor(prometheus);
+        if (integrationTestsEnabled)
+        {
+            api.WithHttpEndpoint(
+                name: "http",
+                env: "ASPNETCORE_HTTP_PORTS");
+        }
+        else
+        {
+            api.WithHttpEndpoint(
+                    port: 5180,
+                    name: "http",
+                    env: "ASPNETCORE_HTTP_PORTS")
+                .WithExternalHttpEndpoints();
+        }
+
         api.WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
-            .WithEnvironment("AzureCosmos__ConnectionString", cosmos.Resource.ConnectionStringExpression)
-            .WithEnvironment("ConnectionStrings__enginedb", cosmos.Resource.ConnectionStringExpression)
             .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
             .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__ConnectionName", processStepQueueConnectionName)
             .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__Name", processStepQueueName);
@@ -106,7 +125,9 @@ internal class Program
         var signalR = builder.AddProject<Projects.Backend_SignalR>(
                 "backend-signalr",
                 launchProfileName: "aspire")
-            .WithHttpEndpoint(name: "http")
+            .WithHttpEndpoint(
+                name: "http",
+                env: "ASPNETCORE_HTTP_PORTS")
             .WithExternalHttpEndpoints()
             .WaitFor(alloy);
         var signalRHttpEndpoint = signalR.GetEndpoint("http");
@@ -132,7 +153,11 @@ internal class Program
         var engine = builder.AddProject<Projects.Backend_Engine>(
                 "backend-engine",
                 launchProfileName: "aspire")
+            .WithHttpEndpoint(
+                name: "http",
+                env: "ASPNETCORE_HTTP_PORTS")
             .WithReference(cosmos, connectionName: cosmosConnectionName)
+            .WaitFor(cosmosDb)
             .WithReference(blobs)
             .WaitFor(blobContainer)
             .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
@@ -143,14 +168,17 @@ internal class Program
             .WaitForCompletion(migrations)
             .WaitFor(alloy);
         engine.WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
-            .WithEnvironment("AzureCosmos__ConnectionString", cosmos.Resource.ConnectionStringExpression)
-            .WithEnvironment("ConnectionStrings__enginedb", cosmos.Resource.ConnectionStringExpression)
             .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
             .WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName)
             .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__ConnectionName", processStepQueueConnectionName)
             .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__Name", processStepQueueName)
             .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__ConnectionName", pluginControlQueueConnectionName)
             .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__Name", pluginControlQueueName);
+        if (integrationTestsEnabled)
+        {
+            engine.WithEnvironment("PluginRuntime__Diagnostics", "true")
+                .WithEnvironment("PluginRuntime__HydrationTimeoutSeconds", "15");
+        }
         ConfigureTelemetryAndObservability(
             engine,
             alloyOtlpGrpcEndpoint,
@@ -192,23 +220,25 @@ internal class Program
         var progressBroadcaster = builder.AddAzureFunctionsProject<Projects.Backend_Functions_ProgressBroadcaster>("progress-broadcaster")
             .WithHostStorage(storage)
             .WithReference(cosmos, connectionName: cosmosConnectionName)
+            .WithReference(cosmos, connectionName: "RealtimeCosmos")
+            .WaitFor(cosmosDb)
             .WithReference(sqlDb)
             .WaitFor(sqlDb)
             .WaitForCompletion(migrations)
             .WaitFor(signalR)
             .WaitFor(alloy)
             .WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
-            .WithEnvironment("AzureCosmos__ConnectionString", cosmos.Resource.ConnectionStringExpression)
-            .WithEnvironment("ConnectionStrings__enginedb", cosmos.Resource.ConnectionStringExpression)
-            .WithEnvironment("AzureWebJobsRealtimeCosmos", cosmos.Resource.ConnectionStringExpression)
-            .WithEnvironment("RealtimeCosmos", cosmos.Resource.ConnectionStringExpression)
-            .WithEnvironment("ConnectionStrings__RealtimeCosmos", cosmos.Resource.ConnectionStringExpression)
             .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
             .WithEnvironment("Realtime__SignalRBaseUrl", signalRHttpEndpoint)
             .WithEnvironment("Realtime__Cosmos__DatabaseName", cosmosDatabaseName)
             .WithEnvironment("Realtime__Cosmos__ProcessesContainerName", ProcessesContainerName)
             .WithEnvironment("Realtime__Cosmos__TasksContainerName", TasksContainerName)
             .WithEnvironment("Realtime__Cosmos__LeaseContainerName", TaskProgressLeaseContainerName);
+        if (integrationTestsEnabled)
+        {
+            progressBroadcaster.WithEnvironment("Realtime__UseHostedChangeFeed", "true");
+        }
+
         ConfigureTelemetryAndObservability(
             progressBroadcaster,
             alloyOtlpGrpcEndpoint,
@@ -359,7 +389,8 @@ internal class Program
         IResourceBuilder<AzureCosmosDBDatabaseResource> database)
         AddCosmos(
         IDistributedApplicationBuilder builder,
-        string cosmosDatabaseName)
+        string cosmosDatabaseName,
+        bool integrationTestsEnabled)
     {
         var cosmosResourceName = GetRequiredConfigurationValue(
             builder.Configuration,
@@ -370,8 +401,16 @@ internal class Program
         var cosmos = builder.AddAzureCosmosDB(cosmosResourceName)
             .RunAsPreviewEmulator(emulator =>
             {
-                emulator.WithDataExplorer(1234);
-                emulator.WithGatewayPort(8081);
+                if (integrationTestsEnabled)
+                {
+                    emulator.WithGatewayPort(null);
+                }
+                else
+                {
+                    emulator.WithDataExplorer(1234);
+                    emulator.WithGatewayPort(8081);
+                }
+
                 emulator.WithLifetime(
                     persistCosmosData
                         ? ContainerLifetime.Persistent
@@ -387,6 +426,7 @@ internal class Program
         var database = cosmos.AddCosmosDatabase(cosmosDatabaseName);
         database.AddContainer(ProcessesContainerName, "/blueprintId");
         database.AddContainer(TasksContainerName, "/processId");
+        database.AddContainer(NodeActivationsContainerName, "/processId");
         database.AddContainer(TaskProgressLeaseContainerName, "/id");
 
         return (cosmos, database);

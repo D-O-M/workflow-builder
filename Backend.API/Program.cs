@@ -18,6 +18,7 @@ public class Program
 {
     public static void Main(string[] args)
     {
+        AspireEndpointEnvironment.PreferAspireHttpPortsOverInheritedUrls();
         var builder = WebApplication.CreateBuilder(args);
         builder.AddServiceDefaults();
 
@@ -37,11 +38,12 @@ public class Program
             new CosmosClientOptions
             {
                 ConnectionMode = ConnectionMode.Gateway,
+                LimitToEndpoint = sp.GetRequiredService<IHostEnvironment>().IsDevelopment(),
+                RequestTimeout = TimeSpan.FromSeconds(10),
                 UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
             }));
         builder.Services.AddRelationalDataRepositories();
         builder.Services.AddProcessState();
-        builder.Services.AddHostedService<ProcessStateWarmupHostedService>();
 
         builder.Services.AddSingleton(sp => new ServiceBusClient(
             LocalDevelopmentResourceSettings.GetProcessStepQueueConnectionString(

@@ -3,6 +3,7 @@ using Backend.SignalR.Hubs;
 using Backend.SignalR.Services;
 using Microsoft.AspNetCore.SignalR;
 
+AspireEndpointEnvironment.PreferAspireHttpPortsOverInheritedUrls();
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 

@@ -10,7 +10,7 @@ using Backend.Services;
 using Backend.Services.PluginReloadQueue;
 using Backend.Services.PluginBundles;
 using Backend.Utilities;
-using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,62 +18,53 @@ using Microsoft.Extensions.Hosting;
 using Backend.PluginLoader.Services;
 using Backend.Functions.PluginDetector;
 
-var host = new HostBuilder()
-    .ConfigureFunctionsWorkerDefaults()
-    .ConfigureAppConfiguration(config =>
-    {
-        config.AddUserSecrets<Program>(optional: true)
-            .AddEnvironmentVariables();
-    })
-    .ConfigureServices((context, services) =>
-    {
-        services.AddApplicationInsightsTelemetryWorkerService();
-        services.ConfigureFunctionsApplicationInsights();
-        services.AddCommonWorkerOpenTelemetry(
-            context.Configuration,
-            context.HostingEnvironment.ApplicationName);
+var builder = FunctionsApplication.CreateBuilder(args);
 
-        var sqlConnectionString = context.Configuration.GetConnectionString("TasksDB");
-        services.AddDbContextPool<BlueprintDbContext>(options =>
-            options.UseSqlServer(sqlConnectionString));
+builder.Configuration
+    .AddUserSecrets<Program>(optional: true)
+    .AddEnvironmentVariables();
 
-        services.AddSingleton(_ =>
-        {
-            var blobConnectionString = context.Configuration["AzureWebJobsStorage"]
-                ?? throw new InvalidOperationException("AzureWebJobsStorage is not configured.");
-            var containerName = context.Configuration["AzureStorage:BlobContainers:Plugins:ContainerName"]!;
+builder.AddServiceDefaults();
 
-            return new BlobContainerClient(blobConnectionString, containerName);
-        });
+var sqlConnectionString = builder.Configuration.GetConnectionString("TasksDB");
+builder.Services.AddDbContextPool<BlueprintDbContext>(options =>
+    options.UseSqlServer(sqlConnectionString));
 
-        services.AddSingleton(_ =>
-        {
-            var connectionString = LocalDevelopmentResourceSettings.GetPluginReloadQueueConnectionString(
-                context.Configuration,
-                context.HostingEnvironment);
-            return new ServiceBusClient(connectionString);
-        });
-        services.AddSingleton(provider =>
-        {
-            var client = provider.GetRequiredService<ServiceBusClient>();
-            var queueName = LocalDevelopmentResourceSettings.GetPluginReloadQueueName(
-                context.Configuration,
-                context.HostingEnvironment);
-            return client.CreateSender(queueName);
-        });
-        services.AddSingleton<IPluginReloadQueueWriter, ServiceBusPluginReloadQueueWriter>();
+builder.Services.AddSingleton(_ =>
+{
+    var blobConnectionString = builder.Configuration["AzureWebJobsStorage"]
+        ?? throw new InvalidOperationException("AzureWebJobsStorage is not configured.");
+    var containerName = builder.Configuration["AzureStorage:BlobContainers:Plugins:ContainerName"]!;
 
-        services.AddScoped<ITaskDefinitionRepository, TaskDefinitionRepository>();
-        services.AddScoped<IPluginDiscoveryService, PluginDiscoveryService>();
-        services.AddSingleton<IPluginBlobNameParsingUtility, PluginBlobNameParsingUtility>();
-        services.AddSingleton<IPluginBundleSource, BlobPluginBundleSource>();
-        services.AddSingleton<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
-        services.AddSingleton<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
-        services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();
-        services.AddSingleton<IPluginSchemaAggregationUtility, PluginSchemaAggregationUtility>();
-        services.AddSingleton<IPluginBundleProcessingService, PluginBundleProcessingService>();
-        services.AddHostedService<PluginBlobReconciliationHostedService>();
-    })
-    .Build();
+    return new BlobContainerClient(blobConnectionString, containerName);
+});
 
-host.Run();
+builder.Services.AddSingleton(_ =>
+{
+    var connectionString = LocalDevelopmentResourceSettings.GetPluginReloadQueueConnectionString(
+        builder.Configuration,
+        builder.Environment);
+    return new ServiceBusClient(connectionString);
+});
+builder.Services.AddSingleton(provider =>
+{
+    var client = provider.GetRequiredService<ServiceBusClient>();
+    var queueName = LocalDevelopmentResourceSettings.GetPluginReloadQueueName(
+        builder.Configuration,
+        builder.Environment);
+    return client.CreateSender(queueName);
+});
+builder.Services.AddSingleton<IPluginReloadQueueWriter, ServiceBusPluginReloadQueueWriter>();
+
+builder.Services.AddScoped<ITaskDefinitionRepository, TaskDefinitionRepository>();
+builder.Services.AddScoped<IPluginDiscoveryService, PluginDiscoveryService>();
+builder.Services.AddSingleton<IPluginBlobNameParsingUtility, PluginBlobNameParsingUtility>();
+builder.Services.AddSingleton<IPluginBundleSource, BlobPluginBundleSource>();
+builder.Services.AddSingleton<IPluginWorkspaceFactoryUtility, PluginWorkspaceFactoryUtility>();
+builder.Services.AddSingleton<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
+builder.Services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();
+builder.Services.AddSingleton<IPluginSchemaAggregationUtility, PluginSchemaAggregationUtility>();
+builder.Services.AddSingleton<IPluginBundleProcessingService, PluginBundleProcessingService>();
+builder.Services.AddHostedService<PluginBlobReconciliationHostedService>();
+
+builder.Build().Run();

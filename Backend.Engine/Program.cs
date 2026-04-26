@@ -15,6 +15,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Azure.Cosmos;
 using System.Text.Json;
 
+AspireEndpointEnvironment.PreferAspireHttpPortsOverInheritedUrls();
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddOpenTelemetry()
@@ -42,11 +43,12 @@ builder.Services.AddSingleton(_ => new CosmosClient(
     new CosmosClientOptions
     {
         ConnectionMode = ConnectionMode.Gateway,
+        LimitToEndpoint = builder.Environment.IsDevelopment(),
+        RequestTimeout = TimeSpan.FromSeconds(10),
         UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
     }));
 builder.Services.AddRelationalDataRepositories();
 builder.Services.AddProcessState();
-builder.Services.AddHostedService<ProcessStateWarmupHostedService>();
 
 builder.Services.AddSingleton(_ =>
 {

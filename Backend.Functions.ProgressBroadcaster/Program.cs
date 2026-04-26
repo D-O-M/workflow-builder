@@ -2,67 +2,97 @@ using Backend.Database.Relational;
 using Backend.Functions.ProgressBroadcaster.Services;
 using Backend.Repositories;
 using Microsoft.Azure.Cosmos;
-using Microsoft.Azure.Functions.Worker;
-using Microsoft.Azure.Functions.Worker.ApplicationInsights;
+using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-var host = new HostBuilder()
-    .ConfigureFunctionsWorkerDefaults()
-    .ConfigureAppConfiguration(config =>
+var builder = FunctionsApplication.CreateBuilder(args);
+
+builder.Configuration
+    .AddUserSecrets<Program>(optional: true)
+    .AddEnvironmentVariables();
+
+builder.AddServiceDefaults();
+
+var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(
+    builder.Configuration,
+    builder.Environment);
+builder.Services.AddDbContextPool<BlueprintDbContext>(options =>
+    options.UseSqlServer(sqlConnectionString));
+
+var cosmosConnectionString = LocalDevelopmentResourceSettings.GetCosmosConnectionString(
+    builder.Configuration,
+    builder.Environment);
+builder.Services.AddSingleton(_ => new CosmosClient(
+    cosmosConnectionString,
+    new CosmosClientOptions
     {
-        config.AddUserSecrets<Program>(optional: true)
-            .AddEnvironmentVariables();
-    })
-    .ConfigureServices((context, services) =>
-    {
-        services.AddApplicationInsightsTelemetryWorkerService();
-        services.ConfigureFunctionsApplicationInsights();
-        services.AddCommonWorkerOpenTelemetry(
-            context.Configuration,
-            context.HostingEnvironment.ApplicationName);
+        ConnectionMode = ConnectionMode.Gateway,
+        LimitToEndpoint = builder.Environment.IsDevelopment() ||
+            IsLocalCosmosEndpoint(cosmosConnectionString),
+        RequestTimeout = TimeSpan.FromSeconds(10),
+        UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
+    }));
 
-        var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(
-            context.Configuration,
-            context.HostingEnvironment);
-        services.AddDbContextPool<BlueprintDbContext>(options =>
-            options.UseSqlServer(sqlConnectionString));
+builder.Services.AddRelationalDataRepositories();
+builder.Services.AddProcessState(
+    databaseName: builder.Configuration["Realtime:Cosmos:DatabaseName"] ?? "enginedb",
+    processesContainerName: builder.Configuration["Realtime:Cosmos:ProcessesContainerName"] ?? "processes",
+    tasksContainerName: builder.Configuration["Realtime:Cosmos:TasksContainerName"] ?? "processsteps");
 
-        var cosmosConnectionString = LocalDevelopmentResourceSettings.GetCosmosConnectionString(
-            context.Configuration,
-            context.HostingEnvironment);
-        services.AddSingleton(_ => new CosmosClient(
-            cosmosConnectionString,
-            new CosmosClientOptions
-            {
-                ConnectionMode = ConnectionMode.Gateway,
-                UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
-            }));
+var signalRBaseUrl = builder.Configuration["Realtime:SignalRBaseUrl"]
+    ?? throw new InvalidOperationException("Realtime:SignalRBaseUrl is not configured.");
+builder.Services.AddHttpClient(SignalRProcessGateway.HttpClientName, client =>
+{
+    client.BaseAddress = new Uri(EnsureTrailingSlash(signalRBaseUrl), UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
 
-        services.AddRelationalDataRepositories();
-        services.AddProcessState(
-            databaseName: context.Configuration["Realtime:Cosmos:DatabaseName"] ?? "enginedb",
-            processesContainerName: context.Configuration["Realtime:Cosmos:ProcessesContainerName"] ?? "processes",
-            tasksContainerName: context.Configuration["Realtime:Cosmos:TasksContainerName"] ?? "processsteps");
+builder.Services.AddSingleton<SignalRProcessGateway>();
+builder.Services.AddSingleton<BlueprintDefinitionLookupCache>();
+builder.Services.AddScoped<ProcessProgressBroadcaster>();
 
-        var signalRBaseUrl = context.Configuration["Realtime:SignalRBaseUrl"]
-            ?? throw new InvalidOperationException("Realtime:SignalRBaseUrl is not configured.");
-        services.AddHttpClient(SignalRProcessGateway.HttpClientName, client =>
-        {
-            client.BaseAddress = new Uri(EnsureTrailingSlash(signalRBaseUrl), UriKind.Absolute);
-            client.Timeout = TimeSpan.FromSeconds(5);
-        });
+if (builder.Configuration.GetValue("Realtime:UseHostedChangeFeed", false))
+{
+    builder.Services.AddHostedService<ProcessStepChangeFeedBroadcasterHostedService>();
+}
 
-        services.AddSingleton<SignalRProcessGateway>();
-        services.AddSingleton<BlueprintDefinitionLookupCache>();
-    })
-    .Build();
-
-host.Run();
+builder.Build().Run();
 
 static string EnsureTrailingSlash(string baseUrl) =>
     baseUrl.EndsWith("/", StringComparison.Ordinal)
         ? baseUrl
         : $"{baseUrl}/";
+
+static bool IsLocalCosmosEndpoint(string connectionString)
+{
+    var endpoint = GetConnectionStringSegment(connectionString, "AccountEndpoint");
+    if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var endpointUri))
+    {
+        return false;
+    }
+
+    return endpointUri.IsLoopback ||
+        endpointUri.Host.Equals("host.docker.internal", StringComparison.OrdinalIgnoreCase);
+}
+
+static string? GetConnectionStringSegment(string connectionString, string segmentName)
+{
+    foreach (var segment in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        var separatorIndex = segment.IndexOf('=', StringComparison.Ordinal);
+        if (separatorIndex <= 0)
+        {
+            continue;
+        }
+
+        if (segmentName.Equals(segment[..separatorIndex], StringComparison.OrdinalIgnoreCase))
+        {
+            return segment[(separatorIndex + 1)..];
+        }
+    }
+
+    return null;
+}

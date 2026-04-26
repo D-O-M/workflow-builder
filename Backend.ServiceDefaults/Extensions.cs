@@ -112,3 +112,22 @@ public static class Extensions
         return app;
     }
 }
+
+public static class AspireEndpointEnvironment
+{
+    public static void PreferAspireHttpPortsOverInheritedUrls()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS")))
+        {
+            return;
+        }
+
+        // Visual Studio can inject default URL/HTTPS settings into the process tree.
+        // ASPNETCORE_URLS has higher priority than Aspire's generated HTTP_PORTS value,
+        // so clear inherited URL settings before Kestrel reads configuration.
+        Environment.SetEnvironmentVariable("ASPNETCORE_URLS", null);
+        Environment.SetEnvironmentVariable("DOTNET_URLS", null);
+        Environment.SetEnvironmentVariable("ASPNETCORE_HTTPS_PORTS", null);
+        Environment.SetEnvironmentVariable("DOTNET_HTTPS_PORTS", null);
+    }
+}

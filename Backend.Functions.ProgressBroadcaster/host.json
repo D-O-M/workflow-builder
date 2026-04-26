@@ -7,6 +7,16 @@
         "excludedTypes": "Request"
       },
       "enableLiveMetricsFilters": true
+    },
+    "logLevel": {
+      "Host.Triggers.CosmosDB": "Information"
+    }
+  },
+  "extensions": {
+    "cosmosDB": {
+      "connectionMode": "Gateway",
+      "protocol": "Https",
+      "userAgentSuffix": "WorkflowBuilder.ProgressBroadcaster"
     }
   }
 }
