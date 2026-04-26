@@ -31,7 +31,6 @@ public static class ServiceExtensions
             TasksContainerName = tasksContainerName,
             ActivationsContainerName = activationsContainerName
         });
-        services.AddHostedService<ProcessStateInitializerHostedService>();
 
         services.AddSingleton<IProcessStepRepository>(sp =>
         {

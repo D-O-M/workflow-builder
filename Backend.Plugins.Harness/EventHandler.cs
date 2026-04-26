@@ -11,6 +11,7 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<EventHandler<TPlugin>> _logger;
+    private readonly bool _diagnosticsEnabled;
 
     public EventHandler(
         IServiceScopeFactory scopeFactory,
@@ -18,6 +19,10 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _diagnosticsEnabled = string.Equals(
+            Environment.GetEnvironmentVariable("PluginRuntime__Diagnostics"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
     }
 
     public override Task StartAsync(CancellationToken cancellationToken)
@@ -45,6 +50,7 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
             InvocationEnvelope envelope;
             try
             {
+                WriteDiagnostic($"Received invocation payload for {typeof(TPlugin).Name}.");
                 envelope = InvocationEnvelopeSerializer.Deserialize(System.Text.Encoding.UTF8.GetBytes(line));
             }
             catch (Exception ex)
@@ -63,14 +69,19 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
 
             try
             {
+                WriteDiagnostic(
+                    $"Starting plugin invocation for process {envelope.ProcessId} step {envelope.ProcessStepId}.");
                 _logger.LogInformation(
                     "Plugin invocation started for process {ProcessId} task {ProcessStepId}.",
                     envelope.ProcessId,
                     envelope.ProcessStepId);
+                WriteDiagnostic($"Hydrating plugin state for step {envelope.ProcessStepId}.");
                 await PopulateStateAsync(scope.ServiceProvider, plugin, envelope, stoppingToken);
+                WriteDiagnostic($"Executing plugin for step {envelope.ProcessStepId}.");
                 await plugin.Execute();
 
                 var completedAt = DateTimeOffset.UtcNow;
+                WriteDiagnostic($"Plugin execution completed for step {envelope.ProcessStepId}.");
                 _logger.LogInformation(
                     "Plugin invocation completed for process {ProcessId} task {ProcessStepId} in {DurationMs}ms.",
                     envelope.ProcessId,
@@ -83,6 +94,8 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
             catch (Exception ex)
             {
                 var completedAt = DateTimeOffset.UtcNow;
+                WriteDiagnostic(
+                    $"Plugin execution failed for step {envelope.ProcessStepId}: {ex.GetType().Name}: {ex.Message}");
                 activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                 _logger.LogError(
                     ex,
@@ -149,4 +162,14 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
             ["plugin.name"] = pluginName,
             ["event.name"] = "plugin.execute"
         };
+
+    private void WriteDiagnostic(string message)
+    {
+        if (!_diagnosticsEnabled)
+        {
+            return;
+        }
+
+        Console.Error.WriteLine($"[plugin-harness] {DateTimeOffset.UtcNow:O} {message}");
+    }
 }

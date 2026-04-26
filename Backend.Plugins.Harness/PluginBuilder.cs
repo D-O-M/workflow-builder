@@ -2,9 +2,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
 using Backend.Database.State.Objects;
-using Backend.Repositories;
 using Backend.Plugins.Communication;
-using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -46,15 +44,13 @@ public class PluginBuilder<TPlugin>
             .ConfigureResource(builder => builder.AddService(displayName))
             .WithMetrics(metrics =>
             {
-                metrics.AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation()
+                metrics.AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation();
             })
             .WithTracing(tracing =>
             {
                 tracing.AddSource(displayName)
                     .AddSource(PluginExecutionTelemetry.ActivitySourceName)
-                    .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation();
             })
             .WithLogging()
@@ -233,25 +229,85 @@ public class PluginBuilder<TPlugin>
         ?? throw new InvalidOperationException(
             "Cosmos DB connection string is not configured for the plugin harness.");
 
-    private void EnsureCosmosClientRegistered()
+    private void EnsureCosmosHttpClientRegistered()
     {
         if (UseFileStateStore())
         {
             return;
         }
 
-        _hostAppBuilder.Services.TryAddSingleton(sp =>
+        _hostAppBuilder.Services.TryAddSingleton(_ =>
         {
-            return new CosmosClient(
-                GetCosmosConnectionString(),
-                new CosmosClientOptions
-                {
-                    ApplicationName = "WorkflowBuilder.PluginHarness",
-                    ConnectionMode = ConnectionMode.Gateway,
-                    RequestTimeout = TimeSpan.FromSeconds(10),
-                    UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
-                });
+            var connectionInfo = GetCosmosConnectionInfo();
+            var handler = new HttpClientHandler();
+            if (connectionInfo.DisableServerCertificateValidation ||
+                IsLocalCosmosEndpoint(connectionInfo.Endpoint))
+            {
+                handler.ServerCertificateCustomValidationCallback =
+                    HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+            }
+
+            return new HttpClient(handler)
+            {
+                BaseAddress = connectionInfo.Endpoint,
+                Timeout = TimeSpan.FromSeconds(10)
+            };
         });
+    }
+
+    private CosmosConnectionInfo GetCosmosConnectionInfo()
+    {
+        var connectionString = GetCosmosConnectionString();
+        var endpoint = GetConnectionStringSegment(connectionString, "AccountEndpoint");
+        var accountKey = GetConnectionStringSegment(connectionString, "AccountKey");
+
+        if (string.IsNullOrWhiteSpace(endpoint) ||
+            !Uri.TryCreate(endpoint, UriKind.Absolute, out var endpointUri))
+        {
+            throw new InvalidOperationException(
+                "Cosmos DB connection string is missing a valid AccountEndpoint for the plugin harness.");
+        }
+
+        if (string.IsNullOrWhiteSpace(accountKey))
+        {
+            throw new InvalidOperationException(
+                "Cosmos DB connection string is missing AccountKey for the plugin harness.");
+        }
+
+        var disableServerCertificateValidation = string.Equals(
+            GetConnectionStringSegment(connectionString, "DisableServerCertificateValidation"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+
+        return new CosmosConnectionInfo(
+            endpointUri,
+            accountKey,
+            disableServerCertificateValidation);
+    }
+
+    private static bool IsLocalCosmosEndpoint(Uri uri)
+    {
+        return uri.IsLoopback ||
+               uri.Host.Equals("host.docker.internal", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? GetConnectionStringSegment(string connectionString, string segmentName)
+    {
+        foreach (var segment in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separatorIndex = segment.IndexOf('=');
+            if (separatorIndex <= 0)
+            {
+                continue;
+            }
+
+            if (segment[..separatorIndex].Equals(segmentName, StringComparison.OrdinalIgnoreCase))
+            {
+                return segment[(separatorIndex + 1)..];
+            }
+        }
+
+        return null;
     }
 
     private void EnsureTaskDocumentStoreRegistered()
@@ -263,16 +319,14 @@ public class PluginBuilder<TPlugin>
             return;
         }
 
-        EnsureCosmosClientRegistered();
+        EnsureCosmosHttpClientRegistered();
         var databaseName = GetCosmosDatabaseName();
-        _hostAppBuilder.Services.TryAddSingleton(sp =>
-            new CosmosRepository<ProcessStepRecord>(
-                sp.GetRequiredService<CosmosClient>().GetContainer(databaseName, ProcessStepsContainerName),
-                task => task.Id,
-                task => new PartitionKey(task.ProcessId)));
         _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<ProcessStepRecord>>(sp =>
             new CosmosPluginDocumentStore<ProcessStepRecord>(
-                sp.GetRequiredService<CosmosRepository<ProcessStepRecord>>()));
+                sp.GetRequiredService<HttpClient>(),
+                databaseName,
+                ProcessStepsContainerName,
+                GetCosmosConnectionInfo().AccountKey));
     }
 
     private void EnsureWorkflowDocumentStoreRegistered<TGlobalState>()
@@ -285,17 +339,20 @@ public class PluginBuilder<TPlugin>
             return;
         }
 
-        EnsureCosmosClientRegistered();
+        EnsureCosmosHttpClientRegistered();
         var databaseName = GetCosmosDatabaseName();
-        _hostAppBuilder.Services.TryAddSingleton(sp =>
-            new CosmosRepository<ProcessInstanceRecord<TGlobalState>>(
-                sp.GetRequiredService<CosmosClient>().GetContainer(databaseName, ProcessesContainerName),
-                workflow => workflow.ProcessId,
-                workflow => new PartitionKey(workflow.BlueprintId)));
         _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<ProcessInstanceRecord<TGlobalState>>>(sp =>
             new CosmosPluginDocumentStore<ProcessInstanceRecord<TGlobalState>>(
-                sp.GetRequiredService<CosmosRepository<ProcessInstanceRecord<TGlobalState>>>()));
+                sp.GetRequiredService<HttpClient>(),
+                databaseName,
+                ProcessesContainerName,
+                GetCosmosConnectionInfo().AccountKey));
     }
+
+    private sealed record CosmosConnectionInfo(
+        Uri Endpoint,
+        string AccountKey,
+        bool DisableServerCertificateValidation);
 
     /// <summary>
      /// Global state hydration step that always runs.

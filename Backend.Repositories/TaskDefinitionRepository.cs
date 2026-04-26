@@ -37,7 +37,7 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
                 .ThenInclude(tv => tv.Channels)
                     .ThenInclude(c => c.Properties)
             .AsNoTracking()
-            .ToListAsync())
+            .ToListAsync(cancellationToken))
             .Select(_mapper.MapViewModel)];
 
     public async Task<TaskVersionRegistrationResult> CreateVersion(TaskVersionDomainModel version, CancellationToken cancellationToken)

@@ -25,6 +25,7 @@
   <Project Path="Backend.Functions.PluginDetector/Backend.Functions.PluginDetector.csproj" />
   <Project Path="Backend.Interfaces/Backend.Interfaces.csproj" />
   <Project Path="Backend.PluginSeeder/Backend.PluginSeeder.csproj" />
+  <Project Path="Backend.ProcessState.Contracts/Backend.ProcessState.Contracts.csproj" />
   <Project Path="Backend.Plugins.Communication/Backend.Plugins.Communication.csproj" />
   <Project Path="Backend.Plugins.Harness/Backend.Plugins.Harness.csproj" />
   <Project Path="Backend.Repositories/Backend.Repositories.csproj" />

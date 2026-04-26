@@ -5,6 +5,7 @@ using Backend.Engine.Debugging;
 using Backend.Plugins.Communication;
 using CliWrap;
 using CliWrap.EventStream;
+using Microsoft.Extensions.Hosting;
 
 namespace Backend.Engine;
 
@@ -13,6 +14,7 @@ public class PluginRuntimeAgent
     private const string LinuxProcessWrapperScript = "parent_pid=\"$1\"; shift; \"$@\" & child_pid=$!; trap 'kill -TERM \"$child_pid\" 2>/dev/null; wait \"$child_pid\" 2>/dev/null' EXIT INT TERM; while kill -0 \"$parent_pid\" 2>/dev/null && kill -0 \"$child_pid\" 2>/dev/null; do sleep 1; done; kill -TERM \"$child_pid\" 2>/dev/null; wait \"$child_pid\"";
 
     private readonly IConfiguration _configuration;
+    private readonly IHostEnvironment _hostEnvironment;
     private readonly ILogger _logger;
     private readonly JobManager _jobManager;
     private readonly IChildProcessTracker _childProcessTracker;
@@ -31,12 +33,14 @@ public class PluginRuntimeAgent
 
     public PluginRuntimeAgent(
         IConfiguration configuration,
+        IHostEnvironment hostEnvironment,
         ILogger<PluginRuntimeAgent> logger,
         JobManager jobManager,
         IChildProcessTracker childProcessTracker,
         IOperatingSystemInformation operatingSystemInformation)
     {
         _configuration = configuration;
+        _hostEnvironment = hostEnvironment;
         _logger = logger;
         _jobManager = jobManager;
         _childProcessTracker = childProcessTracker;
@@ -83,9 +87,9 @@ public class PluginRuntimeAgent
                 _configuration["AzureCosmos:ConnectionName"]
                 ?? "enginedb";
             var cosmosConnectionString =
-                _configuration["AzureCosmos:ConnectionString"]
-                ?? _configuration.GetConnectionString(cosmosConnectionName)
-                ?? _configuration.GetConnectionString("enginedb");
+                LocalDevelopmentResourceSettings.GetCosmosConnectionString(
+                    _configuration,
+                    _hostEnvironment);
             var environmentVariables = new Dictionary<string, string?>
             {
                 {
@@ -107,6 +111,14 @@ public class PluginRuntimeAgent
                 {
                     "PluginStateStore__RootPath",
                     _configuration["PluginStateStore:RootPath"]
+                },
+                {
+                    "PluginRuntime__Diagnostics",
+                    _configuration["PluginRuntime:Diagnostics"]
+                },
+                {
+                    "PluginRuntime__HydrationTimeoutSeconds",
+                    _configuration["PluginRuntime:HydrationTimeoutSeconds"]
                 }
             };
 
@@ -114,8 +126,17 @@ public class PluginRuntimeAgent
             {
                 environmentVariables["AzureCosmos__ConnectionString"] = cosmosConnectionString;
                 environmentVariables["AzureCosmos__ConnectionName"] = cosmosConnectionName;
+                environmentVariables["AzureCosmos__DatabaseName"] =
+                    _configuration["AzureCosmos:DatabaseName"] ?? "enginedb";
+                environmentVariables["AzureCosmos__ResourceName"] =
+                    _configuration["AzureCosmos:ResourceName"];
                 environmentVariables["ConnectionStrings__enginedb"] = cosmosConnectionString;
                 environmentVariables[$"ConnectionStrings__{cosmosConnectionName}"] = cosmosConnectionString;
+
+                _logger.LogInformation(
+                    "Starting plugin runtime {PluginName} with Cosmos endpoint {CosmosEndpoint}.",
+                    Name,
+                    GetConnectionStringSegment(cosmosConnectionString, "AccountEndpoint") ?? "<unknown>");
             }
 
             var cmd = CreateCommand(fileInfo)
@@ -391,5 +412,24 @@ public class PluginRuntimeAgent
             throw new TimeoutException(
                 $"{Name} did not signal readiness within {startupTimeout.TotalSeconds:0} seconds.");
         }
+    }
+
+    private static string? GetConnectionStringSegment(string connectionString, string segmentName)
+    {
+        foreach (var segment in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separatorIndex = segment.IndexOf('=');
+            if (separatorIndex <= 0)
+            {
+                continue;
+            }
+
+            if (segment[..separatorIndex].Equals(segmentName, StringComparison.OrdinalIgnoreCase))
+            {
+                return segment[(separatorIndex + 1)..];
+            }
+        }
+
+        return null;
     }
 }

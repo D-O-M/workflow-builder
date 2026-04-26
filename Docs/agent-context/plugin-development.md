@@ -41,6 +41,7 @@ It is responsible for:
 - publishing plugin projects
 - reading emitted manifest and schema artifacts
 - applying the repo’s canonical versioning behavior
+- publishing framework-dependent apphost bundles by default so Engine-hosted plugins stay compact
 - writing canonical ZIPs to `Backend.Plugins/_bundles`
 
 Do not hand-roll ZIPs or manually repackage plugins.

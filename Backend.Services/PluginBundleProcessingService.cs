@@ -513,8 +513,8 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         }
 
         string? entryPointPath = Directory.EnumerateFiles(appDir, "*.exe").FirstOrDefault() ??
-            Directory.EnumerateFiles(appDir, "*.dll").FirstOrDefault() ??
-            Directory.EnumerateFiles(appDir, pluginName).FirstOrDefault();
+            Directory.EnumerateFiles(appDir, pluginName).FirstOrDefault() ??
+            Directory.EnumerateFiles(appDir, "*.dll").FirstOrDefault();
 
         if (entryPointPath is not null)
         {

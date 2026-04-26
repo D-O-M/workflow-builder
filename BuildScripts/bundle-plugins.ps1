@@ -38,7 +38,8 @@
   If omitted, framework-dependent publish.
 
 .PARAMETER SelfContained
-  Switch: publish self-contained (requires -RuntimeIdentifier). Default: false
+  Switch: publish self-contained (requires -RuntimeIdentifier). Default: false.
+  Framework-dependent bundles are the canonical default because plugins run under WorkflowBuilder Engine hosts.
 
 .PARAMETER SingleFile
   Switch: publish as single file. Default: false
@@ -52,6 +53,11 @@
 .PARAMETER Minify
   Switch: minify manifest/schemas JSON in the bundle. Default: false
 
+.PARAMETER MaxBundleSizeMiB
+  Maximum compressed bundle size before the script fails. Set to 0 to disable.
+  Default: 30 MiB for normal framework-dependent bundles.
+  The default limit is skipped for explicit -SelfContained or -SingleFile builds unless this parameter is provided.
+
 .PARAMETER Overwrite
   Switch: overwrite an already-existing canonical bundle for the final resolved version.
   Default: false
@@ -61,7 +67,7 @@
 
 .EXAMPLE
   .\bundle-plugins.ps1 -RootDir .\Backend.Plugins -OutputDir .\Backend.Plugins\_bundles `
-    -Configuration Release -RuntimeIdentifier win-x64 -SingleFile -Overwrite
+    -Configuration Release -RuntimeIdentifier win-x64 -Overwrite
 #>
 
 [CmdletBinding()]
@@ -76,11 +82,16 @@ param(
   [switch] $CompositeR2R,
   [switch] $Minify,
   [switch] $Overwrite,
+  [double] $MaxBundleSizeMiB = 30,
   [string] $ProjectFilter
 )
 
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+$enforceBundleSizeLimit =
+  $MaxBundleSizeMiB -gt 0 -and
+  (-not ($SelfContained -or $SingleFile) -or $PSBoundParameters.ContainsKey('MaxBundleSizeMiB'))
 
 function Get-AbsolutePath([string] $path, [string] $basePath = (Get-Location).Path) {
   if ([string]::IsNullOrWhiteSpace($path)) {
@@ -252,17 +263,22 @@ function Invoke-PluginPublish($info) {
     throw "-CompositeR2R requires -ReadyToRun."
   }
 
+  $selfContainedValue = if ($SelfContained) { 'true' } else { 'false' }
+  $singleFileValue = if ($SingleFile) { 'true' } else { 'false' }
+
   $arguments = @(
     'publish',
     $info.CsprojPath,
     '-c', $Configuration,
     '--disable-build-servers',
-    '-p:DebugType=none'
+    '-p:DebugType=none',
+    '--self-contained',
+    $selfContainedValue,
+    ('-p:PublishSingleFile={0}' -f $singleFileValue),
+    '-p:UseAppHost=true'
   )
 
   if ($RuntimeIdentifier) { $arguments += @('-r', $RuntimeIdentifier) }
-  if ($SelfContained) { $arguments += @('--self-contained', 'true') }
-  if ($SingleFile) { $arguments += '-p:PublishSingleFile=true' }
   if ($ReadyToRun) { $arguments += '-p:PublishReadyToRun=true' }
   if ($CompositeR2R) { $arguments += '-p:PublishReadyToRunComposite=true' }
 
@@ -442,6 +458,63 @@ function Get-TempDirectory([string] $prefix) {
   return $path
 }
 
+function Get-DirectorySizeBytes([string] $path) {
+  if (-not (Test-Path -LiteralPath $path)) {
+    return 0
+  }
+
+  $sum = (Get-ChildItem -LiteralPath $path -Recurse -File -Force | Measure-Object Length -Sum).Sum
+  if ($null -eq $sum) {
+    return 0
+  }
+
+  return [double] $sum
+}
+
+function Format-SizeMiB([double] $bytes) {
+  return [math]::Round($bytes / 1MB, 2)
+}
+
+function Get-LargestFilesSummary([string] $path, [int] $count = 5) {
+  if (-not (Test-Path -LiteralPath $path)) {
+    return "<missing>"
+  }
+
+  $largestFiles = @(Get-ChildItem -LiteralPath $path -Recurse -File -Force |
+    Sort-Object Length -Descending |
+    Select-Object -First $count)
+
+  if ($largestFiles.Count -eq 0) {
+    return "<none>"
+  }
+
+  return (($largestFiles | ForEach-Object {
+    $relativePath = [System.IO.Path]::GetRelativePath($path, $_.FullName).Replace('\', '/')
+    "{0} ({1} MiB)" -f $relativePath, (Format-SizeMiB $_.Length)
+  }) -join ', ')
+}
+
+function Write-BundleSizeReport([string] $bundlePath, [string] $appPath) {
+  $bundleSizeMiB = Format-SizeMiB (Get-Item -LiteralPath $bundlePath).Length
+  $appSizeMiB = Format-SizeMiB (Get-DirectorySizeBytes $appPath)
+  $largestFiles = Get-LargestFilesSummary $appPath
+
+  Write-Host ("📦 Bundle size: {0} MiB compressed; app payload: {1} MiB; largest app files: {2}" -f $bundleSizeMiB, $appSizeMiB, $largestFiles)
+
+  if ($MaxBundleSizeMiB -le 0) {
+    return
+  }
+
+  if (-not $enforceBundleSizeLimit) {
+    Write-Warning ("Bundle size limit {0} MiB skipped for explicit self-contained/single-file build. Pass -MaxBundleSizeMiB to enforce a custom limit." -f $MaxBundleSizeMiB)
+    return
+  }
+
+  if ($bundleSizeMiB -gt $MaxBundleSizeMiB) {
+    throw ("Bundle {0} is {1} MiB, above the configured limit of {2} MiB. This usually means a plugin was published self-contained/single-file or picked up an unexpectedly heavy dependency." -f $bundlePath, $bundleSizeMiB, $MaxBundleSizeMiB)
+  }
+}
+
 function Get-NextBundleVersion($info, [string] $contractRoot, [string] $searchRoot) {
   $declaredVersion = Get-VersionOrThrow $info.Version $info.ProjectName
   $latestBundle = Get-LatestCanonicalBundle $info.ProjectName $searchRoot
@@ -588,7 +661,10 @@ function Bundle-OneProject([string] $csprojPath, [string] $resolvedOutputDir) {
       publishDir = $publishDir
       rid = if ($RuntimeIdentifier) { $RuntimeIdentifier } else { $null }
       selfContained = [bool] $SelfContained
+      singleFile = [bool] $SingleFile
+      useAppHost = $true
       configuration = $Configuration
+      maxBundleSizeMiB = if ($MaxBundleSizeMiB -gt 0) { $MaxBundleSizeMiB } else { $null }
       files = [ordered]@{
         manifest = 'manifest.json'
         schemas = if (Test-Path -LiteralPath (Join-Path $stageRoot 'schemas.json')) { 'schemas.json' } else { 'schemas/' }
@@ -609,6 +685,7 @@ function Bundle-OneProject([string] $csprojPath, [string] $resolvedOutputDir) {
     }
 
     [System.IO.Compression.ZipFile]::CreateFromDirectory($stageRoot, $bundlePath)
+    Write-BundleSizeReport $bundlePath $stageApp
     Write-Host "✅ Bundled: $bundlePath"
   }
   finally {

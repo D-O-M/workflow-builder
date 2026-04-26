@@ -6,7 +6,6 @@
         <Version>0.1.0</Version>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <PublishSingleFile>true</PublishSingleFile>
         <TrimMode>full</TrimMode>
         <IlcTrimMetadata>true</IlcTrimMetadata>
         <DebugType>none</DebugType>

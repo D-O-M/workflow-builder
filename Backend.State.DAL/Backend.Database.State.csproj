@@ -9,7 +9,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Azure.Cosmos" />
-    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Backend.ProcessState.Contracts\Backend.ProcessState.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

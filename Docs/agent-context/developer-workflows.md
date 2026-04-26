@@ -58,6 +58,7 @@ pwsh -File BuildScripts/bundle-plugins.ps1 `
 ```
 
 Use a runtime identifier appropriate for the local execution environment. The integration helper script derives the current RID automatically.
+The canonical plugin publish shape is a framework-dependent apphost bundle; only opt into self-contained or single-file bundles for a specific portability requirement.
 The script refreshes plugin `manifest.json` and schema artifacts from the generated design-time contract output under `obj/<Configuration>/<TFM>/plugin-contract` before packaging.
 
 Integration helper:
