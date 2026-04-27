@@ -12,7 +12,6 @@ import { DatePipe, NgClass } from '@angular/common';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -103,7 +102,6 @@ interface ProcessStepStatusCounts {
   imports: [
     ReactiveFormsModule,
     MatButtonModule,
-    MatCardModule,
     MatChipsModule,
     MatDialogModule,
     MatFormFieldModule,
@@ -161,7 +159,7 @@ export class ProcessExplorerPageComponent {
     },
   );
 
-  protected readonly historyCollapsed = signal(false);
+  protected readonly historyDrawerOpen = signal(true);
   protected readonly historyPanelMode = signal<HistoryPanelMode>('blueprints');
   protected readonly selectedBlueprintId = signal<number | null>(null);
   protected readonly selectedProcessId = signal<string | null>(null);
@@ -646,7 +644,7 @@ export class ProcessExplorerPageComponent {
   protected readonly searchResultsCountLabel = computed(() => {
     const count = this.searchResultsRows().length;
     if (count === 0) {
-      return this.searchResultsLoading() ? 'Searching processes' : 'No matching processes';
+      return this.searchResultsLoading() ? 'Searching processes' : 'No matches';
     }
 
     if (this.searchResultsHasMore()) {
@@ -665,8 +663,16 @@ export class ProcessExplorerPageComponent {
     if (request.blueprintDefinitionIds.length > 0) {
       chips.push(request.blueprintDefinitionIds.length === 1 ? '1 blueprint' : `${request.blueprintDefinitionIds.length} blueprints`);
     }
+    const blueprintStatusSelections = request.blueprintFilters?.reduce((total, filter) => total + filter.statuses.length, 0) ?? 0;
+    if (blueprintStatusSelections > 0) {
+      chips.push(blueprintStatusSelections === 1 ? '1 status selection' : `${blueprintStatusSelections} status selections`);
+    }
     if (request.nodeFilters.length > 0) {
       chips.push(request.nodeFilters.length === 1 ? '1 node filter' : `${request.nodeFilters.length} node filters`);
+    }
+    const nodeStatusSelections = request.nodeFilters.reduce((total, filter) => total + filter.statuses.length, 0);
+    if (nodeStatusSelections > 0) {
+      chips.push(nodeStatusSelections === 1 ? '1 step status' : `${nodeStatusSelections} step statuses`);
     }
     if (request.propertyFilters.length > 0) {
       chips.push(request.propertyFilters.length === 1 ? '1 property filter' : `${request.propertyFilters.length} property filters`);
@@ -955,8 +961,16 @@ export class ProcessExplorerPageComponent {
     });
   }
 
-  protected toggleHistoryPanel(): void {
-    this.historyCollapsed.update((collapsed) => !collapsed);
+  protected openHistoryDrawer(): void {
+    this.historyDrawerOpen.set(true);
+  }
+
+  protected closeHistoryDrawer(): void {
+    this.historyDrawerOpen.set(false);
+  }
+
+  protected toggleHistoryDrawer(): void {
+    this.historyDrawerOpen.update((open) => !open);
   }
 
   protected selectBlueprintActivity(activity: BlueprintProcessActivityViewModel): void {
@@ -965,7 +979,7 @@ export class ProcessExplorerPageComponent {
 
   protected async openAdvancedSearch(): Promise<void> {
     const dialogRef = this.dialog.open(ProcessSearchDialogComponent, {
-      width: 'min(56rem, calc(100vw - 2rem))',
+      width: 'min(64rem, calc(100vw - 2rem))',
       maxWidth: '100vw',
       autoFocus: false,
       data: {
@@ -985,6 +999,7 @@ export class ProcessExplorerPageComponent {
 
   protected returnToBlueprintPicker(): void {
     this.historyPanelMode.set('blueprints');
+    this.openHistoryDrawer();
   }
 
   protected async loadMoreBlueprintActivities(): Promise<void> {
@@ -1027,6 +1042,7 @@ export class ProcessExplorerPageComponent {
     }
     this.selectedProcessId.set(process.processId);
     this.preferredProcessId.set(null);
+    this.closeHistoryDrawer();
   }
 
   protected onReadonlyNodeActivated(nodeId: number): void {
@@ -1155,6 +1171,7 @@ export class ProcessExplorerPageComponent {
   protected clearAdvancedSearch(): void {
     this.resetSearchResultsState();
     this.historyPanelMode.set(this.selectedBlueprintId() ? 'processes' : 'blueprints');
+    this.openHistoryDrawer();
   }
 
   protected resetView(): void {
@@ -1210,11 +1227,15 @@ export class ProcessExplorerPageComponent {
   }
 
   protected processIdLabel(process: BlueprintProcessHistoryEntryViewModel): string {
-    if (process.processId.length <= 14) {
-      return process.processId;
+    return this.compactProcessId(process.processId);
+  }
+
+  protected compactProcessId(processId: string): string {
+    if (processId.length <= 14) {
+      return processId;
     }
 
-    return `${process.processId.slice(0, 8)}...${process.processId.slice(-4)}`;
+    return `${processId.slice(0, 8)}...${processId.slice(-4)}`;
   }
 
   protected trackBlueprintActivity(
@@ -1304,7 +1325,7 @@ export class ProcessExplorerPageComponent {
     this.preferredProcessId.set(preferredProcessId);
     this.historyPanelMode.set(historyPanelMode);
     this.selectedProcessId.set(null);
-    this.historyCollapsed.set(false);
+    this.historyDrawerOpen.set(preferredProcessId === null);
     this.closeStepDrawer();
     this.realtimeSummaryOverrides.set(new Map());
     this.realtimeNodeOverrides.set(new Map());
@@ -1315,7 +1336,7 @@ export class ProcessExplorerPageComponent {
 
   private async applyAdvancedSearch(request: ProcessSearchRequest): Promise<void> {
     this.closeStepDrawer();
-    this.historyCollapsed.set(false);
+    this.openHistoryDrawer();
     this.searchResultsLoading.set(true);
     this.searchResultsLoadingMore.set(false);
     this.searchResultsError.set(null);

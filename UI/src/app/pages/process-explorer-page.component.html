@@ -2,9 +2,10 @@
   <mat-drawer-container class="process-explorer-page__surface" [hasBackdrop]="false">
     <mat-drawer
       class="process-explorer-page__history"
-      mode="side"
+      mode="over"
       position="start"
-      [opened]="!historyCollapsed()"
+      [autoFocus]="false"
+      [opened]="historyDrawerOpen()"
     >
       <div class="process-explorer-page__history-shell">
         <header class="process-explorer-page__rail-header">
@@ -22,8 +23,8 @@
             <button mat-icon-button type="button" (click)="openAdvancedSearch()" matTooltip="Advanced search" aria-label="Advanced search">
               <mat-icon>tune</mat-icon>
             </button>
-            <button mat-icon-button type="button" (click)="toggleHistoryPanel()" matTooltip="Collapse rail" aria-label="Collapse process rail">
-              <mat-icon>left_panel_close</mat-icon>
+            <button mat-icon-button type="button" (click)="closeHistoryDrawer()" matTooltip="Close history" aria-label="Close process history">
+              <mat-icon>close</mat-icon>
             </button>
           </div>
         </header>
@@ -137,15 +138,19 @@
                     [class.is-selected]="activeProcessId() === processRow.processId"
                     (click)="selectProcess(processRow)"
                   >
-                    <span class="process-explorer-page__status-dot" [ngClass]="'status-dot--' + processRow.status.toLowerCase()"></span>
                     <span class="process-explorer-page__rail-card-copy">
                       <strong>{{ processRow.blueprintName }}</strong>
                       <span>Version {{ processRow.blueprintVersionNumber }} · {{ processIdLabel(processRow) }}</span>
                       <small>{{ processRow.createdAt | date: 'dd MMM, HH:mm:ss' }}</small>
                     </span>
-                    <mat-chip class="process-explorer-page__status-chip" [ngClass]="'status-chip--' + processRow.status.toLowerCase()">
-                      {{ statusLabel(processRow.status) }}
-                    </mat-chip>
+                    <span
+                      class="process-explorer-page__status-icon"
+                      [ngClass]="'status-surface--' + processRow.status.toLowerCase()"
+                      [matTooltip]="statusLabel(processRow.status)"
+                      [attr.aria-label]="'Status: ' + statusLabel(processRow.status)"
+                    >
+                      <mat-icon>{{ statusIcon(processRow.status) }}</mat-icon>
+                    </span>
                   </button>
                 }
               </div>
@@ -210,15 +215,19 @@
                     [class.is-selected]="selectedProcessId() === processRow.processId"
                     (click)="selectProcess(processRow)"
                   >
-                    <span class="process-explorer-page__status-dot" [ngClass]="'status-dot--' + processRow.status.toLowerCase()"></span>
                     <span class="process-explorer-page__rail-card-copy">
                       <strong>{{ processRow.blueprintName }}</strong>
                       <span>Version {{ processRow.blueprintVersionNumber }} · {{ processIdLabel(processRow) }}</span>
                       <small>{{ processRow.createdAt | date: 'dd MMM, HH:mm:ss' }}</small>
                     </span>
-                    <mat-chip class="process-explorer-page__status-chip" [ngClass]="'status-chip--' + processRow.status.toLowerCase()">
-                      {{ statusLabel(processRow.status) }}
-                    </mat-chip>
+                    <span
+                      class="process-explorer-page__status-icon"
+                      [ngClass]="'status-surface--' + processRow.status.toLowerCase()"
+                      [matTooltip]="statusLabel(processRow.status)"
+                      [attr.aria-label]="'Status: ' + statusLabel(processRow.status)"
+                    >
+                      <mat-icon>{{ statusIcon(processRow.status) }}</mat-icon>
+                    </span>
                   </button>
                 }
               </div>
@@ -271,14 +280,7 @@
           <mat-progress-bar mode="indeterminate" />
         }
 
-        <div class="process-explorer-page__step-status-row">
-          <mat-chip class="process-explorer-page__status-chip" [ngClass]="'status-chip--' + selectedStepStatus().toLowerCase()">
-            <mat-icon>{{ statusIcon(selectedStepStatus()) }}</mat-icon>
-            {{ statusLabel(selectedStepStatus()) }}
-          </mat-chip>
-        </div>
-
-        <div class="process-explorer-page__metric-grid">
+        <div class="process-explorer-page__metric-grid process-explorer-page__metric-grid--drawer">
           <article class="process-explorer-page__metric">
             <mat-icon>timer</mat-icon>
             <span>Duration</span>
@@ -311,7 +313,12 @@
           </aside>
         }
 
-        <mat-tab-group class="process-explorer-page__step-tabs" [selectedIndex]="stepTabIndex()" (selectedIndexChange)="onStepTabIndexChange($event)">
+        <mat-tab-group
+          class="process-explorer-page__step-tabs"
+          animationDuration="0ms"
+          [selectedIndex]="stepTabIndex()"
+          (selectedIndexChange)="onStepTabIndexChange($event)"
+        >
           <mat-tab label="Inputs">
             <div class="process-explorer-page__tab-body">
               @if (stepDetailError()) {
@@ -438,70 +445,87 @@
       </div>
     </mat-drawer>
 
-    <mat-drawer-content class="process-explorer-page__content">
-      @if (historyCollapsed()) {
-        <button mat-mini-fab type="button" class="process-explorer-page__history-toggle" (click)="toggleHistoryPanel()" aria-label="Expand process rail">
-          <mat-icon>left_panel_open</mat-icon>
+    <mat-drawer-content class="process-explorer-page__content" [class.is-history-open]="historyDrawerOpen()">
+      <mat-menu #processActionsMenu="matMenu" xPosition="before" yPosition="below">
+        <a mat-menu-item [href]="selectedProcessGrafanaLogsUrl()" target="_blank" rel="noreferrer">
+          <mat-icon>open_in_new</mat-icon>
+          <span>Loki Explore</span>
+        </a>
+        <a mat-menu-item [href]="selectedProcessGrafanaTraceUrl()" target="_blank" rel="noreferrer">
+          <mat-icon>open_in_new</mat-icon>
+          <span>Tempo Explore</span>
+        </a>
+      </mat-menu>
+
+      <nav class="process-explorer-page__canvas-rail" aria-label="Process explorer actions">
+        <button
+          mat-icon-button
+          type="button"
+          [class.is-active]="historyDrawerOpen()"
+          (click)="toggleHistoryDrawer()"
+          matTooltip="Process history"
+          aria-label="Process history"
+        >
+          <mat-icon>receipt_long</mat-icon>
         </button>
-      }
+        <button mat-icon-button type="button" (click)="openAdvancedSearch()" matTooltip="Advanced search" aria-label="Advanced search">
+          <mat-icon>tune</mat-icon>
+        </button>
+
+        @if (selectedProcess()) {
+          <span class="process-explorer-page__rail-divider" aria-hidden="true"></span>
+          <button mat-icon-button type="button" (click)="zoomOut()" matTooltip="Zoom out" aria-label="Zoom out">
+            <mat-icon>zoom_out</mat-icon>
+          </button>
+          <button mat-icon-button type="button" (click)="zoomIn()" matTooltip="Zoom in" aria-label="Zoom in">
+            <mat-icon>zoom_in</mat-icon>
+          </button>
+          <button mat-icon-button type="button" (click)="resetView()" matTooltip="Reset view" aria-label="Reset canvas view">
+            <mat-icon>center_focus_strong</mat-icon>
+          </button>
+          <span class="process-explorer-page__rail-divider" aria-hidden="true"></span>
+          <button mat-icon-button type="button" [matMenuTriggerFor]="processActionsMenu" matTooltip="Process actions" aria-label="Process actions">
+            <mat-icon>more_horiz</mat-icon>
+          </button>
+        }
+      </nav>
 
       @if (selectedProcess(); as process) {
-        <mat-menu #processActionsMenu="matMenu" xPosition="before" yPosition="below">
-          <a mat-menu-item [href]="selectedProcessGrafanaLogsUrl()" target="_blank" rel="noreferrer">
-            <mat-icon>open_in_new</mat-icon>
-            <span>Loki Explore</span>
-          </a>
-          <a mat-menu-item [href]="selectedProcessGrafanaTraceUrl()" target="_blank" rel="noreferrer">
-            <mat-icon>open_in_new</mat-icon>
-            <span>Tempo Explore</span>
-          </a>
-        </mat-menu>
-
         <div class="process-explorer-page__workbench">
-          <header class="process-explorer-page__command-bar">
+          <header class="process-explorer-page__process-pill">
             <div class="process-explorer-page__process-title">
-              <span class="process-explorer-page__process-glyph" [ngClass]="'status-surface--' + process.status.toLowerCase()">
+              <span
+                class="process-explorer-page__process-glyph"
+                [ngClass]="'status-surface--' + process.status.toLowerCase()"
+                [matTooltip]="'Status: ' + statusLabel(process.status)"
+                [attr.aria-label]="'Status: ' + statusLabel(process.status)"
+              >
                 <mat-icon>{{ statusIcon(process.status) }}</mat-icon>
               </span>
-              <div>
-                <p class="app-hero-card__eyebrow">Process Overview</p>
+              <div class="process-explorer-page__process-copy">
+                <p class="app-hero-card__eyebrow">Process overview</p>
                 <h1>{{ process.blueprintName }}</h1>
-                <span>Version {{ process.blueprintVersionNumber }} · {{ process.processId }}</span>
+                <span [title]="process.processId">Version {{ process.blueprintVersionNumber }} · {{ compactProcessId(process.processId) }}</span>
               </div>
             </div>
 
-            <div class="process-explorer-page__command-actions">
-              <mat-chip class="process-explorer-page__status-chip" [ngClass]="'status-chip--' + process.status.toLowerCase()">
-                <mat-icon>{{ statusIcon(process.status) }}</mat-icon>
-                {{ statusLabel(process.status) }}
-              </mat-chip>
-              <button mat-icon-button type="button" (click)="zoomOut()" matTooltip="Zoom out" aria-label="Zoom out">
-                <mat-icon>zoom_out</mat-icon>
-              </button>
-              <button mat-icon-button type="button" (click)="zoomIn()" matTooltip="Zoom in" aria-label="Zoom in">
-                <mat-icon>zoom_in</mat-icon>
-              </button>
-              <button mat-icon-button type="button" (click)="resetView()" matTooltip="Reset view" aria-label="Reset canvas view">
-                <mat-icon>center_focus_strong</mat-icon>
-              </button>
-              <button mat-icon-button type="button" [matMenuTriggerFor]="processActionsMenu" matTooltip="Process actions" aria-label="Process actions">
-                <mat-icon>more_horiz</mat-icon>
-              </button>
-            </div>
-
             @if (selectedProcessStepCounts(); as counts) {
-              <div class="process-explorer-page__process-metrics">
+              <div class="process-explorer-page__process-summary">
                 <span>
-                  <strong>{{ selectedProcessProgressLabel() }}</strong>
+                  <mat-icon>task_alt</mat-icon>
+                  {{ selectedProcessProgressLabel() }}
+                </span>
+                <span [matTooltip]="stepCountSummary(counts)">
+                  <mat-icon>insights</mat-icon>
                   {{ stepCountSummary(counts) }}
                 </span>
                 <span>
-                  <strong>{{ selectedProcessLastActivityLabel() }}</strong>
-                  {{ (process.updatedAt ?? process.createdAt) | date: 'dd MMM, HH:mm:ss' }}
+                  <mat-icon>schedule</mat-icon>
+                  {{ selectedProcessLastActivityLabel() }} {{ (process.updatedAt ?? process.createdAt) | date: 'dd MMM, HH:mm:ss' }}
                 </span>
                 <span>
-                  <strong>{{ zoomPercent() }}%</strong>
-                  Canvas zoom
+                  <mat-icon>visibility</mat-icon>
+                  {{ statusLabel(process.status) }}
                 </span>
               </div>
             }
@@ -522,6 +546,7 @@
                 [nodes]="processNodes()"
                 [connections]="processConnections()"
                 [readonlySelectedNodeId]="selectedProcessCanvasNodeId()"
+                [backgroundEffect]="'stitch'"
                 mode="readonly"
                 (readonlyNodeActivated)="onReadonlyNodeActivated($event)"
               />
@@ -529,23 +554,40 @@
           </div>
         </div>
       } @else {
-        <mat-card class="app-state-card process-explorer-page__empty-state" appearance="outlined">
-          <div class="app-state-card__content">
+        <div class="process-explorer-page__empty-state">
+          <div class="process-explorer-page__empty-card">
             @if (errorMessage()) {
               <mat-icon>error</mat-icon>
+              <strong>Explorer needs attention</strong>
               <p>{{ errorMessage() }}</p>
             } @else if (loading() || searchResultsLoading() || detailLoading()) {
               <mat-progress-spinner diameter="48" mode="indeterminate" />
+              <strong>Preparing the debugger</strong>
               <p>Loading process explorer...</p>
             } @else if (historyPanelMode() === 'search-results') {
               <mat-icon>manage_search</mat-icon>
-              <p>Select a search result to inspect its steps.</p>
+              <strong>Choose a matching process</strong>
+              <p>Select a search result from history to inspect its steps.</p>
             } @else {
               <mat-icon>receipt_long</mat-icon>
-              <p>Select a blueprint and process to inspect its steps.</p>
+              <strong>Select a process</strong>
+              <p>Open history or advanced search to inspect a process on the canvas.</p>
+            }
+
+            @if (!loading() && !searchResultsLoading() && !detailLoading()) {
+              <div class="process-explorer-page__empty-actions">
+                <button mat-flat-button type="button" (click)="openHistoryDrawer()">
+                  <mat-icon>receipt_long</mat-icon>
+                  Open history
+                </button>
+                <button mat-button type="button" (click)="openAdvancedSearch()">
+                  <mat-icon>tune</mat-icon>
+                  Advanced search
+                </button>
+              </div>
             }
           </div>
-        </mat-card>
+        </div>
       }
     </mat-drawer-content>
   </mat-drawer-container>

@@ -334,7 +334,7 @@ describe('ProcessExplorerPageComponent', () => {
     expect((component as any).stepDrawerOpen()).toBe(false);
   });
 
-  it('derives process status counts for the command bar', async () => {
+  it('derives process status counts for the floating process pill', async () => {
     await selectLoadedProcess();
 
     const counts = (component as any).countStepStatuses(createProcessDetail().nodes);
@@ -347,6 +347,13 @@ describe('ProcessExplorerPageComponent', () => {
       pending: 1,
     });
     expect((component as any).stepCountSummary(counts)).toBe('1 running · 1 failed · 1 waiting');
+  });
+
+  it('uses compact labels and icons for dense process status presentation', () => {
+    expect((component as any).compactProcessId('process-abc-123456')).toBe('process-...3456');
+    expect((component as any).statusLabel('Completed')).toBe('Succeeded');
+    expect((component as any).statusIcon('Completed')).toBe('check_circle');
+    expect((component as any).statusIcon('NotExecuted')).toBe('radio_button_unchecked');
   });
 
   it('applies advanced search and switches the rail to search results', async () => {
@@ -395,13 +402,28 @@ describe('ProcessExplorerPageComponent', () => {
     expect((component as any).activeSearchRequest()).toBeNull();
   });
 
-  it('toggles the left rail collapsed state without changing the selected process', async () => {
+  it('opens and closes the history drawer without changing the selected process', async () => {
     await selectLoadedProcess();
     const selectedProcess = (component as any).selectedProcess();
 
-    (component as any).toggleHistoryPanel();
+    (component as any).closeHistoryDrawer();
 
-    expect((component as any).historyCollapsed()).toBe(true);
+    expect((component as any).historyDrawerOpen()).toBe(false);
     expect((component as any).selectedProcess()).toBe(selectedProcess);
+
+    (component as any).openHistoryDrawer();
+
+    expect((component as any).historyDrawerOpen()).toBe(true);
+    expect((component as any).selectedProcess()).toBe(selectedProcess);
+  });
+
+  it('closes the history drawer after selecting a process row', async () => {
+    await selectLoadedProcess();
+    (component as any).openHistoryDrawer();
+
+    (component as any).selectProcess(createProcessHistoryRow({ processId: 'process-next-456789' }));
+
+    expect((component as any).selectedProcessId()).toBe('process-next-456789');
+    expect((component as any).historyDrawerOpen()).toBe(false);
   });
 });
