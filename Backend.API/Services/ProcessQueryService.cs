@@ -255,6 +255,7 @@ public sealed class ProcessQueryService
 
         var partitions = CreateSearchPartitionStates(
             versionMetadata.Values.ToList(),
+            normalizedRequest,
             filterSignature,
             normalizedRequest.Cursor);
         var items = new List<BlueprintProcessHistoryEntryViewModel>(normalizedRequest.Limit);
@@ -644,7 +645,7 @@ public sealed class ProcessQueryService
                 pageSize,
                 request.CreatedFrom,
                 request.CreatedTo,
-                request.ProcessStatuses.Count == 0 ? null : request.ProcessStatuses,
+                partition.ProcessStatuses.Count == 0 ? null : partition.ProcessStatuses,
                 cancellationToken);
 
             partition.ContinuationToken = page.ContinuationToken;
@@ -995,13 +996,24 @@ public sealed class ProcessQueryService
 
     private static List<SearchPartitionState> CreateSearchPartitionStates(
         IReadOnlyList<SearchVersionMetadata> metadata,
+        NormalizedProcessSearchRequest request,
         string filterSignature,
         string? cursor)
     {
+        var statusesByBlueprintDefinitionId = request.BlueprintFilters
+            .ToDictionary(filter => filter.BlueprintDefinitionId, filter => filter.Statuses);
+
+        HashSet<ProcessStatus> ResolveStatuses(SearchVersionMetadata version) =>
+            statusesByBlueprintDefinitionId.TryGetValue(version.BlueprintDefinitionId, out var statuses)
+                ? statuses
+                : request.ProcessStatuses;
+
         if (string.IsNullOrWhiteSpace(cursor))
         {
             return metadata
-                .Select(version => new SearchPartitionState(version.BlueprintVersionId))
+                .Select(version => new SearchPartitionState(
+                    version.BlueprintVersionId,
+                    ResolveStatuses(version)))
                 .ToList();
         }
 
@@ -1017,11 +1029,14 @@ public sealed class ProcessQueryService
             {
                 if (!partitionsById.TryGetValue(version.BlueprintVersionId, out var partition))
                 {
-                    return new SearchPartitionState(version.BlueprintVersionId);
+                    return new SearchPartitionState(
+                        version.BlueprintVersionId,
+                        ResolveStatuses(version));
                 }
 
                 return new SearchPartitionState(
                     version.BlueprintVersionId,
+                    ResolveStatuses(version),
                     partition.ContinuationToken,
                     partition.IsExhausted,
                     partition.BufferedItems.Select(item => new ProcessStateSummary
@@ -1061,6 +1076,14 @@ public sealed class ProcessQueryService
         var payload = new
         {
             request.BlueprintDefinitionIds,
+            BlueprintFilters = request.BlueprintFilters
+                .Select(filter => new
+                {
+                    filter.BlueprintDefinitionId,
+                    Statuses = filter.Statuses.Select(status => status.ToString()).OrderBy(status => status).ToList(),
+                })
+                .OrderBy(filter => filter.BlueprintDefinitionId)
+                .ToList(),
             ProcessStatuses = request.ProcessStatuses.Select(status => status.ToString()).OrderBy(status => status).ToList(),
             request.CreatedFrom,
             request.CreatedTo,
@@ -1121,6 +1144,26 @@ public sealed class ProcessQueryService
             .Distinct()
             .ToHashSet();
 
+        var blueprintFilters = request.BlueprintFilters
+            .Where(filter => filter.BlueprintDefinitionId > 0)
+            .GroupBy(filter => filter.BlueprintDefinitionId)
+            .Select(group => new NormalizedProcessSearchBlueprintFilter(
+                group.Key,
+                group.SelectMany(filter => filter.Statuses)
+                    .Where(status => !string.IsNullOrWhiteSpace(status))
+                    .Select(ParseProcessStatus)
+                    .Distinct()
+                    .ToHashSet()))
+            .OrderBy(filter => filter.BlueprintDefinitionId)
+            .ToList();
+
+        var blueprintDefinitionIds = request.BlueprintDefinitionIds
+            .Where(id => id > 0)
+            .Concat(blueprintFilters.Select(filter => filter.BlueprintDefinitionId))
+            .Distinct()
+            .OrderBy(id => id)
+            .ToList();
+
         var nodeFilters = request.NodeFilters
             .Select(filter => new NormalizedProcessSearchNodeFilter(
                 filter.BlueprintDefinitionId,
@@ -1137,11 +1180,8 @@ public sealed class ProcessQueryService
             .ToList();
 
         return new NormalizedProcessSearchRequest(
-            request.BlueprintDefinitionIds
-                .Where(id => id > 0)
-                .Distinct()
-                .OrderBy(id => id)
-                .ToList(),
+            blueprintDefinitionIds,
+            blueprintFilters,
             processStatuses,
             createdFrom.ToUniversalTime(),
             createdTo.ToUniversalTime(),
@@ -1318,6 +1358,7 @@ public sealed class ProcessQueryService
 
     private sealed record NormalizedProcessSearchRequest(
         List<int> BlueprintDefinitionIds,
+        List<NormalizedProcessSearchBlueprintFilter> BlueprintFilters,
         HashSet<ProcessStatus> ProcessStatuses,
         DateTimeOffset CreatedFrom,
         DateTimeOffset CreatedTo,
@@ -1325,6 +1366,10 @@ public sealed class ProcessQueryService
         List<NormalizedProcessSearchPropertyFilter> PropertyFilters,
         int Limit,
         string? Cursor);
+
+    private sealed record NormalizedProcessSearchBlueprintFilter(
+        int BlueprintDefinitionId,
+        HashSet<ProcessStatus> Statuses);
 
     private sealed record NormalizedProcessSearchNodeFilter(
         int BlueprintDefinitionId,
@@ -1377,17 +1422,20 @@ public sealed class ProcessQueryService
     {
         public SearchPartitionState(
             int blueprintVersionId,
+            HashSet<ProcessStatus> processStatuses,
             string? continuationToken = null,
             bool isExhausted = false,
             List<ProcessStateSummary>? buffer = null)
         {
             BlueprintVersionId = blueprintVersionId;
+            ProcessStatuses = processStatuses;
             ContinuationToken = continuationToken;
             IsExhausted = isExhausted;
             Buffer = buffer ?? [];
         }
 
         public int BlueprintVersionId { get; }
+        public HashSet<ProcessStatus> ProcessStatuses { get; }
         public string? ContinuationToken { get; set; }
         public bool IsExhausted { get; set; }
         public List<ProcessStateSummary> Buffer { get; }

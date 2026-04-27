@@ -3,6 +3,7 @@ namespace Backend.Models.DomainModels;
 public class TaskVersionDomainModel
 {
     public required string Name { get; set; }
+    public string? DisplayName { get; set; }
     public string? Description { get; set; }
     public required Version Version { get; set; }
     public required string WorkspaceEntryPointPath { get; set; }

@@ -3,6 +3,7 @@ import { TaskPropertyType } from '../domain/node-model';
 export interface ITaskDefinition {
     id: number;
     name: string;
+    displayName?: string | null;
     versions: ITaskVersion[];
 }
 

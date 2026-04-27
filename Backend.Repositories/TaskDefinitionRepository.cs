@@ -51,6 +51,7 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
             taskDefinitionEntity = new TaskDefinition
             {
                 Name = version.Name,
+                DisplayName = NormalizeDisplayName(version.DisplayName, version.Name),
                 Versions = []
             };
 
@@ -59,10 +60,26 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
         else
         {
             taskDefinitionEntity.Versions ??= [];
+            taskDefinitionEntity.DisplayName = NormalizeDisplayName(
+                version.DisplayName,
+                taskDefinitionEntity.DisplayName ?? taskDefinitionEntity.Name);
         }
 
         ArgumentNullException.ThrowIfNull(taskDefinitionEntity);
         var changeKind = DetermineChangeKind(taskDefinitionEntity.Versions, version.Version);
+        var existingVersionEntity = taskDefinitionEntity.Versions.FirstOrDefault(candidate =>
+            candidate.Version.Equals(version.Version));
+        if (existingVersionEntity is not null)
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return new TaskVersionRegistrationResult(
+                existingVersionEntity.Id,
+                taskDefinitionEntity.Id,
+                taskDefinitionEntity.Name,
+                existingVersionEntity.Version,
+                changeKind);
+        }
 
         var versionEntity = new TaskVersion
         {
@@ -113,6 +130,12 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
             versionEntity.Version,
             changeKind);
     }
+
+    private static string NormalizeDisplayName(string? displayName, string fallbackName) =>
+        string.IsNullOrWhiteSpace(displayName)
+            ? fallbackName
+            : displayName.Trim();
+
     public async System.Threading.Tasks.Task CreateTaskSchema(Manifest manifest, CancellationToken cancellationToken)
     {
         /*Channel? inputChannelSpec = null;
@@ -172,6 +195,7 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
         taskDefinition ??= new TaskDefinition
         {
             Name = name,
+            DisplayName = name,
             Versions = []
         };
 

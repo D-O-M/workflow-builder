@@ -6,5 +6,7 @@ public class TaskDefinition
 
     public required string Name { get; set; }
 
+    public string? DisplayName { get; set; }
+
     public required List<TaskVersion> Versions { get; set; }
 }

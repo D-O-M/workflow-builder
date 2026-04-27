@@ -148,6 +148,11 @@ export interface BlueprintProcessHistoryPageViewModel {
 export type ProcessSearchStatus = 'Pending' | 'InProgress' | 'Completed' | 'Failed';
 export type ProcessSearchPropertyScope = 'GlobalState' | 'NodeInput' | 'NodeOutput';
 
+export interface ProcessSearchBlueprintFilter {
+  blueprintDefinitionId: number;
+  statuses: ProcessSearchStatus[];
+}
+
 export interface ProcessSearchNodeFilter {
   blueprintDefinitionId: number;
   blueprintNodeId: string;
@@ -165,6 +170,7 @@ export interface ProcessSearchPropertyFilter {
 
 export interface ProcessSearchRequest {
   blueprintDefinitionIds: number[];
+  blueprintFilters?: ProcessSearchBlueprintFilter[];
   processStatuses: ProcessSearchStatus[];
   createdFrom: string;
   createdTo: string;
@@ -430,7 +436,7 @@ export class BlueprintEditorService {
             task.allowedMinor,
             taskVersion?.id ?? task.resolvedVersionId,
             taskVersion?.version ?? task.resolvedVersion ?? null,
-            taskDefinition?.name ?? `Task ${task.taskDefinitionId}`,
+            taskDefinition ? this.taskDefinitionDisplayName(taskDefinition) : `Task ${task.taskDefinitionId}`,
             task.position,
             taskVersion?.inputChannel?.name ?? null,
             taskVersion?.outputChannels.map((channel) => channel.name) ?? [],
@@ -564,6 +570,13 @@ export class BlueprintEditorService {
 
   private channelPropertyKindMap(channel: ITaskChannel): Record<string, TaskPropertyType> {
     return taskPropertyKindMap(channel.properties);
+  }
+
+  private taskDefinitionDisplayName(taskDefinition: ITaskDefinition): string {
+    const displayName = taskDefinition.displayName?.trim();
+    return displayName && displayName.length > 0
+      ? displayName
+      : taskDefinition.name;
   }
 
   private clonePropertyDefinitions(properties: ITaskChannel['properties']): ITaskChannel['properties'] {

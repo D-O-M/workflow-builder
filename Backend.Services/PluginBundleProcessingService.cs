@@ -92,6 +92,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             var version = new TaskVersionDomainModel
             {
                 Name = pluginInfo.PluginName,
+                DisplayName = manifest.DisplayName,
                 Version = pluginInfo.Version,
                 WorkspaceEntryPointPath = entryPoint,
                 RequiredGlobalState = GetGlobalStateRequirements(pluginInfo, manifest, schemas),

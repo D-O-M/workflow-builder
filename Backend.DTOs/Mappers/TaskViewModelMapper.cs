@@ -11,6 +11,7 @@ public class TaskViewModelMapper
         {
             Id = taskDefinition.Id,
             Name = taskDefinition.Name,
+            DisplayName = NormalizeDisplayName(taskDefinition.DisplayName, taskDefinition.Name),
             Versions = [..taskDefinition.Versions
                 .OrderByDescending(version => version.Version)
                 .Select(MapViewModel)]
@@ -34,6 +35,11 @@ public class TaskViewModelMapper
         };
         return viewModel;
     }
+
+    private static string NormalizeDisplayName(string? displayName, string fallbackName) =>
+        string.IsNullOrWhiteSpace(displayName)
+            ? fallbackName
+            : displayName.Trim();
 
     public TaskChannel MapViewModel(Database.Relational.Entities.Channel channel) =>
         new TaskChannel

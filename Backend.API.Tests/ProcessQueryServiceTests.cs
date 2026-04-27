@@ -354,6 +354,67 @@ public sealed class ProcessQueryServiceTests
         exception.ParamName.ShouldBe("cursor");
     }
 
+    [Test]
+    public async Task SearchProcessesAsync_applies_process_statuses_per_blueprint_filter()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var municipalDefinition = new BlueprintDefinition
+        {
+            Key = "municipal-readiness",
+            DisplayName = "Municipal Readiness",
+            Versions = [new BlueprintVersion { Version = 1 }]
+        };
+        var airportDefinition = new BlueprintDefinition
+        {
+            Key = "airport-disruption",
+            DisplayName = "Airport Disruption",
+            Versions = [new BlueprintVersion { Version = 1 }]
+        };
+
+        database.Context.BlueprintDefinitions.AddRange(municipalDefinition, airportDefinition);
+        await database.Context.SaveChangesAsync();
+
+        var municipalCompleted = CreateSummary(municipalDefinition.Versions[0].Id, "2026-04-21T11:58:00Z", ProcessStatus.Completed);
+        var municipalFailed = CreateSummary(municipalDefinition.Versions[0].Id, "2026-04-21T11:56:00Z", ProcessStatus.Failed);
+        var airportCompleted = CreateSummary(airportDefinition.Versions[0].Id, "2026-04-21T11:55:00Z", ProcessStatus.Completed);
+        var airportFailed = CreateSummary(airportDefinition.Versions[0].Id, "2026-04-21T11:54:00Z", ProcessStatus.Failed);
+
+        var processRepository = new ProcessInstanceRepositoryStub(new Dictionary<int, IReadOnlyList<ProcessStateSummary>>
+        {
+            [municipalDefinition.Versions[0].Id] = [municipalCompleted, municipalFailed],
+            [airportDefinition.Versions[0].Id] = [airportCompleted, airportFailed],
+        });
+        var service = CreateService(database, processRepository, new ProcessStepRepositoryStub());
+
+        var page = await service.SearchProcessesAsync(
+            new ProcessSearchRequestInputModel
+            {
+                CreatedFrom = DateTimeOffset.Parse("2026-04-21T11:40:00Z"),
+                CreatedTo = DateTimeOffset.Parse("2026-04-21T12:00:00Z"),
+                BlueprintFilters =
+                [
+                    new ProcessSearchBlueprintFilterInputModel
+                    {
+                        BlueprintDefinitionId = municipalDefinition.Id,
+                        Statuses = ["Failed"],
+                    },
+                    new ProcessSearchBlueprintFilterInputModel
+                    {
+                        BlueprintDefinitionId = airportDefinition.Id,
+                        Statuses = ["Completed"],
+                    },
+                ],
+                ProcessStatuses = ["Pending"],
+                Limit = 25,
+            },
+            CancellationToken.None);
+
+        page.Items.Select(item => item.ProcessId).ShouldBe([
+            Guid.Parse(municipalFailed.ProcessId),
+            Guid.Parse(airportCompleted.ProcessId),
+        ]);
+    }
+
     private static ProcessStateSummary CreateSummary(
         int blueprintVersionId,
         string createdAt,

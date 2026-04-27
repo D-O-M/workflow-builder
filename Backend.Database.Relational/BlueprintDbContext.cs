@@ -81,6 +81,7 @@ public class BlueprintDbContext : DbContext
             entity.HasKey(e => e.Id);
 
             entity.Property(e => e.Name).IsRequired();
+            entity.Property(e => e.DisplayName).IsRequired(false);
             entity.HasIndex(e => e.Name).IsUnique();
 
             entity.HasMany(e => e.Versions)

@@ -4,6 +4,7 @@ public record TaskDefinitionViewModel
 {
     public int Id { get; init; }
     public required string Name { get; init; }
+    public string? DisplayName { get; init; }
     public List<TaskVersionViewModel> Versions { get; init; } = new();
 }
 
