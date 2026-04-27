@@ -172,7 +172,7 @@ export class BlueprintEditorStore {
     const node = this.createNodeModelFromVersion(
       this.allocateNodeId(),
       taskDefinition.id,
-      taskDefinition.name,
+      this.taskDefinitionDisplayName(taskDefinition),
       this.snap(coordinates.x),
       this.snap(coordinates.y),
       320,
@@ -840,6 +840,13 @@ export class BlueprintEditorStore {
       version.outputChannels.map((channel) => channel.displayName?.trim() || channel.name),
       outputChannelPropertyDefinitions,
     );
+  }
+
+  private taskDefinitionDisplayName(taskDefinition: ITaskDefinition): string {
+    const displayName = taskDefinition.displayName?.trim();
+    return displayName && displayName.length > 0
+      ? displayName
+      : taskDefinition.name;
   }
 
   private filterCompatibleOverrides(node: NodeModel, version: ITaskVersion): Record<string, unknown> {

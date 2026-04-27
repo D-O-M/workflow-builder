@@ -52,7 +52,7 @@ export function buildProcessCanvasNodes(
       node.allowedMinor,
       taskVersion?.id ?? node.resolvedVersionId,
       taskVersion?.version ?? node.resolvedVersion ?? null,
-      node.name,
+      taskDefinition ? taskDefinitionDisplayName(taskDefinition) : node.name,
       node.position.x,
       node.position.y,
       320,
@@ -97,6 +97,13 @@ function resolveVersionForLane(
   });
 
   return [...laneVersions].sort((left, right) => compareTaskVersions(right, left))[0] ?? null;
+}
+
+function taskDefinitionDisplayName(taskDefinition: ITaskDefinition): string {
+  const displayName = taskDefinition.displayName?.trim();
+  return displayName && displayName.length > 0
+    ? displayName
+    : taskDefinition.name;
 }
 
 function clonePropertyDefinitions(properties: readonly ITaskPropertyDefinition[]): ITaskPropertyDefinition[] {

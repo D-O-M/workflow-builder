@@ -421,7 +421,7 @@ export class CanvasWrapper {
 
             this.ctx.fillStyle = CanvasWrapper.theme.nodeText;
             this.setFont(700, 16);
-            this.drawWrappedText(
+            this.drawEllipsizedText(
                 node.name,
                 node.x + 66,
                 layout.titleBaseline,
@@ -434,10 +434,15 @@ export class CanvasWrapper {
 
             this.ctx.fillStyle = CanvasWrapper.theme.nodeTextMuted;
             this.setFont(500, 12);
-            this.ctx.fillText(node.resolvedVersion ?? '0.0.1', node.x + 66, layout.versionBaseline);
+            this.drawEllipsizedText(
+                node.resolvedVersion ?? '0.0.1',
+                node.x + 66,
+                layout.versionBaseline,
+                layout.titleMaxWidth,
+            );
 
-            if (statusTheme && node.renderStatus) {
-                this.drawStatusBadge(node, this.statusLabel(node.renderStatus), statusTheme.badgeFill, statusTheme.text);
+            if (readOnly && statusTheme && node.renderStatus) {
+                this.drawNodeStatusIcon(node, node.renderStatus, statusTheme.badgeFill, statusTheme.text, statusTheme.accent);
             }
 
             if (!readOnly && node.hasDesignTimeOverrides) {
@@ -506,12 +511,23 @@ export class CanvasWrapper {
 
         this.ctx.fillStyle = CanvasWrapper.theme.nodeSectionText;
         this.setFont(700, 11);
-        this.ctx.fillText(section.label.toUpperCase(), node.x + 34, section.headerTop + 20);
 
         this.ctx.fillStyle = CanvasWrapper.theme.accent;
         this.setFont(700, 10);
-        const countWidth = this.ctx.measureText(section.countLabel.toUpperCase()).width;
-        this.ctx.fillText(section.countLabel.toUpperCase(), section.toggleRect.x - 8 - countWidth, section.headerTop + 20);
+        const countLabel = section.countLabel.toUpperCase();
+        const countWidth = this.ctx.measureText(countLabel).width;
+        const countX = section.toggleRect.x - 8 - countWidth;
+        this.ctx.fillText(countLabel, countX, section.headerTop + 20);
+
+        this.ctx.fillStyle = CanvasWrapper.theme.nodeSectionText;
+        this.setFont(700, 11);
+        const sectionLabelX = node.x + 34;
+        this.drawEllipsizedText(
+            section.label.toUpperCase(),
+            sectionLabelX,
+            section.headerTop + 20,
+            Math.max(48, countX - sectionLabelX - 12),
+        );
         this.drawSectionToggle(section);
 
         if (section.propertyRows.length > 0) {
@@ -545,12 +561,12 @@ export class CanvasWrapper {
 
                 this.ctx.fillStyle = CanvasWrapper.theme.nodeText;
                 this.setFont(600, 13);
-                this.ctx.fillText(row.label, labelX, row.centerY + 5, labelMaxWidth);
+                const displayedLabel = this.drawEllipsizedText(row.label, labelX, row.centerY + 5, labelMaxWidth);
 
                 if (row.required) {
                     this.ctx.fillStyle = CanvasWrapper.theme.accent;
                     this.setFont(700, 13);
-                    const labelWidth = Math.min(this.ctx.measureText(row.label).width, labelMaxWidth);
+                    const labelWidth = Math.min(this.ctx.measureText(displayedLabel).width, labelMaxWidth);
                     this.ctx.fillText('*', labelX + labelWidth + 4, row.centerY + 5);
                 }
 
@@ -834,21 +850,79 @@ export class CanvasWrapper {
         this.ctx.restore();
     }
 
-    private drawStatusBadge(node: RenderedNode, label: string, fill: string, text: string): void {
+    private drawNodeStatusIcon(
+        node: RenderedNode,
+        status: NonNullable<NodeModel['renderStatus']>,
+        fill: string,
+        text: string,
+        accent: string,
+    ): void {
+        const rect = node.settingsRect();
+        const centerX = rect.x + rect.width / 2;
+        const centerY = rect.y + rect.height / 2;
+
         this.ctx.save();
-        this.setFont(700, 11);
-        const paddingX = 10;
-        const width = this.ctx.measureText(label).width + paddingX * 2;
-        const height = 24;
-        const x = node.x + node.width - width - 54 - (node.hasUpgradeWarning ? 34 : 0);
-        const y = node.y + 16;
 
         this.ctx.fillStyle = fill;
-        this.roundedRect(x, y, width, height, 12);
+        this.roundedRect(rect.x, rect.y, rect.width, rect.height, 10);
         this.ctx.fill();
 
+        this.ctx.strokeStyle = accent;
+        this.ctx.globalAlpha = 0.34;
+        this.ctx.lineWidth = 1.4;
+        this.roundedRect(rect.x + 0.7, rect.y + 0.7, rect.width - 1.4, rect.height - 1.4, 9.5);
+        this.ctx.stroke();
+
+        this.ctx.globalAlpha = 1;
+        this.ctx.strokeStyle = text;
         this.ctx.fillStyle = text;
-        this.ctx.fillText(label, x + paddingX, y + 16);
+        this.ctx.lineWidth = 2.2;
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+
+        switch (status) {
+            case 'Completed':
+                this.ctx.beginPath();
+                this.ctx.moveTo(centerX - 6, centerY + 0.5);
+                this.ctx.lineTo(centerX - 2.2, centerY + 4.6);
+                this.ctx.lineTo(centerX + 7, centerY - 5);
+                this.ctx.stroke();
+                break;
+            case 'Failed':
+                this.ctx.beginPath();
+                this.ctx.moveTo(centerX - 5.5, centerY - 5.5);
+                this.ctx.lineTo(centerX + 5.5, centerY + 5.5);
+                this.ctx.moveTo(centerX + 5.5, centerY - 5.5);
+                this.ctx.lineTo(centerX - 5.5, centerY + 5.5);
+                this.ctx.stroke();
+                break;
+            case 'InProgress':
+                this.ctx.beginPath();
+                this.ctx.arc(centerX, centerY, 6.4, -Math.PI * 0.88, Math.PI * 0.62);
+                this.ctx.stroke();
+                this.ctx.beginPath();
+                this.ctx.moveTo(centerX + 5.7, centerY - 4.8);
+                this.ctx.lineTo(centerX + 8.2, centerY - 1.4);
+                this.ctx.lineTo(centerX + 4.1, centerY - 1.1);
+                this.ctx.fill();
+                break;
+            case 'Pending':
+                this.ctx.beginPath();
+                this.ctx.arc(centerX, centerY, 6.4, 0, Math.PI * 2);
+                this.ctx.stroke();
+                this.ctx.beginPath();
+                this.ctx.moveTo(centerX, centerY - 3.8);
+                this.ctx.lineTo(centerX, centerY + 0.6);
+                this.ctx.lineTo(centerX + 3.4, centerY + 3.2);
+                this.ctx.stroke();
+                break;
+            default:
+                this.ctx.beginPath();
+                this.ctx.arc(centerX, centerY, 3.1, 0, Math.PI * 2);
+                this.ctx.fill();
+                break;
+        }
+
         this.ctx.restore();
     }
 
@@ -934,21 +1008,6 @@ export class CanvasWrapper {
         this.ctx.restore();
     }
 
-    private statusLabel(status: NonNullable<NodeModel['renderStatus']>): string {
-        switch (status) {
-            case 'Completed':
-                return 'SUCCEEDED';
-            case 'InProgress':
-                return 'IN PROGRESS';
-            case 'Failed':
-                return 'FAILED';
-            case 'Pending':
-                return 'PENDING';
-            default:
-                return 'NOT EXECUTED';
-        }
-    }
-
     snap(value: number): number {
         return Math.round(value / this.gridSize) * this.gridSize;
     }
@@ -959,6 +1018,46 @@ export class CanvasWrapper {
             this.ctx.fillText(line, x, y);
             y += 18;
         }
+    }
+
+    drawEllipsizedText(text: string, x: number, y: number, maxWidth: number): string {
+        const displayText = this.ellipsizeText(text, maxWidth);
+        if (displayText.length > 0) {
+            this.ctx.fillText(displayText, x, y);
+        }
+
+        return displayText;
+    }
+
+    private ellipsizeText(text: string, maxWidth: number): string {
+        if (maxWidth <= 0 || text.length === 0) {
+            return '';
+        }
+
+        if (this.ctx.measureText(text).width <= maxWidth) {
+            return text;
+        }
+
+        const ellipsis = '...';
+        if (this.ctx.measureText(ellipsis).width > maxWidth) {
+            return '';
+        }
+
+        let low = 0;
+        let high = text.length;
+        let best = ellipsis;
+        while (low <= high) {
+            const mid = Math.floor((low + high) / 2);
+            const candidate = `${text.slice(0, mid).trimEnd()}${ellipsis}`;
+            if (this.ctx.measureText(candidate).width <= maxWidth) {
+                best = candidate;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        return best;
     }
 
     private wrapText(text: string, maxWidth: number): string[] {

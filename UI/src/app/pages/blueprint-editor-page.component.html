@@ -496,7 +496,7 @@
                     </span>
 
                     <span class="blueprint-editor-page__drawer-card-copy">
-                      <span class="blueprint-editor-page__drawer-card-title">{{ item.task.name }}</span>
+                      <span class="blueprint-editor-page__drawer-card-title">{{ item.displayName }}</span>
                       <span class="blueprint-editor-page__drawer-card-support">
                         {{ item.categoryLabel }} • {{ item.description }}
                       </span>
@@ -542,7 +542,7 @@
               <mat-card-content>
                 <div class="blueprint-editor-page__settings-detail-grid">
                   <span>Task definition</span>
-                  <strong>{{ nodeSettingsTaskDefinition()?.name ?? node.name }}</strong>
+                  <strong>{{ taskDefinitionDisplayName(nodeSettingsTaskDefinition()) || node.name }}</strong>
 
                   <span>Current version</span>
                   <strong>{{ node.resolvedVersion ?? 'Unknown' }}</strong>

@@ -60,6 +60,7 @@ import {
 
 interface TaskLibraryItem {
   task: ITaskDefinition;
+  displayName: string;
   icon: string;
   categoryLabel: string;
   description: string;
@@ -1164,17 +1165,26 @@ export class BlueprintEditorPageComponent {
       .map((task) => {
         const category = this.getTaskCategory(task);
         const description = getLatestTaskVersion(task.versions)?.description?.trim() || 'Available task';
+        const displayName = this.taskDefinitionDisplayName(task);
 
         return {
           task,
+          displayName,
           icon: this.getTaskIcon(category.label, task),
           categoryLabel: category.label,
           description,
           tone: category.tone,
-          searchText: `${task.name} ${category.label} ${description}`.toLocaleLowerCase(),
+          searchText: `${displayName} ${task.name} ${category.label} ${description}`.toLocaleLowerCase(),
         };
       })
-      .sort((left, right) => left.task.name.localeCompare(right.task.name));
+      .sort((left, right) => left.displayName.localeCompare(right.displayName));
+  }
+
+  protected taskDefinitionDisplayName(task: ITaskDefinition | null | undefined): string {
+    const displayName = task?.displayName?.trim();
+    return displayName && displayName.length > 0
+      ? displayName
+      : task?.name ?? '';
   }
 
   private getTaskCategory(task: ITaskDefinition): {
