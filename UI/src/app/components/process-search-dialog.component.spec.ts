@@ -255,14 +255,21 @@ describe('ProcessSearchDialogComponent', () => {
         value: 'abc-123',
       },
     ]);
-    (component as any).selectedProcessStatuses.set(['Failed']);
+    (component as any).updateBlueprintStatuses(2, ['Failed']);
+    (component as any).selectedProcessStatuses.set(['Pending']);
 
     (component as any).apply();
 
     expect(dialogRef.close).toHaveBeenCalledTimes(1);
     expect(dialogRef.close.mock.calls[0][0]).toMatchObject({
       blueprintDefinitionIds: [2],
-      processStatuses: ['Failed'],
+      blueprintFilters: [
+        {
+          blueprintDefinitionId: 2,
+          statuses: ['Failed'],
+        },
+      ],
+      processStatuses: [],
       nodeFilters: [
         {
           blueprintDefinitionId: 2,
@@ -282,5 +289,106 @@ describe('ProcessSearchDialogComponent', () => {
       ],
       limit: 25,
     });
+  });
+
+  it('summarizes scoped blueprints nodes statuses and property filters accurately', () => {
+    (component as any).selectedBlueprintIds.set([2]);
+    (component as any).updateBlueprintStatuses(2, ['Failed', 'Completed']);
+    (component as any).selectedNodeFilters.set([
+      {
+        key: '2:node-b',
+        blueprintDefinitionId: 2,
+        blueprintNodeId: 'node-b',
+        statuses: ['Pending'],
+      },
+    ]);
+    const outputOption = (component as any).propertyCatalog().find((option: any) => option.propertyKey === 'token');
+    (component as any).propertyFilterRows.set([
+      {
+        id: 'row-1',
+        optionKey: outputOption.key,
+        propertySearchQuery: 'token (Output)',
+        value: 'abc-123',
+      },
+    ]);
+
+    expect((component as any).searchContextSummary()).toContain('1 blueprint');
+    expect((component as any).searchContextSummary()).toContain('1 node');
+    expect((component as any).searchContextSummary()).toContain('3 status selections');
+    expect((component as any).searchContextSummary()).toContain('1 property filter');
+  });
+
+  it('combines execution and property blockers in the footer summary', () => {
+    (component as any).createdFromInput.set('2026-04-28T10:00');
+    (component as any).createdToInput.set('2026-04-27T09:00');
+    (component as any).propertyFilterRows.set([
+      {
+        id: 'row-1',
+        optionKey: null,
+        propertySearchQuery: '',
+        value: '',
+      },
+    ]);
+
+    expect((component as any).canApply()).toBe(false);
+    expect((component as any).applyBlockReason()).toBe('Fix execution window and 1 incomplete property filter.');
+  });
+
+  it('filters property picker options by query and excludes properties selected in other rows', () => {
+    (component as any).selectedBlueprintIds.set([2]);
+    const inputOption = (component as any).propertyCatalog().find((option: any) =>
+      option.scope === 'NodeInput' && option.propertyKey === 'user_id');
+
+    (component as any).propertyFilterRows.set([
+      {
+        id: 'selected-row',
+        optionKey: inputOption.key,
+        propertySearchQuery: 'user_id (Input)',
+        value: 'u-123',
+      },
+      {
+        id: 'search-row',
+        optionKey: null,
+        propertySearchQuery: 'user',
+        value: '',
+      },
+    ]);
+
+    const groups = (component as any).filteredPropertyOptionGroups('search-row');
+    const optionKeys = groups.flatMap((group: any) => group.options.map((option: any) => option.key));
+
+    expect(optionKeys).not.toContain(inputOption.key);
+  });
+
+  it('chooses the most relevant edit tab for restored filters', () => {
+    const baseRequest: ProcessSearchRequest = {
+      blueprintDefinitionIds: [],
+      blueprintFilters: [],
+      processStatuses: [],
+      createdFrom: new Date().toISOString(),
+      createdTo: new Date().toISOString(),
+      nodeFilters: [],
+      propertyFilters: [],
+      limit: 25,
+    };
+
+    expect((component as any).initialTabIndexForRequest(baseRequest)).toBe(1);
+    expect((component as any).initialTabIndexForRequest({
+      ...baseRequest,
+      blueprintDefinitionIds: [2],
+    })).toBe(0);
+    expect((component as any).initialTabIndexForRequest({
+      ...baseRequest,
+      propertyFilters: [
+        {
+          scope: 'NodeOutput',
+          blueprintDefinitionId: 2,
+          blueprintNodeId: 'node-b',
+          propertyKey: 'token',
+          propertyType: 'String',
+          value: 'abc-123',
+        },
+      ],
+    })).toBe(2);
   });
 });

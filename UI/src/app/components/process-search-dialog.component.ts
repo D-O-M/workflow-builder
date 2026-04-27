@@ -3,6 +3,7 @@ import {
   Component,
   computed,
   effect,
+  ElementRef,
   inject,
   signal,
   untracked,
@@ -14,7 +15,6 @@ import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/materia
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
-import { MatDividerModule } from '@angular/material/divider';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -24,6 +24,7 @@ import {
   BlueprintEditorService,
   BlueprintViewModel,
   BlueprintVersionViewModel,
+  ProcessSearchBlueprintFilter,
   ProcessSearchNodeFilter,
   ProcessSearchPropertyFilter,
   ProcessSearchPropertyScope,
@@ -58,6 +59,7 @@ interface NodeFilterRowState {
 interface PropertyFilterRowState {
   id: string;
   optionKey: string | null;
+  propertySearchQuery: string;
   value: string;
 }
 
@@ -87,6 +89,12 @@ interface PropertyCatalogItem {
   searchText: string;
 }
 
+interface PropertyOptionGroup {
+  key: ProcessSearchPropertyScope;
+  label: string;
+  options: PropertyCatalogItem[];
+}
+
 const QUICK_RANGE_OPTIONS: QuickRangeOption[] = [
   { key: '15m', label: '15m', minutes: 15 },
   { key: '1h', label: '1h', minutes: 60 },
@@ -107,7 +115,6 @@ const PROCESS_STATUS_OPTIONS: ProcessSearchStatus[] = ['Pending', 'InProgress', 
     MatCardModule,
     MatChipsModule,
     MatDialogModule,
-    MatDividerModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -122,6 +129,7 @@ export class ProcessSearchDialogComponent {
   private readonly data = inject<ProcessSearchDialogData>(MAT_DIALOG_DATA);
   private readonly dialogRef = inject(MatDialogRef<ProcessSearchDialogComponent, ProcessSearchRequest | null>);
   private readonly blueprintEditor = inject(BlueprintEditorService);
+  private readonly host = inject<ElementRef<HTMLElement> | null>(ElementRef, { optional: true });
 
   protected readonly quickRangeOptions = QUICK_RANGE_OPTIONS;
   protected readonly processStatusOptions = PROCESS_STATUS_OPTIONS;
@@ -136,12 +144,14 @@ export class ProcessSearchDialogComponent {
   });
 
   protected readonly selectedBlueprintIds = signal<number[]>([]);
+  protected readonly selectedBlueprintStatusFilters = signal<Record<number, ProcessSearchStatus[]>>({});
   protected readonly selectedNodeFilters = signal<NodeFilterRowState[]>([]);
   protected readonly propertyFilterRows = signal<PropertyFilterRowState[]>([]);
   protected readonly selectedProcessStatuses = signal<ProcessSearchStatus[]>([]);
   protected readonly quickRange = signal<QuickRangeKey>('15m');
   protected readonly createdFromInput = signal(this.defaultCreatedFromValue());
   protected readonly createdToInput = signal(this.defaultCreatedToValue());
+  protected readonly selectedTabIndex = signal(0);
 
   protected readonly blueprints = computed(() =>
     [...this.data.blueprints].sort((left, right) => left.name.localeCompare(right.name)),
@@ -152,6 +162,13 @@ export class ProcessSearchDialogComponent {
   protected readonly selectedBlueprints = computed(() =>
     this.blueprints().filter((blueprint) => this.selectedBlueprintIds().includes(blueprint.id)),
   );
+  protected readonly selectedBlueprintRows = computed(() => {
+    const statusesByBlueprintId = this.selectedBlueprintStatusFilters();
+    return this.selectedBlueprints().map((blueprint) => ({
+      blueprint,
+      statuses: statusesByBlueprintId[blueprint.id] ?? [],
+    }));
+  });
   protected readonly nodeCatalog = computed(() =>
     this.buildNodeCatalog(this.blueprints(), this.taskDefinitionsById()),
   );
@@ -202,27 +219,51 @@ export class ProcessSearchDialogComponent {
       option: row.optionKey ? propertyByKey.get(row.optionKey) ?? null : null,
     }));
   });
-  protected readonly activeFilterSummary = computed(() => {
-    const segments: string[] = [];
-    const selectedBlueprintCount = this.selectedBlueprintIds().length;
-    if (selectedBlueprintCount > 0) {
-      segments.push(selectedBlueprintCount === 1 ? '1 blueprint' : `${selectedBlueprintCount} blueprints`);
+  protected readonly searchContextSummary = computed(() => {
+    const quickRangeLabel = this.quickRangeOptions.find((option) => option.key === this.quickRange())?.label ?? 'Custom';
+    const windowLabel = this.quickRange() === 'custom' ? 'custom window' : `${quickRangeLabel} window`;
+    const blueprintCount = this.selectedBlueprintIds().length;
+    const blueprintLabel = blueprintCount === 0
+      ? 'all blueprints'
+      : blueprintCount === 1
+        ? '1 blueprint'
+        : `${blueprintCount} blueprints`;
+    const nodeCount = this.selectedNodeFilters().length;
+    const nodeLabel = nodeCount === 0
+      ? null
+      : nodeCount === 1
+        ? '1 node'
+        : `${nodeCount} nodes`;
+    const blueprintStatusSelections = this.selectedBlueprintRows().reduce((total, row) => total + row.statuses.length, 0);
+    const nodeStatusSelections = this.selectedNodeFilters().reduce((total, row) => total + row.statuses.length, 0);
+    const processStatusSelections = this.selectedBlueprintIds().length === 0 ? this.selectedProcessStatuses().length : 0;
+    const statusCount = blueprintStatusSelections + nodeStatusSelections + processStatusSelections;
+    const statusLabel = statusCount === 0
+      ? 'any status'
+      : statusCount === 1
+        ? '1 status selection'
+        : `${statusCount} status selections`;
+    const propertyCount = this.propertyFilterRows().length;
+    const propertyLabel = propertyCount === 0
+      ? null
+      : propertyCount === 1
+        ? '1 property filter'
+        : `${propertyCount} property filters`;
+
+    return [windowLabel, blueprintLabel, nodeLabel, statusLabel, propertyLabel].filter(Boolean).join(' · ');
+  });
+  protected readonly propertyScopeDescription = computed(() => {
+    const blueprintCount = this.selectedBlueprintIds().length;
+    const nodeCount = this.selectedNodeFilters().length;
+    if (nodeCount > 0) {
+      return `Property choices are limited to ${nodeCount === 1 ? 'the selected node' : `${nodeCount} selected nodes`}.`;
     }
 
-    const selectedNodeCount = this.selectedNodeFilters().length;
-    if (selectedNodeCount > 0) {
-      segments.push(selectedNodeCount === 1 ? '1 node' : `${selectedNodeCount} nodes`);
+    if (blueprintCount > 0) {
+      return `Property choices are computed from ${blueprintCount === 1 ? 'the selected blueprint' : `${blueprintCount} selected blueprints`}.`;
     }
 
-    if (this.selectedProcessStatuses().length > 0) {
-      segments.push(`${this.selectedProcessStatuses().length} statuses`);
-    }
-
-    if (this.propertyFilterRows().length > 0) {
-      segments.push(this.propertyFilterRows().length === 1 ? '1 property filter' : `${this.propertyFilterRows().length} property filters`);
-    }
-
-    return segments;
+    return 'Property choices span all design-time blueprint metadata until a scope is selected.';
   });
   protected readonly hasDateWindowError = computed(() => {
     const createdFrom = this.parseDateTimeLocal(this.createdFromInput());
@@ -232,19 +273,33 @@ export class ProcessSearchDialogComponent {
   protected readonly hasInvalidPropertyRows = computed(() =>
     this.selectedPropertyRows().some((row) => row.option === null || row.value.trim().length === 0),
   );
+  protected readonly incompletePropertyRowCount = computed(() =>
+    this.selectedPropertyRows().filter((row) => row.option === null || row.value.trim().length === 0).length,
+  );
   protected readonly canApply = computed(() =>
     !this.hasDateWindowError() && !this.hasInvalidPropertyRows(),
   );
-  protected readonly propertyPlaceholder = computed(() => {
-    const propertyRows = this.selectedPropertyRows();
-    const lastRow = propertyRows.at(-1);
-    if (!lastRow?.option) {
-      return 'Enter a value';
+  protected readonly applyBlockReason = computed(() => {
+    const incompleteRows = this.incompletePropertyRowCount();
+    const hasDateWindowError = this.hasDateWindowError();
+    if (hasDateWindowError && incompleteRows > 0) {
+      return incompleteRows === 1
+        ? 'Fix execution window and 1 incomplete property filter.'
+        : `Fix execution window and ${incompleteRows} incomplete property filters.`;
     }
 
-    return this.valuePlaceholder(lastRow.option.propertyType);
-  });
+    if (hasDateWindowError) {
+      return 'Choose a valid date range before applying.';
+    }
 
+    if (incompleteRows > 0) {
+      return incompleteRows === 1
+        ? 'Complete 1 property filter before applying.'
+        : `Complete ${incompleteRows} property filters before applying.`;
+    }
+
+    return null;
+  });
   constructor() {
     this.restoreInitialRequest(this.data.initialRequest);
 
@@ -274,8 +329,13 @@ export class ProcessSearchDialogComponent {
     }
 
     this.selectedBlueprintIds.update((current) => [...current, blueprintId].sort((left, right) => left - right));
+    this.selectedBlueprintStatusFilters.update((current) => ({
+      ...current,
+      [blueprintId]: current[blueprintId] ?? [],
+    }));
     this.sanitizeScopedSelections();
     this.blueprintSearch.setValue('');
+    this.scrollRowIntoView(`blueprint-${blueprintId}`);
   }
 
   protected onNodeOptionSelected(event: MatAutocompleteSelectedEvent): void {
@@ -296,11 +356,32 @@ export class ProcessSearchDialogComponent {
     ]);
     this.sanitizeScopedSelections();
     this.nodeSearch.setValue('');
+    this.scrollRowIntoView(`node-${node.key}`);
   }
 
   protected removeBlueprint(blueprintId: number): void {
     this.selectedBlueprintIds.update((current) => current.filter((candidate) => candidate !== blueprintId));
+    this.selectedBlueprintStatusFilters.update((current) => {
+      const next = { ...current };
+      delete next[blueprintId];
+      return next;
+    });
     this.sanitizeScopedSelections();
+  }
+
+  protected updateBlueprintStatuses(blueprintId: number, statuses: ProcessSearchStatus[]): void {
+    this.selectedBlueprintStatusFilters.update((current) => ({
+      ...current,
+      [blueprintId]: [...statuses],
+    }));
+  }
+
+  protected toggleBlueprintStatus(blueprintId: number, status: ProcessSearchStatus): void {
+    const currentStatuses = this.selectedBlueprintStatusFilters()[blueprintId] ?? [];
+    const nextStatuses = currentStatuses.includes(status)
+      ? currentStatuses.filter((candidate) => candidate !== status)
+      : [...currentStatuses, status];
+    this.updateBlueprintStatuses(blueprintId, nextStatuses);
   }
 
   protected removeNodeFilter(key: string): void {
@@ -315,15 +396,34 @@ export class ProcessSearchDialogComponent {
         : row));
   }
 
+  protected toggleNodeStatus(key: string, status: ProcessSearchStatus): void {
+    const currentStatuses = this.selectedNodeFilters().find((row) => row.key === key)?.statuses ?? [];
+    const nextStatuses = currentStatuses.includes(status)
+      ? currentStatuses.filter((candidate) => candidate !== status)
+      : [...currentStatuses, status];
+    this.updateNodeStatuses(key, nextStatuses);
+  }
+
   protected addPropertyFilterRow(): void {
+    if (this.hasInvalidPropertyRows()) {
+      return;
+    }
+
+    if (this.propertyCatalog().length === 0) {
+      return;
+    }
+
+    const rowId = crypto.randomUUID();
     this.propertyFilterRows.update((current) => [
       ...current,
       {
-        id: crypto.randomUUID(),
+        id: rowId,
         optionKey: null,
+        propertySearchQuery: '',
         value: '',
       },
     ]);
+    this.scrollRowIntoView(`property-${rowId}`);
   }
 
   protected removePropertyFilterRow(rowId: string): void {
@@ -331,10 +431,33 @@ export class ProcessSearchDialogComponent {
   }
 
   protected updatePropertyOption(rowId: string, optionKey: string | null): void {
+    const option = optionKey ? this.propertyCatalog().find((candidate) => candidate.key === optionKey) : null;
     this.propertyFilterRows.update((current) => current.map((row) =>
       row.id === rowId
-        ? { ...row, optionKey }
+        ? { ...row, optionKey, propertySearchQuery: option ? this.propertyOptionDisplayText(option) : '' }
         : row));
+  }
+
+  protected updatePropertySearchQuery(rowId: string, query: string): void {
+    this.propertyFilterRows.update((current) => current.map((row) => {
+      if (row.id !== rowId) {
+        return row;
+      }
+
+      const selectedOption = row.optionKey
+        ? this.propertyCatalog().find((option) => option.key === row.optionKey)
+        : null;
+      const selectedText = selectedOption ? this.propertyOptionDisplayText(selectedOption) : '';
+      return {
+        ...row,
+        propertySearchQuery: query,
+        optionKey: query === selectedText ? row.optionKey : null,
+      };
+    }));
+  }
+
+  protected onPropertyOptionSelected(rowId: string, event: MatAutocompleteSelectedEvent): void {
+    this.updatePropertyOption(rowId, String(event.option.value));
   }
 
   protected updatePropertyValue(rowId: string, value: string): void {
@@ -376,11 +499,13 @@ export class ProcessSearchDialogComponent {
     this.selectedNodeFilters.set([]);
     this.propertyFilterRows.set([]);
     this.selectedProcessStatuses.set([]);
+    this.selectedBlueprintStatusFilters.set({});
     this.quickRange.set('15m');
     this.createdFromInput.set(this.defaultCreatedFromValue());
     this.createdToInput.set(this.defaultCreatedToValue());
     this.blueprintSearch.setValue('');
     this.nodeSearch.setValue('');
+    this.scrollDialogContentToTop();
   }
 
   protected apply(): void {
@@ -395,6 +520,10 @@ export class ProcessSearchDialogComponent {
     }
 
     const propertyByKey = new Map(this.propertyCatalog().map((option) => [option.key, option] as const));
+    const blueprintFilters: ProcessSearchBlueprintFilter[] = this.selectedBlueprintIds().map((blueprintDefinitionId) => ({
+      blueprintDefinitionId,
+      statuses: [...(this.selectedBlueprintStatusFilters()[blueprintDefinitionId] ?? [])],
+    }));
     const propertyFilters: ProcessSearchPropertyFilter[] = this.propertyFilterRows()
       .flatMap((row) => {
         const option = row.optionKey ? propertyByKey.get(row.optionKey) : null;
@@ -415,7 +544,10 @@ export class ProcessSearchDialogComponent {
 
     const request: ProcessSearchRequest = {
       blueprintDefinitionIds: [...this.selectedBlueprintIds()],
-      processStatuses: [...this.selectedProcessStatuses()],
+      blueprintFilters,
+      processStatuses: this.selectedBlueprintIds().length === 0
+        ? [...this.selectedProcessStatuses()]
+        : [],
       createdFrom: createdFrom.toISOString(),
       createdTo: createdTo.toISOString(),
       nodeFilters: this.selectedNodeFilters().map((row) => ({
@@ -452,6 +584,19 @@ export class ProcessSearchDialogComponent {
         return 'Failed';
       default:
         return 'Pending';
+    }
+  }
+
+  protected statusIcon(status: ProcessSearchStatus): string {
+    switch (status) {
+      case 'InProgress':
+        return 'sync';
+      case 'Completed':
+        return 'check_circle';
+      case 'Failed':
+        return 'error';
+      default:
+        return 'schedule';
     }
   }
 
@@ -501,13 +646,98 @@ export class ProcessSearchDialogComponent {
     return option.propertyType === 'Boolean' ? ['true', 'false'] : option.enumValues;
   }
 
+  protected propertyInputDisplay(row: PropertyFilterRowState & { option: PropertyCatalogItem | null }): string {
+    return row.propertySearchQuery ?? (row.option ? this.propertyOptionDisplayText(row.option) : '');
+  }
+
+  protected propertyRowHint(option: PropertyCatalogItem | null): string {
+    if (!option) {
+      return 'Search by node, channel, or property name';
+    }
+
+    return `${this.propertyScopeShortLabel(option.scope)} · ${option.subtitle} · ${option.propertyType}`;
+  }
+
+  protected propertyOptionPrimary(option: PropertyCatalogItem): string {
+    return option.propertyKey;
+  }
+
+  protected propertyOptionMeta(option: PropertyCatalogItem): string {
+    switch (option.scope) {
+      case 'GlobalState':
+        return `${option.subtitle} · Global state`;
+      case 'NodeInput':
+        return `${this.propertyTaskName(option)} · Input · ${option.subtitle}`;
+      case 'NodeOutput':
+        return `${this.propertyTaskName(option)} · Output · ${option.subtitle}`;
+    }
+  }
+
+  protected filteredPropertyOptionGroups(rowId: string): PropertyOptionGroup[] {
+    const row = this.propertyFilterRows().find((candidate) => candidate.id === rowId);
+    if (!row) {
+      return [];
+    }
+
+    const selectedKeys = new Set(
+      this.propertyFilterRows()
+        .filter((candidate) => candidate.id !== rowId)
+        .map((candidate) => candidate.optionKey)
+        .filter((key): key is string => key !== null),
+    );
+    const normalizedQuery = (row.propertySearchQuery ?? '').trim().toLocaleLowerCase();
+    const groups = new Map<ProcessSearchPropertyScope, PropertyCatalogItem[]>();
+    for (const option of this.propertyCatalog()) {
+      if (selectedKeys.has(option.key)) {
+        continue;
+      }
+
+      if (
+        normalizedQuery.length > 0
+        && !option.searchText.includes(normalizedQuery)
+        && !option.label.toLocaleLowerCase().includes(normalizedQuery)
+        && !this.propertyOptionMeta(option).toLocaleLowerCase().includes(normalizedQuery)
+      ) {
+        continue;
+      }
+
+      const options = groups.get(option.scope) ?? [];
+      options.push(option);
+      groups.set(option.scope, options);
+    }
+
+    return (['GlobalState', 'NodeInput', 'NodeOutput'] satisfies ProcessSearchPropertyScope[])
+      .map((scope) => ({
+        key: scope,
+        label: this.propertyScopeGroupLabel(scope),
+        options: groups.get(scope) ?? [],
+      }))
+      .filter((group) => group.options.length > 0);
+  }
+
+  protected onTabIndexChange(index: number): void {
+    this.selectedTabIndex.set(index);
+    this.scrollDialogContentToTop();
+  }
+
   private restoreInitialRequest(initialRequest: ProcessSearchRequest | null): void {
     if (!initialRequest) {
       this.resetAll();
+      this.selectedTabIndex.set(0);
       return;
     }
 
-    this.selectedBlueprintIds.set([...initialRequest.blueprintDefinitionIds].sort((left, right) => left - right));
+    const initialBlueprintIds = [
+      ...initialRequest.blueprintDefinitionIds,
+      ...(initialRequest.blueprintFilters ?? []).map((filter) => filter.blueprintDefinitionId),
+    ];
+    this.selectedBlueprintIds.set([...new Set(initialBlueprintIds)].sort((left, right) => left - right));
+    this.selectedBlueprintStatusFilters.set(
+      Object.fromEntries((initialRequest.blueprintFilters ?? []).map((filter) => [
+        filter.blueprintDefinitionId,
+        [...filter.statuses],
+      ])),
+    );
     this.selectedNodeFilters.set(initialRequest.nodeFilters.map((filter) => ({
       key: `${filter.blueprintDefinitionId}:${filter.blueprintNodeId}`,
       blueprintDefinitionId: filter.blueprintDefinitionId,
@@ -527,12 +757,20 @@ export class ProcessSearchDialogComponent {
       new Map(this.data.taskDefinitions.map((taskDefinition) => [taskDefinition.id, taskDefinition] as const)),
     );
     const propertyLookup = new Map(propertyCatalog.map((option) => [this.propertyKey(option), option.key] as const));
+    const propertyByKey = new Map(propertyCatalog.map((option) => [option.key, option] as const));
 
     this.propertyFilterRows.set(initialRequest.propertyFilters.map((filter) => ({
       id: crypto.randomUUID(),
       optionKey: propertyLookup.get(this.propertyKey(filter)) ?? null,
+      propertySearchQuery: (() => {
+        const optionKey = propertyLookup.get(this.propertyKey(filter)) ?? null;
+        const option = optionKey ? propertyByKey.get(optionKey) : null;
+        return option ? this.propertyOptionDisplayText(option) : filter.propertyKey;
+      })(),
       value: filter.value,
     })));
+    this.selectedTabIndex.set(this.initialTabIndexForRequest(initialRequest));
+    this.scrollDialogContentToTop();
   }
 
   private defaultCreatedFromValue(): string {
@@ -726,8 +964,88 @@ export class ProcessSearchDialogComponent {
     const validNodeKeys = new Set(this.scopedNodeCatalog().map((node) => node.key));
     this.selectedNodeFilters.update((current) => current.filter((row) => validNodeKeys.has(row.key)));
 
+    const selectedBlueprintIds = new Set(this.selectedBlueprintIds());
+    this.selectedBlueprintStatusFilters.update((current) => Object.fromEntries(
+      Object.entries(current)
+        .filter(([blueprintId]) => selectedBlueprintIds.has(Number(blueprintId))),
+    ));
+
     const validPropertyKeys = new Set(this.propertyCatalog().map((option) => option.key));
     this.propertyFilterRows.update((current) =>
       current.filter((row) => row.optionKey === null || validPropertyKeys.has(row.optionKey)));
+  }
+
+  private propertyOptionDisplayText(option: PropertyCatalogItem): string {
+    return `${option.propertyKey} (${this.propertyScopeShortLabel(option.scope)})`;
+  }
+
+  private propertyScopeShortLabel(scope: ProcessSearchPropertyScope): string {
+    switch (scope) {
+      case 'GlobalState':
+        return 'Global';
+      case 'NodeInput':
+        return 'Input';
+      case 'NodeOutput':
+        return 'Output';
+    }
+  }
+
+  private propertyScopeGroupLabel(scope: ProcessSearchPropertyScope): string {
+    switch (scope) {
+      case 'GlobalState':
+        return 'Global state';
+      case 'NodeInput':
+        return 'Node inputs';
+      case 'NodeOutput':
+        return 'Node outputs';
+    }
+  }
+
+  private propertyTaskName(option: PropertyCatalogItem): string {
+    return option.label.replace(/\s+(Input|Output)\s+\/\s+.+$/, '');
+  }
+
+  private initialTabIndexForRequest(request: ProcessSearchRequest): number {
+    if (request.propertyFilters.length > 0) {
+      return 2;
+    }
+
+    if (
+      request.blueprintDefinitionIds.length > 0
+      || (request.blueprintFilters ?? []).some((filter) => filter.statuses.length > 0)
+      || request.nodeFilters.length > 0
+    ) {
+      return 0;
+    }
+
+    return 1;
+  }
+
+  private scrollDialogContentToTop(): void {
+    this.scheduleUiWork(() => {
+      this.host?.nativeElement.querySelector('.process-search-dialog')?.scrollTo({
+        top: 0,
+        behavior: 'smooth',
+      });
+    });
+  }
+
+  private scrollRowIntoView(rowId: string): void {
+    this.scheduleUiWork(() => {
+      this.host?.nativeElement
+        .querySelector(`[data-search-row-id="${CSS.escape(rowId)}"]`)
+        ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  }
+
+  private scheduleUiWork(callback: () => void): void {
+    if (!this.host) {
+      return;
+    }
+
+    const scheduler = globalThis.requestAnimationFrame
+      ? (work: () => void) => globalThis.requestAnimationFrame(work)
+      : (work: () => void) => globalThis.setTimeout(work, 0);
+    scheduler(callback);
   }
 }
