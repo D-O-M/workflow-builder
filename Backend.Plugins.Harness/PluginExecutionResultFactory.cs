@@ -23,15 +23,19 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
         TPlugin plugin,
         InvocationEnvelope envelope,
         DateTimeOffset startedAt,
-        DateTimeOffset completedAt)
+        DateTimeOffset completedAt,
+        Dictionary<string, double>? timingsMs,
+        IReadOnlyDictionary<string, JsonElement>? effectiveInputData)
     {
         return new PluginExecutionResult(
             envelope.ProcessStepId,
             true,
+            CloneEffectiveInputData(effectiveInputData),
             BuildOutputData(plugin),
             BuildGlobalState(plugin),
             startedAt,
             completedAt,
+            timingsMs,
             ErrorMessage: null);
     }
 
@@ -40,15 +44,19 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
         InvocationEnvelope envelope,
         DateTimeOffset startedAt,
         DateTimeOffset completedAt,
-        Exception exception)
+        Exception exception,
+        IReadOnlyDictionary<string, JsonElement>? effectiveInputData,
+        Dictionary<string, double>? timingsMs = null)
     {
         return new PluginExecutionResult(
             envelope.ProcessStepId,
             false,
+            CloneEffectiveInputData(effectiveInputData),
             BuildOutputData(plugin),
             BuildGlobalState(plugin),
             startedAt,
             completedAt,
+            timingsMs,
             exception.Message);
     }
 
@@ -90,5 +98,19 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
                    JsonSerializer.Serialize(value, value.GetType(), ContractJsonOptions),
                    ContractJsonOptions)
                ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+    }
+
+    private static Dictionary<string, JsonElement>? CloneEffectiveInputData(
+        IReadOnlyDictionary<string, JsonElement>? effectiveInputData)
+    {
+        if (effectiveInputData is null || effectiveInputData.Count == 0)
+        {
+            return null;
+        }
+
+        return effectiveInputData.ToDictionary(
+            entry => entry.Key,
+            entry => entry.Value.Clone(),
+            StringComparer.Ordinal);
     }
 }

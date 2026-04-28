@@ -391,8 +391,8 @@ function Convert-ToCanonicalJsonValue($value) {
 }
 
 function Get-CanonicalJsonValueFromFile([string] $path) {
-  $json = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
-  return Convert-ToCanonicalJsonValue $json
+  $json = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+  return Convert-JsonTextToMinifiedString $json
 }
 
 function Get-ContractFingerprintFromRoot([string] $rootPath) {
@@ -552,9 +552,31 @@ function Get-NextBundleVersion($info, [string] $contractRoot, [string] $searchRo
 }
 
 function Minify-JsonFile([string] $sourcePath, [string] $destinationPath) {
-  $json = Get-Content -LiteralPath $sourcePath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
-  $minified = ConvertTo-Json (Convert-ToCanonicalJsonValue $json) -Depth 100 -Compress
+  $json = Get-Content -LiteralPath $sourcePath -Raw -Encoding UTF8
+  $minified = Convert-JsonTextToMinifiedString $json
   Set-Content -LiteralPath $destinationPath -Value $minified -NoNewline -Encoding UTF8
+}
+
+function Convert-JsonTextToMinifiedString([string] $json) {
+  $document = [System.Text.Json.JsonDocument]::Parse($json)
+  try {
+    $stream = [System.IO.MemoryStream]::new()
+    $writerOptions = [System.Text.Json.JsonWriterOptions]::new()
+    $writerOptions.Indented = $false
+    $writer = [System.Text.Json.Utf8JsonWriter]::new($stream, $writerOptions)
+    try {
+      $document.RootElement.WriteTo($writer)
+      $writer.Flush()
+      return [System.Text.Encoding]::UTF8.GetString($stream.ToArray())
+    }
+    finally {
+      $writer.Dispose()
+      $stream.Dispose()
+    }
+  }
+  finally {
+    $document.Dispose()
+  }
 }
 
 function Copy-FilePreservingOptionalMinify([string] $sourcePath, [string] $destinationPath) {

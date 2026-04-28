@@ -28,6 +28,7 @@ Important implications:
 - the plugin bundle must contain the current harness and communication assemblies
 - when the envelope or hydration behavior changes, old bundles can become incompatible even if plugin source code is unchanged
 - if the harness or communication contracts change, rebuild canonical bundles before relying on seeded or uploaded plugins
+- process-step telemetry context is carried in the envelope so plugin logs, spans, and standard HTTP/runtime metrics flow to the same OTLP collector as the engine without plugin-specific setup
 
 ## Canonical Bundle Build Path
 

@@ -6,10 +6,12 @@ namespace Backend.Plugins.Communication;
 public sealed record PluginExecutionResult(
     Guid JobId,
     bool Succeeded,
+    Dictionary<string, JsonElement>? EffectiveInputData,
     Dictionary<string, JsonElement> OutputData,
     Dictionary<string, JsonElement>? GlobalState,
     DateTimeOffset StartedAt,
     DateTimeOffset CompletedAt,
+    Dictionary<string, double>? TimingsMs,
     string? ErrorMessage);
 
 public static class PluginExecutionResultSerializer

@@ -44,6 +44,10 @@ For a healthy end-to-end path:
 - `UI/src/app/domain/process-realtime.service.ts`
   - connects using runtime client-config
   - subscribes and deduplicates incoming events
+- `Backend.Engine` and `Backend.Plugins.Harness`
+  - engine-created process-step spans pass W3C trace context through `InvocationEnvelope`
+  - plugin harness logs include the same `process.id` and `process.step_id` labels used by engine logs
+  - plugin telemetry exports through the OTLP endpoint inherited from the engine/AppHost, with no plugin-author setup
 
 ## Known Brittle Points
 

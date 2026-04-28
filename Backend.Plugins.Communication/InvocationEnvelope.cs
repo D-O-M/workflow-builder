@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Backend.Database.State.Objects;
 
 namespace Backend.Plugins.Communication;
 
@@ -20,7 +22,40 @@ public sealed record InvocationEnvelope(
     int TaskDefinitionId,
     int TaskVersionId,
     string TaskVersion,
-    string PluginName);
+    string PluginName,
+    InputHydrationPlan InputHydrationPlan)
+{
+    public InvocationTelemetryContext? TelemetryContext { get; init; }
+}
+
+public sealed record InvocationTelemetryContext(
+    string TraceParent,
+    string? TraceState)
+{
+    public static InvocationTelemetryContext? FromActivity(Activity? activity)
+    {
+        if (activity is null)
+        {
+            return null;
+        }
+
+        var context = activity.Context;
+        if (context.TraceId == default || context.SpanId == default)
+        {
+            return null;
+        }
+
+        var traceFlags = (context.TraceFlags & ActivityTraceFlags.Recorded) == ActivityTraceFlags.Recorded
+            ? "01"
+            : "00";
+
+        return new InvocationTelemetryContext(
+            $"00-{context.TraceId}-{context.SpanId}-{traceFlags}",
+            string.IsNullOrWhiteSpace(activity.TraceStateString)
+                ? null
+                : activity.TraceStateString);
+    }
+}
 
 /// <summary>
 /// Helper responsible for serialising <see cref="InvocationEnvelope"/> payloads.

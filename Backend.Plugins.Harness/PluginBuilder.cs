@@ -40,7 +40,7 @@ public class PluginBuilder<TPlugin>
 
         _hostAppBuilder.Logging.ClearProviders();
 
-        _hostAppBuilder.Services.AddOpenTelemetry()
+        var openTelemetry = _hostAppBuilder.Services.AddOpenTelemetry()
             .ConfigureResource(builder => builder.AddService(displayName))
             .WithMetrics(metrics =>
             {
@@ -53,8 +53,18 @@ public class PluginBuilder<TPlugin>
                     .AddSource(PluginExecutionTelemetry.ActivitySourceName)
                     .AddHttpClientInstrumentation();
             })
-            .WithLogging()
-            .UseOtlpExporter();
+            .WithLogging();
+
+        _hostAppBuilder.Services.Configure<OpenTelemetryLoggerOptions>(logging =>
+        {
+            logging.IncludeFormattedMessage = true;
+            logging.IncludeScopes = true;
+        });
+
+        if (UseOtlpExporter())
+        {
+            openTelemetry.UseOtlpExporter();
+        }
 
         _displayName = displayName;
     }
@@ -79,40 +89,18 @@ public class PluginBuilder<TPlugin>
         EnsureTaskDocumentStoreRegistered();
 
         _hostAppBuilder.Services.TryAddSingleton(sp =>
-        {
-            Func<ProcessStepRecord, string, TChannelType> valueExtractionFunction =
-                (task, channelName) =>
-                {
-                    if (string.IsNullOrWhiteSpace(channelName) || task.InputData is null)
-                        throw new InvalidOperationException("Channel name or output data missing.");
-
-                    if (!task.InputData.TryGetValue(channelName, out var json))
-                        throw new InvalidOperationException($"InputData does not contain key '{channelName}'.");
-
-                    return JsonSerializer.Deserialize<TChannelType>(
-                        json, JsonSerializerOptions.Web)!;
-                };
-
-            return new PluginPropertyHydrationService<ProcessStepRecord, TChannelType>(
-                sp.GetRequiredService<IPluginDocumentStore<ProcessStepRecord>>(),
-                valueExtractionFunction);
-        });
+            new InputChannelHydrationService<TChannelType>(
+                sp.GetRequiredService<IPluginDocumentStore<ProcessStepRecord>>()));
 
         _hostAppBuilder.Services.AddSingleton<IPluginHydrationStep<TPlugin>>(sp =>
         {
-            var hydrator = sp.GetRequiredService<PluginPropertyHydrationService<ProcessStepRecord, TChannelType>>();
+            var hydrator = sp.GetRequiredService<InputChannelHydrationService<TChannelType>>();
             var setter = sp.GetRequiredService<PropertySetterUtility<TPlugin, TChannelType>>();
-            Func<InvocationEnvelope, string> documentIdSelector =
-                env => env.ProcessStepId.ToString();
-            Func<InvocationEnvelope, string> partitionKeySelector =
-                env => env.ProcessId.ToString();
 
-            return new PluginHydrationStep<TPlugin, ProcessStepRecord, TChannelType>(
+            return new InputChannelHydrationStep<TPlugin, TChannelType>(
                 name,
                 hydrator,
-                setter,
-                documentIdSelector,
-                partitionKeySelector);
+                setter);
         });
 
         return this;
@@ -210,6 +198,13 @@ public class PluginBuilder<TPlugin>
             _hostAppBuilder.Configuration["PluginStateStore:Mode"],
             "File",
             StringComparison.OrdinalIgnoreCase);
+
+    private bool UseOtlpExporter() =>
+        !string.Equals(
+            _hostAppBuilder.Configuration["OTEL_SDK_DISABLED"],
+            "true",
+            StringComparison.OrdinalIgnoreCase) &&
+        !string.IsNullOrWhiteSpace(_hostAppBuilder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
 
     private string GetFileStateRootPath() =>
         _hostAppBuilder.Configuration["PluginStateStore:RootPath"]
@@ -378,7 +373,11 @@ public class PluginBuilder<TPlugin>
             _partitionKeySelector = partitionKeySelector;
         }
 
-        public Task HydrateAsync(TP plugin, InvocationEnvelope envelope, CancellationToken cancellationToken)
+        public Task HydrateAsync(
+            TP plugin,
+            InvocationEnvelope envelope,
+            PluginHydrationContext context,
+            CancellationToken cancellationToken)
             => _hydrator.HydratePluginProperty(
                 value => _setter.Set(plugin, value),
                 _documentIdSelector(envelope),
