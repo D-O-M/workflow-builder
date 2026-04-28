@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 3,
+  "definitionKey": "nft-ceiling-fanout-join",
+  "displayName": "NFT Ceiling Fan-Out Join",
+  "startingTaskKey": "10000000-0000-0000-0000-000000000001",
+  "tasks": [
+    {
+      "taskKey": "10000000-0000-0000-0000-000000000001",
+      "taskDefinitionName": "NftSeedPlugin",
+      "allowedMajor": 1,
+      "allowedMinor": 0,
+      "position": {
+        "x": 120,
+        "y": 280
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Context",
+          "connectedTaskKey": "10000000-0000-0000-0000-000000000002",
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
+          "propertyMappings": [
+            {
+              "sourceProperty": "CorrelationKey",
+              "targetProperty": "CorrelationKey"
+            },
+            {
+              "sourceProperty": "PayloadToken",
+              "targetProperty": "PayloadToken"
+            },
+            {
+              "sourceProperty": "SeedScore",
+              "targetProperty": "SeedScore"
+            }
+          ]
+        },
+        {
+          "channelName": "Context",
+          "connectedTaskKey": "10000000-0000-0000-0000-000000000003",
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
+          "propertyMappings": [
+            {
+              "sourceProperty": "CorrelationKey",
+              "targetProperty": "CorrelationKey"
+            },
+            {
+              "sourceProperty": "PayloadToken",
+              "targetProperty": "PayloadToken"
+            },
+            {
+              "sourceProperty": "SeedScore",
+              "targetProperty": "SeedScore"
+            }
+          ]
+        },
+        {
+          "channelName": "Context",
+          "connectedTaskKey": "10000000-0000-0000-0000-000000000004",
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
+          "propertyMappings": [
+            {
+              "sourceProperty": "CorrelationKey",
+              "targetProperty": "CorrelationKey"
+            },
+            {
+              "sourceProperty": "PayloadToken",
+              "targetProperty": "PayloadToken"
+            },
+            {
+              "sourceProperty": "SeedScore",
+              "targetProperty": "SeedScore"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "10000000-0000-0000-0000-000000000002",
+      "taskDefinitionName": "NftBranchAlphaPlugin",
+      "allowedMajor": 1,
+      "allowedMinor": 0,
+      "position": {
+        "x": 560,
+        "y": 80
+      },
+      "designTimeInputOverrides": {
+        "BranchName": "alpha",
+        "BranchWeight": 1,
+        "DelayMs": 0
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Result",
+          "connectedTaskKey": "10000000-0000-0000-0000-000000000005",
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
+          "propertyMappings": [
+            {
+              "sourceProperty": "CorrelationKey",
+              "targetProperty": "CorrelationKey"
+            },
+            {
+              "sourceProperty": "BranchScore",
+              "targetProperty": "AlphaScore"
+            },
+            {
+              "sourceProperty": "BranchDigest",
+              "targetProperty": "AlphaDigest"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "10000000-0000-0000-0000-000000000003",
+      "taskDefinitionName": "NftBranchBetaPlugin",
+      "allowedMajor": 1,
+      "allowedMinor": 0,
+      "position": {
+        "x": 560,
+        "y": 280
+      },
+      "designTimeInputOverrides": {
+        "BranchName": "beta",
+        "BranchWeight": 2,
+        "DelayMs": 0
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Result",
+          "connectedTaskKey": "10000000-0000-0000-0000-000000000005",
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
+          "propertyMappings": [
+            {
+              "sourceProperty": "BranchScore",
+              "targetProperty": "BetaScore"
+            },
+            {
+              "sourceProperty": "BranchDigest",
+              "targetProperty": "BetaDigest"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "10000000-0000-0000-0000-000000000004",
+      "taskDefinitionName": "NftBranchGammaPlugin",
+      "allowedMajor": 1,
+      "allowedMinor": 0,
+      "position": {
+        "x": 560,
+        "y": 480
+      },
+      "designTimeInputOverrides": {
+        "BranchName": "gamma",
+        "BranchWeight": 3,
+        "DelayMs": 0
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Result",
+          "connectedTaskKey": "10000000-0000-0000-0000-000000000005",
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
+          "propertyMappings": [
+            {
+              "sourceProperty": "BranchScore",
+              "targetProperty": "GammaScore"
+            },
+            {
+              "sourceProperty": "BranchDigest",
+              "targetProperty": "GammaDigest"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "10000000-0000-0000-0000-000000000005",
+      "taskDefinitionName": "NftJoinPlugin",
+      "allowedMajor": 1,
+      "allowedMinor": 0,
+      "position": {
+        "x": 1000,
+        "y": 280
+      },
+      "designTimeInputOverrides": {
+        "Mode": "design-time-ceiling"
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Joined",
+          "connectedTaskKey": "10000000-0000-0000-0000-000000000006",
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
+          "propertyMappings": [
+            {
+              "sourceProperty": "CorrelationKey",
+              "targetProperty": "CorrelationKey"
+            },
+            {
+              "sourceProperty": "CombinedScore",
+              "targetProperty": "CombinedScore"
+            },
+            {
+              "sourceProperty": "Summary",
+              "targetProperty": "Summary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "10000000-0000-0000-0000-000000000006",
+      "taskDefinitionName": "NftSinkPlugin",
+      "allowedMajor": 1,
+      "allowedMinor": 0,
+      "position": {
+        "x": 1440,
+        "y": 280
+      },
+      "designTimeInputOverrides": {
+        "ExpectedMinimumScore": 1
+      },
+      "outgoingConnections": []
+    }
+  ]
+}

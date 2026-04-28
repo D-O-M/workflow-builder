@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 3,
+  "definitionKey": "nft-linear-single-step",
+  "displayName": "NFT Linear Single Step",
+  "startingTaskKey": "20000000-0000-0000-0000-000000000001",
+  "tasks": [
+    {
+      "taskKey": "20000000-0000-0000-0000-000000000001",
+      "taskDefinitionName": "NftSeedPlugin",
+      "allowedMajor": 1,
+      "allowedMinor": 0,
+      "position": {
+        "x": 120,
+        "y": 280
+      },
+      "outgoingConnections": []
+    }
+  ]
+}

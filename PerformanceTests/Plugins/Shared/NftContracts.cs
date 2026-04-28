@@ -1,0 +1,140 @@
+using Backend.Plugins.Harness;
+
+namespace WorkflowBuilder.PerformanceTests.Plugins;
+
+public sealed class NftProcessState : IGlobalState
+{
+    public string RunLabel { get; set; } = string.Empty;
+
+    public int StepsCompleted { get; set; }
+
+    public int TotalScore { get; set; }
+
+    public string LastStage { get; set; } = string.Empty;
+
+    public bool TraceEnabled { get; set; }
+}
+
+public sealed class NftSeedRequest
+{
+    public string CorrelationKey { get; set; } = string.Empty;
+
+    public int PayloadSize { get; set; }
+
+    public int BaseScore { get; set; }
+
+    public string Region { get; set; } = string.Empty;
+
+    public int? DelayMs { get; set; }
+}
+
+public sealed class NftSeedContext
+{
+    public string CorrelationKey { get; set; } = string.Empty;
+
+    public string PayloadToken { get; set; } = string.Empty;
+
+    public int SeedScore { get; set; }
+
+    public string Region { get; set; } = string.Empty;
+}
+
+public sealed class NftBranchRequest
+{
+    public string CorrelationKey { get; set; } = string.Empty;
+
+    public string PayloadToken { get; set; } = string.Empty;
+
+    public int SeedScore { get; set; }
+
+    public string BranchName { get; set; } = string.Empty;
+
+    public int BranchWeight { get; set; }
+
+    public int? DelayMs { get; set; }
+}
+
+public sealed class NftBranchResult
+{
+    public string CorrelationKey { get; set; } = string.Empty;
+
+    public string BranchName { get; set; } = string.Empty;
+
+    public int BranchScore { get; set; }
+
+    public string BranchDigest { get; set; } = string.Empty;
+}
+
+public sealed class NftJoinRequest
+{
+    public string CorrelationKey { get; set; } = string.Empty;
+
+    public int AlphaScore { get; set; }
+
+    public int BetaScore { get; set; }
+
+    public int GammaScore { get; set; }
+
+    public string AlphaDigest { get; set; } = string.Empty;
+
+    public string BetaDigest { get; set; } = string.Empty;
+
+    public string GammaDigest { get; set; } = string.Empty;
+
+    public string Mode { get; set; } = string.Empty;
+}
+
+public sealed class NftJoinResult
+{
+    public string CorrelationKey { get; set; } = string.Empty;
+
+    public int CombinedScore { get; set; }
+
+    public string Summary { get; set; } = string.Empty;
+}
+
+public sealed class NftSinkRequest
+{
+    public string CorrelationKey { get; set; } = string.Empty;
+
+    public int CombinedScore { get; set; }
+
+    public string Summary { get; set; } = string.Empty;
+
+    public int ExpectedMinimumScore { get; set; }
+}
+
+public sealed class NftCompletion
+{
+    public string CorrelationKey { get; set; } = string.Empty;
+
+    public bool Accepted { get; set; }
+
+    public string ResultCode { get; set; } = string.Empty;
+}
+
+public sealed class NftLaneRequest
+{
+    public string CorrelationKey { get; set; } = string.Empty;
+
+    public string PayloadToken { get; set; } = string.Empty;
+
+    public int SeedScore { get; set; }
+
+    public string LaneName { get; set; } = string.Empty;
+
+    public int LaneWeight { get; set; }
+
+    public int? DelayMs { get; set; }
+}
+
+public sealed class NftLaneResult
+{
+    public string CorrelationKey { get; set; } = string.Empty;
+
+    public string LaneName { get; set; } = string.Empty;
+
+    public int LaneScore { get; set; }
+
+    public string LaneDigest { get; set; } = string.Empty;
+}

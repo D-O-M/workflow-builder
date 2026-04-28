@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 3,
+  "definitionKey": "nft-linear-lane-3-single-step",
+  "displayName": "NFT Linear Lane 3 Single Step",
+  "startingTaskKey": "33000000-0000-0000-0000-000000000001",
+  "tasks": [
+    {
+      "taskKey": "33000000-0000-0000-0000-000000000001",
+      "taskDefinitionName": "NftLinearLaneThreePlugin",
+      "allowedMajor": 1,
+      "allowedMinor": 0,
+      "position": {
+        "x": 120,
+        "y": 280
+      },
+      "outgoingConnections": []
+    }
+  ]
+}

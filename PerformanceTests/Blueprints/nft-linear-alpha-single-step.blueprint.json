@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 3,
+  "definitionKey": "nft-linear-alpha-single-step",
+  "displayName": "NFT Linear Alpha Single Step",
+  "startingTaskKey": "30000000-0000-0000-0000-000000000001",
+  "tasks": [
+    {
+      "taskKey": "30000000-0000-0000-0000-000000000001",
+      "taskDefinitionName": "NftBranchAlphaPlugin",
+      "allowedMajor": 1,
+      "allowedMinor": 0,
+      "position": {
+        "x": 120,
+        "y": 280
+      },
+      "outgoingConnections": []
+    }
+  ]
+}
