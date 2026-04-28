@@ -1,6 +1,7 @@
 using Backend.Database.State.Objects;
 using Backend.Interfaces.Repositories;
 using Microsoft.Azure.Cosmos;
+using System.Net;
 
 namespace Backend.Repositories;
 
@@ -184,5 +185,20 @@ public class ProcessInstanceRepository<TGlobalState>
         CancellationToken cancellationToken)
     {
         return (await ReplaceAsync(state, cancellationToken)).Resource;
+    }
+
+    public async Task<bool> TryUpdateProcessState(
+        ProcessInstanceRecord<TGlobalState> state,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ReplaceAsync(state, cancellationToken, state.ETag);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
+        {
+            return false;
+        }
     }
 }

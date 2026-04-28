@@ -293,6 +293,9 @@ public sealed class BlueprintPortabilityServiceTests
         public Task<ExecutableBlueprint> GetFullBlueprintById(int id, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<int> GetLatestBlueprintVersionId(int blueprintDefinitionId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<List<BlueprintViewModel>> GetAllBlueprints(CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 

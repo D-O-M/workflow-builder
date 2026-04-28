@@ -10,8 +10,10 @@ public static class ServiceExtensions
 {
     public static IServiceCollection AddRelationalDataRepositories(this IServiceCollection services)
     {
+        services.AddMemoryCache();
         services.AddScoped<ITaskDefinitionRepository, TaskDefinitionRepository>();
         services.AddScoped<IBlueprintRepository, BlueprintRepository>();
+        services.AddSingleton<IBlueprintExecutionCache, BlueprintExecutionCache>();
         services.AddScoped<ProcessProjectionService>();
 
         return services;
@@ -22,14 +24,16 @@ public static class ServiceExtensions
         string databaseName = "enginedb",
         string processesContainerName = "processes",
         string tasksContainerName = "processsteps",
-        string activationsContainerName = "nodeactivations")
+        string activationsContainerName = "nodeactivations",
+        string joinStatesContainerName = "nodejoinstates")
     {
         services.AddSingleton(new ProcessStateInitializationOptions
         {
             DatabaseName = databaseName,
             ProcessesContainerName = processesContainerName,
             TasksContainerName = tasksContainerName,
-            ActivationsContainerName = activationsContainerName
+            ActivationsContainerName = activationsContainerName,
+            JoinStatesContainerName = joinStatesContainerName
         });
 
         services.AddSingleton<IProcessStepRepository>(sp =>
@@ -42,6 +46,12 @@ public static class ServiceExtensions
         {
             var client = sp.GetRequiredService<CosmosClient>();
             return new NodeActivationRepository(client.GetContainer(databaseName, activationsContainerName));
+        });
+
+        services.AddSingleton<INodeJoinStateRepository>(sp =>
+        {
+            var client = sp.GetRequiredService<CosmosClient>();
+            return new NodeJoinStateRepository(client.GetContainer(databaseName, joinStatesContainerName));
         });
 
         services.AddSingleton<IProcessInstanceRepository<Dictionary<string, JsonElement>>>(sp =>

@@ -23,7 +23,8 @@ public class JobFinalizationService
         PluginExecutionResult executionResult,
         CancellationToken cancellationToken)
     {
-        await context.PersistSuccessAsync(
+        var processCompleted = await context.PersistSuccessAsync(
+            executionResult.EffectiveInputData,
             executionResult.OutputData,
             executionResult.GlobalState,
             executionResult.CompletedAt,
@@ -35,7 +36,7 @@ public class JobFinalizationService
             cancellationToken);
         _processLifecycleTelemetry.LogStepCompleted(context, executionResult);
 
-        if (await context.CompleteProcessIfTerminalAsync(cancellationToken))
+        if (processCompleted)
         {
             _processLifecycleTelemetry.LogProcessCompleted(
                 context,
@@ -51,6 +52,7 @@ public class JobFinalizationService
         CancellationToken cancellationToken)
     {
         await context.PersistFailureAsync(
+            executionResult.EffectiveInputData,
             executionResult.GlobalState,
             executionResult.ErrorMessage,
             executionResult.CompletedAt,

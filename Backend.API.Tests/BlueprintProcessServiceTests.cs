@@ -30,8 +30,10 @@ public sealed class BlueprintProcessServiceTests
         var service = new BlueprintProcessService(
             processSteps,
             queueWriter,
+            new BlueprintExecutionCacheStub(CreateExecutableBlueprint(initialNodeId)),
             repository,
             processInstances,
+            new ProcessStartTelemetry(),
             NullLogger<BlueprintProcessService>.Instance);
 
         var ex = await Should.ThrowAsync<InvalidDataException>(() => service.StartLatestVersionAsync(
@@ -65,8 +67,10 @@ public sealed class BlueprintProcessServiceTests
         var service = new BlueprintProcessService(
             processSteps,
             queueWriter,
+            new BlueprintExecutionCacheStub(CreateExecutableBlueprint(initialNodeId)),
             repository,
             processInstances,
+            new ProcessStartTelemetry(),
             NullLogger<BlueprintProcessService>.Instance);
 
         var ex = await Should.ThrowAsync<InvalidDataException>(() => service.StartLatestVersionAsync(
@@ -100,8 +104,10 @@ public sealed class BlueprintProcessServiceTests
         var service = new BlueprintProcessService(
             processSteps,
             queueWriter,
+            new BlueprintExecutionCacheStub(CreateExecutableBlueprint(initialNodeId)),
             repository,
             processInstances,
+            new ProcessStartTelemetry(),
             NullLogger<BlueprintProcessService>.Instance);
 
         var accepted = await service.StartLatestVersionAsync(
@@ -134,12 +140,15 @@ public sealed class BlueprintProcessServiceTests
 
         processSteps.CreatedStep.ShouldNotBeNull();
         processSteps.CreatedStep.BlueprintNodeId.ShouldBe(initialNodeId.ToString());
-        processSteps.CreatedStep.InputData.ShouldNotBeNull();
-        processSteps.CreatedStep.InputData.ShouldContainKey("Input");
-        var inputPayload = processSteps.CreatedStep.InputData["Input"];
-        inputPayload.GetProperty("town").GetString().ShouldBe("runtime");
-        inputPayload.GetProperty("country").GetString().ShouldBe("uk");
-        inputPayload.GetProperty("mode").GetString().ShouldBe("design-time");
+        processInstances.CreatedState.ExecutionProgress.TotalNodeCount.ShouldBe(1);
+        processSteps.CreatedStep.InputData.ShouldBeNull();
+        processSteps.CreatedStep.InputHydrationPlan.ShouldNotBeNull();
+        processSteps.CreatedStep.InputHydrationPlan.InputChannelName.ShouldBe("Input");
+        processSteps.CreatedStep.InputHydrationPlan.InitialInput["town"].GetString().ShouldBe("input");
+        processSteps.CreatedStep.InputHydrationPlan.InitialInput["country"].GetString().ShouldBe("uk");
+        processSteps.CreatedStep.InputHydrationPlan.DesignTimeInputOverrides["town"].GetString().ShouldBe("design-time");
+        processSteps.CreatedStep.InputHydrationPlan.DesignTimeInputOverrides["mode"].GetString().ShouldBe("design-time");
+        processSteps.CreatedStep.InputHydrationPlan.RuntimeInputOverrides["town"].GetString().ShouldBe("runtime");
 
         queueWriter.Messages.Count.ShouldBe(1);
         queueWriter.Messages[0].ProcessId.ShouldBe(accepted.ProcessId);
@@ -228,6 +237,9 @@ public sealed class BlueprintProcessServiceTests
         public Task<ExecutableBlueprint> GetFullBlueprintById(int id, CancellationToken cancellationToken) =>
             Task.FromResult(_executableBlueprint);
 
+        public Task<int> GetLatestBlueprintVersionId(int blueprintDefinitionId, CancellationToken cancellationToken) =>
+            Task.FromResult(_executableBlueprint.Id);
+
         public Task<List<BlueprintViewModel>> GetAllBlueprints(CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
@@ -239,6 +251,19 @@ public sealed class BlueprintProcessServiceTests
 
         public Task<BlueprintVersionViewModel> CreateVersion(BlueprintVersionInputModel model, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class BlueprintExecutionCacheStub : IBlueprintExecutionCache
+    {
+        private readonly ExecutableBlueprint _blueprint;
+
+        public BlueprintExecutionCacheStub(ExecutableBlueprint blueprint)
+        {
+            _blueprint = blueprint;
+        }
+
+        public Task<ExecutableBlueprint> GetExecutableBlueprintAsync(int blueprintVersionId, CancellationToken cancellationToken) =>
+            Task.FromResult(_blueprint);
     }
 
     private sealed class ProcessStepRepositorySpy : IProcessStepRepository
@@ -264,6 +289,36 @@ public sealed class BlueprintProcessServiceTests
             throw new NotSupportedException();
 
         public Task<bool> TryUpdateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<(bool Claimed, ProcessStepRecord? State)> TryClaimProcessStepAsync(
+            Guid taskInstanceId,
+            Guid processId,
+            int taskDefinitionId,
+            int allowedMajor,
+            int allowedMinor,
+            int resolvedTaskVersionId,
+            string resolvedVersion,
+            DateTimeOffset startedAt,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task CompleteProcessStepAsync(
+            Guid taskInstanceId,
+            Guid processId,
+            Dictionary<string, JsonElement>? effectiveInputData,
+            Dictionary<string, JsonElement> outputData,
+            DateTimeOffset completedAt,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task FailProcessStepAsync(
+            Guid taskInstanceId,
+            Guid processId,
+            Dictionary<string, JsonElement>? effectiveInputData,
+            string? errorMessage,
+            DateTimeOffset failedAt,
+            CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
 
@@ -313,6 +368,11 @@ public sealed class BlueprintProcessServiceTests
             throw new NotSupportedException();
 
         public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> UpdateProcessState(
+            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<bool> TryUpdateProcessState(
             ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();

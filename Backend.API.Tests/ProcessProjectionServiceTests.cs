@@ -223,6 +223,11 @@ public sealed class ProcessProjectionServiceTests
             ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<bool> TryUpdateProcessState(
+            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private sealed class ProcessStepRepositoryStub : IProcessStepRepository
@@ -255,6 +260,36 @@ public sealed class ProcessProjectionServiceTests
             throw new NotSupportedException();
 
         public Task<bool> TryUpdateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<(bool Claimed, ProcessStepRecord? State)> TryClaimProcessStepAsync(
+            Guid taskInstanceId,
+            Guid processId,
+            int taskDefinitionId,
+            int allowedMajor,
+            int allowedMinor,
+            int resolvedTaskVersionId,
+            string resolvedVersion,
+            DateTimeOffset startedAt,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task CompleteProcessStepAsync(
+            Guid taskInstanceId,
+            Guid processId,
+            Dictionary<string, JsonElement>? effectiveInputData,
+            Dictionary<string, JsonElement> outputData,
+            DateTimeOffset completedAt,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task FailProcessStepAsync(
+            Guid taskInstanceId,
+            Guid processId,
+            Dictionary<string, JsonElement>? effectiveInputData,
+            string? errorMessage,
+            DateTimeOffset failedAt,
+            CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
 

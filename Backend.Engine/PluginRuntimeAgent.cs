@@ -16,7 +16,7 @@ public class PluginRuntimeAgent
     private readonly IConfiguration _configuration;
     private readonly IHostEnvironment _hostEnvironment;
     private readonly ILogger _logger;
-    private readonly JobManager _jobManager;
+    private readonly PluginResultFinalizationQueue _resultFinalizationQueue;
     private readonly IChildProcessTracker _childProcessTracker;
     private readonly IOperatingSystemInformation _operatingSystemInformation;
     private Process? _process;
@@ -24,6 +24,7 @@ public class PluginRuntimeAgent
     private Pipe _commsStream = new();
     private bool ready = false;
     private readonly TaskCompletionSource _readySignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly SemaphoreSlim _queueWriterGate = new(1, 1);
     private Task? _runTask;
     private readonly StringBuilder _stdoutBuffer = new();
     private int _stopRequested;
@@ -35,14 +36,14 @@ public class PluginRuntimeAgent
         IConfiguration configuration,
         IHostEnvironment hostEnvironment,
         ILogger<PluginRuntimeAgent> logger,
-        JobManager jobManager,
+        PluginResultFinalizationQueue resultFinalizationQueue,
         IChildProcessTracker childProcessTracker,
         IOperatingSystemInformation operatingSystemInformation)
     {
         _configuration = configuration;
         _hostEnvironment = hostEnvironment;
         _logger = logger;
-        _jobManager = jobManager;
+        _resultFinalizationQueue = resultFinalizationQueue;
         _childProcessTracker = childProcessTracker;
         _operatingSystemInformation = operatingSystemInformation;
     }
@@ -93,16 +94,24 @@ public class PluginRuntimeAgent
             var environmentVariables = new Dictionary<string, string?>
             {
                 {
+                    "OTEL_SDK_DISABLED",
+                    GetConfigurationOrEnvironmentValue("OTEL_SDK_DISABLED")
+                },
+                {
                     "OTEL_EXPORTER_OTLP_ENDPOINT",
-                    _configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
+                    GetConfigurationOrEnvironmentValue("OTEL_EXPORTER_OTLP_ENDPOINT")
                 },
                 {
                     "OTEL_EXPORTER_OTLP_PROTOCOL",
-                    _configuration["OTEL_EXPORTER_OTLP_PROTOCOL"]
+                    GetConfigurationOrEnvironmentValue("OTEL_EXPORTER_OTLP_PROTOCOL")
                 },
                 {
                     "OTEL_EXPORTER_OTLP_HEADERS",
-                    _configuration["OTEL_EXPORTER_OTLP_HEADERS"]
+                    GetConfigurationOrEnvironmentValue("OTEL_EXPORTER_OTLP_HEADERS")
+                },
+                {
+                    "OTEL_RESOURCE_ATTRIBUTES",
+                    GetConfigurationOrEnvironmentValue("OTEL_RESOURCE_ATTRIBUTES")
                 },
                 {
                     "PluginStateStore__Mode",
@@ -327,7 +336,7 @@ public class PluginRuntimeAgent
         try
         {
             var result = PluginExecutionResultSerializer.Deserialize(Encoding.UTF8.GetBytes(outputLine));
-            await _jobManager.CompleteJob(result, CancellationToken.None);
+            await _resultFinalizationQueue.EnqueueAsync(result, CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -343,6 +352,7 @@ public class PluginRuntimeAgent
         InvocationEnvelope invocationEnvelope,
         CancellationToken cancellationToken)
     {
+        await _queueWriterGate.WaitAsync(cancellationToken);
         try
         {
             var payload = InvocationEnvelopeSerializer.Serialize(invocationEnvelope);
@@ -358,6 +368,10 @@ public class PluginRuntimeAgent
         catch
         {
             return false;
+        }
+        finally
+        {
+            _queueWriterGate.Release();
         }
     }
 
@@ -432,4 +446,7 @@ public class PluginRuntimeAgent
 
         return null;
     }
+
+    private string? GetConfigurationOrEnvironmentValue(string name) =>
+        _configuration[name] ?? Environment.GetEnvironmentVariable(name);
 }

@@ -20,6 +20,7 @@ internal sealed class DatabaseMigrationWorker(
     private const string ProcessesContainerName = "processes";
     private const string ProcessStepsContainerName = "processsteps";
     private const string NodeActivationsContainerName = "nodeactivations";
+    private const string NodeJoinStatesContainerName = "nodejoinstates";
     private const string ProcessStepProgressLeasesContainerName = "processstepprogressleases";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -96,6 +97,11 @@ internal sealed class DatabaseMigrationWorker(
         await EnsureContainerAsync(
             databaseResponse.Database,
             NodeActivationsContainerName,
+            "/processId",
+            cancellationToken);
+        await EnsureContainerAsync(
+            databaseResponse.Database,
+            NodeJoinStatesContainerName,
             "/processId",
             cancellationToken);
         await EnsureContainerAsync(

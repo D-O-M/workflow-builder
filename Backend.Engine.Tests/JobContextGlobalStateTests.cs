@@ -22,6 +22,7 @@ public class JobContextGlobalStateTests
         var (context, processState, _) = CreateContext();
 
         await context.PersistSuccessAsync(
+            effectiveInputData: null,
             new Dictionary<string, JsonElement>(StringComparer.Ordinal),
             globalState: null,
             DateTimeOffset.UtcNow,
@@ -37,6 +38,7 @@ public class JobContextGlobalStateTests
         var (context, processState, _) = CreateContext();
 
         await context.PersistFailureAsync(
+            effectiveInputData: null,
             globalState: null,
             errorMessage: "boom",
             DateTimeOffset.UtcNow,
@@ -52,6 +54,7 @@ public class JobContextGlobalStateTests
         var (context, processState, _) = CreateContext();
 
         await context.PersistSuccessAsync(
+            effectiveInputData: null,
             new Dictionary<string, JsonElement>(StringComparer.Ordinal),
             new Dictionary<string, JsonElement>(StringComparer.Ordinal)
             {
@@ -88,6 +91,10 @@ public class JobContextGlobalStateTests
             id = processId.ToString(),
             BlueprintId = executableBlueprintId.ToString(),
             Status = ProcessStatus.InProgress,
+            ExecutionProgress = new ProcessExecutionProgress
+            {
+                TotalNodeCount = 1
+            },
             GlobalState = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
             {
                 ["Existing"] = JsonString("kept")
@@ -101,6 +108,42 @@ public class JobContextGlobalStateTests
         stepRepository
             .Setup(repository => repository.UpdateProcessStep(stepState, It.IsAny<CancellationToken>()))
             .ReturnsAsync(stepState);
+        stepRepository
+            .Setup(repository => repository.CompleteProcessStepAsync(
+                processStepId,
+                processId,
+                It.IsAny<Dictionary<string, JsonElement>?>(),
+                It.IsAny<Dictionary<string, JsonElement>>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<Guid, Guid, Dictionary<string, JsonElement>?, Dictionary<string, JsonElement>, DateTimeOffset, CancellationToken>(
+                (_, _, effectiveInputData, outputData, completedAt, _) =>
+                {
+                    stepState.Status = ProcessStepStatus.Completed;
+                    stepState.InputData = effectiveInputData;
+                    stepState.OutputData = outputData;
+                    stepState.CompletedAt = completedAt;
+                    stepState.UpdatedAt = completedAt;
+                })
+            .Returns(Task.CompletedTask);
+        stepRepository
+            .Setup(repository => repository.FailProcessStepAsync(
+                processStepId,
+                processId,
+                It.IsAny<Dictionary<string, JsonElement>?>(),
+                It.IsAny<string?>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<Guid, Guid, Dictionary<string, JsonElement>?, string?, DateTimeOffset, CancellationToken>(
+                (_, _, effectiveInputData, errorMessage, failedAt, _) =>
+                {
+                    stepState.Status = ProcessStepStatus.Failed;
+                    stepState.InputData = effectiveInputData;
+                    stepState.ErrorMessage = errorMessage;
+                    stepState.FailedAt = failedAt;
+                    stepState.UpdatedAt = failedAt;
+                })
+            .Returns(Task.CompletedTask);
 
         var processRepository = new Mock<IProcessInstanceRepository<Dictionary<string, JsonElement>>>();
         processRepository
@@ -109,6 +152,9 @@ public class JobContextGlobalStateTests
         processRepository
             .Setup(repository => repository.UpdateProcessState(processState, It.IsAny<CancellationToken>()))
             .ReturnsAsync(processState);
+        processRepository
+            .Setup(repository => repository.TryUpdateProcessState(processState, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         var queueMessage = new Mock<IProcessStepQueueMessage>();
         queueMessage.SetupGet(message => message.MessageId).Returns("message-1");

@@ -59,6 +59,7 @@ public class Program
                 environment));
         });
         builder.Services.AddSingleton<IProcessStepQueueWriter, ServiceBusProcessStepQueueWriter>();
+        builder.Services.AddSingleton<ProcessStartTelemetry>();
         builder.Services.AddScoped<BlueprintProcessService>();
         builder.Services.AddScoped<BlueprintPortabilityService>();
         builder.Services.AddScoped<ProcessQueryService>();

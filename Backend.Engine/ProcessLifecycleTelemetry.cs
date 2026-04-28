@@ -8,18 +8,91 @@ namespace Backend.Engine;
 
 public sealed class ProcessLifecycleTelemetry
 {
+    public const string ActivitySourceName = "WorkflowBuilder.Engine.Processes";
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private static readonly Meter Meter = new("WorkflowBuilder.Engine.Processes", "1.0.0");
+    private static readonly ActivitySource ActivitySource = new(ActivitySourceName, "1.0.0");
+    private static readonly Meter Meter = new(ActivitySourceName, "1.0.0");
     private static readonly Counter<long> ProcessStepsStarted = Meter.CreateCounter<long>("process_step_started_total");
     private static readonly Counter<long> ProcessStepsCompleted = Meter.CreateCounter<long>("process_step_completed_total");
     private static readonly Counter<long> ProcessStepsFailed = Meter.CreateCounter<long>("process_step_failed_total");
     private static readonly Histogram<double> ProcessStepDurationMs = Meter.CreateHistogram<double>("process_step_duration_ms");
+    private static readonly Histogram<double> ProcessStepQueueWaitMs = Meter.CreateHistogram<double>("process_step_queue_wait_ms");
+    private static readonly Histogram<double> ProcessStepClaimMs = Meter.CreateHistogram<double>("process_step_claim_ms");
+    private static readonly Histogram<double> ProcessStepAgentEnqueueMs = Meter.CreateHistogram<double>("process_step_agent_enqueue_ms");
+    private static readonly Histogram<double> ProcessStepPluginStartDelayMs = Meter.CreateHistogram<double>("process_step_plugin_start_delay_ms");
+    private static readonly Histogram<double> ProcessStepFinalizeMs = Meter.CreateHistogram<double>("process_step_finalize_ms");
+    private static readonly Histogram<double> ProcessStepRecordedDurationMs = Meter.CreateHistogram<double>("process_step_recorded_duration_ms");
+    private static readonly Histogram<double> PluginHydrationMs = Meter.CreateHistogram<double>("plugin_hydration_ms");
+    private static readonly Histogram<double> PluginExecuteMs = Meter.CreateHistogram<double>("plugin_execute_ms");
 
     private readonly ILogger<ProcessLifecycleTelemetry> _logger;
 
     public ProcessLifecycleTelemetry(ILogger<ProcessLifecycleTelemetry> logger)
     {
         _logger = logger;
+    }
+
+    public Activity? StartStepActivity(JobContext context)
+    {
+        var activity = ActivitySource.StartActivity(
+            "process.step",
+            ActivityKind.Consumer);
+
+        if (activity is null)
+        {
+            return null;
+        }
+
+        activity.SetTag("process.id", context.ProcessId.ToString());
+        activity.SetTag("process.step_id", context.ProcessStepId.ToString());
+        activity.SetTag("blueprint.definition_id", context.BlueprintDefinitionId);
+        activity.SetTag("blueprint.version_id", context.ExecutableBlueprintId);
+        activity.SetTag("blueprint.version_number", context.BlueprintVersionNumber);
+        activity.SetTag("blueprint.node_id", context.BlueprintNodeId.ToString());
+        activity.SetTag("task.definition_id", context.TaskDefinitionId);
+        activity.SetTag("task.version_id", context.ResolvedTaskVersionId);
+        activity.SetTag("task.version", context.BlueprintNode.ResolvedVersion.ToString());
+        activity.SetTag("plugin.name", context.PluginName);
+        activity.SetTag("event.name", "process.step");
+        activity.SetTag("step.status", "InProgress");
+
+        return activity;
+    }
+
+    public void StopStepActivity(
+        JobContext context,
+        PluginExecutionResult? result,
+        Exception? exception)
+    {
+        var activity = context.ExecutionActivity;
+        if (activity is null)
+        {
+            return;
+        }
+
+        if (result is not null)
+        {
+            var status = result.Succeeded ? "Completed" : "Failed";
+            activity.SetTag("step.status", status);
+            activity.SetTag("process.outcome", result.Succeeded ? "Succeeded" : "Failed");
+            activity.SetTag("step.duration_ms", (result.CompletedAt - result.StartedAt).TotalMilliseconds);
+
+            if (!result.Succeeded)
+            {
+                activity.SetStatus(ActivityStatusCode.Error, result.ErrorMessage);
+            }
+        }
+
+        if (exception is not null)
+        {
+            activity.SetStatus(ActivityStatusCode.Error, exception.Message);
+            activity.SetTag("exception.type", exception.GetType().FullName);
+            activity.SetTag("exception.message", exception.Message);
+        }
+
+        activity.Stop();
+        context.ExecutionActivity = null;
     }
 
     public void LogProcessStarted(JobContext context, DateTimeOffset timestamp) =>
@@ -103,6 +176,69 @@ public sealed class ProcessLifecycleTelemetry
                 DurationMs = null,
                 FailureMessage = null,
             });
+    }
+
+    public void RecordQueueWait(JobContext context, DateTimeOffset enqueuedAt, DateTimeOffset receivedAt)
+    {
+        var elapsed = receivedAt - enqueuedAt;
+        ProcessStepQueueWaitMs.Record(Math.Max(0, elapsed.TotalMilliseconds), BuildStepMetricTags(context, outcome: "received"));
+    }
+
+    public void RecordStepClaim(JobContext context, TimeSpan elapsed, bool claimed)
+    {
+        var tags = BuildStepMetricTags(context, claimed ? "claimed" : "claim_skipped");
+        ProcessStepClaimMs.Record(Math.Max(0, elapsed.TotalMilliseconds), tags);
+    }
+
+    public void RecordAgentEnqueue(JobContext context, TimeSpan elapsed, bool queued)
+    {
+        var tags = BuildStepMetricTags(context, queued ? "queued" : "queue_rejected");
+        ProcessStepAgentEnqueueMs.Record(Math.Max(0, elapsed.TotalMilliseconds), tags);
+    }
+
+    public void RecordPluginStartDelay(JobContext context, TimeSpan elapsed)
+    {
+        ProcessStepPluginStartDelayMs.Record(
+            Math.Max(0, elapsed.TotalMilliseconds),
+            BuildStepMetricTags(context, outcome: "started"));
+    }
+
+    public void RecordFinalization(JobContext context, TimeSpan elapsed, bool succeeded)
+    {
+        ProcessStepFinalizeMs.Record(
+            Math.Max(0, elapsed.TotalMilliseconds),
+            BuildStepMetricTags(context, succeeded ? "succeeded" : "failed"));
+    }
+
+    public void RecordRecordedStepDuration(JobContext context, DateTimeOffset completedAt)
+    {
+        if (context.ClaimedAt is not DateTimeOffset claimedAt)
+        {
+            return;
+        }
+
+        ProcessStepRecordedDurationMs.Record(
+            Math.Max(0, (completedAt - claimedAt).TotalMilliseconds),
+            BuildStepMetricTags(context, outcome: "completed"));
+    }
+
+    public void RecordPluginPhaseTimings(JobContext context, IReadOnlyDictionary<string, double>? timingsMs)
+    {
+        if (timingsMs is null)
+        {
+            return;
+        }
+
+        var tags = BuildStepMetricTags(context, outcome: "succeeded");
+        if (timingsMs.TryGetValue("hydrationMs", out var hydrationMs))
+        {
+            PluginHydrationMs.Record(Math.Max(0, hydrationMs), tags);
+        }
+
+        if (timingsMs.TryGetValue("executeMs", out var executeMs))
+        {
+            PluginExecuteMs.Record(Math.Max(0, executeMs), tags);
+        }
     }
 
     public void LogStepCompleted(JobContext context, PluginExecutionResult result)

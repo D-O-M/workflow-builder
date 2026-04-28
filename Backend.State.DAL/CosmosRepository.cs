@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Runtime.CompilerServices;
 using Microsoft.Azure.Cosmos;
 
@@ -11,6 +13,10 @@ using Microsoft.Azure.Cosmos;
 /// </summary>
 public class CosmosRepository<T> where T : class
 {
+    private static readonly Meter Meter = new("WorkflowBuilder.Cosmos", "1.0.0");
+    private static readonly Histogram<double> OperationDurationMs = Meter.CreateHistogram<double>("cosmos_operation_duration_ms");
+    private static readonly Histogram<double> RequestUnits = Meter.CreateHistogram<double>("cosmos_request_units");
+
     private readonly Func<T, string> _idSelector;
     private readonly Func<T, PartitionKey> _partitionKeySelector;
     protected Container Container { get; }
@@ -32,8 +38,11 @@ public class CosmosRepository<T> where T : class
         ItemRequestOptions? options = null)
     {
         if (item is null) throw new ArgumentNullException(nameof(item));
-        return await Container.CreateItemAsync(item, _partitionKeySelector(item), options, cancellationToken)
-                               .ConfigureAwait(false);
+        var stopwatch = Stopwatch.StartNew();
+        var response = await Container.CreateItemAsync(item, _partitionKeySelector(item), options, cancellationToken)
+            .ConfigureAwait(false);
+        RecordOperation("create", stopwatch.Elapsed, response.RequestCharge);
+        return response;
     }
 
     /// <summary>
@@ -46,8 +55,11 @@ public class CosmosRepository<T> where T : class
         ItemRequestOptions? options = null)
     {
         if (item is null) throw new ArgumentNullException(nameof(item));
-        return await Container.UpsertItemAsync(item, _partitionKeySelector(item), options, cancellationToken)
-                               .ConfigureAwait(false);
+        var stopwatch = Stopwatch.StartNew();
+        var response = await Container.UpsertItemAsync(item, _partitionKeySelector(item), options, cancellationToken)
+            .ConfigureAwait(false);
+        RecordOperation("upsert", stopwatch.Elapsed, response.RequestCharge);
+        return response;
     }
 
     /// <summary>
@@ -64,8 +76,10 @@ public class CosmosRepository<T> where T : class
 
         try
         {
+            var stopwatch = Stopwatch.StartNew();
             var resp = await Container.ReadItemAsync<T>(
                 id, partitionKey, options, cancellationToken);
+            RecordOperation("read", stopwatch.Elapsed, resp.RequestCharge);
             return resp.Resource;
         }
         catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -89,13 +103,16 @@ public class CosmosRepository<T> where T : class
         if (!string.IsNullOrWhiteSpace(ifMatchEtag))
             options.IfMatchEtag = ifMatchEtag;
 
-        return await Container.ReplaceItemAsync(
+        var stopwatch = Stopwatch.StartNew();
+        var response = await Container.ReplaceItemAsync(
                 item: item,
                 id: _idSelector(item),
                 partitionKey: _partitionKeySelector(item),
                 requestOptions: options,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+        RecordOperation("replace", stopwatch.Elapsed, response.RequestCharge);
+        return response;
     }
 
     /// <summary>Delete by id + partition key.</summary>
@@ -107,8 +124,11 @@ public class CosmosRepository<T> where T : class
     {
         if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException("id is required.", nameof(id));
 
-        return await Container.DeleteItemAsync<T>(id, partitionKey, options, cancellationToken)
-                               .ConfigureAwait(false);
+        var stopwatch = Stopwatch.StartNew();
+        var response = await Container.DeleteItemAsync<T>(id, partitionKey, options, cancellationToken)
+            .ConfigureAwait(false);
+        RecordOperation("delete", stopwatch.Elapsed, response.RequestCharge);
+        return response;
     }
 
     /// <summary>
@@ -125,7 +145,9 @@ public class CosmosRepository<T> where T : class
 
         while (feed.HasMoreResults)
         {
+            var stopwatch = Stopwatch.StartNew();
             var page = await feed.ReadNextAsync(cancellationToken).ConfigureAwait(false);
+            RecordOperation("query", stopwatch.Elapsed, page.RequestCharge);
             foreach (var item in page)
                 yield return item;
         }
@@ -162,4 +184,17 @@ public class CosmosRepository<T> where T : class
     /// </summary>
     public TransactionalBatch CreateBatch(PartitionKey partitionKey) =>
         Container.CreateTransactionalBatch(partitionKey);
+
+    private void RecordOperation(string operation, TimeSpan elapsed, double requestCharge)
+    {
+        var tags = new TagList
+        {
+            { "cosmos.container", Container.Id },
+            { "cosmos.operation", operation },
+            { "document.type", typeof(T).Name }
+        };
+
+        OperationDurationMs.Record(Math.Max(0, elapsed.TotalMilliseconds), tags);
+        RequestUnits.Record(Math.Max(0, requestCharge), tags);
+    }
 }

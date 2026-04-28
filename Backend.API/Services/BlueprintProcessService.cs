@@ -4,6 +4,7 @@ using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Models;
 using Backend.Models.InputModels;
+using Backend.Models.ViewModels;
 using Backend.Plugins.Communication;
 using Microsoft.Extensions.Logging;
 
@@ -18,21 +19,27 @@ public sealed class BlueprintProcessService
 {
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IProcessStepQueueWriter _processStepQueueWriter;
+    private readonly IBlueprintExecutionCache _blueprintExecutionCache;
     private readonly IBlueprintRepository _blueprintRepository;
     private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly ProcessStartTelemetry _processStartTelemetry;
     private readonly ILogger<BlueprintProcessService> _logger;
 
     public BlueprintProcessService(
         IProcessStepRepository processStepRepository,
         IProcessStepQueueWriter processStepQueueWriter,
+        IBlueprintExecutionCache blueprintExecutionCache,
         IBlueprintRepository blueprintRepository,
         IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        ProcessStartTelemetry processStartTelemetry,
         ILogger<BlueprintProcessService> logger)
     {
         _processStepRepository = processStepRepository;
         _processStepQueueWriter = processStepQueueWriter;
+        _blueprintExecutionCache = blueprintExecutionCache;
         _blueprintRepository = blueprintRepository;
         _processInstanceRepository = processInstanceRepository;
+        _processStartTelemetry = processStartTelemetry;
         _logger = logger;
     }
 
@@ -45,30 +52,37 @@ public sealed class BlueprintProcessService
             "Starting latest blueprint version for definition {BlueprintDefinitionId}.",
             blueprintDefinitionId);
 
-        var blueprint = await _blueprintRepository.GetBlueprintById(
-            blueprintDefinitionId,
-            cancellationToken);
+        using var totalTiming = _processStartTelemetry.StartTotal(blueprintDefinitionId);
+        int latestVersionId;
+        using (_processStartTelemetry.StartResolveDefinition(blueprintDefinitionId))
+        {
+            latestVersionId = await _blueprintRepository.GetLatestBlueprintVersionId(
+                blueprintDefinitionId,
+                cancellationToken);
+        }
 
-        var latestVersion = blueprint.Versions
-            .OrderByDescending(version => version.Version)
-            .FirstOrDefault()
-            ?? throw new InvalidOperationException($"Blueprint {blueprintDefinitionId} has no versions to start.");
+        ExecutableBlueprint executableBlueprint;
+        using (_processStartTelemetry.StartLoadGraph(blueprintDefinitionId))
+        {
+            executableBlueprint = await _blueprintExecutionCache.GetExecutableBlueprintAsync(
+                latestVersionId,
+                cancellationToken);
+        }
 
-        var executableBlueprint = await _blueprintRepository.GetFullBlueprintById(
-            latestVersion.BlueprintVersionId,
-            cancellationToken);
-
-        ValidateNodeOverrides(executableBlueprint, processModel.NodeOverrides);
+        using (_processStartTelemetry.StartValidateOverrides(blueprintDefinitionId))
+        {
+            ValidateNodeOverrides(executableBlueprint, processModel.NodeOverrides);
+        }
 
         _logger.LogInformation(
             "Resolved blueprint definition {BlueprintDefinitionId} to version {BlueprintVersionId}.",
             blueprintDefinitionId,
-            latestVersion.BlueprintVersionId);
+            latestVersionId);
 
         var acceptedAt = DateTimeOffset.UtcNow;
         var processId = Guid.NewGuid();
         var initialProcessStepId = ProcessStepIdentity.Create(processId, executableBlueprint.InitialNode.Id);
-        var blueprintVersionIdString = latestVersion.BlueprintVersionId.ToString();
+        var blueprintVersionIdString = latestVersionId.ToString();
         var serializedNodeOverrides = processModel.NodeOverrides.ToDictionary(
             entry => entry.Key.ToString(),
             entry => entry.Value.ToDictionary(
@@ -77,11 +91,16 @@ public sealed class BlueprintProcessService
                 StringComparer.Ordinal),
             StringComparer.Ordinal);
 
-        serializedNodeOverrides.TryGetValue(executableBlueprint.InitialNode.Id.ToString(), out var initialNodeOverrides);
-        var initialInput = BlueprintInputMaterializer.MergeInputs(
-            [(IReadOnlyDictionary<string, JsonElement>)processModel.InitialTaskInput],
-            executableBlueprint.InitialNode.DesignTimeInputOverrides,
-            initialNodeOverrides);
+        Dictionary<string, JsonElement>? initialNodeOverrides;
+        InputHydrationPlan initialHydrationPlan;
+        using (_processStartTelemetry.StartMaterializeInitialInput(blueprintDefinitionId))
+        {
+            serializedNodeOverrides.TryGetValue(executableBlueprint.InitialNode.Id.ToString(), out initialNodeOverrides);
+            initialHydrationPlan = CreateInitialHydrationPlan(
+                executableBlueprint.InitialNode,
+                processModel.InitialTaskInput,
+                initialNodeOverrides);
+        }
 
         var processState = new ProcessInstanceRecord<Dictionary<string, JsonElement>>
         {
@@ -94,7 +113,11 @@ public sealed class BlueprintProcessService
                 entry => entry.Key,
                 entry => entry.Value.Clone(),
                 StringComparer.Ordinal),
-            NodeOverrides = serializedNodeOverrides
+            NodeOverrides = serializedNodeOverrides,
+            ExecutionProgress = new ProcessExecutionProgress
+            {
+                TotalNodeCount = executableBlueprint.AllNodes.Count
+            }
         };
 
         var initialStepState = new ProcessStepRecord
@@ -109,32 +132,39 @@ public sealed class BlueprintProcessService
             CreatedAt = acceptedAt,
             UpdatedAt = acceptedAt,
             Status = ProcessStepStatus.Pending,
-            InputData = BlueprintInputMaterializer.BuildChannelPayload(
-                executableBlueprint.InitialNode.InputChannel.Name,
-                initialInput)
+            InputHydrationPlan = initialHydrationPlan
         };
 
         _logger.LogInformation(
             "Creating process state {ProcessId} for blueprint version {BlueprintVersionId}.",
             processId,
-            latestVersion.BlueprintVersionId);
-        await _processInstanceRepository.CreateProcessState(processState, cancellationToken);
+            latestVersionId);
+        using (_processStartTelemetry.StartCreateProcessState(blueprintDefinitionId))
+        {
+            await _processInstanceRepository.CreateProcessState(processState, cancellationToken);
+        }
 
         _logger.LogInformation(
             "Creating initial process step {InitialBlueprintNodeId} for process {ProcessId}.",
             initialProcessStepId,
             processId);
-        await _processStepRepository.CreateProcessStep(initialStepState, cancellationToken);
+        using (_processStartTelemetry.StartCreateInitialStep(blueprintDefinitionId))
+        {
+            await _processStepRepository.CreateProcessStep(initialStepState, cancellationToken);
+        }
 
-        await _processStepQueueWriter.EnqueueAsync(
-            new ProcessStepInitialisationMessage
-            {
-                ProcessId = processId,
-                ExecutableBlueprintId = latestVersion.BlueprintVersionId,
-                ProcessStepId = initialProcessStepId,
-                BlueprintNodeId = executableBlueprint.InitialNode.Id
-            },
-            cancellationToken);
+        using (_processStartTelemetry.StartEnqueueInitialStep(blueprintDefinitionId))
+        {
+            await _processStepQueueWriter.EnqueueAsync(
+                new ProcessStepInitialisationMessage
+                {
+                    ProcessId = processId,
+                    ExecutableBlueprintId = latestVersionId,
+                    ProcessStepId = initialProcessStepId,
+                    BlueprintNodeId = executableBlueprint.InitialNode.Id
+                },
+                cancellationToken);
+        }
 
         _logger.LogInformation(
             "Accepted process {ProcessId} for blueprint definition {BlueprintDefinitionId}.",
@@ -173,5 +203,31 @@ public sealed class BlueprintProcessService
                 }
             }
         }
+    }
+
+    private static InputHydrationPlan CreateInitialHydrationPlan(
+        ExecutableBlueprintNode initialNode,
+        IReadOnlyDictionary<string, JsonElement> initialTaskInput,
+        IReadOnlyDictionary<string, JsonElement>? runtimeOverrides) =>
+        new()
+        {
+            InputChannelName = initialNode.InputChannel.Name,
+            InitialInput = CloneJsonMap(initialTaskInput),
+            DesignTimeInputOverrides = CloneJsonMap(initialNode.DesignTimeInputOverrides),
+            RuntimeInputOverrides = CloneJsonMap(runtimeOverrides)
+        };
+
+    private static Dictionary<string, JsonElement> CloneJsonMap(
+        IReadOnlyDictionary<string, JsonElement>? values)
+    {
+        if (values is null)
+        {
+            return new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        }
+
+        return values.ToDictionary(
+            entry => entry.Key,
+            entry => entry.Value.Clone(),
+            StringComparer.Ordinal);
     }
 }

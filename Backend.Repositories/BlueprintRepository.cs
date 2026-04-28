@@ -151,6 +151,21 @@ public class BlueprintRepository : IBlueprintRepository
         };
     }
 
+    public async Task<int> GetLatestBlueprintVersionId(
+        int blueprintDefinitionId,
+        CancellationToken cancellationToken)
+    {
+        var versionId = await _context.BlueprintVersions
+            .AsNoTracking()
+            .Where(version => version.BlueprintDefinitionId == blueprintDefinitionId)
+            .OrderByDescending(version => version.Version)
+            .Select(version => (int?)version.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return versionId
+            ?? throw new EntityNotFoundException<BlueprintViewModel>(blueprintDefinitionId);
+    }
+
     public async Task<List<BlueprintViewModel>> GetAllBlueprints(CancellationToken cancellationToken)
     {
         var items = await _context.BlueprintDefinitions

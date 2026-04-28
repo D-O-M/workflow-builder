@@ -9,4 +9,6 @@ public sealed class ProcessStateInitializationOptions
     public string TasksContainerName { get; init; } = "processsteps";
 
     public string ActivationsContainerName { get; init; } = "nodeactivations";
+
+    public string JoinStatesContainerName { get; init; } = "nodejoinstates";
 }

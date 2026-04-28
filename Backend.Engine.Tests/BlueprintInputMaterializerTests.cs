@@ -15,10 +15,12 @@ public class BlueprintInputMaterializerTests
         var result = new PluginExecutionResult(
             Guid.NewGuid(),
             Succeeded: true,
+            EffectiveInputData: null,
             OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
             GlobalState: null,
             DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow,
+            TimingsMs: null,
             ErrorMessage: null);
 
         var payload = PluginExecutionResultSerializer.Serialize(result);

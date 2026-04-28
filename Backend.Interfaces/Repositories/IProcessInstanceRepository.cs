@@ -39,4 +39,8 @@ public interface IProcessInstanceRepository<TGlobalState>
     Task<ProcessInstanceRecord<TGlobalState>> UpdateProcessState(
         ProcessInstanceRecord<TGlobalState> state,
         CancellationToken cancellationToken);
+
+    Task<bool> TryUpdateProcessState(
+        ProcessInstanceRecord<TGlobalState> state,
+        CancellationToken cancellationToken);
 }

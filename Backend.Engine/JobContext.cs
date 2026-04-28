@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -12,6 +13,7 @@ namespace Backend.Engine;
 
 public class JobContext
 {
+    private const int MaxProcessStateUpdateAttempts = 10;
     private static readonly JsonSerializerOptions NormalizedJsonOptions = new(JsonSerializerDefaults.Web)
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -46,9 +48,15 @@ public class JobContext
     public string PluginName => _blueprintNode.Value.Name;
     public string InputChannelName => _blueprintNode.Value.InputChannel.Name;
     public DateTimeOffset? StartedAt { get; set; }
+    public DateTimeOffset? ClaimedAt { get; set; }
+    public DateTimeOffset? PluginQueuedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
+    public InputHydrationPlan? InputHydrationPlan { get; private set; }
+    public IReadOnlyDictionary<string, Dictionary<string, JsonElement>> ProcessNodeOverrides { get; private set; }
+        = new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal);
     public string[] OutputChannelsPopulated { get; set; } = [];
     public ExecutableBlueprintNode BlueprintNode => _blueprintNode.Value;
+    public Activity? ExecutionActivity { get; set; }
 
     public DateTimeOffset ProcessingWindowExpiresAt => _messageContainer.LockedUntil;
 
@@ -72,7 +80,7 @@ public class JobContext
         Guid = job.ProcessStepId;
     }
 
-    public InvocationEnvelope ToInvocationEnvelope() =>
+    public InvocationEnvelope ToInvocationEnvelope(InvocationTelemetryContext? telemetryContext = null) =>
         new(
             ExecutableBlueprintId,
             BlueprintDefinitionId,
@@ -82,7 +90,12 @@ public class JobContext
             TaskDefinitionId,
             ResolvedTaskVersionId,
             BlueprintNode.ResolvedVersion.ToString(),
-            PluginName);
+            PluginName,
+            InputHydrationPlan ?? throw new InvalidOperationException(
+                $"Process step {ProcessStepId} has no input hydration plan."))
+        {
+            TelemetryContext = telemetryContext
+        };
 
     public async Task<bool> ExtendProcessingWindow()
     {
@@ -124,36 +137,35 @@ public class JobContext
     {
         var now = DateTimeOffset.UtcNow;
 
-        var taskState = await _processStepRepository.GetProcessStepById(
+        var (claimed, taskState) = await _processStepRepository.TryClaimProcessStepAsync(
             ProcessStepId,
             ProcessId,
+            TaskDefinitionId,
+            AllowedMajor,
+            AllowedMinor,
+            ResolvedTaskVersionId,
+            BlueprintNode.ResolvedVersion.ToString(),
+            now,
             cancellationToken);
 
-        if (taskState.Status is not ProcessStepStatus.Pending)
+        if (!claimed || taskState is null)
         {
             return (false, false);
         }
 
-        taskState.Status = ProcessStepStatus.InProgress;
-        taskState.TaskDefinitionId = TaskDefinitionId;
-        taskState.AllowedMajor = AllowedMajor;
-        taskState.AllowedMinor = AllowedMinor;
-        taskState.ResolvedTaskVersionId = ResolvedTaskVersionId;
-        taskState.ResolvedTaskVersion = BlueprintNode.ResolvedVersion.ToString();
-        taskState.UpdatedAt = now;
-        taskState.StartedAt ??= now;
-
-        if (!await _processStepRepository.TryUpdateProcessStep(taskState, cancellationToken))
-        {
-            return (false, false);
-        }
+        InputHydrationPlan = taskState.InputHydrationPlan
+            ?? throw new InvalidOperationException(
+                $"Process step {ProcessStepId} has no input hydration plan.");
 
         StartedAt = taskState.StartedAt;
+        ClaimedAt = taskState.StartedAt;
 
         var processState = await _processInstanceRepository.GetProcessStateById(
             ProcessId,
             ExecutableBlueprintId,
             cancellationToken);
+        EnsureExecutionProgress(processState);
+        ProcessNodeOverrides = processState.NodeOverrides;
 
         if (processState.Status is ProcessStatus.Pending)
         {
@@ -184,67 +196,40 @@ public class JobContext
         await _processStepRepository.UpdateProcessStep(taskState, cancellationToken);
     }
 
-    public async Task PersistSuccessAsync(
+    public async Task<bool> PersistSuccessAsync(
+        Dictionary<string, JsonElement>? effectiveInputData,
         Dictionary<string, JsonElement> outputData,
         Dictionary<string, JsonElement>? globalState,
         DateTimeOffset completedAt,
         CancellationToken cancellationToken)
     {
-        var taskState = await _processStepRepository.GetProcessStepById(
+        await _processStepRepository.CompleteProcessStepAsync(
             ProcessStepId,
             ProcessId,
+            effectiveInputData is null ? null : NormalizeJsonMap(effectiveInputData),
+            NormalizeJsonMap(outputData),
+            completedAt,
             cancellationToken);
 
-        taskState.Status = ProcessStepStatus.Completed;
-        taskState.UpdatedAt = completedAt;
-        taskState.CompletedAt = completedAt;
-        taskState.FailedAt = null;
-        taskState.OutputData = NormalizeJsonMap(outputData);
-        await _processStepRepository.UpdateProcessStep(taskState, cancellationToken);
-
-        var processState = await _processInstanceRepository.GetProcessStateById(
-            ProcessId,
-            ExecutableBlueprintId,
-            cancellationToken);
-
-        processState.Status = ProcessStatus.InProgress;
-        processState.UpdatedAt = completedAt;
-        if (globalState is not null)
-        {
-            processState.GlobalState = NormalizeJsonMap(globalState);
-        }
-        await _processInstanceRepository.UpdateProcessState(processState, cancellationToken);
+        return await UpdateProcessStateAfterSuccessAsync(globalState, completedAt, cancellationToken);
     }
 
     public async Task PersistFailureAsync(
+        Dictionary<string, JsonElement>? effectiveInputData,
         Dictionary<string, JsonElement>? globalState,
         string? errorMessage,
         DateTimeOffset failedAt,
         CancellationToken cancellationToken)
     {
-        var taskState = await _processStepRepository.GetProcessStepById(
+        await _processStepRepository.FailProcessStepAsync(
             ProcessStepId,
             ProcessId,
+            effectiveInputData is null ? null : NormalizeJsonMap(effectiveInputData),
+            errorMessage,
+            failedAt,
             cancellationToken);
 
-        taskState.Status = ProcessStepStatus.Failed;
-        taskState.UpdatedAt = failedAt;
-        taskState.FailedAt = failedAt;
-        taskState.ErrorMessage = errorMessage;
-        await _processStepRepository.UpdateProcessStep(taskState, cancellationToken);
-
-        var processState = await _processInstanceRepository.GetProcessStateById(
-            ProcessId,
-            ExecutableBlueprintId,
-            cancellationToken);
-
-        processState.Status = ProcessStatus.Failed;
-        processState.UpdatedAt = failedAt;
-        if (globalState is not null)
-        {
-            processState.GlobalState = NormalizeJsonMap(globalState);
-        }
-        await _processInstanceRepository.UpdateProcessState(processState, cancellationToken);
+        await UpdateProcessStateAfterFailureAsync(globalState, failedAt, cancellationToken);
     }
 
     public async Task CompleteMessageAsync(CancellationToken cancellationToken)
@@ -257,36 +242,87 @@ public class JobContext
         await _messageContainer.AbandonAsync(cancellationToken);
     }
 
-    public async Task<bool> CompleteProcessIfTerminalAsync(CancellationToken cancellationToken)
+    private async Task<bool> UpdateProcessStateAfterSuccessAsync(
+        Dictionary<string, JsonElement>? globalState,
+        DateTimeOffset completedAt,
+        CancellationToken cancellationToken)
     {
-        var steps = await _processStepRepository.GetProcessStepsForProcess(
-            ProcessId,
-            cancellationToken);
-
-        var realSteps = steps
-            .Where(step => Guid.TryParse(step.BlueprintNodeId, out var blueprintNodeId) && blueprintNodeId != Guid.Empty)
-            .ToList();
-
-        if (realSteps.Count != _executableBlueprint.AllNodes.Count ||
-            realSteps.Any(step => step.Status != ProcessStepStatus.Completed))
+        var normalizedGlobalState = globalState is null ? null : NormalizeJsonMap(globalState);
+        for (var attempt = 0; attempt < MaxProcessStateUpdateAttempts; attempt++)
         {
-            return false;
+            var processState = await _processInstanceRepository.GetProcessStateById(
+                ProcessId,
+                ExecutableBlueprintId,
+                cancellationToken);
+
+            EnsureExecutionProgress(processState);
+            if (normalizedGlobalState is not null)
+            {
+                processState.GlobalState = normalizedGlobalState;
+            }
+
+            var wasCompleted = processState.Status is ProcessStatus.Completed;
+            processState.ExecutionProgress.CompletedNodeIds.Add(BlueprintNodeId.ToString());
+            processState.UpdatedAt = completedAt;
+            if (processState.Status is not ProcessStatus.Failed)
+            {
+                processState.Status =
+                    processState.ExecutionProgress.TotalNodeCount > 0 &&
+                    processState.ExecutionProgress.CompletedNodeIds.Count >= processState.ExecutionProgress.TotalNodeCount
+                        ? ProcessStatus.Completed
+                        : ProcessStatus.InProgress;
+            }
+
+            if (await _processInstanceRepository.TryUpdateProcessState(processState, cancellationToken))
+            {
+                return !wasCompleted && processState.Status is ProcessStatus.Completed;
+            }
         }
 
-        var processState = await _processInstanceRepository.GetProcessStateById(
-            ProcessId,
-            ExecutableBlueprintId,
-            cancellationToken);
+        throw new InvalidOperationException(
+            $"Could not update process progress for process {ProcessId} after {MaxProcessStateUpdateAttempts} attempts.");
+    }
 
-        if (processState.Status == ProcessStatus.Completed)
+    private async Task UpdateProcessStateAfterFailureAsync(
+        Dictionary<string, JsonElement>? globalState,
+        DateTimeOffset failedAt,
+        CancellationToken cancellationToken)
+    {
+        var normalizedGlobalState = globalState is null ? null : NormalizeJsonMap(globalState);
+        for (var attempt = 0; attempt < MaxProcessStateUpdateAttempts; attempt++)
         {
-            return false;
+            var processState = await _processInstanceRepository.GetProcessStateById(
+                ProcessId,
+                ExecutableBlueprintId,
+                cancellationToken);
+
+            EnsureExecutionProgress(processState);
+            if (normalizedGlobalState is not null)
+            {
+                processState.GlobalState = normalizedGlobalState;
+            }
+
+            processState.ExecutionProgress.FailedNodeIds.Add(BlueprintNodeId.ToString());
+            processState.Status = ProcessStatus.Failed;
+            processState.UpdatedAt = failedAt;
+
+            if (await _processInstanceRepository.TryUpdateProcessState(processState, cancellationToken))
+            {
+                return;
+            }
         }
 
-        processState.Status = ProcessStatus.Completed;
-        processState.UpdatedAt = CompletedAt ?? DateTimeOffset.UtcNow;
-        await _processInstanceRepository.UpdateProcessState(processState, cancellationToken);
-        return true;
+        throw new InvalidOperationException(
+            $"Could not update failed process progress for process {ProcessId} after {MaxProcessStateUpdateAttempts} attempts.");
+    }
+
+    private void EnsureExecutionProgress(ProcessInstanceRecord<Dictionary<string, JsonElement>> processState)
+    {
+        processState.ExecutionProgress ??= new ProcessExecutionProgress();
+        if (processState.ExecutionProgress.TotalNodeCount <= 0)
+        {
+            processState.ExecutionProgress.TotalNodeCount = _executableBlueprint.AllNodes.Count;
+        }
     }
 
     private static Dictionary<string, JsonElement> NormalizeJsonMap(

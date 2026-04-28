@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using Backend.Plugins.Communication;
 
 namespace Backend.Engine;
@@ -5,7 +7,7 @@ namespace Backend.Engine;
 public class JobManager
 {
     private readonly IAgentManager _agentManager;
-    private readonly Dictionary<Guid, JobContext> _jobs = new();
+    private readonly ConcurrentDictionary<Guid, JobContext> _jobs = new();
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
     private readonly JobFinalizationService _jobFinalizationService;
     private readonly ILogger<JobManager> _logger;
@@ -26,50 +28,88 @@ public class JobManager
         JobContext job,
         CancellationToken cancellationToken)
     {
-        var (stepClaimed, processStarted) = await job.TryMarkInProgressAsync(cancellationToken);
-        if (!stepClaimed)
+        if (!_agentManager.TryAcquireJobSlot(job.ResolvedTaskVersionId))
         {
+            return false;
+        }
+
+        var claimStopwatch = System.Diagnostics.Stopwatch.StartNew();
+        (bool stepClaimed, bool processStarted) claim;
+        try
+        {
+            claim = await job.TryMarkInProgressAsync(cancellationToken);
+        }
+        catch
+        {
+            _agentManager.ReleaseJobSlot(job.ResolvedTaskVersionId);
+            throw;
+        }
+
+        claimStopwatch.Stop();
+        _processLifecycleTelemetry.RecordStepClaim(job, claimStopwatch.Elapsed, claim.stepClaimed);
+        if (!claim.stepClaimed)
+        {
+            _agentManager.ReleaseJobSlot(job.ResolvedTaskVersionId);
             await job.CompleteMessageAsync(cancellationToken);
             return true;
         }
 
-        if (!_agentManager.TryAcquireJobSlot(job.ResolvedTaskVersionId))
+        if (!_jobs.TryAdd(job.Guid, job))
         {
+            _agentManager.ReleaseJobSlot(job.ResolvedTaskVersionId);
             await job.ResetToPendingAsync(cancellationToken);
-            return false;
+            throw new InvalidOperationException($"A job with id '{job.Guid}' is already active.");
         }
 
-        _jobs.Add(job.Guid, job);
-
         bool queued;
+        var pluginQueuedAt = DateTimeOffset.UtcNow;
+        var enqueueStopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var previousActivity = Activity.Current;
+        job.ExecutionActivity = _processLifecycleTelemetry.StartStepActivity(job);
         try
         {
             queued = await _agentManager.GetAgent(job.ResolvedTaskVersionId)
-                .QueueJob(job.ToInvocationEnvelope(), cancellationToken);
+                .QueueJob(
+                    job.ToInvocationEnvelope(
+                        InvocationTelemetryContext.FromActivity(job.ExecutionActivity ?? Activity.Current)),
+                    cancellationToken);
         }
         catch
         {
-            _jobs.Remove(job.Guid);
+            _jobs.TryRemove(job.Guid, out _);
             _agentManager.ReleaseJobSlot(job.ResolvedTaskVersionId);
             await job.ResetToPendingAsync(cancellationToken);
+            _processLifecycleTelemetry.StopStepActivity(job, result: null, exception: null);
             throw;
         }
+        finally
+        {
+            enqueueStopwatch.Stop();
+            Activity.Current = previousActivity;
+        }
+
+        _processLifecycleTelemetry.RecordAgentEnqueue(job, enqueueStopwatch.Elapsed, queued);
 
         if (!queued)
         {
-            _jobs.Remove(job.Guid);
+            _jobs.TryRemove(job.Guid, out _);
             _agentManager.ReleaseJobSlot(job.ResolvedTaskVersionId);
             await job.ResetToPendingAsync(cancellationToken);
+            _processLifecycleTelemetry.StopStepActivity(job, result: null, exception: null);
             return false;
         }
 
+        job.PluginQueuedAt = pluginQueuedAt;
+
+        previousActivity = Activity.Current;
+        Activity.Current = job.ExecutionActivity ?? previousActivity;
         try
         {
             _processLifecycleTelemetry.LogStepStarted(
                 job,
                 job.StartedAt ?? DateTimeOffset.UtcNow);
 
-            if (processStarted)
+            if (claim.processStarted)
             {
                 _processLifecycleTelemetry.LogProcessStarted(
                     job,
@@ -83,6 +123,10 @@ public class JobManager
                 "Queued process step {BlueprintNodeId} for process {ProcessId} but failed to mark it in progress.",
                 job.BlueprintNodeId,
                 job.ProcessId);
+        }
+        finally
+        {
+            Activity.Current = previousActivity;
         }
 
         return true;
@@ -100,12 +144,24 @@ public class JobManager
             return;
         }
 
-        job.StartedAt = executionResult.StartedAt;
-        job.CompletedAt = executionResult.CompletedAt;
-        job.OutputChannelsPopulated = [.. executionResult.OutputData.Keys];
-
+        var previousActivity = Activity.Current;
+        Activity.Current = job.ExecutionActivity ?? previousActivity;
+        Exception? completionException = null;
         try
         {
+            job.StartedAt = executionResult.StartedAt;
+            job.CompletedAt = executionResult.CompletedAt;
+            job.OutputChannelsPopulated = [.. executionResult.OutputData.Keys];
+            if (job.PluginQueuedAt is DateTimeOffset pluginQueuedAt)
+            {
+                _processLifecycleTelemetry.RecordPluginStartDelay(
+                    job,
+                    executionResult.StartedAt - pluginQueuedAt);
+            }
+            _processLifecycleTelemetry.RecordPluginPhaseTimings(job, executionResult.TimingsMs);
+            _processLifecycleTelemetry.RecordRecordedStepDuration(job, executionResult.CompletedAt);
+
+            var finalizationStopwatch = System.Diagnostics.Stopwatch.StartNew();
             if (executionResult.Succeeded)
             {
                 await _jobFinalizationService.FinalizeSuccess(job, executionResult, cancellationToken);
@@ -114,9 +170,12 @@ public class JobManager
             {
                 await _jobFinalizationService.FinalizeFailureAsync(job, executionResult, cancellationToken);
             }
+            finalizationStopwatch.Stop();
+            _processLifecycleTelemetry.RecordFinalization(job, finalizationStopwatch.Elapsed, executionResult.Succeeded);
         }
         catch (Exception ex)
         {
+            completionException = ex;
             _logger.LogError(
                 ex,
                 "Failed to finalize process step {BlueprintNodeId} for process {ProcessId}.",
@@ -137,7 +196,9 @@ public class JobManager
         }
         finally
         {
-            _jobs.Remove(job.Guid);
+            _processLifecycleTelemetry.StopStepActivity(job, executionResult, completionException);
+            Activity.Current = previousActivity;
+            _jobs.TryRemove(job.Guid, out _);
             _agentManager.ReleaseJobSlot(job.ResolvedTaskVersionId);
         }
     }
