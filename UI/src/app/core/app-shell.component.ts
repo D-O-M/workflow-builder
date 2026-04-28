@@ -21,6 +21,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { MatToolbarModule } from '@angular/material/toolbar';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map, startWith } from 'rxjs';
 import { APP_PRIMARY_NAV_ITEMS } from '../domain/app-navigation';
@@ -43,6 +44,7 @@ interface ShellRouteState {
     MatListModule,
     MatSidenavModule,
     MatToolbarModule,
+    MatTooltipModule,
   ],
   templateUrl: './app-shell.component.html',
   styleUrl: './app-shell.component.css',
@@ -70,10 +72,10 @@ export class AppShellComponent {
     this.compactViewport() ? this.mobileSidebarOpen() : true,
   );
   protected readonly navDrawerWidth = computed(() =>
-    this.compactViewport() ? '18rem' : (this.sidebarCollapsed() ? '5.5rem' : '18rem'),
+    this.compactViewport() ? '18rem' : (this.sidebarCollapsed() ? '5.25rem' : '16.5rem'),
   );
   protected readonly contentOffset = computed(() =>
-    this.compactViewport() ? '0px' : (this.sidebarCollapsed() ? '5.5rem' : '18rem'),
+    this.compactViewport() ? '0px' : (this.sidebarCollapsed() ? '5.25rem' : '16.5rem'),
   );
   protected readonly profileInitial = computed(() =>
     this.shellState().title.trim().charAt(0).toUpperCase() || 'W',

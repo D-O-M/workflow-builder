@@ -9,10 +9,7 @@
 
   body {
     font-family: var(--app-font-family);
-    background:
-      radial-gradient(circle at top left, rgba(180, 205, 255, 0.42), transparent 36%),
-      radial-gradient(circle at top right, rgba(198, 229, 255, 0.38), transparent 28%),
-      var(--app-page-accent);
+    background: var(--app-page-accent);
     color: var(--app-text);
   }
 
@@ -46,7 +43,7 @@
 
   .app-page {
     height: 100%;
-    padding: var(--app-space-6);
+    padding: 1.5rem;
     overflow: auto;
   }
 
@@ -58,19 +55,19 @@
   .app-hero-card {
     display: grid;
     gap: var(--app-space-4);
-    padding: var(--app-space-6);
+    padding: var(--app-space-5);
     border-radius: var(--app-radius-large);
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.97), rgba(244, 249, 255, 0.94));
-    border: 1px solid rgba(102, 129, 170, 0.14);
+    background: var(--app-surface);
+    border: 1px solid var(--app-outline);
     box-shadow: var(--app-shadow-1);
   }
 
   .app-hero-card__eyebrow {
     margin: 0;
     color: var(--app-text-muted);
-    font-size: 0.82rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
+    font-size: 0.76rem;
+    font-weight: 760;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
   }
 
@@ -102,8 +99,10 @@
   .app-state-card {
     display: grid;
     place-items: center;
-    min-height: 220px;
-    padding: var(--app-space-6);
+    min-height: 13rem;
+    padding: var(--app-space-5);
+    border-color: var(--app-outline);
+    background: var(--app-surface);
     text-align: center;
     color: var(--app-text-secondary);
   }
@@ -119,8 +118,8 @@
     margin: 0;
     padding: var(--app-space-4);
     border-radius: var(--app-radius-medium);
-    background: #0f1a2f;
-    color: #f4f8ff;
+    background: oklch(22% 0.038 255);
+    color: oklch(96% 0.014 255);
     font-family: var(--app-font-family-mono);
     font-size: 0.88rem;
     line-height: 1.5;
