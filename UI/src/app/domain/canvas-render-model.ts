@@ -29,6 +29,7 @@ import { ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
 export type CanvasDetailTier = 'full' | 'simplified';
 export type CanvasValidationSeverity = 'error' | 'warning';
+type CanvasConnectionSemanticStatus = 'inactive' | 'completed' | 'failed';
 
 export interface CanvasPortConnectivityIndex {
   readonly summaryPortKeys: ReadonlySet<string>;
@@ -78,6 +79,7 @@ export interface CanvasConnectionShade {
   readonly sourceTotal: number;
   readonly variantIndex: number;
   readonly variantTotal: number;
+  readonly semanticStatus?: CanvasConnectionSemanticStatus;
 }
 
 export class RenderedNode {
@@ -658,7 +660,11 @@ export function buildCanvasRenderSnapshot(
       null,
       false,
       laneByConnectionId.get(connection.id) ?? DEFAULT_CONNECTION_LANE,
-      shadeByConnectionId.get(connection.id) ?? DEFAULT_CONNECTION_SHADE,
+      connectionShadeForMode(
+        shadeByConnectionId.get(connection.id) ?? DEFAULT_CONNECTION_SHADE,
+        from.renderStatus,
+        readOnly,
+      ),
     );
     renderedConnections.push(renderedConnection);
     routeValidationErrors.push(...renderedConnection.routeValidationErrors);
@@ -988,6 +994,33 @@ function offsetConnectionShade(shade: CanvasConnectionShade, routeIndex: number)
   };
 }
 
+function connectionShadeForMode(
+  shade: CanvasConnectionShade,
+  sourceStatus: NodeRenderStatus | null,
+  readOnly: boolean,
+): CanvasConnectionShade {
+  if (!readOnly) {
+    return shade;
+  }
+
+  return {
+    ...shade,
+    semanticStatus: connectionSemanticStatusForSource(sourceStatus),
+  };
+}
+
+function connectionSemanticStatusForSource(sourceStatus: NodeRenderStatus | null): CanvasConnectionSemanticStatus {
+  if (sourceStatus === 'Completed') {
+    return 'completed';
+  }
+
+  if (sourceStatus === 'Failed') {
+    return 'failed';
+  }
+
+  return 'inactive';
+}
+
 function applyLaneGroupPositions(
   laneByConnectionId: Map<string, { source?: LaneGroupPosition; target?: LaneGroupPosition }>,
   connections: readonly ConnectionModel[],
@@ -1087,6 +1120,10 @@ function validationConnectionColor(severity: CanvasValidationSeverity, strong: b
 }
 
 function connectionShadeColor(shade: CanvasConnectionShade, focused: boolean, fill: boolean): string {
+  if (shade.semanticStatus) {
+    return connectionSemanticColor(shade.semanticStatus, focused, fill);
+  }
+
   const harmony = connectionSourceHarmony(shade.sourceIndex);
   const variant = connectionMonochromeVariant(shade.variantIndex, shade.variantTotal);
   const baseLightness = fill
@@ -1099,6 +1136,28 @@ function connectionShadeColor(shade: CanvasConnectionShade, focused: boolean, fi
     fill ? 50 : 62,
   );
   return `hsl(${harmony.hue.toFixed(1)} ${saturation}% ${lightness.toFixed(1)}%)`;
+}
+
+function connectionSemanticColor(
+  status: CanvasConnectionSemanticStatus,
+  focused: boolean,
+  fill: boolean,
+): string {
+  if (status === 'completed') {
+    return fill
+      ? (focused ? '#027a48' : '#039855')
+      : (focused ? '#039855' : '#12b76a');
+  }
+
+  if (status === 'failed') {
+    return fill
+      ? (focused ? '#b42318' : '#d92d20')
+      : (focused ? '#d92d20' : '#f04438');
+  }
+
+  return fill
+    ? (focused ? '#475467' : '#64748b')
+    : (focused ? '#64748b' : '#94a3b8');
 }
 
 function connectionSourceHarmony(index: number): { hue: number; saturation: number } {

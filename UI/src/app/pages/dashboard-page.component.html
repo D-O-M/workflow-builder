@@ -1,49 +1,71 @@
 <section class="app-page dashboard-page">
-  <div class="app-page-grid">
-    <mat-card class="app-hero-card dashboard-page__hero" appearance="outlined">
-      <div class="dashboard-page__hero-copy">
-        <p class="app-hero-card__eyebrow">Observability Overview</p>
-        <h2>Process health at a glance</h2>
-        <p class="app-section-support">
-          A quick read on process outcomes, recent processes, and node-level reliability across the selected window.
-        </p>
+  <div class="dashboard-page__shell">
+    <mat-card class="dashboard-command-bar" appearance="outlined">
+      <div class="dashboard-command-bar__header">
+        <div class="dashboard-command-bar__copy">
+          <p class="app-hero-card__eyebrow">Dashboard</p>
+          <h2>Operational process health</h2>
+          <p class="app-section-support">
+            Monitor terminal process outcomes, recent failures, and step reliability across the selected window.
+          </p>
+        </div>
+
+        <div class="dashboard-command-bar__actions" aria-label="Observability shortcuts">
+          <a mat-button [href]="grafanaLogsUrl()" target="_blank" rel="noreferrer">
+            <mat-icon>travel_explore</mat-icon>
+            Logs
+          </a>
+          <a mat-button [href]="grafanaTraceUrl()" target="_blank" rel="noreferrer">
+            <mat-icon>timeline</mat-icon>
+            Trace Explore
+          </a>
+        </div>
       </div>
 
-      <div class="dashboard-page__hero-actions">
-        <a mat-stroked-button [href]="grafanaLogsUrl()" target="_blank" rel="noreferrer">
-          <mat-icon>travel_explore</mat-icon>
-          Logs
-        </a>
-        <a mat-stroked-button [href]="grafanaTraceUrl()" target="_blank" rel="noreferrer">
-          <mat-icon>timeline</mat-icon>
-          Trace Explore
-        </a>
-      </div>
+      <div class="dashboard-command-bar__controls">
+        <div class="dashboard-filter-control dashboard-filter-control--window">
+          <div class="dashboard-filter-control__label">
+            <mat-icon aria-hidden="true">schedule</mat-icon>
+            <span>Window</span>
+          </div>
+          <div class="dashboard-filter-control__body">
+            <mat-button-toggle-group
+              hideSingleSelectionIndicator
+              [value]="observabilityWindow()"
+              aria-label="Observability window"
+              (change)="selectWindow($event.value)"
+            >
+              @for (window of windowPresets; track window) {
+                <mat-button-toggle [value]="window">{{ window }}</mat-button-toggle>
+              }
+            </mat-button-toggle-group>
+          </div>
+        </div>
 
-      <div class="dashboard-page__filters">
-        <mat-button-toggle-group
-          hideSingleSelectionIndicator
-          [value]="observabilityWindow()"
-          aria-label="Observability window"
-          (change)="selectWindow($event.value)"
-        >
-          @for (window of windowPresets; track window) {
-            <mat-button-toggle [value]="window">{{ window }}</mat-button-toggle>
-          }
-        </mat-button-toggle-group>
+        <div class="dashboard-filter-control dashboard-filter-control--blueprint">
+          <div class="dashboard-filter-control__label">
+            <mat-icon aria-hidden="true">account_tree</mat-icon>
+            <span>Blueprint</span>
+          </div>
+          <div class="dashboard-filter-control__body dashboard-filter-control__body--blueprint">
+            <mat-form-field class="dashboard-blueprint-field" appearance="outline" subscriptSizing="dynamic">
+              <mat-select
+                aria-label="Blueprint filter"
+                [value]="selectedBlueprintId() ?? ''"
+                (selectionChange)="selectBlueprint($event.value)"
+              >
+                <mat-option value="">All blueprints</mat-option>
+                @for (blueprint of blueprints(); track trackBlueprint($index, blueprint)) {
+                  <mat-option [value]="blueprint.id">{{ blueprint.name }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
 
-        <mat-form-field appearance="outline">
-          <mat-label>Blueprint filter</mat-label>
-          <mat-select
-            [value]="selectedBlueprintId() ?? ''"
-            (selectionChange)="selectBlueprint($event.value)"
-          >
-            <mat-option value="">All blueprints</mat-option>
-            @for (blueprint of blueprints(); track trackBlueprint($index, blueprint)) {
-              <mat-option [value]="blueprint.id">{{ blueprint.name }}</mat-option>
+            @if (selectedBlueprint()) {
+              <button class="dashboard-clear-filter" mat-button type="button" (click)="clearBlueprint()">Clear filter</button>
             }
-          </mat-select>
-        </mat-form-field>
+          </div>
+        </div>
       </div>
 
       @if (observabilityLoading()) {
@@ -66,60 +88,99 @@
         </div>
       </mat-card>
     } @else {
-      <div class="dashboard-page__grid">
+      <div class="dashboard-kpi-strip" aria-label="Process outcome summary">
+        <article class="dashboard-health-tile" [ngClass]="processHealthClass()">
+          <div>
+            <span>Current health</span>
+            <strong>{{ processHealthLabel() }}</strong>
+            <small>
+              {{ processSummary()?.totalCount ?? 0 }} terminal processes · {{ observabilityWindow() }} window
+            </small>
+          </div>
+
+          <div class="dashboard-health-tile__score">
+            <strong>{{ processSuccessPercent() }}%</strong>
+            <span>success</span>
+          </div>
+
+          <div class="dashboard-outcome-bar" [class.dashboard-outcome-bar--empty]="(processSummary()?.totalCount ?? 0) === 0">
+            <span
+              class="dashboard-outcome-bar__success"
+              [style.width.%]="processSuccessPercent()"
+            ></span>
+            <span
+              class="dashboard-outcome-bar__failure"
+              [style.width.%]="processFailurePercent()"
+            ></span>
+          </div>
+        </article>
+
+        <div class="dashboard-kpi-cluster">
+          <article class="dashboard-kpi dashboard-kpi--success">
+            <mat-icon class="dashboard-kpi__icon" aria-hidden="true">check_circle</mat-icon>
+            <span>Succeeded</span>
+            <strong>{{ processSummary()?.successfulCount ?? 0 }}</strong>
+          </article>
+
+          <article class="dashboard-kpi dashboard-kpi--failed">
+            <mat-icon class="dashboard-kpi__icon" aria-hidden="true">error</mat-icon>
+            <span>Failed</span>
+            <strong>{{ processSummary()?.failedCount ?? 0 }}</strong>
+          </article>
+
+          <article class="dashboard-kpi">
+            <mat-icon class="dashboard-kpi__icon" aria-hidden="true">timeline</mat-icon>
+            <span>Total</span>
+            <strong>{{ processSummary()?.totalCount ?? 0 }}</strong>
+          </article>
+        </div>
+      </div>
+
+      <div class="dashboard-page__content-grid">
         <mat-card class="dashboard-card dashboard-card--outcome" appearance="outlined">
           <div class="app-section-heading">
-            <div>
-              <p class="app-hero-card__eyebrow">Process Outcome</p>
-              <h3>Success vs failure</h3>
+            <div class="dashboard-section-heading__title">
+              <mat-icon class="dashboard-section-heading__icon" aria-hidden="true">donut_large</mat-icon>
+              <div>
+                <p class="app-hero-card__eyebrow">Outcome Mix</p>
+                <h3>Success vs failure</h3>
+              </div>
             </div>
-
-            @if (selectedBlueprint()) {
-              <button mat-button type="button" (click)="clearBlueprint()">Clear filter</button>
-            }
+            <mat-chip class="status-chip" [ngClass]="processHealthClass()">
+              {{ processHealthLabel() }}
+            </mat-chip>
           </div>
 
           <mat-divider />
 
-          <div class="dashboard-card__body dashboard-card__body--split">
-            <div
-              class="dashboard-donut"
-              [style.background]="donutBackground(processSummary()?.successfulCount ?? 0, processSummary()?.failedCount ?? 0)"
-            >
-              <strong>{{ processSuccessPercent() }}%</strong>
-              <span>Success</span>
+          <div class="dashboard-outcome-breakdown">
+            <div class="dashboard-outcome-bar dashboard-outcome-bar--large" [class.dashboard-outcome-bar--empty]="(processSummary()?.totalCount ?? 0) === 0">
+              <span
+                class="dashboard-outcome-bar__success"
+                [style.width.%]="processSuccessPercent()"
+              ></span>
+              <span
+                class="dashboard-outcome-bar__failure"
+                [style.width.%]="processFailurePercent()"
+              ></span>
             </div>
 
-            <div class="dashboard-metric-list">
-              <div class="dashboard-metric-list__item">
-                <span>Succeeded</span>
-                <strong>{{ processSummary()?.successfulCount ?? 0 }}</strong>
-              </div>
-              <div class="dashboard-metric-list__item">
-                <span>Failed</span>
-                <strong>{{ processSummary()?.failedCount ?? 0 }}</strong>
-              </div>
-              <div class="dashboard-metric-list__item">
-                <span>Total terminal processes</span>
-                <strong>{{ processSummary()?.totalCount ?? 0 }}</strong>
-              </div>
+            <div class="dashboard-outcome-counts">
+              <span><strong>{{ processSummary()?.successfulCount ?? 0 }}</strong> succeeded</span>
+              <span><strong>{{ processSummary()?.failedCount ?? 0 }}</strong> failed</span>
+              <span><strong>{{ processSummary()?.totalCount ?? 0 }}</strong> total</span>
             </div>
           </div>
-
-          <mat-chip-set class="dashboard-chip-set">
-            <mat-chip class="status-chip status-chip--success">Succeeded</mat-chip>
-            <mat-chip class="status-chip status-chip--failed">Failed</mat-chip>
-            <mat-chip class="status-chip status-chip--neutral">
-              {{ processSummary()?.totalCount ?? 0 }} total
-            </mat-chip>
-          </mat-chip-set>
         </mat-card>
 
         <mat-card class="dashboard-card dashboard-card--runs" appearance="outlined">
           <div class="app-section-heading">
-            <div>
-              <p class="app-hero-card__eyebrow">Recent Processes</p>
-              <h3>Latest terminal processes</h3>
+            <div class="dashboard-section-heading__title">
+              <mat-icon class="dashboard-section-heading__icon" aria-hidden="true">history</mat-icon>
+              <div>
+                <p class="app-hero-card__eyebrow">Recent Processes</p>
+                <h3>Latest terminal processes</h3>
+              </div>
             </div>
 
             <a mat-button [routerLink]="['/processes']" [queryParams]="historyQueryParams()">
@@ -135,42 +196,63 @@
               <p>No recent processes are available in the selected window yet.</p>
             </div>
           } @else {
-            <mat-list class="dashboard-process-list">
+            <div class="dashboard-process-list">
               @for (process of recentProcesses(); track trackRecentProcess($index, process)) {
                 <a
-                  mat-list-item
-                  class="dashboard-process-list__item"
+                  class="dashboard-process-row"
+                  [class.dashboard-process-row--failed]="process.status === 'Failed'"
                   [routerLink]="['/processes']"
                   [queryParams]="{ blueprintId: process.blueprintDefinitionId, processId: process.processId }"
                 >
-                  <div matListItemTitle class="dashboard-process-list__title">
-                    <strong [title]="process.processId">{{ shortenProcessId(process.processId) }}</strong>
-                    <mat-chip class="status-chip" [ngClass]="recentProcessStatusClass(process.status)">
-                      {{ recentProcessStatusLabel(process.status) }}
-                    </mat-chip>
+                  <div class="dashboard-process-row__main">
+                    <div class="dashboard-process-row__title">
+                      <strong [title]="process.processId">{{ shortenProcessId(process.processId) }}</strong>
+                      <mat-chip class="status-chip" [ngClass]="recentProcessStatusClass(process.status)">
+                        {{ recentProcessStatusLabel(process.status) }}
+                      </mat-chip>
+                    </div>
+                    <span class="dashboard-process-row__blueprint" [title]="process.blueprintName">
+                      {{ process.blueprintName }}
+                    </span>
+                    @if (failedProcessDetail(process); as failureDetail) {
+                      <p class="dashboard-process-row__failure" [title]="failureDetail">
+                        <mat-icon aria-hidden="true">error</mat-icon>
+                        <span>{{ failureDetail }}</span>
+                      </p>
+                    }
                   </div>
-                  <div matListItemLine>
-                    {{ process.blueprintName }} · Version {{ process.blueprintVersionNumber }}
+
+                  <div class="dashboard-process-row__meta">
+                    <span>Version {{ process.blueprintVersionNumber }}</span>
+                    <time [attr.datetime]="process.occurredAt">
+                      {{ process.occurredAt | date: 'yyyy-MM-dd HH:mm:ss' }}
+                    </time>
                   </div>
-                  <div matListItemLine>
-                    {{ process.occurredAt | date: 'yyyy-MM-dd HH:mm:ss' }}
-                  </div>
-                  <mat-icon matListItemMeta>arrow_outward</mat-icon>
+
+                  <mat-icon aria-hidden="true">arrow_outward</mat-icon>
                 </a>
               }
-            </mat-list>
+            </div>
           }
         </mat-card>
 
-        <mat-card class="dashboard-card dashboard-card--nodes" appearance="outlined">
+        <mat-card class="dashboard-card dashboard-card--steps" appearance="outlined">
           <div class="app-section-heading">
-            <div>
-              <p class="app-hero-card__eyebrow">Node Outcomes</p>
-              <h3>{{ selectedBlueprint() ? selectedBlueprint()!.name : 'Select a blueprint to inspect nodes' }}</h3>
-              <p class="app-section-support">
-                Success and failure rates per blueprint node for the current time window.
-              </p>
+            <div class="dashboard-section-heading__title">
+              <mat-icon class="dashboard-section-heading__icon" aria-hidden="true">schema</mat-icon>
+              <div>
+                <p class="app-hero-card__eyebrow">Step Reliability</p>
+                <h3>{{ selectedBlueprint() ? selectedBlueprint()!.name : 'Select a blueprint to inspect steps' }}</h3>
+                <p class="app-section-support">
+                  Success and failure rates per blueprint step for the current time window.
+                </p>
+              </div>
             </div>
+            @if (selectedBlueprint() && nodeSummary() && nodeSummary()!.nodes.length > 0) {
+              <mat-chip class="status-chip dashboard-step-summary-chip">
+                {{ stepReliabilitySummary() }}
+              </mat-chip>
+            }
           </div>
 
           <mat-divider />
@@ -178,32 +260,47 @@
           @if (!selectedBlueprint()) {
             <div class="dashboard-card__empty">
               <mat-icon>account_tree</mat-icon>
-              <p>Select a blueprint above to view node-level success rates and recent reliability.</p>
+              <p>Select a blueprint above to view step-level success rates and recent reliability.</p>
             </div>
           } @else if (!nodeSummary() || nodeSummary()!.nodes.length === 0) {
             <div class="dashboard-card__empty">
               <mat-icon>analytics</mat-icon>
-              <p>No node outcomes are available for the selected blueprint and time window yet.</p>
+              <p>No step outcomes are available for the selected blueprint and time window yet.</p>
             </div>
           } @else {
-            <div class="dashboard-node-grid">
-              @for (node of nodeSummary()!.nodes; track node.blueprintNodeId) {
-                <mat-card class="dashboard-node-card" appearance="outlined">
+            <div class="dashboard-step-grid">
+              @for (node of rankedStepNodes(); track node.blueprintNodeId) {
+                <article
+                  class="dashboard-step-row"
+                  [class.dashboard-step-row--attention]="node.failedCount > 0"
+                  [class.dashboard-step-row--empty]="node.totalCount === 0"
+                >
                   <div
                     class="dashboard-donut dashboard-donut--small"
+                    [class.dashboard-donut--empty]="node.totalCount === 0"
                     [style.background]="donutBackground(node.successfulCount, node.failedCount)"
                   >
                     <strong>{{ nodeSuccessPercent(node.successRate, node.totalCount) }}%</strong>
                   </div>
 
-                  <div class="dashboard-node-card__copy">
-                    <strong>{{ node.taskName }}</strong>
-                    <mat-chip class="status-chip" [ngClass]="nodeHealthClass(node)">
-                      {{ nodeHealthLabel(node) }}
-                    </mat-chip>
+                  <div class="dashboard-step-row__copy">
+                    <div class="dashboard-step-row__heading">
+                      <strong [title]="node.taskName">{{ node.taskName }}</strong>
+                      <mat-chip class="status-chip" [ngClass]="nodeHealthClass(node)">
+                        {{ nodeHealthLabel(node) }}
+                      </mat-chip>
+                    </div>
+
+                    <div class="dashboard-step-row__meter" aria-hidden="true">
+                      <span
+                        class="dashboard-step-row__meter-success"
+                        [style.width.%]="node.totalCount === 0 ? 0 : nodeSuccessPercent(node.successRate, node.totalCount)"
+                      ></span>
+                    </div>
+
                     <p>{{ node.successfulCount }} success · {{ node.failedCount }} failed</p>
                   </div>
-                </mat-card>
+                </article>
               }
             </div>
           }

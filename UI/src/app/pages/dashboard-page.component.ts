@@ -15,7 +15,6 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatListModule } from '@angular/material/list';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
@@ -47,6 +46,15 @@ interface DashboardObservabilityData {
   nodeSummary: NodeObservabilitySummaryViewModel | null;
 }
 
+type DashboardStepSummary = NodeObservabilitySummaryViewModel['nodes'][number];
+
+interface StepReliabilityCounts {
+  failing: number;
+  degraded: number;
+  healthy: number;
+  idle: number;
+}
+
 @Component({
   selector: 'app-dashboard-page',
   imports: [
@@ -60,7 +68,6 @@ interface DashboardObservabilityData {
     MatDividerModule,
     MatFormFieldModule,
     MatIconModule,
-    MatListModule,
     MatProgressBarModule,
     MatProgressSpinnerModule,
     MatSelectModule,
@@ -136,6 +143,57 @@ export class DashboardPageComponent {
     const state = this.observabilityState();
     return isReadyRequestState(state) ? state.data.nodeSummary : null;
   });
+  protected readonly rankedStepNodes = computed<DashboardStepSummary[]>(() =>
+    [...(this.nodeSummary()?.nodes ?? [])].sort((left, right) => {
+      const rankDifference = this.nodeHealthRank(left) - this.nodeHealthRank(right);
+      if (rankDifference !== 0) {
+        return rankDifference;
+      }
+
+      const failureDifference = right.failedCount - left.failedCount;
+      if (failureDifference !== 0) {
+        return failureDifference;
+      }
+
+      return left.taskName.localeCompare(right.taskName);
+    }),
+  );
+  protected readonly stepReliabilityCounts = computed<StepReliabilityCounts>(() =>
+    this.rankedStepNodes().reduce<StepReliabilityCounts>((counts, node) => {
+      switch (this.nodeHealthRank(node)) {
+        case 0:
+          counts.failing += 1;
+          break;
+        case 1:
+          counts.degraded += 1;
+          break;
+        case 2:
+          counts.healthy += 1;
+          break;
+        default:
+          counts.idle += 1;
+          break;
+      }
+
+      return counts;
+    }, {
+      failing: 0,
+      degraded: 0,
+      healthy: 0,
+      idle: 0,
+    }),
+  );
+  protected readonly stepReliabilitySummary = computed(() => {
+    const counts = this.stepReliabilityCounts();
+    const parts = [
+      this.formatStepCount(counts.failing, 'failing'),
+      this.formatStepCount(counts.degraded, 'degraded'),
+      this.formatStepCount(counts.healthy, 'healthy'),
+      this.formatStepCount(counts.idle, 'idle'),
+    ].filter((part): part is string => part !== null);
+
+    return parts.length > 0 ? parts.join(' · ') : 'No step outcomes';
+  });
   protected readonly recentProcesses = computed<RecentProcessViewModel[]>(() => {
     const state = this.observabilityState();
     return isReadyRequestState(state) ? state.data.recentProcesses : [];
@@ -205,12 +263,59 @@ export class DashboardPageComponent {
     return Math.round((summary.successfulCount / summary.totalCount) * 100);
   }
 
+  protected processFailurePercent(): number {
+    const summary = this.processSummary();
+    if (!summary || summary.totalCount === 0) {
+      return 0;
+    }
+
+    return Math.round((summary.failedCount / summary.totalCount) * 100);
+  }
+
+  protected processHealthLabel(): string {
+    const summary = this.processSummary();
+    if (!summary || summary.totalCount === 0) {
+      return 'No terminal processes';
+    }
+
+    if (summary.failedCount === 0) {
+      return 'Healthy';
+    }
+
+    if (summary.successfulCount === 0) {
+      return 'Failing';
+    }
+
+    return 'Mixed outcome';
+  }
+
+  protected processHealthClass(): string {
+    const summary = this.processSummary();
+    if (!summary || summary.totalCount === 0) {
+      return 'dashboard-health--idle';
+    }
+
+    if (summary.failedCount === 0) {
+      return 'dashboard-health--success';
+    }
+
+    if (summary.successfulCount === 0) {
+      return 'dashboard-health--failed';
+    }
+
+    return 'dashboard-health--mixed';
+  }
+
   protected nodeSuccessPercent(successRate: number, totalCount: number): number {
     return totalCount === 0 ? 0 : Math.round(successRate * 100);
   }
 
   protected donutBackground(successfulCount: number, failedCount: number): string {
     const total = successfulCount + failedCount;
+    if (total === 0) {
+      return 'conic-gradient(rgba(102, 129, 170, 0.24) 0 100%)';
+    }
+
     const successPercent = total === 0 ? 0 : (successfulCount / total) * 100;
     return `conic-gradient(#12b76a 0 ${successPercent}%, rgba(217, 45, 32, 0.88) ${successPercent}% 100%)`;
   }
@@ -233,16 +338,25 @@ export class DashboardPageComponent {
   protected recentProcessStatusClass(status: string): string {
     switch (status) {
       case 'Completed':
-        return 'dashboard-status--success';
+        return 'status-chip--success';
       case 'Failed':
-        return 'dashboard-status--failed';
+        return 'status-chip--failed';
       case 'InProgress':
-        return 'dashboard-status--running';
+        return 'status-chip--running';
       case 'Pending':
-        return 'dashboard-status--pending';
+        return 'status-chip--pending';
       default:
-        return 'dashboard-status--unknown';
+        return 'status-chip--neutral';
     }
+  }
+
+  protected failedProcessDetail(process: RecentProcessViewModel): string | null {
+    if (process.status !== 'Failed') {
+      return null;
+    }
+
+    const failureMessage = process.failureMessage?.trim();
+    return failureMessage && failureMessage.length > 0 ? failureMessage : null;
   }
 
   protected shortenProcessId(processId: string): string {
@@ -253,9 +367,9 @@ export class DashboardPageComponent {
     return `${processId.slice(0, 8)}...${processId.slice(-4)}`;
   }
 
-  protected nodeHealthLabel(node: NodeObservabilitySummaryViewModel['nodes'][number]): string {
+  protected nodeHealthLabel(node: DashboardStepSummary): string {
     if (node.totalCount === 0) {
-      return 'No processes yet';
+      return 'Idle';
     }
 
     if (node.failedCount === 0) {
@@ -269,7 +383,7 @@ export class DashboardPageComponent {
     return 'Degraded';
   }
 
-  protected nodeHealthClass(node: NodeObservabilitySummaryViewModel['nodes'][number]): string {
+  protected nodeHealthClass(node: DashboardStepSummary): string {
     if (node.totalCount === 0) {
       return 'node-health--idle';
     }
@@ -283,6 +397,26 @@ export class DashboardPageComponent {
     }
 
     return 'node-health--degraded';
+  }
+
+  protected nodeHealthRank(node: DashboardStepSummary): number {
+    if (node.totalCount === 0) {
+      return 3;
+    }
+
+    if (node.successfulCount === 0 && node.failedCount > 0) {
+      return 0;
+    }
+
+    if (node.failedCount > 0) {
+      return 1;
+    }
+
+    return 2;
+  }
+
+  private formatStepCount(count: number, label: string): string | null {
+    return count > 0 ? `${count} ${label}` : null;
   }
 
   protected trackBlueprint(_: number, blueprint: BlueprintViewModel): number {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LANE_CENTER_SPACING, buildCanvasRenderSnapshot } from './canvas-render-model';
 import { ConnectionModel } from './connection-model';
-import { NodeModel } from './node-model';
+import { NodeModel, NodeRenderStatus } from './node-model';
 import { PathfinderOptions } from './pathfinder';
 import { createCanvasPerformanceFixture } from './canvas-performance-fixtures';
 
@@ -15,6 +15,7 @@ function createNode(
   options?: {
     width?: number;
     height?: number;
+    renderStatus?: NodeRenderStatus | null;
     inputProperties?: Record<string, 'String' | 'Integer' | 'Decimal' | 'Boolean' | 'Guid' | 'Date' | 'DateTime' | 'Enum'>;
     outputProperties?: Record<string, Record<string, 'String' | 'Integer' | 'Decimal' | 'Boolean' | 'Guid' | 'Date' | 'DateTime' | 'Enum'>>;
   },
@@ -34,7 +35,7 @@ function createNode(
     options?.inputProperties ? 'Input' : null,
     Object.keys(options?.outputProperties ?? {}),
     false,
-    null,
+    options?.renderStatus ?? null,
     null,
     options?.inputProperties ?? {},
     options?.outputProperties ?? {},
@@ -474,6 +475,71 @@ describe('buildCanvasRenderSnapshot', () => {
     expect(snapshot.connectionById.get('other')!.routes.map((route) => route.shade.variantIndex)).toEqual([0]);
     expect(snapshot.connectionById.get('mapped')!.routes.map((route) => route.shade.variantTotal)).toEqual([3, 3]);
     expect(snapshot.connectionById.get('other')!.routes.map((route) => route.shade.variantTotal)).toEqual([1]);
+  });
+
+  it('maps readonly process connection shades from the source step status', () => {
+    const cases: readonly { sourceStatus: NodeRenderStatus | null; expected: 'inactive' | 'completed' | 'failed' }[] = [
+      { sourceStatus: 'Completed', expected: 'completed' },
+      { sourceStatus: 'Failed', expected: 'failed' },
+      { sourceStatus: 'NotExecuted', expected: 'inactive' },
+      { sourceStatus: 'Pending', expected: 'inactive' },
+      { sourceStatus: 'InProgress', expected: 'inactive' },
+      { sourceStatus: null, expected: 'inactive' },
+    ];
+
+    for (const { sourceStatus, expected } of cases) {
+      const source = createNode(1, `Source ${sourceStatus ?? 'unknown'}`, 0, 0, {
+        renderStatus: sourceStatus,
+        outputProperties: {
+          Success: {
+            town: 'String',
+          },
+        },
+      });
+      const destination = createNode(2, 'Destination', 520, 0, {
+        inputProperties: {
+          town: 'String',
+        },
+      });
+      const connection = new ConnectionModel(
+        source,
+        destination,
+        0,
+        'left',
+        62,
+        `connection-${sourceStatus ?? 'unknown'}`,
+        [{ sourceProperty: 'town', targetProperty: 'town' }],
+      );
+
+      const snapshot = buildCanvasRenderSnapshot([source, destination], [connection], new Map(), 'full', opts, true);
+
+      expect(snapshot.connections[0]?.routes.map((route) => route.shade.semanticStatus)).toEqual([expected]);
+    }
+  });
+
+  it('keeps edit-mode builder connection shades free of process semantic status', () => {
+    const source = createNode(1, 'Source', 0, 0, {
+      renderStatus: 'Completed',
+      outputProperties: {
+        Success: {
+          town: 'String',
+        },
+      },
+    });
+    const destination = createNode(2, 'Destination', 520, 0, {
+      inputProperties: {
+        town: 'String',
+      },
+    });
+    const connection = new ConnectionModel(source, destination, 0, 'left', 62, 'connection-1', [
+      { sourceProperty: 'town', targetProperty: 'town' },
+    ]);
+
+    const snapshot = buildCanvasRenderSnapshot([source, destination], [connection], new Map(), 'full', opts, false);
+
+    expect(snapshot.connections[0]?.routes.map((route) => route.shade.semanticStatus)).toEqual([undefined]);
+    expect(snapshot.connections[0]?.routes.map((route) => route.shade.sourceIndex)).toEqual([0]);
+    expect(snapshot.connections[0]?.routes.map((route) => route.shade.variantIndex)).toEqual([0]);
   });
 
   it('assigns lanes to multiple inbound connections sharing the same target input', () => {
