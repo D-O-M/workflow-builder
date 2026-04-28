@@ -120,7 +120,7 @@ describe('NodeModel layout caching', () => {
     expect(node.layoutForState(false)).not.toBe(node.layoutForState(true));
   });
 
-  it('places channel summary docks outside the node while keeping them aligned to their channels', () => {
+  it('centers channel summary sockets on the node edge while keeping them aligned to their channels', () => {
     const node = createNode(1, 'Join', 100, 80, {
       inputProperties: { town: 'String' },
       outputProperties: {
@@ -133,11 +133,12 @@ describe('NodeModel layout caching', () => {
     const firstOutput = layout.outputSections[0]!;
     const secondOutput = layout.outputSections[1]!;
 
-    expect(inputSection.summaryPort.x).toBeLessThan(node.x);
+    expect(inputSection.summaryPort.x).toBe(node.x);
     expect(inputSection.summaryPort.visualBounds!.x).toBeLessThan(node.x);
+    expect(inputSection.summaryPort.visualBounds!.x + inputSection.summaryPort.visualBounds!.width).toBeGreaterThan(node.x);
     expect(inputSection.summaryPort.y).toBe(inputSection.headerTop + inputSection.headerHeight / 2);
 
-    expect(firstOutput.summaryPort.x).toBeGreaterThan(node.x + node.width);
+    expect(firstOutput.summaryPort.x).toBe(node.x + node.width);
     expect(firstOutput.summaryPort.visualBounds!.x).toBeLessThan(node.x + node.width);
     expect(firstOutput.summaryPort.visualBounds!.x + firstOutput.summaryPort.visualBounds!.width).toBeGreaterThan(node.x + node.width);
     expect(firstOutput.summaryPort.y).toBe(firstOutput.headerTop + firstOutput.headerHeight / 2);
@@ -316,7 +317,7 @@ describe('buildCanvasRenderSnapshot', () => {
     expect(snapshot.portConnectivity.propertyPortKeys.has('3:left:Input:town')).toBe(false);
   });
 
-  it('indexes and hit-tests exterior channel docks as node interaction areas', () => {
+  it('indexes and hit-tests edge channel sockets as node interaction areas', () => {
     const source = createNode(1, 'Source', 0, 0, {
       outputProperties: {
         Success: {
@@ -326,15 +327,15 @@ describe('buildCanvasRenderSnapshot', () => {
     });
     const snapshot = buildCanvasRenderSnapshot([source], [], new Map(), 'full', opts, false);
     const renderedSource = snapshot.nodeById.get(1)!;
-    const dock = renderedSource.layout.outputSections[0]!.summaryPort;
+    const socket = renderedSource.layout.outputSections[0]!.summaryPort;
 
-    expect(renderedSource.contains(dock.x, dock.y)).toBe(false);
-    expect(renderedSource.containsInteractionPoint(dock.x, dock.y)).toBe(true);
-    expect(renderedSource.portHit(dock.x, dock.y, 0)?.key).toBe(dock.key);
-    expect(snapshot.queryNodesAtPoint(dock.x, dock.y).map((node) => node.id)).toContain(1);
+    expect(renderedSource.contains(socket.x, socket.y)).toBe(true);
+    expect(renderedSource.containsInteractionPoint(socket.x, socket.y)).toBe(true);
+    expect(renderedSource.portHit(socket.x, socket.y, 0)?.key).toBe(socket.key);
+    expect(snapshot.queryNodesAtPoint(socket.x, socket.y).map((node) => node.id)).toContain(1);
   });
 
-  it('routes connections to the exterior dock coordinates', () => {
+  it('routes connections to the edge socket coordinates', () => {
     const source = createNode(1, 'Source', 0, 0, {
       outputProperties: {
         Success: {
@@ -354,18 +355,18 @@ describe('buildCanvasRenderSnapshot', () => {
     const snapshot = buildCanvasRenderSnapshot([source, destination], [connection], new Map(), 'full', opts, false);
     const renderedSource = snapshot.nodeById.get(1)!;
     const renderedDestination = snapshot.nodeById.get(2)!;
-    const sourceDock = renderedSource.outputSummaryPort(0)!;
-    const destinationDock = renderedDestination.inputSummaryPort()!;
+    const sourceSocket = renderedSource.outputSummaryPort(0)!;
+    const destinationSocket = renderedDestination.inputSummaryPort()!;
     const route = snapshot.connectionById.get('connection-1')!.routes[0]!;
     const first = route.segments[0]!;
     const last = route.segments[route.segments.length - 1]!;
 
-    expect(sourceDock.x).toBeGreaterThan(renderedSource.x + renderedSource.width);
-    expect(destinationDock.x).toBeLessThan(renderedDestination.x);
-    expect(first.x1).toBe(sourceDock.x);
-    expect(first.y1).toBe(sourceDock.y);
-    expect(last.x2).toBe(destinationDock.x);
-    expect(last.y2).toBe(destinationDock.y);
+    expect(sourceSocket.x).toBe(renderedSource.x + renderedSource.width);
+    expect(destinationSocket.x).toBe(renderedDestination.x);
+    expect(first.x1).toBe(sourceSocket.x);
+    expect(first.y1).toBe(sourceSocket.y);
+    expect(last.x2).toBe(destinationSocket.x);
+    expect(last.y2).toBe(destinationSocket.y);
     expect(route.startSide).toBe('right');
     expect(route.side).toBe('left');
     expect(route.status).toBe('clear');

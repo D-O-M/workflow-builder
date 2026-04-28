@@ -142,6 +142,7 @@ function createBlueprintVersion(blueprintDefinitionId: number, version: number):
     blueprintVersionId: blueprintDefinitionId * 100 + version,
     description: null,
     version,
+    createdAt: '2026-04-28T12:00:00Z',
     startingBlueprintNodeId: 'node-1',
     tasks: [],
   };
@@ -480,6 +481,12 @@ describe('BlueprintEditorPageComponent', () => {
     expect((component as any).selectedBlueprintVersion().version).toBe(4);
   });
 
+  it('formats blueprint version creation dates as day month year', () => {
+    const version = createBlueprintVersion(7, 4);
+
+    expect((component as any).formatBlueprintVersionCreatedDate(version)).toBe('28/04/2026');
+  });
+
   it('uses the selected blueprint version as the save base version', async () => {
     blueprintList = [createBlueprint(7, 'Saved Blueprint', [5, 4, 3])];
     (component as any).blueprints.set(blueprintList);
@@ -511,6 +518,20 @@ describe('BlueprintEditorPageComponent', () => {
     ]);
   });
 
+  it('keeps blueprint suggestions stable when the picker temporarily holds an option value', () => {
+    blueprintList = [
+      createBlueprint(4, 'Alpha Flow', 1),
+      createBlueprint(7, 'Saved Blueprint', 3),
+    ];
+    (component as any).blueprints.set(blueprintList);
+    (component as any).blueprintSearch.setValue(7 as never);
+
+    expect((component as any).pickerSuggestions().map((suggestion: any) => suggestion.blueprint.name)).toEqual([
+      'Alpha Flow',
+      'Saved Blueprint',
+    ]);
+  });
+
   it('pins the active blueprint to the top when reopening picker search from a selection', () => {
     blueprintList = [
       createBlueprint(4, 'Alpha Flow', 1),
@@ -528,6 +549,35 @@ describe('BlueprintEditorPageComponent', () => {
     expect((component as any).pickerMode()).toBe('search');
     expect((component as any).pickerSuggestions()[0].blueprint.id).toBe(7);
     expect((component as any).pickerSuggestions()[0].isActive).toBe(true);
+  });
+
+  it('lists the active blueprint versions beneath the active picker option', () => {
+    blueprintList = [
+      createBlueprint(4, 'Alpha Flow', 1),
+      createBlueprint(7, 'Saved Blueprint', [5, 4, 3]),
+      createBlueprint(9, 'Beta Process', 1),
+    ];
+    (component as any).blueprints.set(blueprintList);
+    (component as any).selectedBlueprintId.set(7);
+    (component as any).selectedBlueprintVersionId.set(704);
+    (component as any).committedBlueprintName.set('Saved Blueprint');
+    (component as any).blueprintNameDraft.set('Saved Blueprint');
+    (component as any).pickerMode.set('selected');
+
+    (component as any).beginPickerSearchFromTrigger();
+
+    const options = (component as any).pickerOptions();
+    expect(options.map((option: any) => option.kind === 'version'
+      ? `${option.kind}:${option.version.version}:${option.isSelected}`
+      : `${option.kind}:${option.blueprint.id}`,
+    )).toEqual([
+      'blueprint:7',
+      'version:5:false',
+      'version:4:true',
+      'version:3:false',
+      'blueprint:4',
+      'blueprint:9',
+    ]);
   });
 
   it('enters draft mode with Draft Blueprint and excludes it from existing suggestions', () => {

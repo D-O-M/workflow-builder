@@ -42,7 +42,11 @@ import { BuilderInputService } from '../domain/builder-input.service';
 import { TaskDefinitionsService } from '../domain/task-definitions.service';
 import { ITaskDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
 import { BlueprintCanvasComponent } from '../components/blueprint-canvas.component';
-import type { CanvasValidationFocus } from '../components/blueprint-canvas.component';
+import type {
+  CanvasValidationFocus,
+  CanvasValidationIssueMarker,
+  CanvasViewportInsets,
+} from '../components/blueprint-canvas.component';
 import { NodeModel } from '../domain/node-model';
 import type { Side } from '../domain/node-model';
 import { DynamicFieldDefinition, DynamicFormFieldComponent } from '../components/dynamic-form-field.component';
@@ -71,11 +75,33 @@ interface TaskLibraryItem {
 type BlueprintPickerMode = 'search' | 'selected' | 'draft' | 'draft-edit';
 type BlueprintPickerReturnMode = 'selected' | 'draft' | null;
 type BuilderDrawerContent = 'plugin-library' | 'node-settings';
+type ValidationBadgeTone = 'error' | 'warning' | 'valid';
 
 interface BlueprintPickerSuggestion {
   blueprint: BlueprintViewModel;
   isActive: boolean;
 }
+
+type BlueprintPickerOption = BlueprintPickerBlueprintOption | BlueprintPickerVersionOption;
+
+interface BlueprintPickerBlueprintOption {
+  kind: 'blueprint';
+  value: string;
+  blueprint: BlueprintViewModel;
+  isActive: boolean;
+}
+
+interface BlueprintPickerVersionOption {
+  kind: 'version';
+  value: string;
+  blueprint: BlueprintViewModel;
+  version: BlueprintVersionViewModel;
+  isSelected: boolean;
+}
+
+type ParsedBlueprintPickerOption =
+  | { kind: 'blueprint'; blueprintId: number }
+  | { kind: 'version'; blueprintId: number; blueprintVersionId: number };
 
 interface PendingNodeVersionChange {
   nodeId: number;
@@ -85,6 +111,7 @@ interface PendingNodeVersionChange {
 
 const BLUEPRINT_NAME_MAX_LENGTH = 100;
 const DEFAULT_DRAFT_BLUEPRINT_NAME = 'Draft Blueprint';
+const NODE_UPGRADE_WARNING_MESSAGE = 'A newer task version is available for this node.';
 
 @Component({
   selector: 'app-blueprint-editor-page',
@@ -111,6 +138,7 @@ const DEFAULT_DRAFT_BLUEPRINT_NAME = 'Draft Blueprint';
 export class BlueprintEditorPageComponent {
   protected readonly Math = Math;
   protected readonly canvasBackgroundEffect = 'stitch' as const;
+  protected readonly nodeUpgradeWarningMessage = NODE_UPGRADE_WARNING_MESSAGE;
 
   protected readonly editor = inject(BlueprintEditorService);
   protected readonly editorStore = inject(BlueprintEditorStore);
@@ -164,6 +192,16 @@ export class BlueprintEditorPageComponent {
     initialValue: this.pluginLibrarySearch.value,
   });
   protected readonly zoomPercent = computed(() => this.canvasViewport()?.zoomPercent() ?? 100);
+  protected readonly canvasViewportInsets = computed<CanvasViewportInsets>(() => ({
+    top: 96,
+    right: this.drawerCollapsed()
+      ? 120
+      : this.compactDrawerViewport()
+        ? 120
+        : 560,
+    bottom: 96,
+    left: 24,
+  }));
   private readonly canvasRouteValidationErrors = computed(() => this.canvasViewport()?.routeValidationErrors() ?? []);
   protected readonly taskLibraryItems = computed(() =>
     this.buildTaskLibraryItems(this.tasks()),
@@ -175,7 +213,7 @@ export class BlueprintEditorPageComponent {
     this.blueprints().find((blueprint) => blueprint.id === this.selectedBlueprintId()) ?? null,
   );
   protected readonly selectedBlueprintVersions = computed<BlueprintVersionViewModel[]>(() =>
-    [...(this.selectedBlueprint()?.versions ?? [])].sort((left, right) => right.version - left.version),
+    this.sortBlueprintVersions(this.selectedBlueprint()?.versions ?? []),
   );
   protected readonly selectedBlueprintVersion = computed<BlueprintVersionViewModel | null>(() => {
     const versions = this.selectedBlueprintVersions();
@@ -231,6 +269,36 @@ export class BlueprintEditorPageComponent {
   );
   protected readonly validationErrors = computed(() => this.validationSummary().errors);
   protected readonly validationWarnings = computed(() => this.validationSummary().warnings);
+  protected readonly canvasIssueMarkers = computed<readonly CanvasValidationIssueMarker[]>(() => {
+    const validationMarkers = [
+      ...this.validationErrors(),
+      ...this.validationWarnings(),
+    ]
+      .filter((issue) => issue.nodeId !== undefined)
+      .map((issue) => ({
+        issueId: issue.id,
+        severity: issue.severity,
+        nodeId: issue.nodeId!,
+        message: issue.message,
+        propertyName: issue.propertyName ?? null,
+        channelName: issue.channelName ?? null,
+        side: this.validationIssueSide(issue),
+      }));
+
+    const upgradeMarkers = this.editorStore.nodes()
+      .filter((node) => node.hasUpgradeWarning)
+      .map((node) => ({
+        issueId: `node-upgrade:${node.id}`,
+        severity: 'warning' as const,
+        nodeId: node.id,
+        message: NODE_UPGRADE_WARNING_MESSAGE,
+        propertyName: null,
+        channelName: null,
+        side: null,
+      }));
+
+    return [...validationMarkers, ...upgradeMarkers];
+  });
   protected readonly validationCanvasFocus = computed<CanvasValidationFocus | null>(() => {
     const focusedIssueId = this.focusedValidationIssueId();
     if (!focusedIssueId) {
@@ -247,12 +315,95 @@ export class BlueprintEditorPageComponent {
     this.validationSummary().errorCount === 0 &&
     this.validationSummary().warningCount > 0,
   );
+  protected readonly validationBadgeTone = computed<ValidationBadgeTone>(() => {
+    const summary = this.validationSummary();
+    if (summary.errorCount > 0) {
+      return 'error';
+    }
+
+    if (summary.warningCount > 0) {
+      return 'warning';
+    }
+
+    return 'valid';
+  });
+  protected readonly validationBadgeIcon = computed(() => {
+    const tone = this.validationBadgeTone();
+    if (tone === 'error') {
+      return 'error';
+    }
+
+    if (tone === 'warning') {
+      return 'warning';
+    }
+
+    return 'check_circle';
+  });
+  protected readonly validationBadgeLabel = computed(() => {
+    const tone = this.validationBadgeTone();
+    if (tone === 'error') {
+      return 'Blocked';
+    }
+
+    if (tone === 'warning') {
+      return 'Warnings';
+    }
+
+    return 'No issues';
+  });
+  protected readonly validationBadgeIssueCount = computed(() => {
+    const summary = this.validationSummary();
+    return summary.errorCount > 0 ? summary.errorCount : summary.warningCount;
+  });
+  protected readonly validationBadgeAriaLabel = computed(() => {
+    const summary = this.validationSummary();
+    if (summary.errorCount > 0) {
+      return `Review ${summary.errorCount} blueprint validation ${summary.errorCount === 1 ? 'error' : 'errors'}`;
+    }
+
+    if (summary.warningCount > 0) {
+      return `Review ${summary.warningCount} blueprint validation ${summary.warningCount === 1 ? 'warning' : 'warnings'}`;
+    }
+
+    return 'Blueprint has no validation issues';
+  });
   protected readonly nodeSettingsNode = computed<NodeModel | null>(() =>
     this.editorStore.nodes().find((node) => node.id === this.nodeSettingsNodeId()) ?? null,
   );
   protected readonly nodeSettingsTaskDefinition = computed<ITaskDefinition | null>(() => {
     const node = this.nodeSettingsNode();
     return node ? this.tasks().find((task) => task.id === node.taskDefinitionId) ?? null : null;
+  });
+  protected readonly nodeSettingsValidationIssues = computed<readonly BlueprintValidationIssue[]>(() => {
+    const node = this.nodeSettingsNode();
+    if (!node) {
+      return [];
+    }
+
+    return [
+      ...this.validationErrors(),
+      ...this.validationWarnings(),
+    ].filter((issue) => issue.nodeId === node.id);
+  });
+  protected readonly nodeSettingsHasUpgradeWarning = computed(() =>
+    this.nodeSettingsNode()?.hasUpgradeWarning ?? false,
+  );
+  protected readonly nodeSettingsIssueSummaryLabel = computed(() => {
+    const issues = this.nodeSettingsValidationIssues();
+    const errorCount = issues.filter((issue) => issue.severity === 'error').length;
+    const warningCount = issues.filter((issue) => issue.severity === 'warning').length +
+      (this.nodeSettingsHasUpgradeWarning() ? 1 : 0);
+    const parts: string[] = [];
+    if (errorCount > 0) {
+      parts.push(`${errorCount} ${errorCount === 1 ? 'error' : 'errors'}`);
+    }
+    if (warningCount > 0) {
+      parts.push(`${warningCount} ${warningCount === 1 ? 'warning' : 'warnings'}`);
+    }
+
+    return parts.length > 0
+      ? parts.join(' · ')
+      : 'No node issues';
   });
   protected readonly nodeVersionOptions = computed<TaskVersionLaneOption[]>(() =>
     getLatestPatchPerMinorVersion(this.nodeSettingsTaskDefinition()?.versions ?? []),
@@ -335,6 +486,35 @@ export class BlueprintEditorPageComponent {
       blueprint,
       isActive: blueprint.id === activeBlueprintId,
     }));
+  });
+  protected readonly pickerOptions = computed<BlueprintPickerOption[]>(() => {
+    const selectedBlueprintVersionId = this.selectedBlueprintVersionId();
+    const options: BlueprintPickerOption[] = [];
+
+    for (const suggestion of this.pickerSuggestions()) {
+      options.push({
+        kind: 'blueprint',
+        value: this.createBlueprintPickerOptionValue(suggestion.blueprint.id),
+        blueprint: suggestion.blueprint,
+        isActive: suggestion.isActive,
+      });
+
+      if (!suggestion.isActive) {
+        continue;
+      }
+
+      for (const version of this.sortBlueprintVersions(suggestion.blueprint.versions)) {
+        options.push({
+          kind: 'version',
+          value: this.createBlueprintVersionPickerOptionValue(suggestion.blueprint.id, version.blueprintVersionId),
+          blueprint: suggestion.blueprint,
+          version,
+          isSelected: version.blueprintVersionId === selectedBlueprintVersionId,
+        });
+      }
+    }
+
+    return options;
   });
 
   constructor() {
@@ -543,6 +723,25 @@ export class BlueprintEditorPageComponent {
     this.beginPickerSearch('selected');
   }
 
+  protected beginPickerSearchFromVersionDisplay(event: Event): void {
+    event.stopPropagation();
+
+    if (this.pickerMode() !== 'selected') {
+      return;
+    }
+
+    this.beginPickerSearch('selected');
+  }
+
+  protected onPickerShellClick(): void {
+    const mode = this.pickerMode();
+    if (mode === 'search' || mode === 'draft-edit') {
+      return;
+    }
+
+    this.beginPickerSearch(mode === 'draft' ? 'draft' : 'selected');
+  }
+
   protected beginPickerSearchFromDraftChevron(event?: Event): void {
     event?.stopPropagation();
 
@@ -591,13 +790,33 @@ export class BlueprintEditorPageComponent {
   }
 
   protected onBlueprintSuggestionSelected(event: MatAutocompleteSelectedEvent): void {
-    const blueprintId = Number(event.option.value);
-    if (Number.isNaN(blueprintId)) {
+    const parsedOption = this.parseBlueprintPickerOptionValue(event.option.value);
+    if (!parsedOption) {
+      this.restorePickerAfterSearch();
+      return;
+    }
+
+    if (parsedOption.kind === 'version') {
+      if (
+        parsedOption.blueprintId === this.selectedBlueprintId() &&
+        parsedOption.blueprintVersionId === this.selectedBlueprintVersionId()
+      ) {
+        this.restorePickerAfterSearch();
+        return;
+      }
+
+      this.pickerSelectionInProgress.set(true);
+      void this.openBlueprint(parsedOption.blueprintId, parsedOption.blueprintVersionId);
+      return;
+    }
+
+    if (parsedOption.blueprintId === this.selectedBlueprintId()) {
+      this.restorePickerAfterSearch();
       return;
     }
 
     this.pickerSelectionInProgress.set(true);
-    void this.openBlueprint(blueprintId);
+    void this.openBlueprint(parsedOption.blueprintId);
   }
 
   protected onBlueprintVersionSelected(blueprintVersionId: number | null): void {
@@ -611,6 +830,21 @@ export class BlueprintEditorPageComponent {
 
   protected formatBlueprintVersion(version: BlueprintVersionViewModel): string {
     return `Version ${version.version}`;
+  }
+
+  protected formatBlueprintVersionCreatedDate(version: BlueprintVersionViewModel): string | null {
+    if (!version.createdAt) {
+      return null;
+    }
+
+    const createdAt = new Date(version.createdAt);
+    if (Number.isNaN(createdAt.getTime())) {
+      return null;
+    }
+
+    const day = String(createdAt.getDate()).padStart(2, '0');
+    const month = String(createdAt.getMonth() + 1).padStart(2, '0');
+    return `${day}/${month}/${createdAt.getFullYear()}`;
   }
 
   protected openDrawer(): void {
@@ -920,6 +1154,50 @@ export class BlueprintEditorPageComponent {
     }
   }
 
+  private sortBlueprintVersions(versions: readonly BlueprintVersionViewModel[]): BlueprintVersionViewModel[] {
+    return [...versions].sort((left, right) => right.version - left.version);
+  }
+
+  private createBlueprintPickerOptionValue(blueprintId: number): string {
+    return `blueprint:${blueprintId}`;
+  }
+
+  private createBlueprintVersionPickerOptionValue(blueprintId: number, blueprintVersionId: number): string {
+    return `blueprint:${blueprintId}:version:${blueprintVersionId}`;
+  }
+
+  private parseBlueprintPickerOptionValue(value: unknown): ParsedBlueprintPickerOption | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return {
+        kind: 'blueprint',
+        blueprintId: value,
+      };
+    }
+
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const blueprintMatch = /^blueprint:(\d+)$/.exec(value);
+    if (blueprintMatch) {
+      return {
+        kind: 'blueprint',
+        blueprintId: Number(blueprintMatch[1]),
+      };
+    }
+
+    const versionMatch = /^blueprint:(\d+):version:(\d+)$/.exec(value);
+    if (versionMatch) {
+      return {
+        kind: 'version',
+        blueprintId: Number(versionMatch[1]),
+        blueprintVersionId: Number(versionMatch[2]),
+      };
+    }
+
+    return null;
+  }
+
   private getPreferredBlueprintVersionId(
     blueprint: BlueprintViewModel | null | undefined,
     preferredBlueprintVersionId: number | null,
@@ -1089,9 +1367,9 @@ export class BlueprintEditorPageComponent {
 
   private filterBlueprints(
     blueprints: BlueprintViewModel[],
-    query: string,
+    query: unknown,
   ): BlueprintViewModel[] {
-    const trimmedQuery = query.trim();
+    const trimmedQuery = typeof query === 'string' ? query.trim() : '';
     if (!trimmedQuery) {
       return [...blueprints].sort((a, b) => a.name.localeCompare(b.name));
     }

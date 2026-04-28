@@ -206,7 +206,7 @@ describe('BlueprintCanvasComponent', () => {
     expect((component as any).hoveredConnectionRoute()).toEqual({ connectionId: 'connection-1', routeIndex: 2 });
   });
 
-  it('emits node settings requests without toggling all channel sections', () => {
+  it('emits node settings requests for clean node clicks', () => {
     const emittedNodeIds: number[] = [];
     const subscription = component.nodeSettingsRequested.subscribe((nodeId) => emittedNodeIds.push(nodeId));
 
@@ -215,7 +215,6 @@ describe('BlueprintCanvasComponent', () => {
       startCanvas: { x: 0, y: 0 },
       startWorld: { x: 0, y: 0 },
       nodeId: 12,
-      settingsNodeId: 12,
       connectionId: null,
       connectionBadgeId: null,
       shift: false,
@@ -224,6 +223,28 @@ describe('BlueprintCanvasComponent', () => {
 
     expect(emittedNodeIds).toEqual([12]);
     expect(store.selectedNodeIds()).toEqual([12]);
+    subscription.unsubscribe();
+  });
+
+  it('does not emit node settings requests when a drag completes', () => {
+    const emittedNodeIds: number[] = [];
+    const subscription = component.nodeSettingsRequested.subscribe((nodeId) => emittedNodeIds.push(nodeId));
+
+    (component as any).dragNode.set({
+      pointerId: 7,
+      startWorld: { x: 20, y: 30 },
+      nodeIds: [12],
+      initialPositions: new Map([[12, { x: 120, y: 160 }]]),
+    });
+    (component as any).getCoordinates = vi.fn(() => ({
+      canvas: { x: 160, y: 180 },
+      world: { x: 180, y: 210 },
+    }));
+    (component as any).updateHoverState = vi.fn();
+
+    (component as any).completePointerInteraction({ pointerId: 7 } as PointerEvent, false);
+
+    expect(emittedNodeIds).toEqual([]);
     subscription.unsubscribe();
   });
 
@@ -272,6 +293,29 @@ describe('BlueprintCanvasComponent', () => {
 
     expect(zoomLevel()).toBe(1.4);
     expect(viewportOffset()).toEqual({ x: 120, y: 118 });
+  });
+
+  it('centers focused bounds inside configured viewport insets', () => {
+    const viewportOffset = signal({ x: 0, y: 0 });
+    const zoomLevel = signal(1);
+    (component as any).canvasRef = () => ({
+      nativeElement: {
+        clientWidth: 800,
+        clientHeight: 600,
+      },
+    });
+    (component as any).canvasWrapper = {
+      viewportOffset,
+      zoomLevel,
+    };
+    Object.defineProperty(component as any, 'viewportInsets', {
+      value: () => ({ top: 20, right: 200, bottom: 40, left: 40 }),
+      configurable: true,
+    });
+
+    component.centerOnBounds({ left: 100, top: 80, right: 300, bottom: 180 });
+
+    expect(viewportOffset()).toEqual({ x: 120, y: 160 });
   });
 
   it('expands the targeted validation property section without toggling it closed', () => {

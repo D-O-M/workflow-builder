@@ -84,22 +84,20 @@ export interface NodeLayout {
 export class NodeModel {
     static buffer = 20;
 
-    private static readonly titleAreaHeight = 62;
-    private static readonly sectionHeaderHeight = 32;
-    private static readonly collapsedRowHeight = 40;
-    private static readonly propertyRowHeight = 30;
-    private static readonly sectionGap = 10;
+    private static readonly titleAreaHeight = 60;
+    private static readonly sectionHeaderHeight = 30;
+    private static readonly collapsedRowHeight = 36;
+    private static readonly propertyRowHeight = 28;
+    private static readonly sectionGap = 8;
     private static readonly contentPaddingX = 18;
-    private static readonly bottomPadding = 14;
-    private static readonly summaryPortRadius = 7;
-    private static readonly propertyPortRadius = 5.5;
-    private static readonly summaryDockWidth = 14;
-    private static readonly summaryDockOverlap = 2;
-    private static readonly summaryDockHitPaddingX = 7;
-    private static readonly summaryDockHitPaddingY = 6;
+    private static readonly bottomPadding = 12;
+    private static readonly summaryPortRadius = 6.8;
+    private static readonly propertyPortRadius = 4.8;
+    private static readonly summarySocketHitPaddingX = 9;
+    private static readonly summarySocketHitPaddingY = 8;
     private static readonly propertyPortOffset = 0;
     private static readonly propertyPortHitPadding = 7;
-    private static readonly toggleSize = 28;
+    private static readonly toggleSize = 24;
     private collapsedLayoutCache: NodeLayout | null = null;
     private expandedLayoutCache: NodeLayout | null = null;
     private readonly sectionLayoutCache = new Map<string, NodeLayout>();
@@ -549,7 +547,7 @@ export class NodeModel {
             totalHeight,
             titleBaseline: this.y + 29,
             versionBaseline: this.y + 48,
-            titleMaxWidth: this.width - 104,
+            titleMaxWidth: this.width - 86,
             toggleRect,
             inputSection,
             outputSections,
@@ -576,11 +574,11 @@ export class NodeModel {
         const headerHeight = expanded ? NodeModel.sectionHeaderHeight : NodeModel.collapsedRowHeight;
         const summaryY = top + headerHeight / 2;
         const key = this.sectionKey(side, channelName);
-        const summaryDockHeight = NodeModel.summaryDockHeight(headerHeight);
-        const summaryDockRect = NodeModel.summaryDockRect(this.x, this.width, side, summaryY, summaryDockHeight);
+        const summarySocketSize = NodeModel.summarySocketSize(headerHeight);
+        const summarySocketRect = NodeModel.summarySocketRect(this.x, this.width, side, summaryY, summarySocketSize);
         const summaryPortX = side === 'left'
-            ? summaryDockRect.x
-            : summaryDockRect.x + summaryDockRect.width;
+            ? this.x
+            : this.x + this.width;
         const toggleRect = {
             x: this.x + this.width - NodeModel.toggleSize - 18,
             y: top + (headerHeight - NodeModel.toggleSize) / 2,
@@ -599,11 +597,11 @@ export class NodeModel {
             x: summaryPortX,
             y: summaryY,
             radius: NodeModel.summaryPortRadius,
-            visualBounds: summaryDockRect,
+            visualBounds: summarySocketRect,
             hitBounds: NodeModel.inflateRect(
-                summaryDockRect,
-                NodeModel.summaryDockHitPaddingX,
-                NodeModel.summaryDockHitPaddingY,
+                summarySocketRect,
+                NodeModel.summarySocketHitPaddingX,
+                NodeModel.summarySocketHitPaddingY,
             ),
         };
 
@@ -693,19 +691,19 @@ export class NodeModel {
         return `${side}:${channelName}`;
     }
 
-    private static summaryDockHeight(headerHeight: number): number {
-        return Math.min(34, Math.max(26, headerHeight - 6));
+    private static summarySocketSize(_headerHeight: number): number {
+        return NodeModel.summaryPortRadius * 2;
     }
 
-    private static summaryDockRect(nodeX: number, nodeWidth: number, side: 'left' | 'right', centerY: number, height: number): Rect {
-        const x = side === 'left'
-            ? nodeX - NodeModel.summaryDockWidth + NodeModel.summaryDockOverlap
-            : nodeX + nodeWidth - NodeModel.summaryDockOverlap;
+    private static summarySocketRect(nodeX: number, nodeWidth: number, side: 'left' | 'right', centerY: number, size: number): Rect {
+        const edgeX = side === 'left'
+            ? nodeX
+            : nodeX + nodeWidth;
         return {
-            x,
-            y: centerY - height / 2,
-            width: NodeModel.summaryDockWidth,
-            height,
+            x: edgeX - size / 2,
+            y: centerY - size / 2,
+            width: size,
+            height: size,
         };
     }
 

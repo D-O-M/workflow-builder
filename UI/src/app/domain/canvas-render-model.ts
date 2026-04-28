@@ -63,8 +63,11 @@ export interface CanvasRouteValidationError {
   readonly message: string;
 }
 
-export const CONNECTION_STROKE_WIDTH = 7.8;
+export const CONNECTION_STROKE_WIDTH = 3.2;
 export const LANE_CENTER_SPACING = 7.2;
+
+const CONNECTION_FOCUSED_STROKE_WIDTH = 8.2;
+const CONNECTION_HALO_WIDTH = 18;
 
 export interface CanvasConnectionLane {
   readonly offset: number;
@@ -496,7 +499,7 @@ export class RenderedConnection {
     wrapper.ctx.save();
     const hasProblemRoutes = this.routes.some((route) => route.status === 'obstacleViolation');
     const problemStroke = '#d92d20';
-    const problemSoft = 'rgba(217, 45, 32, 0.82)';
+    const problemSoft = 'rgba(217, 45, 32, 0.72)';
     const validationStroke = validationSeverity ? validationConnectionColor(validationSeverity, true) : null;
     const validationSoft = validationSeverity ? validationConnectionColor(validationSeverity, false) : null;
 
@@ -511,8 +514,8 @@ export class RenderedConnection {
 
     if (focused) {
       wrapper.ctx.save();
-      wrapper.ctx.globalAlpha = hasProblemRoutes ? 0.16 : 0.18;
-      const haloWidth = 27;
+      wrapper.ctx.globalAlpha = hasProblemRoutes ? 0.13 : 0.12;
+      const haloWidth = CONNECTION_HALO_WIDTH;
       wrapper.ctx.lineWidth = haloWidth;
       wrapper.ctx.setLineDash([]);
       for (const [routeIndex, route] of this.routes.entries()) {
@@ -539,14 +542,20 @@ export class RenderedConnection {
 
       const routeFocused = focused && (!hasRouteFocus || routeIndex === hoveredRouteIndex);
       const routeDimmed = dimmed || (hasRouteFocus && routeIndex !== hoveredRouteIndex);
-      const lineWidth = routeFocused ? 12 : CONNECTION_STROKE_WIDTH;
+      const lineWidth = routeFocused ? CONNECTION_FOCUSED_STROKE_WIDTH : CONNECTION_STROKE_WIDTH;
       const routeStroke = route.status === 'obstacleViolation'
         ? problemSoft
         : validationSoft ?? connectionShadeStroke(route.shade, routeFocused);
 
       wrapper.ctx.save();
       wrapper.ctx.lineWidth = lineWidth;
-      wrapper.ctx.globalAlpha = routeDimmed ? 0.18 : 1;
+      wrapper.ctx.globalAlpha = routeDimmed
+        ? 0.13
+        : routeFocused
+          ? 1
+          : route.status === 'obstacleViolation'
+            ? 0.9
+          : 0.42;
       wrapper.ctx.strokeStyle = routeStroke;
       wrapper.ctx.fillStyle = routeStroke;
 
@@ -554,7 +563,7 @@ export class RenderedConnection {
         strokeSegments(wrapper.ctx, subtractRouteProblemSegments(route.visualSegments, route.visualProblemSegments));
         wrapper.ctx.save();
         wrapper.ctx.strokeStyle = problemStroke;
-        wrapper.ctx.lineWidth = routeFocused ? 13.5 : 9;
+        wrapper.ctx.lineWidth = routeFocused ? 10 : 6.8;
         wrapper.ctx.setLineDash([8, 6]);
         strokeSegments(wrapper.ctx, route.visualProblemSegments);
         wrapper.ctx.restore();
@@ -1124,16 +1133,22 @@ function connectionShadeColor(shade: CanvasConnectionShade, focused: boolean, fi
     return connectionSemanticColor(shade.semanticStatus, focused, fill);
   }
 
+  if (!focused) {
+    return fill
+      ? 'hsl(215 16% 45%)'
+      : 'hsl(215 18% 56%)';
+  }
+
   const harmony = connectionSourceHarmony(shade.sourceIndex);
   const variant = connectionMonochromeVariant(shade.variantIndex, shade.variantTotal);
   const baseLightness = fill
-    ? (focused ? 32 : 29)
-    : (focused ? 42 : 38);
-  const saturation = clampNumber(harmony.saturation + variant.saturationOffset + (focused ? 8 : 0), 54, 96);
+    ? 34
+    : 47;
+  const saturation = clampNumber(harmony.saturation + variant.saturationOffset + 7, 44, 78);
   const lightness = clampNumber(
     baseLightness + variant.lightnessOffset,
-    fill ? 22 : 28,
-    fill ? 50 : 62,
+    fill ? 26 : 34,
+    fill ? 48 : 58,
   );
   return `hsl(${harmony.hue.toFixed(1)} ${saturation}% ${lightness.toFixed(1)}%)`;
 }

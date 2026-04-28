@@ -16,7 +16,8 @@ import {
 import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
 import { buildConnectionMappingSelections, buildConnectionMappingsFromSelections, ConnectionModel } from '../domain/connection-model';
 import { CanvasWrapper } from '../domain/canvas-wrapper';
-import { NodeModel, Point, Side } from '../domain/node-model';
+import type { CanvasNodeIssueSummary, CanvasPropertyIssueSummary } from '../domain/canvas-wrapper';
+import { NodeModel, NodePortDefinition, Point, Side } from '../domain/node-model';
 import { CanvasBackgroundEffect } from '../domain/canvas-backdrop';
 import {
   buildCanvasRenderSnapshot,
@@ -41,6 +42,23 @@ export interface CanvasValidationFocus {
   readonly pulseKey: number;
 }
 
+export interface CanvasValidationIssueMarker {
+  readonly issueId: string;
+  readonly severity: CanvasValidationSeverity;
+  readonly nodeId: number;
+  readonly message: string;
+  readonly propertyName?: string | null;
+  readonly channelName?: string | null;
+  readonly side?: Side | null;
+}
+
+export interface CanvasViewportInsets {
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
+}
+
 interface ResolvedValidationFocus {
   readonly issueId: string;
   readonly severity: CanvasValidationSeverity;
@@ -57,7 +75,6 @@ interface PendingClickState {
   startCanvas: Point;
   startWorld: Point;
   nodeId: number | null;
-  settingsNodeId: number | null;
   connectionId: string | null;
   connectionBadgeId: string | null;
   shift: boolean;
@@ -99,11 +116,23 @@ interface HoveredConnectionRouteState {
   routeIndex: number;
 }
 
+interface CanvasHoverTooltip {
+  readonly label: string;
+  readonly point: Point;
+}
+
 interface ConnectionRouteHit {
   connection: RenderedConnection;
   routeIndex: number;
   distance: number;
 }
+
+const EMPTY_VIEWPORT_INSETS: CanvasViewportInsets = {
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 0,
+};
 
 @Component({
   selector: 'app-blueprint-canvas',
@@ -120,6 +149,8 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   readonly backgroundEffect = input<CanvasBackgroundEffect>('plain');
   readonly readonlySelectedNodeId = input<number | null>(null);
   readonly validationFocus = input<CanvasValidationFocus | null>(null);
+  readonly validationIssueMarkers = input<readonly CanvasValidationIssueMarker[]>([]);
+  readonly viewportInsets = input<CanvasViewportInsets>(EMPTY_VIEWPORT_INSETS);
   readonly readonlyNodeActivated = output<number>();
   readonly nodeSettingsRequested = output<number>();
 
@@ -138,7 +169,9 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   private detailTierTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   protected readonly hoveredNodeId = signal<number | null>(null);
+  protected readonly hoveredNodeIssueNodeId = signal<number | null>(null);
   protected readonly hoveredPortKey = signal<string | null>(null);
+  protected readonly hoveredSectionKey = signal<string | null>(null);
   protected readonly hoveredConnectionId = signal<string | null>(null);
   protected readonly hoveredConnectionRoute = signal<HoveredConnectionRouteState | null>(null);
   protected readonly backdropHoverCanvasPoint = signal<Point | null>(null);
@@ -188,6 +221,9 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   private readonly resolvedValidationFocus = computed<ResolvedValidationFocus | null>(() =>
     this.resolveValidationFocus(this.renderSnapshot(), this.validationFocus()),
   );
+  private readonly nodeIssueSummaries = computed<ReadonlyMap<number, CanvasNodeIssueSummary>>(() =>
+    this.buildNodeIssueSummaries(this.validationIssueMarkers()),
+  );
 
   constructor() {
     effect(() => {
@@ -205,9 +241,14 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       this.graphRevision();
       this.renderSnapshot();
       this.validationFocus();
+      this.validationIssueMarkers();
+      this.viewportInsets();
       this.resolvedValidationFocus();
+      this.nodeIssueSummaries();
       this.hoveredNodeId();
+      this.hoveredNodeIssueNodeId();
       this.hoveredPortKey();
+      this.hoveredSectionKey();
       this.hoveredConnectionId();
       this.hoveredConnectionRoute();
       this.backdropHoverCanvasPoint();
@@ -260,12 +301,28 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   resetView(): void {
-    if (!this.canvasWrapper) {
+    const wrapper = this.canvasWrapper;
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!wrapper || !canvas) {
       return;
     }
 
-    this.canvasWrapper.zoomLevel.set(1);
-    this.canvasWrapper.viewportOffset.set({ x: 0, y: 0 });
+    const bounds = this.graphContentBounds(this.renderSnapshot());
+    if (!bounds) {
+      wrapper.zoomLevel.set(1);
+      wrapper.viewportOffset.set({ x: 0, y: 0 });
+      return;
+    }
+
+    const zoom = this.zoomLevelForBounds(bounds, canvas);
+    const focus = this.viewportFocusCanvasPoint(canvas);
+    const centerX = (bounds.left + bounds.right) / 2;
+    const centerY = (bounds.top + bounds.bottom) / 2;
+    wrapper.zoomLevel.set(zoom);
+    wrapper.viewportOffset.set({
+      x: focus.x - centerX * zoom,
+      y: focus.y - centerY * zoom,
+    });
   }
 
   zoomIn(): void {
@@ -297,9 +354,10 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     }
 
     const zoom = wrapper.zoomLevel();
+    const focus = this.viewportFocusCanvasPoint(canvas);
     wrapper.viewportOffset.set({
-      x: canvas.clientWidth / 2 - (node.x + node.width / 2) * zoom,
-      y: canvas.clientHeight / 2 - (node.y + node.height / 2) * zoom,
+      x: focus.x - (node.x + node.width / 2) * zoom,
+      y: focus.y - (node.y + node.height / 2) * zoom,
     });
   }
 
@@ -328,11 +386,12 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     }
 
     const zoom = wrapper.zoomLevel();
+    const focus = this.viewportFocusCanvasPoint(canvas);
     const centerX = (bounds.left + bounds.right) / 2;
     const centerY = (bounds.top + bounds.bottom) / 2;
     wrapper.viewportOffset.set({
-      x: canvas.clientWidth / 2 - centerX * zoom,
-      y: canvas.clientHeight / 2 - centerY * zoom,
+      x: focus.x - centerX * zoom,
+      y: focus.y - centerY * zoom,
     });
   }
 
@@ -345,9 +404,10 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
 
     const offset = wrapper.viewportOffset();
     const zoom = wrapper.zoomLevel();
+    const focus = this.viewportFocusCanvasPoint(canvas);
     return {
-      x: (canvas.clientWidth / 2 - offset.x) / zoom,
-      y: (canvas.clientHeight / 2 - offset.y) / zoom,
+      x: (focus.x - offset.x) / zoom,
+      y: (focus.y - offset.y) / zoom,
     };
   }
 
@@ -380,22 +440,6 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       ? this.getConnectionBadgeByCoordinates(connection, world)
       : undefined;
 
-    const settingsNodeId = !this.isReadonly() && node && this.pointWithinRect(world, node.settingsRect()) ? node.id : null;
-    if (settingsNodeId !== null) {
-      this.pendingClick.set({
-        pointerId: event.pointerId,
-        startCanvas: canvasPoint,
-        startWorld: world,
-        nodeId: node?.id ?? null,
-        settingsNodeId,
-        connectionId: null,
-        connectionBadgeId: null,
-        shift,
-        toggleSectionKey: null,
-      });
-      return;
-    }
-
     if (!this.isReadonly() && node) {
       const port = this.getPortAt(node, world);
       if (port && (port.kind === 'output-summary' || port.kind === 'output-property') && port.anchorIndex !== null) {
@@ -410,7 +454,9 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
           sourceProperty: port.propertyName,
         });
         this.hoveredNodeId.set(node.id);
+        this.hoveredNodeIssueNodeId.set(null);
         this.hoveredPortKey.set(port.key);
+        this.hoveredSectionKey.set(null);
         this.hoveredConnectionId.set(null);
         this.hoveredConnectionRoute.set(null);
         return;
@@ -424,7 +470,6 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         startCanvas: canvasPoint,
         startWorld: world,
         nodeId: node.id,
-        settingsNodeId: null,
         connectionId: null,
         connectionBadgeId: null,
         shift,
@@ -447,7 +492,6 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       startCanvas: canvasPoint,
       startWorld: world,
       nodeId: node?.id ?? null,
-      settingsNodeId: null,
       connectionId: connection?.id ?? null,
       connectionBadgeId: connectionBadge?.id ?? null,
       shift,
@@ -496,7 +540,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
 
     const pendingClick = this.pendingClick();
     if (pendingClick?.pointerId === event.pointerId) {
-      if (pendingClick.settingsNodeId !== null || pendingClick.toggleSectionKey !== null) {
+      if (pendingClick.toggleSectionKey !== null) {
         return;
       }
 
@@ -556,7 +600,9 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     }
 
     this.hoveredNodeId.set(null);
+    this.hoveredNodeIssueNodeId.set(null);
     this.hoveredPortKey.set(null);
+    this.hoveredSectionKey.set(null);
     this.hoveredConnectionId.set(null);
     this.hoveredConnectionRoute.set(null);
   }
@@ -594,6 +640,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
 
       this.dragConnection.set(null);
       this.hoveredPortKey.set(null);
+      this.hoveredSectionKey.set(null);
       this.updateHoverState(world);
       return;
     }
@@ -650,12 +697,6 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    if (click.settingsNodeId !== null) {
-      this.editorStore.selectOnlyNode(click.settingsNodeId);
-      this.nodeSettingsRequested.emit(click.settingsNodeId);
-      return;
-    }
-
     if (this.isReadonly()) {
       if (click.nodeId !== null) {
         this.readonlyNodeActivated.emit(click.nodeId);
@@ -668,6 +709,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         this.editorStore.toggleNodeSelection(click.nodeId);
       } else {
         this.editorStore.selectOnlyNode(click.nodeId);
+        this.nodeSettingsRequested.emit(click.nodeId);
       }
       return;
     }
@@ -716,6 +758,8 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       initialPositions,
     });
     this.hoveredNodeId.set(nodeId);
+    this.hoveredNodeIssueNodeId.set(null);
+    this.hoveredSectionKey.set(null);
   }
 
   private updateNodeDrag(drag: DragNodeState, world: Point): void {
@@ -758,7 +802,9 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
           side: targetPort.side,
         });
         this.hoveredNodeId.set(target.id);
+        this.hoveredNodeIssueNodeId.set(null);
         this.hoveredPortKey.set(targetPort.key);
+        this.hoveredSectionKey.set(null);
         this.hoveredConnectionId.set(null);
         this.hoveredConnectionRoute.set(null);
         return;
@@ -772,7 +818,9 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       side: undefined,
     });
     this.hoveredNodeId.set(null);
+    this.hoveredNodeIssueNodeId.set(null);
     this.hoveredPortKey.set(null);
+    this.hoveredSectionKey.set(null);
     this.hoveredConnectionId.set(null);
     this.hoveredConnectionRoute.set(null);
   }
@@ -829,7 +877,19 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       : undefined;
 
     this.hoveredNodeId.set(node?.id ?? null);
-    this.hoveredPortKey.set(!node || this.isReadonly() ? null : this.getPortAt(node, world)?.key ?? null);
+    const hoveredPort = !node || this.isReadonly() ? null : this.getPortAt(node, world);
+    const hoveredNodeIssueNodeId = !node ||
+      this.isReadonly() ||
+      hoveredPort ||
+      !this.nodeIssueSummaries().has(node.id) ||
+      !this.pointWithinRect(world, node.settingsRect())
+      ? null
+      : node.id;
+    this.hoveredNodeIssueNodeId.set(hoveredNodeIssueNodeId);
+    this.hoveredPortKey.set(hoveredPort?.key ?? null);
+    this.hoveredSectionKey.set(!node || this.isReadonly() || hoveredPort
+      ? null
+      : node.sectionToggleHit(world.x, world.y) ?? node.sectionHeaderHit(world.x, world.y) ?? null);
     this.hoveredConnectionId.set(connectionHit?.connection.id ?? null);
     this.hoveredConnectionRoute.set(connectionHit
       ? { connectionId: connectionHit.connection.id, routeIndex: connectionHit.routeIndex }
@@ -867,6 +927,76 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  private graphContentBounds(snapshot: CanvasRenderSnapshot): CanvasBounds | null {
+    if (snapshot.nodes.length === 0) {
+      return null;
+    }
+
+    const padding = 80;
+    return snapshot.nodes.reduce<CanvasBounds | null>((bounds, node) => {
+      const nodeBounds = node.interactionBounds();
+      const paddedBounds = {
+        left: nodeBounds.left - padding,
+        top: nodeBounds.top - padding,
+        right: nodeBounds.right + padding,
+        bottom: nodeBounds.bottom + padding,
+      };
+      if (!bounds) {
+        return paddedBounds;
+      }
+
+      return {
+        left: Math.min(bounds.left, paddedBounds.left),
+        top: Math.min(bounds.top, paddedBounds.top),
+        right: Math.max(bounds.right, paddedBounds.right),
+        bottom: Math.max(bounds.bottom, paddedBounds.bottom),
+      };
+    }, null);
+  }
+
+  private zoomLevelForBounds(bounds: CanvasBounds, canvas: HTMLCanvasElement): number {
+    const insets = this.normalizedViewportInsets(canvas);
+    const availableWidth = Math.max(240, canvas.clientWidth - insets.left - insets.right - 56);
+    const availableHeight = Math.max(180, canvas.clientHeight - insets.top - insets.bottom - 56);
+    const boundsWidth = Math.max(1, bounds.right - bounds.left);
+    const boundsHeight = Math.max(1, bounds.bottom - bounds.top);
+    const fitZoom = Math.min(1, availableWidth / boundsWidth, availableHeight / boundsHeight);
+    return Number(Math.max(0.35, Math.min(1, fitZoom)).toFixed(2));
+  }
+
+  private viewportFocusCanvasPoint(canvas: HTMLCanvasElement): Point {
+    const insets = this.normalizedViewportInsets(canvas);
+    const availableWidth = Math.max(1, canvas.clientWidth - insets.left - insets.right);
+    const availableHeight = Math.max(1, canvas.clientHeight - insets.top - insets.bottom);
+    return {
+      x: insets.left + availableWidth / 2,
+      y: insets.top + availableHeight / 2,
+    };
+  }
+
+  private normalizedViewportInsets(canvas: HTMLCanvasElement): CanvasViewportInsets {
+    const rawInsets = this.viewportInsets();
+    const left = Math.max(0, rawInsets.left);
+    const right = Math.max(0, rawInsets.right);
+    const top = Math.max(0, rawInsets.top);
+    const bottom = Math.max(0, rawInsets.bottom);
+    const horizontalBudget = Math.max(0, canvas.clientWidth - 1);
+    const verticalBudget = Math.max(0, canvas.clientHeight - 1);
+    const horizontalScale = left + right > horizontalBudget && left + right > 0
+      ? horizontalBudget / (left + right)
+      : 1;
+    const verticalScale = top + bottom > verticalBudget && top + bottom > 0
+      ? verticalBudget / (top + bottom)
+      : 1;
+
+    return {
+      left: left * horizontalScale,
+      right: right * horizontalScale,
+      top: top * verticalScale,
+      bottom: bottom * verticalScale,
+    };
+  }
+
   private adjustZoom(delta: number, focalCanvasPoint?: Point): void {
     const wrapper = this.canvasWrapper;
     const canvas = this.canvasRef()?.nativeElement;
@@ -885,7 +1015,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     const offset = wrapper.viewportOffset();
     const focus = focalCanvasPoint ?? (
       canvas
-        ? { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }
+        ? this.viewportFocusCanvasPoint(canvas)
         : { x: 0, y: 0 }
     );
     const worldFocus = {
@@ -1136,6 +1266,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
           ? this.getBlockedTargetNodeIds(renderedGraph, this.dragConnection()!.from)
           : undefined,
         focusedPortKeys,
+        nodeIssueSummaries: this.nodeIssueSummaries(),
         validationFocus: validationFocus
           ? {
             severity: validationFocus.severity,
@@ -1189,7 +1320,167 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       wrapper.drawFailureTooltip(hoveredNode, hoveredNode.failureMessage.trim());
     }
 
+    const hoverTooltip = this.hoverTooltip(renderedGraph);
+    if (hoverTooltip) {
+      wrapper.drawInteractionTooltip(hoverTooltip.label, hoverTooltip.point);
+    }
+
     context.restore();
+  }
+
+  private hoverTooltip(snapshot: CanvasRenderSnapshot): CanvasHoverTooltip | null {
+    if (this.isReadonly() || this.dragConnection()) {
+      return null;
+    }
+
+    const hoveredNodeId = this.hoveredNodeId();
+    if (hoveredNodeId === null) {
+      return null;
+    }
+
+    const node = snapshot.nodeById.get(hoveredNodeId);
+    if (!node) {
+      return null;
+    }
+
+    const hoveredNodeIssueNodeId = this.hoveredNodeIssueNodeId();
+    if (hoveredNodeIssueNodeId === hoveredNodeId) {
+      const issueSummary = this.nodeIssueSummaries().get(hoveredNodeIssueNodeId);
+      if (issueSummary) {
+        const rect = node.settingsRect();
+        return {
+          label: issueSummary.tooltip,
+          point: {
+            x: rect.x + rect.width / 2,
+            y: rect.y,
+          },
+        };
+      }
+    }
+
+    const hoveredPortKey = this.hoveredPortKey();
+    if (hoveredPortKey) {
+      const port = node.portDefinition(hoveredPortKey);
+      if (port) {
+        return {
+          label: this.portTooltipLabel(port),
+          point: {
+            x: port.x + (port.side === 'left' ? -10 : 10),
+            y: port.y - 4,
+          },
+        };
+      }
+    }
+
+    const hoveredSectionKey = this.hoveredSectionKey();
+    const section = hoveredSectionKey ? this.sectionByKey(node, hoveredSectionKey) : null;
+    if (!section) {
+      return null;
+    }
+
+    return {
+      label: `${section.expanded ? 'Collapse' : 'Expand'} ${section.label} properties`,
+      point: {
+        x: section.toggleRect.x + section.toggleRect.width / 2,
+        y: section.toggleRect.y,
+      },
+    };
+  }
+
+  private portTooltipLabel(port: NodePortDefinition): string {
+    const name = this.humanizePortLabel(port.propertyName ?? port.channelName ?? 'port');
+    return port.side === 'left'
+      ? `Accepts incoming ${name}`
+      : `Connect from ${name}`;
+  }
+
+  private sectionByKey(node: RenderedNode, sectionKey: string) {
+    const sections = node.layout.inputSection
+      ? [node.layout.inputSection, ...node.layout.outputSections]
+      : node.layout.outputSections;
+    return sections.find((section) => section.key === sectionKey) ?? null;
+  }
+
+  private humanizePortLabel(value: string): string {
+    return value
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/[_-]+/g, ' ')
+      .trim()
+      .toLowerCase() || 'port';
+  }
+
+  private buildNodeIssueSummaries(markers: readonly CanvasValidationIssueMarker[]): ReadonlyMap<number, CanvasNodeIssueSummary> {
+    const grouped = new Map<number, {
+      errorCount: number;
+      warningCount: number;
+      messages: string[];
+      propertyIssues: Map<string, CanvasPropertyIssueSummary>;
+    }>();
+
+    for (const marker of markers) {
+      const message = marker.message.trim();
+      const group = grouped.get(marker.nodeId) ?? {
+        errorCount: 0,
+        warningCount: 0,
+        messages: [],
+        propertyIssues: new Map<string, CanvasPropertyIssueSummary>(),
+      };
+
+      if (marker.severity === 'error') {
+        group.errorCount += 1;
+      } else {
+        group.warningCount += 1;
+      }
+
+      if (message.length > 0) {
+        group.messages.push(message);
+      }
+
+      if (marker.propertyName && marker.channelName) {
+        const key = this.validationMarkerPropertyKey(marker);
+        const existingPropertyIssue = group.propertyIssues.get(key);
+        group.propertyIssues.set(key, {
+          severity: existingPropertyIssue?.severity === 'error' || marker.severity === 'error'
+            ? 'error'
+            : 'warning',
+          count: (existingPropertyIssue?.count ?? 0) + 1,
+        });
+      }
+
+      grouped.set(marker.nodeId, group);
+    }
+
+    return new Map([...grouped.entries()].map(([nodeId, group]) => {
+      const severity: CanvasValidationSeverity = group.errorCount > 0 ? 'error' : 'warning';
+      return [nodeId, {
+        severity,
+        errorCount: group.errorCount,
+        warningCount: group.warningCount,
+        tooltip: this.issueSummaryTooltip(group.errorCount, group.warningCount, group.messages),
+        propertyIssues: group.propertyIssues,
+      }] as const;
+    }));
+  }
+
+  private issueSummaryTooltip(errorCount: number, warningCount: number, messages: readonly string[]): string {
+    if (errorCount + warningCount === 1) {
+      return messages[0] ?? (errorCount === 1 ? '1 error' : '1 warning');
+    }
+
+    const parts: string[] = [];
+    if (errorCount > 0) {
+      parts.push(`${errorCount} ${errorCount === 1 ? 'error' : 'errors'}`);
+    }
+
+    if (warningCount > 0) {
+      parts.push(`${warningCount} ${warningCount === 1 ? 'warning' : 'warnings'}`);
+    }
+
+    return parts.join(' · ');
+  }
+
+  private validationMarkerPropertyKey(marker: CanvasValidationIssueMarker): string {
+    return `${marker.side ?? ''}:${marker.channelName ?? ''}:${marker.propertyName ?? ''}`;
   }
 
   private snapshotPathfinderOptions() {

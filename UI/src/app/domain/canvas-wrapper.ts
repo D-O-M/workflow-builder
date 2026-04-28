@@ -10,47 +10,68 @@ import {
     getWorldRadiusFromScreenRadius,
 } from './canvas-backdrop';
 
+export interface CanvasPropertyIssueSummary {
+    readonly severity: CanvasValidationSeverity;
+    readonly count: number;
+}
+
+export interface CanvasNodeIssueSummary {
+    readonly severity: CanvasValidationSeverity;
+    readonly errorCount: number;
+    readonly warningCount: number;
+    readonly tooltip: string;
+    readonly propertyIssues: ReadonlyMap<string, CanvasPropertyIssueSummary>;
+}
+
 export class CanvasWrapper {
-    private static readonly primaryFontFamilyName = '"Merriweather Sans"';
-    private static readonly fallbackFontFamily = "'Merriweather Sans', 'Rosario', 'Segoe UI', Arial, sans-serif";
+    private static readonly primaryFontFamilyName = '"Inter"';
+    private static readonly materialIconFontFamilyName = '"Material Icons"';
+    private static readonly materialIconFontFamily = "'Material Icons'";
+    private static readonly fallbackFontFamily = "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
     private static readonly theme = {
-        surface: '#ffffff',
-        surfaceAlt: '#f7f9ff',
-        surfaceAccent: '#eef3ff',
-        sectionSurface: '#eef4ff',
-        sectionSurfaceAlt: '#f8fbff',
-        sectionBorder: 'rgba(168, 184, 227, 0.42)',
-        nodeStroke: 'rgba(85, 108, 176, 0.16)',
+        surface: '#fbfcff',
+        surfaceAlt: '#f6f8fc',
+        surfaceAccent: '#eef3fb',
+        sectionSurface: '#f6f8fc',
+        sectionSurfaceActive: '#edf4ff',
+        sectionSurfaceAlt: '#fbfcff',
+        sectionRowSurface: '#fbfcff',
+        sectionRowActive: '#eef4ff',
+        sectionBorder: 'rgba(143, 158, 194, 0.28)',
+        sectionBorderActive: 'rgba(45, 75, 221, 0.24)',
+        sectionDivider: 'rgba(190, 201, 225, 0.38)',
+        nodeStroke: 'rgba(75, 96, 148, 0.16)',
         nodeStrokeHover: '#2d4bdd',
         nodeText: '#101728',
         nodeTextMuted: 'rgba(113, 131, 166, 0.88)',
-        nodeSectionText: 'rgba(136, 153, 187, 0.95)',
-        nodePropertyType: '#5970a6',
+        nodeSectionText: 'rgba(103, 121, 158, 0.88)',
+        nodePropertyType: '#6f7f9f',
         nodeDanger: '#df3d3d',
         nodeWarning: '#f28c18',
-        nodeWarningText: '#fff7ed',
-        nodeShadow: 'rgba(57, 81, 153, 0.16)',
+        nodeWarningText: '#fdf2e9',
+        nodeShadow: 'rgba(46, 65, 116, 0.10)',
         accent: '#2d4bdd',
         tooltipBg: '#101728',
-        tooltipText: '#ffffff',
+        tooltipText: '#f6f8ff',
         tooltipDanger: '#ffb8b8',
         anchor: {
-            normal: '#cfdafe',
+            normal: '#b8c5d8',
             hover: '#2d4bdd',
-            stroke: 'rgba(56, 76, 140, 0.28)',
-            fill: '#ffffff',
-            connected: '#1f49ff',
-            dockFill: '#eef4ff',
-            dockInactiveFill: 'rgba(248, 251, 255, 0.92)',
-            dockContainer: '#dce7ff',
-            dockStem: 'rgba(93, 113, 166, 0.26)',
-            dockSlot: 'rgba(49, 70, 126, 0.46)',
+            stroke: 'rgba(67, 84, 125, 0.28)',
+            fill: '#fbfcff',
+            connected: '#2d5be3',
+            socketFill: '#fbfcff',
+            socketHoverFill: '#eef4ff',
+            socketFocusFill: '#e9f0ff',
+            socketOutline: 'rgba(92, 111, 151, 0.48)',
+            socketOutlineMuted: 'rgba(126, 143, 176, 0.32)',
+            socketShadow: 'rgba(46, 65, 116, 0.12)',
         },
         eligibleDash: 'rgba(45, 75, 221, 0.45)',
         connection: {
             stroke: '#2d4bdd',
-            soft: 'rgba(45, 75, 221, 0.72)',
+            soft: 'rgba(45, 75, 221, 0.68)',
             selected: '#2563eb',
         },
         validation: {
@@ -117,6 +138,7 @@ export class CanvasWrapper {
 
     private stitchPattern: CanvasPattern | null = null;
     private readonly fontFamily: string;
+    private materialIconReady = false;
     constructor(
         public readonly ctx: CanvasRenderingContext2D,
         private readonly gridSize: number
@@ -134,9 +156,17 @@ export class CanvasWrapper {
             }
 
             await fonts.load(`600 14px ${CanvasWrapper.primaryFontFamilyName}`);
+            try {
+                await fonts.load(`400 20px ${CanvasWrapper.materialIconFontFamilyName}`);
+                this.materialIconReady = true;
+            } catch {
+                this.materialIconReady = false;
+            }
             await fonts.ready;
+            this.materialIconReady = this.materialIconReady && fonts.check(`400 20px ${CanvasWrapper.materialIconFontFamilyName}`);
             this.fontReady.set(true);
         } catch {
+            this.materialIconReady = false;
             this.fontReady.set(true);
         }
     }
@@ -337,6 +367,7 @@ export class CanvasWrapper {
             detailTier?: CanvasDetailTier;
             blockedTargetNodeIds?: ReadonlySet<number>;
             focusedPortKeys?: ReadonlySet<string>;
+            nodeIssueSummaries?: ReadonlyMap<number, CanvasNodeIssueSummary>;
             validationFocus?: {
                 severity: CanvasValidationSeverity;
                 nodeId: number | null;
@@ -349,6 +380,7 @@ export class CanvasWrapper {
         const detailTier = options?.detailTier ?? 'full';
         const blockedTargetNodeIds = options?.blockedTargetNodeIds ?? new Set<number>();
         const focusedPortKeys = options?.focusedPortKeys ?? new Set<string>();
+        const nodeIssueSummaries = options?.nodeIssueSummaries ?? new Map<number, CanvasNodeIssueSummary>();
         const validationFocus = options?.validationFocus ?? null;
         const validationPortKeys = validationFocus?.portKeys ?? new Set<string>();
         const connectedSummaryPortKeys = portConnectivity.summaryPortKeys;
@@ -363,21 +395,25 @@ export class CanvasWrapper {
             const validationTheme = validationNodeFocused && validationFocus
                 ? CanvasWrapper.theme.validation[validationFocus.severity]
                 : null;
+            const issueSummary = !readOnly ? nodeIssueSummaries.get(node.id) ?? null : null;
+            const titleAccessoryRect = readOnly && statusTheme && node.renderStatus
+                ? node.settingsRect()
+                : issueSummary
+                    ? node.settingsRect()
+                    : null;
 
             this.ctx.save();
             this.ctx.shadowColor = detailTier === 'full' ? CanvasWrapper.theme.nodeShadow : 'transparent';
-            this.ctx.shadowBlur = detailTier === 'full' ? 22 : 0;
-            this.ctx.shadowOffsetY = detailTier === 'full' ? 12 : 0;
+            this.ctx.shadowBlur = detailTier === 'full' ? 10 : 0;
+            this.ctx.shadowOffsetY = detailTier === 'full' ? 5 : 0;
             this.ctx.fillStyle = detailTier === 'full'
                 ? this.createNodeGradient(node)
                 : CanvasWrapper.theme.surface;
-            this.ctx.strokeStyle = validationTheme
-                ? validationTheme.stroke
-                : isSelected
+            this.ctx.strokeStyle = isSelected
                 ? CanvasWrapper.theme.connection.selected
                 : statusTheme?.border ?? CanvasWrapper.theme.nodeStroke;
             this.ctx.lineJoin = 'round';
-            this.ctx.lineWidth = validationTheme ? 3.2 : isSelected ? 3 : 1.4;
+            this.ctx.lineWidth = isSelected ? 2.1 : 1;
 
             const isHoveredDest =
                 drag && node.id !== drag.from && hovered === node.id;
@@ -394,51 +430,57 @@ export class CanvasWrapper {
                 this.ctx.globalAlpha = 0.55;
             }
 
-            if (validationTheme) {
-                this.ctx.save();
-                this.ctx.shadowColor = validationTheme.glow;
-                this.ctx.shadowBlur = 26;
-                this.ctx.lineWidth = 8;
-                this.ctx.strokeStyle = validationTheme.glow;
-                this.roundedRect(node.x - 3, node.y - 3, node.width + 6, node.height + 6, 22);
-                this.ctx.stroke();
-                this.ctx.restore();
-            }
-
-            this.roundedRect(node.x, node.y, node.width, node.height, 18);
+            this.roundedRect(node.x, node.y, node.width, node.height, 10);
             this.ctx.fill();
             this.ctx.shadowColor = 'transparent';
             this.ctx.shadowBlur = 0;
+            if (validationTheme) {
+                this.ctx.save();
+                this.ctx.fillStyle = validationTheme.surface;
+                this.ctx.globalAlpha = 0.22;
+                this.roundedRect(node.x + 2, node.y + 2, node.width - 4, node.height - 4, 8);
+                this.ctx.fill();
+                this.ctx.restore();
+            }
             this.ctx.stroke();
 
-            this.ctx.fillStyle = CanvasWrapper.theme.surfaceAccent;
-            this.roundedRect(node.x + 18, node.y + 14, 34, 34, 10);
+            const iconTileX = node.x + 18;
+            const iconTileY = node.y + 16;
+            const iconTileSize = 30;
+            this.ctx.fillStyle = statusTheme?.badgeFill ?? CanvasWrapper.theme.surfaceAccent;
+            this.roundedRect(iconTileX, iconTileY, iconTileSize, iconTileSize, 8);
             this.ctx.fill();
+            this.ctx.strokeStyle = statusTheme?.border ?? 'rgba(151, 166, 204, 0.30)';
+            this.ctx.lineWidth = 1;
+            this.roundedRect(iconTileX + 0.5, iconTileY + 0.5, iconTileSize - 1, iconTileSize - 1, 7.5);
+            this.ctx.stroke();
 
-            this.ctx.fillStyle = statusTheme?.accent ?? CanvasWrapper.theme.accent;
-            this.setFont(700, 12);
-            this.ctx.fillText('::', node.x + 28, node.y + 35);
+            this.drawTaskPluginIcon(iconTileX, iconTileY, iconTileSize, iconTileSize, statusTheme?.accent ?? CanvasWrapper.theme.accent);
 
+            const titleX = node.x + 66;
+            const titleMaxWidth = titleAccessoryRect
+                ? Math.max(24, titleAccessoryRect.x - titleX - 10)
+                : layout.titleMaxWidth;
             this.ctx.fillStyle = CanvasWrapper.theme.nodeText;
-            this.setFont(700, 16);
+            this.setFont(700, 15);
             this.drawEllipsizedText(
                 node.name,
-                node.x + 66,
+                titleX,
                 layout.titleBaseline,
-                layout.titleMaxWidth - (node.hasUpgradeWarning ? 30 : 0),
+                titleMaxWidth,
             );
 
-            if (node.hasUpgradeWarning) {
-                this.drawNodeWarning(node.x + node.width - 78, node.y + 30);
+            if (issueSummary && titleAccessoryRect) {
+                this.drawNodeIssueIcon(titleAccessoryRect, issueSummary);
             }
 
             this.ctx.fillStyle = CanvasWrapper.theme.nodeTextMuted;
-            this.setFont(500, 12);
+            this.setFont(500, 11);
             this.drawEllipsizedText(
                 node.resolvedVersion ?? '0.0.1',
-                node.x + 66,
+                titleX,
                 layout.versionBaseline,
-                layout.titleMaxWidth,
+                titleMaxWidth,
             );
 
             if (readOnly && statusTheme && node.renderStatus) {
@@ -449,14 +491,11 @@ export class CanvasWrapper {
                 this.drawNodeOverrideBadge(node, `${node.designTimeOverrideCount} override${node.designTimeOverrideCount === 1 ? '' : 's'}`);
             }
 
-            if (!readOnly) {
-                this.drawNodeSettingsButton(node);
-            }
             if (layout.inputSection) {
-                this.drawChannelSection(node, layout.inputSection, hovered === node.id, hoveredPortKey, connectedSummaryPortKeys, connectedPropertyPortKeys, drag?.from === node.id ? drag.portKey ?? null : null, focusedPortKeys, validationNodeFocused ? validationFocus : null, validationPortKeys);
+                this.drawChannelSection(node, layout.inputSection, hovered === node.id, hoveredPortKey, connectedSummaryPortKeys, connectedPropertyPortKeys, drag?.from === node.id ? drag.portKey ?? null : null, focusedPortKeys, validationNodeFocused ? validationFocus : null, validationPortKeys, issueSummary);
             }
             layout.outputSections.forEach((section) => {
-                this.drawChannelSection(node, section, hovered === node.id, hoveredPortKey, connectedSummaryPortKeys, connectedPropertyPortKeys, drag?.from === node.id ? drag.portKey ?? null : null, focusedPortKeys, validationNodeFocused ? validationFocus : null, validationPortKeys);
+                this.drawChannelSection(node, section, hovered === node.id, hoveredPortKey, connectedSummaryPortKeys, connectedPropertyPortKeys, drag?.from === node.id ? drag.portKey ?? null : null, focusedPortKeys, validationNodeFocused ? validationFocus : null, validationPortKeys, issueSummary);
             });
 
             this.ctx.restore();
@@ -479,6 +518,7 @@ export class CanvasWrapper {
             portKeys?: ReadonlySet<string>;
         } | null,
         validationPortKeys: ReadonlySet<string>,
+        issueSummary: CanvasNodeIssueSummary | null,
     ): void {
         this.ctx.save();
 
@@ -492,91 +532,134 @@ export class CanvasWrapper {
         const summaryConnected = connectedSummaryPortKeys.has(summaryScopedKey);
         const summaryActive = summaryHover || draggingPortKey === summaryPort.key;
 
-        this.ctx.fillStyle = summaryValidationFocused && validationTheme
+        const sectionX = node.x + 16;
+        const sectionWidth = node.width - 32;
+        const sectionHeight = Math.max(section.headerHeight, section.bottom - section.headerTop);
+        const sectionRadius = 7;
+        const rowCenterY = section.headerTop + section.headerHeight / 2;
+
+        this.ctx.fillStyle = CanvasWrapper.theme.sectionSurfaceAlt;
+        this.roundedRect(sectionX, section.headerTop, sectionWidth, sectionHeight, sectionRadius);
+        this.ctx.fill();
+
+        const headerFill = summaryValidationFocused && validationTheme
             ? validationTheme.surface
             : summaryActive
-            ? 'rgba(45, 75, 221, 0.13)'
+            ? CanvasWrapper.theme.sectionSurfaceActive
             : CanvasWrapper.theme.sectionSurface;
-        this.roundedRect(node.x + 14, section.headerTop, node.width - 28, section.headerHeight, 12);
+        this.ctx.fillStyle = headerFill;
+        this.roundedRect(sectionX, section.headerTop, sectionWidth, section.headerHeight, sectionRadius);
         this.ctx.fill();
 
         this.ctx.strokeStyle = summaryValidationFocused && validationTheme
             ? validationTheme.stroke
             : summaryActive
-            ? 'rgba(45, 75, 221, 0.34)'
+            ? CanvasWrapper.theme.sectionBorderActive
             : CanvasWrapper.theme.sectionBorder;
-        this.ctx.lineWidth = summaryValidationFocused ? 2 : summaryActive ? 1.35 : 1;
-        this.roundedRect(node.x + 14, section.headerTop, node.width - 28, section.headerHeight, 12);
+        this.ctx.lineWidth = summaryValidationFocused ? 1.7 : summaryActive ? 1.2 : 1;
+        this.roundedRect(sectionX, section.headerTop, sectionWidth, sectionHeight, sectionRadius);
         this.ctx.stroke();
 
-        this.ctx.fillStyle = CanvasWrapper.theme.nodeSectionText;
-        this.setFont(700, 11);
-
-        this.ctx.fillStyle = CanvasWrapper.theme.accent;
-        this.setFont(700, 10);
-        const countLabel = section.countLabel.toUpperCase();
+        const countLabel = this.compactPropertyCountLabel(section.countLabel).toUpperCase();
+        this.setFont(700, 8.5);
         const countWidth = this.ctx.measureText(countLabel).width;
-        const countX = section.toggleRect.x - 8 - countWidth;
-        this.ctx.fillText(countLabel, countX, section.headerTop + 20);
+        const countChipPaddingX = 6;
+        const countChipHeight = 16;
+        const countChipWidth = countWidth + countChipPaddingX * 2;
+        const countChipX = section.toggleRect.x - 8 - countChipWidth;
+        const countChipY = rowCenterY - countChipHeight / 2;
 
-        this.ctx.fillStyle = CanvasWrapper.theme.nodeSectionText;
-        this.setFont(700, 11);
+        this.ctx.fillStyle = summaryConnected || summaryActive || summaryValidationFocused
+            ? 'rgba(45, 75, 221, 0.09)'
+            : 'rgba(113, 131, 166, 0.08)';
+        this.roundedRect(countChipX, countChipY, countChipWidth, countChipHeight, 5);
+        this.ctx.fill();
+
+        this.ctx.strokeStyle = summaryConnected || summaryActive || summaryValidationFocused
+            ? 'rgba(45, 75, 221, 0.22)'
+            : 'rgba(151, 166, 204, 0.24)';
+        this.ctx.lineWidth = 1;
+        this.roundedRect(countChipX + 0.5, countChipY + 0.5, countChipWidth - 1, countChipHeight - 1, 4.5);
+        this.ctx.stroke();
+
+        this.ctx.fillStyle = summaryConnected || summaryActive || summaryValidationFocused
+            ? CanvasWrapper.theme.accent
+            : CanvasWrapper.theme.nodeTextMuted;
+        this.ctx.fillText(countLabel, countChipX + countChipPaddingX, rowCenterY + 3);
+
+        this.ctx.fillStyle = summaryActive || summaryValidationFocused
+            ? CanvasWrapper.theme.nodeText
+            : CanvasWrapper.theme.nodeSectionText;
+        this.setFont(700, 10);
         const sectionLabelX = node.x + 34;
         this.drawEllipsizedText(
             section.label.toUpperCase(),
             sectionLabelX,
-            section.headerTop + 20,
-            Math.max(48, countX - sectionLabelX - 12),
+            rowCenterY + 4,
+            Math.max(48, countChipX - sectionLabelX - 12),
         );
         this.drawSectionToggle(section);
 
         if (section.propertyRows.length > 0) {
-            for (const row of section.propertyRows) {
-                this.ctx.fillStyle = row === section.propertyRows[0]
-                    ? CanvasWrapper.theme.surface
-                    : CanvasWrapper.theme.sectionSurfaceAlt;
-                this.fillRect(node.x + 18, row.top, node.width - 36, row.height);
+            this.ctx.strokeStyle = CanvasWrapper.theme.sectionDivider;
+            this.ctx.lineWidth = 1;
+            this.ctx.beginPath();
+            this.ctx.moveTo(sectionX + 10, section.headerTop + section.headerHeight);
+            this.ctx.lineTo(sectionX + sectionWidth - 10, section.headerTop + section.headerHeight);
+            this.ctx.stroke();
 
+            for (const row of section.propertyRows) {
                 const rowScopedKey = this.portFocusKey(node, row.port);
                 const rowValidationFocused = validationPortKeys.has(rowScopedKey);
-                if (rowValidationFocused && validationTheme) {
-                    this.ctx.fillStyle = validationTheme.fill;
-                    this.roundedRect(node.x + 20, row.top + 3, node.width - 40, row.height - 6, 10);
-                    this.ctx.fill();
-                }
-
-                this.ctx.strokeStyle = 'rgba(188, 200, 224, 0.56)';
-                this.ctx.lineWidth = 1;
-                this.ctx.beginPath();
-                this.ctx.moveTo(node.x + 22, row.top);
-                this.ctx.lineTo(node.x + node.width - 22, row.top);
-                this.ctx.stroke();
-
-                const propertyType = row.kind.toUpperCase();
-                this.setFont(600, 10);
-                const propertyTypeWidth = this.ctx.measureText(propertyType).width;
-                const propertyTypeX = node.x + node.width - 34 - propertyTypeWidth;
-                const labelX = node.x + 34;
-                const labelMaxWidth = Math.max(40, propertyTypeX - labelX - (row.required ? 18 : 8));
-
-                this.ctx.fillStyle = CanvasWrapper.theme.nodeText;
-                this.setFont(600, 13);
-                const displayedLabel = this.drawEllipsizedText(row.label, labelX, row.centerY + 5, labelMaxWidth);
-
-                if (row.required) {
-                    this.ctx.fillStyle = CanvasWrapper.theme.accent;
-                    this.setFont(700, 13);
-                    const labelWidth = Math.min(this.ctx.measureText(displayedLabel).width, labelMaxWidth);
-                    this.ctx.fillText('*', labelX + labelWidth + 4, row.centerY + 5);
-                }
-
-                this.ctx.fillStyle = CanvasWrapper.theme.nodePropertyType;
-                this.setFont(600, 10);
-                this.ctx.fillText(propertyType, propertyTypeX, row.centerY + 4);
-
                 const isFocusedEndpoint = focusedPortKeys.has(rowScopedKey);
                 const isHover = (isHoveredNode && hoveredPortKey === row.port.key) || isFocusedEndpoint || rowValidationFocused;
                 const isConnected = connectedPropertyPortKeys.has(rowScopedKey);
+                const propertyIssue = issueSummary?.propertyIssues.get(this.propertyIssueKey(row.port)) ?? null;
+
+                this.ctx.fillStyle = rowValidationFocused && validationTheme
+                    ? validationTheme.fill
+                    : isHover || isFocusedEndpoint
+                    ? CanvasWrapper.theme.sectionRowActive
+                    : CanvasWrapper.theme.sectionRowSurface;
+                this.fillRect(sectionX + 1, row.top, sectionWidth - 2, row.height);
+
+                if (row !== section.propertyRows[0]) {
+                    this.ctx.strokeStyle = CanvasWrapper.theme.sectionDivider;
+                    this.ctx.lineWidth = 1;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(sectionX + 12, row.top);
+                    this.ctx.lineTo(sectionX + sectionWidth - 12, row.top);
+                    this.ctx.stroke();
+                }
+
+                const propertyType = row.kind.toUpperCase();
+                this.setFont(600, 8.5);
+                const propertyTypeWidth = this.ctx.measureText(propertyType).width;
+                const propertyTypeX = node.x + node.width - 36 - propertyTypeWidth;
+                const propertyIssueSpace = propertyIssue ? 14 : 0;
+                const propertyIssueX = propertyTypeX - 9;
+                const labelX = node.x + 34;
+                const labelMaxWidth = Math.max(40, propertyTypeX - labelX - propertyIssueSpace - (row.required ? 18 : 8));
+
+                this.ctx.fillStyle = CanvasWrapper.theme.nodeText;
+                this.setFont(600, 11.5);
+                const displayedLabel = this.drawEllipsizedText(row.label, labelX, row.centerY + 4, labelMaxWidth);
+
+                if (row.required) {
+                    this.ctx.fillStyle = CanvasWrapper.theme.accent;
+                    this.setFont(700, 11.5);
+                    const labelWidth = Math.min(this.ctx.measureText(displayedLabel).width, labelMaxWidth);
+                    this.ctx.fillText('*', labelX + labelWidth + 4, row.centerY + 4);
+                }
+
+                this.ctx.fillStyle = CanvasWrapper.theme.nodePropertyType;
+                this.setFont(600, 8.5);
+                this.ctx.fillText(propertyType, propertyTypeX, row.centerY + 3);
+
+                if (propertyIssue) {
+                    this.drawInlineIssueIcon(propertyIssueX, row.centerY, propertyIssue.severity);
+                }
+
                 const shouldShow = section.expanded ||
                     isConnected ||
                     isHoveredNode ||
@@ -595,8 +678,7 @@ export class CanvasWrapper {
             }
         }
 
-        this.drawSummaryDock(
-            node,
+        this.drawSummarySocket(
             section,
             summaryActive,
             summaryConnected || draggingPortKey === summaryPort.key,
@@ -612,21 +694,27 @@ export class CanvasWrapper {
         const centerY = rect.y + rect.height / 2;
 
         this.ctx.save();
-        this.ctx.fillStyle = section.expanded ? 'rgba(45, 75, 221, 0.10)' : 'rgba(16, 23, 40, 0.04)';
-        this.roundedRect(rect.x, rect.y, rect.width, rect.height, 9);
+        this.ctx.fillStyle = section.expanded ? 'rgba(45, 75, 221, 0.08)' : 'rgba(16, 23, 40, 0.02)';
+        this.roundedRect(rect.x, rect.y, rect.width, rect.height, 6);
         this.ctx.fill();
 
-        this.ctx.strokeStyle = section.expanded ? CanvasWrapper.theme.accent : 'rgba(115, 132, 170, 0.55)';
-        this.ctx.lineWidth = 1.5;
+        this.ctx.strokeStyle = section.expanded ? 'rgba(45, 75, 221, 0.62)' : 'rgba(115, 132, 170, 0.34)';
+        this.ctx.lineWidth = 1.2;
+        this.roundedRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1, 5.5);
+        this.ctx.stroke();
+
+        this.ctx.strokeStyle = section.expanded ? CanvasWrapper.theme.accent : 'rgba(88, 106, 146, 0.58)';
+        this.ctx.lineWidth = 1.45;
+        this.ctx.lineCap = 'round';
         this.ctx.beginPath();
-        this.ctx.moveTo(centerX - 5, centerY);
-        this.ctx.lineTo(centerX + 5, centerY);
+        this.ctx.moveTo(centerX - 4.5, centerY);
+        this.ctx.lineTo(centerX + 4.5, centerY);
         this.ctx.stroke();
 
         if (!section.expanded) {
             this.ctx.beginPath();
-            this.ctx.moveTo(centerX, centerY - 5);
-            this.ctx.lineTo(centerX, centerY + 5);
+            this.ctx.moveTo(centerX, centerY - 4.5);
+            this.ctx.lineTo(centerX, centerY + 4.5);
             this.ctx.stroke();
         }
 
@@ -637,6 +725,10 @@ export class CanvasWrapper {
         return `${node.id}:${port.key}`;
     }
 
+    private compactPropertyCountLabel(label: string): string {
+        return label.replace(' properties', ' props').replace(' property', ' prop');
+    }
+
     private createNodeGradient(node: RenderedNode): CanvasGradient {
         const gradient = this.ctx.createLinearGradient(node.x, node.y, node.x + node.width, node.y + node.height);
         gradient.addColorStop(0, CanvasWrapper.theme.surface);
@@ -644,40 +736,40 @@ export class CanvasWrapper {
         return gradient;
     }
 
-    private drawNodeSettingsButton(node: RenderedNode): void {
-        const settingsRect = node.settingsRect();
-        const centerX = settingsRect.x + settingsRect.width / 2;
-        const centerY = settingsRect.y + settingsRect.height / 2;
+    private drawTaskPluginIcon(x: number, y: number, width: number, height: number, color: string): void {
+        const centerX = x + width / 2;
+        const centerY = y + height / 2;
 
         this.ctx.save();
-        this.ctx.fillStyle = 'rgba(16, 23, 40, 0.04)';
-        this.roundedRect(settingsRect.x, settingsRect.y, settingsRect.width, settingsRect.height, 10);
+        this.ctx.fillStyle = color;
+
+        if (this.materialIconReady) {
+            this.ctx.font = `400 20px ${CanvasWrapper.materialIconFontFamily}`;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('extension', centerX, centerY + 0.5);
+        } else {
+            this.drawFallbackPuzzleIcon(centerX, centerY, color);
+        }
+
+        this.ctx.restore();
+    }
+
+    private drawFallbackPuzzleIcon(centerX: number, centerY: number, color: string): void {
+        const size = 15;
+        const x = centerX - size / 2;
+        const y = centerY - size / 2;
+
+        this.ctx.save();
+        this.ctx.fillStyle = color;
+        this.roundedRect(x, y + 2, size, size - 2, 3);
         this.ctx.fill();
 
-        this.ctx.strokeStyle = 'rgba(115, 132, 170, 0.62)';
-        this.ctx.lineWidth = 1.6;
-        this.ctx.lineCap = 'round';
-        this.ctx.lineJoin = 'round';
-
+        this.ctx.globalCompositeOperation = 'destination-out';
         this.ctx.beginPath();
-        for (let index = 0; index < 16; index += 1) {
-            const angle = (Math.PI * 2 * index) / 16 - Math.PI / 2;
-            const radius = index % 2 === 0 ? 8.8 : 6.7;
-            const x = centerX + Math.cos(angle) * radius;
-            const y = centerY + Math.sin(angle) * radius;
-            if (index === 0) {
-                this.ctx.moveTo(x, y);
-            } else {
-                this.ctx.lineTo(x, y);
-            }
-        }
-        this.ctx.closePath();
-        this.ctx.stroke();
-
-        this.ctx.beginPath();
-        this.ctx.arc(centerX, centerY, 3.2, 0, Math.PI * 2);
-        this.ctx.stroke();
-
+        this.ctx.arc(centerX, y + 2, 2.6, 0, Math.PI * 2);
+        this.ctx.arc(x + size, centerY + 1, 2.6, 0, Math.PI * 2);
+        this.ctx.fill();
         this.ctx.restore();
     }
 
@@ -687,8 +779,7 @@ export class CanvasWrapper {
         this.ctx.fill();
     }
 
-    private drawSummaryDock(
-        node: RenderedNode,
+    private drawSummarySocket(
         section: NodeChannelSectionLayout,
         isHover: boolean,
         isConnected: boolean,
@@ -696,57 +787,29 @@ export class CanvasWrapper {
     ): void {
         const port = section.summaryPort;
         const validationTheme = validationSeverity ? CanvasWrapper.theme.validation[validationSeverity] : null;
-        const bounds = port.visualBounds ?? {
-            x: port.x - port.radius,
-            y: port.y - port.radius,
-            width: port.radius * 2,
-            height: port.radius * 2,
-        };
-        const dockRadius = Math.min(9, bounds.width / 2, bounds.height / 2);
-        const dockInnerX = section.side === 'left'
-            ? bounds.x + bounds.width
-            : bounds.x;
-        const channelEdgeX = section.side === 'left'
-            ? node.x + 14
-            : node.x + node.width - 14;
-        const slotX = bounds.x + bounds.width / 2;
-        const outerX = section.side === 'left'
-            ? bounds.x
-            : bounds.x + bounds.width;
-        const stateLayerRadius = dockRadius + 5;
+        const radius = port.radius;
+        const haloRadius = radius + 6;
 
         this.ctx.save();
 
-        if (isHover) {
-            this.ctx.fillStyle = validationTheme?.surface ?? 'rgba(31, 73, 255, 0.14)';
-            this.roundedRect(bounds.x - 5, bounds.y - 5, bounds.width + 10, bounds.height + 10, stateLayerRadius);
+        if (isHover || isConnected || validationTheme) {
+            this.ctx.fillStyle = validationTheme?.surface ?? 'rgba(31, 73, 255, 0.11)';
+            this.ctx.beginPath();
+            this.ctx.arc(port.x, port.y, haloRadius, 0, Math.PI * 2);
             this.ctx.fill();
         }
 
         this.ctx.shadowColor = isHover || isConnected
-            ? validationTheme?.glow ?? 'rgba(45, 75, 221, 0.22)'
-            : 'rgba(57, 81, 153, 0.14)';
-        this.ctx.shadowBlur = isHover || isConnected ? 12 : 7;
-        this.ctx.shadowOffsetY = 2;
+            ? validationTheme?.glow ?? 'rgba(45, 75, 221, 0.18)'
+            : CanvasWrapper.theme.anchor.socketShadow;
+        this.ctx.shadowBlur = isHover || isConnected ? 8 : 3;
+        this.ctx.shadowOffsetY = 1.5;
 
-        this.ctx.strokeStyle = isHover || isConnected
-            ? validationTheme?.stroke ?? 'rgba(31, 73, 255, 0.46)'
-            : CanvasWrapper.theme.anchor.dockStem;
-        this.ctx.lineWidth = isHover || isConnected ? 2 : 1.3;
+        this.ctx.fillStyle = isHover || isConnected
+            ? validationTheme?.fill ?? CanvasWrapper.theme.anchor.socketFocusFill
+            : CanvasWrapper.theme.anchor.socketFill;
         this.ctx.beginPath();
-        this.ctx.moveTo(channelEdgeX, port.y);
-        this.ctx.lineTo(dockInnerX, port.y);
-        this.ctx.stroke();
-
-        const dockGradient = this.ctx.createLinearGradient(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height);
-        dockGradient.addColorStop(0, isConnected || isHover
-            ? validationTheme?.fill ?? CanvasWrapper.theme.anchor.dockFill
-            : CanvasWrapper.theme.anchor.dockInactiveFill);
-        dockGradient.addColorStop(1, isConnected
-            ? CanvasWrapper.theme.anchor.dockContainer
-            : '#ffffff');
-        this.ctx.fillStyle = dockGradient;
-        this.roundedRect(bounds.x, bounds.y, bounds.width, bounds.height, dockRadius);
+        this.ctx.arc(port.x, port.y, radius, 0, Math.PI * 2);
         this.ctx.fill();
 
         this.ctx.shadowColor = 'transparent';
@@ -755,35 +818,16 @@ export class CanvasWrapper {
 
         this.ctx.strokeStyle = isHover || isConnected
             ? validationTheme?.stroke ?? CanvasWrapper.theme.anchor.connected
-            : CanvasWrapper.theme.anchor.normal;
-        this.ctx.lineWidth = isConnected ? 2.3 : 1.6;
-        this.roundedRect(bounds.x, bounds.y, bounds.width, bounds.height, dockRadius);
-        this.ctx.stroke();
-
-        const inset = 3;
-        this.ctx.strokeStyle = isHover || isConnected
-            ? validationTheme?.stroke ?? 'rgba(31, 73, 255, 0.28)'
-            : 'rgba(82, 103, 154, 0.18)';
-        this.ctx.lineWidth = 1;
-        this.roundedRect(bounds.x + inset, bounds.y + inset, bounds.width - inset * 2, bounds.height - inset * 2, Math.max(2, dockRadius - inset));
-        this.ctx.stroke();
-
-        this.ctx.strokeStyle = isHover || isConnected
-            ? validationTheme?.stroke ?? CanvasWrapper.theme.anchor.connected
-            : CanvasWrapper.theme.anchor.dockSlot;
-        this.ctx.lineWidth = isConnected ? 2.5 : 1.8;
-        this.ctx.lineCap = 'round';
+            : CanvasWrapper.theme.anchor.socketOutline;
+        this.ctx.lineWidth = isHover || isConnected ? 1.9 : 1.25;
         this.ctx.beginPath();
-        this.ctx.moveTo(outerX, port.y - 9);
-        this.ctx.lineTo(outerX, port.y + 9);
+        this.ctx.arc(port.x, port.y, radius, 0, Math.PI * 2);
         this.ctx.stroke();
 
-        this.ctx.fillStyle = isConnected
-            ? validationTheme?.stroke ?? CanvasWrapper.theme.anchor.connected
-            : CanvasWrapper.theme.anchor.dockSlot;
-        for (const yOffset of [-7, 0, 7]) {
+        if (isConnected) {
+            this.ctx.fillStyle = validationTheme?.stroke ?? CanvasWrapper.theme.anchor.connected;
             this.ctx.beginPath();
-            this.ctx.arc(slotX, port.y + yOffset, isConnected ? 2.05 : 1.6, 0, 2 * Math.PI);
+            this.ctx.arc(port.x, port.y, 2.45, 0, Math.PI * 2);
             this.ctx.fill();
         }
 
@@ -801,53 +845,100 @@ export class CanvasWrapper {
         const y = port.y;
         const validationTheme = validationSeverity ? CanvasWrapper.theme.validation[validationSeverity] : null;
         const radius = port.radius;
-        const biteRadius = radius + 2.5;
-        const activeRadius = radius + 6;
-        const isInput = port.side === 'left';
-        const innerStart = isInput ? -Math.PI / 2 : Math.PI / 2;
-        const innerEnd = isInput ? Math.PI / 2 : Math.PI * 1.5;
+        const activeRadius = radius + 5.5;
 
         this.ctx.save();
 
-        // The "bite" is a concave half-circle cut into the node border.
-        this.ctx.beginPath();
-        this.ctx.fillStyle = CanvasWrapper.theme.surfaceAlt;
-        this.ctx.moveTo(x, y + (isInput ? -biteRadius : biteRadius));
-        this.ctx.arc(x, y, biteRadius, innerStart, innerEnd, false);
-        this.ctx.closePath();
-        this.ctx.fill();
-
-        this.ctx.beginPath();
-        this.ctx.lineWidth = isConnected ? 2 : 1.35;
-        this.ctx.strokeStyle = isConnected
-            ? validationTheme?.stroke ?? CanvasWrapper.theme.anchor.connected
-            : 'rgba(88, 105, 152, 0.36)';
-        this.ctx.arc(x, y, biteRadius, innerStart, innerEnd, false);
-        this.ctx.stroke();
-
-        if (isHover || isGrabbed) {
+        if (isHover || isGrabbed || validationTheme) {
             this.ctx.beginPath();
             this.ctx.fillStyle = isGrabbed
                 ? CanvasWrapper.theme.anchor.connected
-                : validationTheme?.surface ?? 'rgba(31, 73, 255, 0.34)';
+                : validationTheme?.surface ?? 'rgba(31, 73, 255, 0.13)';
             this.ctx.arc(x, y, activeRadius, 0, 2 * Math.PI);
             this.ctx.fill();
+        }
 
-            if (!isGrabbed) {
-                this.ctx.beginPath();
-                this.ctx.strokeStyle = validationTheme?.stroke ?? 'rgba(31, 73, 255, 0.72)';
-                this.ctx.lineWidth = 1.4;
-                this.ctx.arc(x, y, activeRadius, 0, 2 * Math.PI);
-                this.ctx.stroke();
-            }
-        } else if (isConnected) {
-            this.ctx.beginPath();
+        this.ctx.fillStyle = isHover || isGrabbed || isConnected
+            ? validationTheme?.fill ?? CanvasWrapper.theme.anchor.socketFocusFill
+            : CanvasWrapper.theme.anchor.socketFill;
+        this.ctx.beginPath();
+        this.ctx.arc(x, y, radius, 0, 2 * Math.PI);
+        this.ctx.fill();
+
+        this.ctx.strokeStyle = isHover || isGrabbed || isConnected
+            ? validationTheme?.stroke ?? CanvasWrapper.theme.anchor.connected
+            : CanvasWrapper.theme.anchor.socketOutlineMuted;
+        this.ctx.lineWidth = isHover || isGrabbed || isConnected ? 1.65 : 1.1;
+        this.ctx.beginPath();
+        this.ctx.arc(x, y, radius, 0, 2 * Math.PI);
+        this.ctx.stroke();
+
+        if (isConnected || isGrabbed) {
             this.ctx.fillStyle = validationTheme?.stroke ?? CanvasWrapper.theme.anchor.connected;
-            this.ctx.arc(x, y, 2.35, 0, 2 * Math.PI);
+            this.ctx.beginPath();
+            this.ctx.arc(x, y, isGrabbed ? 2.4 : 1.9, 0, 2 * Math.PI);
             this.ctx.fill();
         }
 
         this.ctx.restore();
+    }
+
+    private drawNodeIssueIcon(rect: { x: number; y: number; width: number; height: number }, issue: CanvasNodeIssueSummary): void {
+        const theme = CanvasWrapper.theme.validation[issue.severity];
+        const centerX = rect.x + rect.width / 2;
+        const centerY = rect.y + rect.height / 2;
+
+        this.ctx.save();
+        this.ctx.fillStyle = issue.severity === 'error'
+            ? 'rgba(255, 232, 229, 0.82)'
+            : 'rgba(255, 247, 220, 0.86)';
+        this.roundedRect(rect.x, rect.y, rect.width, rect.height, 6);
+        this.ctx.fill();
+
+        this.ctx.strokeStyle = theme.stroke;
+        this.ctx.globalAlpha = 0.28;
+        this.ctx.lineWidth = 1.2;
+        this.roundedRect(rect.x + 0.6, rect.y + 0.6, rect.width - 1.2, rect.height - 1.2, 5.5);
+        this.ctx.stroke();
+
+        this.ctx.globalAlpha = 1;
+        this.ctx.fillStyle = theme.stroke;
+        if (this.materialIconReady) {
+            this.ctx.font = `400 17px ${CanvasWrapper.materialIconFontFamily}`;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(issue.severity === 'error' ? 'error' : 'warning', centerX, centerY + 0.5);
+        } else {
+            this.setFont(700, 13);
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(issue.severity === 'error' ? '!' : '!', centerX, centerY + 0.5);
+        }
+
+        this.ctx.restore();
+    }
+
+    private drawInlineIssueIcon(centerX: number, centerY: number, severity: CanvasValidationSeverity): void {
+        const theme = CanvasWrapper.theme.validation[severity];
+
+        this.ctx.save();
+        this.ctx.fillStyle = theme.stroke;
+        if (this.materialIconReady) {
+            this.ctx.font = `400 11px ${CanvasWrapper.materialIconFontFamily}`;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(severity === 'error' ? 'error' : 'warning', centerX, centerY + 0.5);
+        } else {
+            this.setFont(700, 9);
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('!', centerX, centerY + 0.5);
+        }
+        this.ctx.restore();
+    }
+
+    private propertyIssueKey(port: NodePortDefinition): string {
+        return `${port.side}:${port.channelName ?? ''}:${port.propertyName ?? ''}`;
     }
 
     private drawNodeStatusIcon(
@@ -864,13 +955,13 @@ export class CanvasWrapper {
         this.ctx.save();
 
         this.ctx.fillStyle = fill;
-        this.roundedRect(rect.x, rect.y, rect.width, rect.height, 10);
+        this.roundedRect(rect.x, rect.y, rect.width, rect.height, 6);
         this.ctx.fill();
 
         this.ctx.strokeStyle = accent;
         this.ctx.globalAlpha = 0.34;
         this.ctx.lineWidth = 1.4;
-        this.roundedRect(rect.x + 0.7, rect.y + 0.7, rect.width - 1.4, rect.height - 1.4, 9.5);
+        this.roundedRect(rect.x + 0.7, rect.y + 0.7, rect.width - 1.4, rect.height - 1.4, 5.5);
         this.ctx.stroke();
 
         this.ctx.globalAlpha = 1;
@@ -979,6 +1070,35 @@ export class CanvasWrapper {
         this.ctx.restore();
     }
 
+    drawInteractionTooltip(label: string, point: Point): void {
+        const normalizedLabel = label.trim();
+        if (!normalizedLabel) {
+            return;
+        }
+
+        this.ctx.save();
+        const scale = Math.max(this.zoomLevel(), 0.2);
+        this.setFont(600, 11 / scale);
+        const paddingX = 9 / scale;
+        const height = 24 / scale;
+        const maxWidth = 220 / scale;
+        const displayLabel = this.ellipsizeText(normalizedLabel, maxWidth - paddingX * 2);
+        const textWidth = this.ctx.measureText(displayLabel).width;
+        const width = Math.min(maxWidth, Math.max(48 / scale, textWidth + paddingX * 2));
+        const x = point.x - width / 2;
+        const y = point.y - height - 8 / scale;
+
+        this.ctx.fillStyle = CanvasWrapper.theme.tooltipBg;
+        this.roundedRect(x, y, width, height, 7 / scale);
+        this.ctx.fill();
+
+        this.ctx.fillStyle = CanvasWrapper.theme.tooltipText;
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText(displayLabel, x + width / 2, y + height / 2 + 0.5 / scale);
+        this.ctx.restore();
+    }
+
     drawMarqueeRect(left: number, top: number, right: number, bottom: number): void {
         const width = right - left;
         const height = bottom - top;
@@ -990,21 +1110,6 @@ export class CanvasWrapper {
         this.ctx.setLineDash([8, 6]);
         this.ctx.fillRect(left, top, width, height);
         this.ctx.strokeRect(left, top, width, height);
-        this.ctx.restore();
-    }
-
-    private drawNodeWarning(x: number, y: number): void {
-        this.ctx.save();
-        this.ctx.beginPath();
-        this.ctx.fillStyle = CanvasWrapper.theme.nodeWarning;
-        this.ctx.arc(x, y, 12, 0, Math.PI * 2);
-        this.ctx.fill();
-
-        this.ctx.fillStyle = CanvasWrapper.theme.nodeWarningText;
-        this.setFont(700, 12);
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
-        this.ctx.fillText('!', x, y + 0.5);
         this.ctx.restore();
     }
 
@@ -1112,10 +1217,14 @@ export class CanvasWrapper {
             return;
         }
 
-        if (route.status === 'obstacleViolation') {
-            this.ctx.save();
-            this.ctx.strokeStyle = '#d92d20';
-        }
+        this.ctx.save();
+        this.ctx.strokeStyle = route.status === 'obstacleViolation'
+            ? CanvasWrapper.theme.validation.error.stroke
+            : CanvasWrapper.theme.connection.selected;
+        this.ctx.fillStyle = this.ctx.strokeStyle;
+        this.ctx.lineWidth = route.status === 'obstacleViolation' ? 5.4 : 6.2;
+        this.ctx.lineJoin = 'round';
+        this.ctx.lineCap = 'butt';
 
         if (route.problemSegments.length > 0) {
             for (const segment of subtractRouteProblemSegments(segments, route.problemSegments)) {
@@ -1138,9 +1247,7 @@ export class CanvasWrapper {
             this.drawRoundedOrthogonalSegments(segments);
         }
 
-        if (route.status === 'obstacleViolation') {
-            this.ctx.restore();
-        }
+        this.ctx.restore();
     }
 
     pathfinderOptions(): PathfinderOptions {

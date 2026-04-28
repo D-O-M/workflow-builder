@@ -7,6 +7,8 @@
         [graphRevision]="editorStore.graphRevision()"
         [backgroundEffect]="canvasBackgroundEffect"
         [validationFocus]="validationCanvasFocus()"
+        [validationIssueMarkers]="canvasIssueMarkers()"
+        [viewportInsets]="canvasViewportInsets()"
         mode="edit"
         (nodeSettingsRequested)="openNodeSettings($event)"
       />
@@ -25,6 +27,7 @@
           [class.is-draft]="isDraftPickerMode()"
           [class.is-invalid]="!!blueprintNameError()"
           [class.is-panel-open]="pickerPanelOpen()"
+          (click)="onPickerShellClick()"
         >
           @if (isPickerSearchMode()) {
             <mat-icon class="blueprint-editor-page__picker-leading-icon">search</mat-icon>
@@ -48,8 +51,8 @@
               <button
                 type="button"
                 class="blueprint-editor-page__picker-trigger blueprint-editor-page__picker-trigger--button"
-                (click)="beginPickerSearchFromTrigger()"
-                aria-label="Select a different blueprint"
+                (click)="beginPickerSearchFromTrigger(); $event.stopPropagation()"
+                aria-label="Select a different blueprint or version"
               >
                 <span class="blueprint-editor-page__picker-label">{{ pickerDisplayName() }}</span>
               </button>
@@ -76,28 +79,18 @@
             @if (showVersionPicker()) {
               <span class="blueprint-editor-page__picker-divider" aria-hidden="true"></span>
 
-              <mat-select
-                class="blueprint-editor-page__version-select"
-                [value]="selectedBlueprintVersionId()"
-                panelClass="blueprint-editor-page__version-select-panel"
-                [disableOptionCentering]="true"
-                (selectionChange)="onBlueprintVersionSelected($event.value)"
-                aria-label="Select blueprint version"
+              <button
+                type="button"
+                class="blueprint-editor-page__version-select blueprint-editor-page__version-display"
+                (click)="beginPickerSearchFromVersionDisplay($event)"
+                aria-label="Browse blueprint versions"
               >
-                <mat-select-trigger>
-                  <span class="blueprint-editor-page__version-trigger">
-                    <span class="blueprint-editor-page__version-trigger-label">
-                      {{ selectedBlueprintVersion() ? formatBlueprintVersion(selectedBlueprintVersion()!) : 'Version' }}
-                    </span>
+                <span class="blueprint-editor-page__version-trigger">
+                  <span class="blueprint-editor-page__version-trigger-label">
+                    {{ selectedBlueprintVersion() ? formatBlueprintVersion(selectedBlueprintVersion()!) : 'Version' }}
                   </span>
-                </mat-select-trigger>
-
-                @for (version of selectedBlueprintVersions(); track version.blueprintVersionId) {
-                  <mat-option [value]="version.blueprintVersionId">
-                    {{ formatBlueprintVersion(version) }}
-                  </mat-option>
-                }
-              </mat-select>
+                </span>
+              </button>
             }
 
             @if (isDraftPickerMode()) {
@@ -134,28 +127,50 @@
       (closed)="onPickerAutocompleteClosed()"
       (optionSelected)="onBlueprintSuggestionSelected($event)"
     >
-      @if (pickerSuggestions().length === 0) {
+      @if (pickerOptions().length === 0) {
         <mat-option disabled>No blueprints found</mat-option>
       } @else {
-        @for (suggestion of pickerSuggestions(); track suggestion.blueprint.id) {
+        @for (option of pickerOptions(); track option.value) {
           <mat-option
-            [value]="suggestion.blueprint.id"
-            [class.is-active]="suggestion.isActive"
+            [value]="option.value"
+            [class.is-active]="option.kind === 'blueprint' && option.isActive"
+            [class.is-version]="option.kind === 'version'"
+            [class.is-selected-version]="option.kind === 'version' && option.isSelected"
           >
-            <span class="blueprint-editor-page__picker-option">
-              <span class="blueprint-editor-page__picker-option-copy">
-                <span class="blueprint-editor-page__picker-option-title">{{ suggestion.blueprint.name }}</span>
-                @if (suggestion.isActive) {
+            @if (option.kind === 'blueprint') {
+              <span class="blueprint-editor-page__picker-option">
+                <span class="blueprint-editor-page__picker-option-copy">
+                  <span class="blueprint-editor-page__picker-option-title">{{ option.blueprint.name }}</span>
+                  @if (option.isActive) {
+                    <span class="blueprint-editor-page__picker-option-support">
+                      Current blueprint
+                    </span>
+                  } @else if (blueprintHasUpgradeWarning(option.blueprint)) {
+                    <span class="blueprint-editor-page__picker-option-support blueprint-editor-page__picker-option-support--warning">
+                      Update available
+                    </span>
+                  }
+                </span>
+              </span>
+            } @else {
+              <span class="blueprint-editor-page__picker-option blueprint-editor-page__picker-option--version">
+                <span class="blueprint-editor-page__picker-option-branch" aria-hidden="true"></span>
+                <span class="blueprint-editor-page__picker-option-copy">
+                  <span class="blueprint-editor-page__picker-option-title">
+                    {{ formatBlueprintVersion(option.version) }}
+                  </span>
                   <span class="blueprint-editor-page__picker-option-support">
-                    Current blueprint
+                    {{ option.isSelected ? 'Current version' : 'Open this version' }}
                   </span>
-                } @else if (blueprintHasUpgradeWarning(suggestion.blueprint)) {
-                  <span class="blueprint-editor-page__picker-option-support blueprint-editor-page__picker-option-support--warning">
-                    Update available
-                  </span>
+                </span>
+                @if (formatBlueprintVersionCreatedDate(option.version); as createdDate) {
+                  <span class="blueprint-editor-page__picker-option-date">{{ createdDate }}</span>
+                }
+                @if (option.isSelected) {
+                  <mat-icon class="blueprint-editor-page__picker-option-check" aria-hidden="true">check</mat-icon>
                 }
               </span>
-            </span>
+            }
           </mat-option>
         }
       }
@@ -308,49 +323,26 @@
       class="blueprint-editor-page__validation-cluster"
       [class.is-drawer-open]="!drawerCollapsed()"
     >
-      @if (validationSummary().warningCount > 0) {
-        <button
-          type="button"
-          class="blueprint-editor-page__validation-badge blueprint-editor-page__validation-badge--warning"
-          [class.is-glowing]="validationBadgeGlow()"
-          #validationMenuTrigger="matMenuTrigger"
-          [matMenuTriggerFor]="validationIssuesMenu"
-          [matTooltip]="validationStatusTooltip()"
-          matTooltipPosition="above"
-          aria-label="Review blueprint validation warnings"
-        >
-          <mat-icon>warning</mat-icon>
-          <span class="blueprint-editor-page__validation-count">{{ validationSummary().warningCount }}</span>
-        </button>
-      }
-
-      @if (validationSummary().errorCount > 0) {
-        <button
-          type="button"
-          class="blueprint-editor-page__validation-badge blueprint-editor-page__validation-badge--error"
-          [class.is-pulsing]="validationErrorPulse()"
-          #validationMenuTrigger="matMenuTrigger"
-          [matMenuTriggerFor]="validationIssuesMenu"
-          [matTooltip]="validationStatusTooltip()"
-          matTooltipPosition="above"
-          aria-label="Review blueprint validation errors"
-        >
-          <mat-icon>error</mat-icon>
-          <span class="blueprint-editor-page__validation-count">{{ validationSummary().errorCount }}</span>
-        </button>
-      } @else {
-        <button
-          type="button"
-          class="blueprint-editor-page__validation-badge blueprint-editor-page__validation-badge--valid"
-          #validationMenuTrigger="matMenuTrigger"
-          [matMenuTriggerFor]="validationIssuesMenu"
-          [matTooltip]="validationStatusTooltip()"
-          matTooltipPosition="above"
-          aria-label="Blueprint is valid"
-        >
-          <mat-icon>check_circle</mat-icon>
-        </button>
-      }
+      <button
+        type="button"
+        class="blueprint-editor-page__validation-badge"
+        [class.blueprint-editor-page__validation-badge--valid]="validationBadgeTone() === 'valid'"
+        [class.blueprint-editor-page__validation-badge--warning]="validationBadgeTone() === 'warning'"
+        [class.blueprint-editor-page__validation-badge--error]="validationBadgeTone() === 'error'"
+        [class.is-glowing]="validationBadgeTone() === 'warning' && validationBadgeGlow()"
+        [class.is-pulsing]="validationBadgeTone() === 'error' && validationErrorPulse()"
+        #validationMenuTrigger="matMenuTrigger"
+        [matMenuTriggerFor]="validationIssuesMenu"
+        [matTooltip]="validationStatusTooltip()"
+        matTooltipPosition="above"
+        [attr.aria-label]="validationBadgeAriaLabel()"
+      >
+        <mat-icon>{{ validationBadgeIcon() }}</mat-icon>
+        <span class="blueprint-editor-page__validation-label">{{ validationBadgeLabel() }}</span>
+        @if (validationBadgeIssueCount() > 0) {
+          <span class="blueprint-editor-page__validation-count">{{ validationBadgeIssueCount() }}</span>
+        }
+      </button>
     </div>
 
     <mat-menu
@@ -441,7 +433,11 @@
       ></button>
     }
 
-    <aside class="blueprint-editor-page__drawer" [class.is-open]="!drawerCollapsed()">
+    <aside
+      class="blueprint-editor-page__drawer"
+      [class.is-open]="!drawerCollapsed()"
+      [class.is-settings-open]="isNodeSettingsDrawerOpen()"
+    >
       @if (isPluginLibraryDrawerOpen()) {
         <div class="blueprint-editor-page__drawer-shell">
           <div class="blueprint-editor-page__drawer-header">
@@ -552,6 +548,42 @@
                 </div>
               </mat-card-content>
             </mat-card>
+
+            @if (nodeSettingsHasUpgradeWarning() || nodeSettingsValidationIssues().length > 0) {
+              <mat-card appearance="outlined" class="blueprint-editor-page__settings-card blueprint-editor-page__settings-card--issues">
+                <mat-card-content>
+                  <div class="blueprint-editor-page__settings-section-heading">
+                    <div>
+                      <h4>Node issues</h4>
+                      <p>{{ nodeSettingsIssueSummaryLabel() }}</p>
+                    </div>
+                  </div>
+
+                  <div class="blueprint-editor-page__settings-issue-list">
+                    @if (nodeSettingsHasUpgradeWarning()) {
+                      <div class="blueprint-editor-page__settings-issue-row is-warning">
+                        <mat-icon>warning</mat-icon>
+                        <span>{{ nodeUpgradeWarningMessage }}</span>
+                      </div>
+                    }
+
+                    @for (issue of nodeSettingsValidationIssues(); track issue.id) {
+                      <button
+                        type="button"
+                        class="blueprint-editor-page__settings-issue-row"
+                        [class.is-error]="issue.severity === 'error'"
+                        [class.is-warning]="issue.severity === 'warning'"
+                        [disabled]="!isIssueCanvasTargetable(issue)"
+                        (click)="focusValidationIssue(issue)"
+                      >
+                        <mat-icon>{{ issue.severity === 'error' ? 'error' : 'warning' }}</mat-icon>
+                        <span>{{ issue.message }}</span>
+                      </button>
+                    }
+                  </div>
+                </mat-card-content>
+              </mat-card>
+            }
 
             <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
               <mat-card-content>
