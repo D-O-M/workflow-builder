@@ -70,7 +70,8 @@ public class VisualStudioDebuggerAttacher
             return;
         }
 
-        var solutionPaths = NormalizePaths(_options.SolutionPaths, OperatingSystem.IsWindows());
+        var applyPathNormalization = _operatingSystem.IsWindows();
+        var solutionPaths = NormalizePaths(_options.SolutionPaths, applyPathNormalization);
         if (solutionPaths.Count == 0)
         {
             _logger.LogInformation("Debugger auto-attach skipped because no candidate solution paths were configured.");
@@ -81,7 +82,7 @@ public class VisualStudioDebuggerAttacher
         var pollInterval = TimeSpan.FromMilliseconds(Math.Max(50, _options.PollingIntervalMilliseconds));
         var deadline = DateTimeOffset.UtcNow + timeout;
         var attemptedLaunch = false;
-        var launchTargets = NormalizePaths(_options.LaunchSolutionPaths, OperatingSystem.IsWindows());
+        var launchTargets = NormalizePaths(_options.LaunchSolutionPaths, applyPathNormalization);
         if (launchTargets.Count == 0)
         {
             launchTargets.AddRange(solutionPaths);
@@ -90,7 +91,10 @@ public class VisualStudioDebuggerAttacher
         while (DateTimeOffset.UtcNow <= deadline && !cancellationToken.IsCancellationRequested)
         {
             var instances = _instanceProvider.GetRunningInstances();
-            var matchingInstance = FindMatchingInstance(instances, solutionPaths);
+            var matchingInstance = FindMatchingInstance(
+                instances,
+                solutionPaths,
+                applyPathNormalization);
             if (matchingInstance is not null)
             {
                 var result = matchingInstance.TryAttachToProcess(process.Id);
@@ -153,14 +157,27 @@ public class VisualStudioDebuggerAttacher
     {
         return paths
             .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Select(path => applyPlatformNormalization ? Path.GetFullPath(path) : path)
+            .Select(path => NormalizePath(path, applyPlatformNormalization))
+            .Where(path => path is not null)
+            .Select(path => path!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
+    private static string? NormalizePath(string? path, bool applyPlatformNormalization)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        return applyPlatformNormalization ? Path.GetFullPath(path) : path;
+    }
+
     private static IVisualStudioInstance? FindMatchingInstance(
         IReadOnlyList<IVisualStudioInstance> instances,
-        IReadOnlyList<string> candidateSolutions)
+        IReadOnlyList<string> candidateSolutions,
+        bool applyPlatformNormalization)
     {
         foreach (var instance in instances)
         {
@@ -169,7 +186,9 @@ public class VisualStudioDebuggerAttacher
                 continue;
             }
 
-            if (candidateSolutions.Contains(instance.SolutionPath, StringComparer.OrdinalIgnoreCase))
+            var instanceSolutionPath = NormalizePath(instance.SolutionPath, applyPlatformNormalization);
+            if (instanceSolutionPath is not null &&
+                candidateSolutions.Contains(instanceSolutionPath, StringComparer.OrdinalIgnoreCase))
             {
                 return instance;
             }

@@ -19,6 +19,7 @@ AspireEndpointEnvironment.PreferAspireHttpPortsOverInheritedUrls();
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing => tracing.AddSource(ProcessLifecycleTelemetry.ActivitySourceName))
     .WithMetrics(metrics => metrics.AddMeter("WorkflowBuilder.Engine.Processes"));
 
 builder.Services.AddControllers();
@@ -99,10 +100,35 @@ builder.Services.AddSingleton(_ => new ProcessStepQueueBinding(
 builder.Services.AddSingleton(_ => new PluginReloadQueueBinding(
     new ServiceBusClient(pluginReloadConnectionString),
     pluginReloadQueueName));
-builder.Services.AddSingleton<IProcessStepQueueReader>(provider =>
+builder.Services.AddSingleton<IProcessStepQueueProcessor>(provider =>
 {
     var binding = provider.GetRequiredService<ProcessStepQueueBinding>();
-    return new ServiceBusProcessStepQueueReader(binding.Client.CreateReceiver(binding.QueueName));
+    var configuration = provider.GetRequiredService<IConfiguration>();
+    var maxConcurrentCalls = Math.Clamp(
+        configuration.GetValue("ProcessStepQueue:MaxConcurrentMessages", 8),
+        1,
+        512);
+    var prefetchCount = Math.Clamp(
+        configuration.GetValue("ProcessStepQueue:PrefetchCount", maxConcurrentCalls * 4),
+        0,
+        10_000);
+    var maxAutoLockRenewalMinutes = Math.Max(
+        1,
+        configuration.GetValue("ProcessStepQueue:MaxAutoLockRenewalMinutes", 5));
+
+    var processor = binding.Client.CreateProcessor(
+        binding.QueueName,
+        new ServiceBusProcessorOptions
+        {
+            AutoCompleteMessages = false,
+            MaxConcurrentCalls = maxConcurrentCalls,
+            PrefetchCount = prefetchCount,
+            MaxAutoLockRenewalDuration = TimeSpan.FromMinutes(maxAutoLockRenewalMinutes)
+        });
+
+    return new ServiceBusProcessStepQueueProcessor(
+        processor,
+        provider.GetRequiredService<ILogger<ServiceBusProcessStepQueueProcessor>>());
 });
 builder.Services.AddSingleton<IProcessStepQueueWriter>(provider =>
 {
@@ -121,8 +147,10 @@ builder.Services.AddTransient<JobFinalizationService>();
 builder.Services.AddTransient<NodeActivationService>();
 builder.Services.AddSingleton<ProcessLifecycleTelemetry>();
 builder.Services.AddSingleton<JobManager>();
+builder.Services.AddSingleton<PluginResultFinalizationQueue>();
 
 builder.Services.AddHostedService<QueueConsumer>();
+builder.Services.AddHostedService<PluginResultFinalizationWorker>();
 builder.Services.AddHostedService<PluginReloadConsumer>();
 
 var app = builder.Build();

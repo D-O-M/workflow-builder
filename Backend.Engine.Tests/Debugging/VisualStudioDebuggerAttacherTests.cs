@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Backend.Engine.Debugging;
@@ -132,7 +133,7 @@ public class VisualStudioDebuggerAttacherTests
 
         await attacher.TryAttachAsync(Process.GetCurrentProcess(), CancellationToken.None);
 
-        provider.LaunchRequests.ShouldContain("C:/repo/Backend.sln");
+        provider.LaunchRequests.ShouldContain(Path.GetFullPath("C:/repo/Backend.sln"));
     }
 
     private static IHostEnvironment CreateDevelopmentEnvironment()

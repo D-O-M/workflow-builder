@@ -9,6 +9,7 @@ internal class Program
     private const string ProcessesContainerName = "processes";
     private const string TasksContainerName = "processsteps";
     private const string NodeActivationsContainerName = "nodeactivations";
+    private const string NodeJoinStatesContainerName = "nodejoinstates";
     private const string TaskProgressLeaseContainerName = "processstepprogressleases";
 
     private static void Main(string[] args)
@@ -17,6 +18,19 @@ internal class Program
         var repositoryRoot = GetRepositoryRootPath();
         var observabilityRoot = GetObservabilityRootPath(repositoryRoot);
         var integrationTestsEnabled = builder.Configuration.GetValue("IntegrationTests:Enabled", false);
+        var nftEnabled = builder.Configuration.GetValue("Nft:Enabled", false);
+        var pluginRuntimeMaxConcurrentResultFinalizations = builder.Configuration.GetValue(
+            "Nft:PluginRuntime:MaxConcurrentResultFinalizations",
+            nftEnabled ? Environment.ProcessorCount * 4 : Environment.ProcessorCount * 2);
+        var processStepQueueMaxConcurrentMessages = builder.Configuration.GetValue(
+            "Nft:ProcessStepQueue:MaxConcurrentMessages",
+            nftEnabled ? 32 : 8);
+        var processStepQueuePrefetchCount = builder.Configuration.GetValue(
+            "Nft:ProcessStepQueue:PrefetchCount",
+            processStepQueueMaxConcurrentMessages * 4);
+        var processStepQueueMaxAutoLockRenewalMinutes = builder.Configuration.GetValue(
+            "Nft:ProcessStepQueue:MaxAutoLockRenewalMinutes",
+            5);
         var pluginSeedingBundlesRoot = GetPluginSeedingBundlesRoot(builder.Configuration, repositoryRoot);
         var blueprintSeedingRoot = GetBlueprintSeedingRoot(builder.Configuration, repositoryRoot);
 
@@ -44,9 +58,11 @@ internal class Program
             pluginsBlobContainerName);
 
         var (serviceBus, processStepQueue, pluginControlQueue) = AddServiceBus(builder);
-        var (alloy, grafana, loki, tempo, prometheus) = AddObservability(
-            builder,
-            observabilityRoot);
+        var observability = builder.Configuration.GetValue("Observability:Enabled", true)
+            ? AddObservability(
+                builder,
+                observabilityRoot)
+            : ObservabilityResources.Disabled();
         var cosmosResourceName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureCosmos:ResourceName");
@@ -65,27 +81,18 @@ internal class Program
         var pluginControlQueueName = GetRequiredConfigurationValue(
             builder.Configuration,
             "AzureServiceBus:Queues:PluginControlQueue:Name");
-        var alloyOtlpGrpcEndpoint = alloy.GetEndpoint("otlp-grpc");
-        var grafanaHttpEndpoint = grafana.GetEndpoint("http");
-        var lokiHttpEndpoint = loki.GetEndpoint("http");
-        var tempoHttpEndpoint = tempo.GetEndpoint("http");
-        var prometheusHttpEndpoint = prometheus.GetEndpoint("http");
         var migrations = builder.AddProject<Projects.Backend_Database_MigrationService>("backend-database-migrations")
             .WithReference(cosmos, connectionName: cosmosConnectionName)
             .WaitFor(cosmosDb)
             .WithReference(sqlDb)
-            .WaitFor(sqlDb)
-            .WaitFor(alloy);
+            .WaitFor(sqlDb);
+        WaitForObservability(migrations, observability);
         migrations.WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
             .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
             .WithEnvironment("AzureCosmos__DatabaseName", cosmosDatabaseName);
         ConfigureTelemetryAndObservability(
             migrations,
-            alloyOtlpGrpcEndpoint,
-            grafanaHttpEndpoint,
-            lokiHttpEndpoint,
-            tempoHttpEndpoint,
-            prometheusHttpEndpoint);
+            observability);
 
         var api = builder.AddProject<Projects.Backend_API>(
                 "backend-api",
@@ -98,10 +105,8 @@ internal class Program
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
             .WaitFor(sqlDb)
-            .WaitForCompletion(migrations)
-            .WaitFor(alloy)
-            .WaitFor(loki)
-            .WaitFor(prometheus);
+            .WaitForCompletion(migrations);
+        WaitForObservability(api, observability, includeLogAndMetricBackends: true);
         if (integrationTestsEnabled)
         {
             api.WithHttpEndpoint(
@@ -128,27 +133,27 @@ internal class Program
             .WithHttpEndpoint(
                 name: "http",
                 env: "ASPNETCORE_HTTP_PORTS")
-            .WithExternalHttpEndpoints()
-            .WaitFor(alloy);
+            .WithExternalHttpEndpoints();
+        WaitForObservability(signalR, observability);
         var signalRHttpEndpoint = signalR.GetEndpoint("http");
 
         api.WithEnvironment("ClientConfig__ApiBaseUrl", api.GetEndpoint("http"))
-            .WithEnvironment("ClientConfig__SignalRBaseUrl", signalRHttpEndpoint)
-            .WithEnvironment("ClientConfig__GrafanaBaseUrl", grafanaHttpEndpoint);
+            .WithEnvironment("ClientConfig__SignalRBaseUrl", signalRHttpEndpoint);
+        if (observability.Enabled)
+        {
+            api.WithEnvironment("ClientConfig__GrafanaBaseUrl", observability.GrafanaHttpEndpoint!);
+        }
+        else
+        {
+            api.WithEnvironment("ClientConfig__GrafanaBaseUrl", "http://127.0.0.1:9");
+        }
+
         ConfigureTelemetryAndObservability(
             api,
-            alloyOtlpGrpcEndpoint,
-            grafanaHttpEndpoint,
-            lokiHttpEndpoint,
-            tempoHttpEndpoint,
-            prometheusHttpEndpoint);
+            observability);
         ConfigureTelemetryAndObservability(
             signalR,
-            alloyOtlpGrpcEndpoint,
-            grafanaHttpEndpoint,
-            lokiHttpEndpoint,
-            tempoHttpEndpoint,
-            prometheusHttpEndpoint);
+            observability);
 
         var engine = builder.AddProject<Projects.Backend_Engine>(
                 "backend-engine",
@@ -165,15 +170,27 @@ internal class Program
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
             .WaitFor(sqlDb)
-            .WaitForCompletion(migrations)
-            .WaitFor(alloy);
+            .WaitForCompletion(migrations);
+        WaitForObservability(engine, observability);
         engine.WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
             .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
             .WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName)
             .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__ConnectionName", processStepQueueConnectionName)
             .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__Name", processStepQueueName)
             .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__ConnectionName", pluginControlQueueConnectionName)
-            .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__Name", pluginControlQueueName);
+            .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__Name", pluginControlQueueName)
+            .WithEnvironment(
+                "PluginRuntime__MaxConcurrentResultFinalizations",
+                pluginRuntimeMaxConcurrentResultFinalizations.ToString())
+            .WithEnvironment(
+                "ProcessStepQueue__MaxConcurrentMessages",
+                processStepQueueMaxConcurrentMessages.ToString())
+            .WithEnvironment(
+                "ProcessStepQueue__PrefetchCount",
+                processStepQueuePrefetchCount.ToString())
+            .WithEnvironment(
+                "ProcessStepQueue__MaxAutoLockRenewalMinutes",
+                processStepQueueMaxAutoLockRenewalMinutes.ToString());
         if (integrationTestsEnabled)
         {
             engine.WithEnvironment("PluginRuntime__Diagnostics", "true")
@@ -181,11 +198,7 @@ internal class Program
         }
         ConfigureTelemetryAndObservability(
             engine,
-            alloyOtlpGrpcEndpoint,
-            grafanaHttpEndpoint,
-            lokiHttpEndpoint,
-            tempoHttpEndpoint,
-            prometheusHttpEndpoint);
+            observability);
 
         /*builder.AddProject<Projects.Backend_PluginLoader>("plugin-loader")
             .WithReference(blobs)
@@ -204,18 +217,15 @@ internal class Program
             .WithReference(sqlDb)
             .WaitFor(sqlDb)
             .WaitForCompletion(migrations)
-            .WaitFor(alloy);
+            ;
+        WaitForObservability(pluginDetector, observability);
         pluginDetector.WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName)
             .WithEnvironment("PluginsBlobContainerName", pluginsBlobContainerName)
             .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__ConnectionName", pluginControlQueueConnectionName)
             .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__Name", pluginControlQueueName);
         ConfigureTelemetryAndObservability(
             pluginDetector,
-            alloyOtlpGrpcEndpoint,
-            grafanaHttpEndpoint,
-            lokiHttpEndpoint,
-            tempoHttpEndpoint,
-            prometheusHttpEndpoint);
+            observability);
 
         var progressBroadcaster = builder.AddAzureFunctionsProject<Projects.Backend_Functions_ProgressBroadcaster>("progress-broadcaster")
             .WithHostStorage(storage)
@@ -226,7 +236,6 @@ internal class Program
             .WaitFor(sqlDb)
             .WaitForCompletion(migrations)
             .WaitFor(signalR)
-            .WaitFor(alloy)
             .WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
             .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
             .WithEnvironment("Realtime__SignalRBaseUrl", signalRHttpEndpoint)
@@ -234,6 +243,7 @@ internal class Program
             .WithEnvironment("Realtime__Cosmos__ProcessesContainerName", ProcessesContainerName)
             .WithEnvironment("Realtime__Cosmos__TasksContainerName", TasksContainerName)
             .WithEnvironment("Realtime__Cosmos__LeaseContainerName", TaskProgressLeaseContainerName);
+        WaitForObservability(progressBroadcaster, observability);
         if (integrationTestsEnabled)
         {
             progressBroadcaster.WithEnvironment("Realtime__UseHostedChangeFeed", "true");
@@ -241,11 +251,7 @@ internal class Program
 
         ConfigureTelemetryAndObservability(
             progressBroadcaster,
-            alloyOtlpGrpcEndpoint,
-            grafanaHttpEndpoint,
-            lokiHttpEndpoint,
-            tempoHttpEndpoint,
-            prometheusHttpEndpoint);
+            observability);
 
         IResourceBuilder<ProjectResource>? pluginSeeder = null;
         if (GetPluginSeedingEnabled(builder))
@@ -257,11 +263,11 @@ internal class Program
                 .WaitFor(engine)
                 .WaitFor(signalR)
                 .WaitForCompletion(migrations)
-                .WaitFor(alloy)
                 .WithEnvironment("PluginSeeding__Enabled", "true")
                 .WithEnvironment("PluginSeeding__BundlesRoot", pluginSeedingBundlesRoot)
                 .WithEnvironment("PluginsBlobContainerName", pluginsBlobContainerName)
                 .WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName);
+            WaitForObservability(pluginSeeder, observability);
         }
 
         if (GetBlueprintSeedingEnabled(builder))
@@ -271,10 +277,10 @@ internal class Program
                 .WaitFor(engine)
                 .WaitFor(signalR)
                 .WaitForCompletion(migrations)
-                .WaitFor(alloy)
                 .WithEnvironment("BlueprintSeeding__Enabled", "true")
                 .WithEnvironment("BlueprintSeeding__BlueprintsRoot", blueprintSeedingRoot)
                 .WithEnvironment("BlueprintSeeding__ApiBaseUrl", api.GetEndpoint("http"));
+            WaitForObservability(blueprintSeeder, observability);
 
             if (pluginSeeder is not null)
             {
@@ -290,12 +296,7 @@ internal class Program
         builder.Build().Run();
     }
 
-    static (
-        IResourceBuilder<ContainerResource> alloy,
-        IResourceBuilder<ContainerResource> grafana,
-        IResourceBuilder<ContainerResource> loki,
-        IResourceBuilder<ContainerResource> tempo,
-        IResourceBuilder<ContainerResource> prometheus)
+    static ObservabilityResources
         AddObservability(
             IDistributedApplicationBuilder builder,
             string observabilityRoot)
@@ -381,7 +382,13 @@ internal class Program
                 name: "http",
                 isProxied: false);
 
-        return (alloy, grafana, loki, tempo, prometheus);
+        return new ObservabilityResources(
+            Enabled: true,
+            Alloy: alloy,
+            Grafana: grafana,
+            Loki: loki,
+            Tempo: tempo,
+            Prometheus: prometheus);
     }
 
     static (
@@ -427,6 +434,7 @@ internal class Program
         database.AddContainer(ProcessesContainerName, "/blueprintId");
         database.AddContainer(TasksContainerName, "/processId");
         database.AddContainer(NodeActivationsContainerName, "/processId");
+        database.AddContainer(NodeJoinStatesContainerName, "/processId");
         database.AddContainer(TaskProgressLeaseContainerName, "/id");
 
         return (cosmos, database);
@@ -532,22 +540,74 @@ internal class Program
     static string? TryGetConfigurationValue(IConfiguration configuration, string key) =>
         configuration.GetValue<string>(key);
 
+    static void WaitForObservability<T>(
+        IResourceBuilder<T> resourceBuilder,
+        ObservabilityResources observability,
+        bool includeLogAndMetricBackends = false)
+        where T : IResourceWithWaitSupport
+    {
+        if (!observability.Enabled)
+        {
+            return;
+        }
+
+        resourceBuilder.WaitFor(observability.Alloy!);
+
+        if (includeLogAndMetricBackends)
+        {
+            resourceBuilder
+                .WaitFor(observability.Loki!)
+                .WaitFor(observability.Prometheus!);
+        }
+    }
+
     static void ConfigureTelemetryAndObservability<T>(
         IResourceBuilder<T> resourceBuilder,
-        EndpointReference alloyOtlpGrpcEndpoint,
-        EndpointReference grafanaHttpEndpoint,
-        EndpointReference lokiHttpEndpoint,
-        EndpointReference tempoHttpEndpoint,
-        EndpointReference prometheusHttpEndpoint)
+        ObservabilityResources observability)
         where T : IResourceWithEnvironment
     {
+        if (!observability.Enabled)
+        {
+            resourceBuilder
+                .WithEnvironment("OTEL_SDK_DISABLED", "true")
+                .WithEnvironment("Observability__GrafanaBaseUrl", string.Empty)
+                .WithEnvironment("Observability__LokiBaseUrl", "http://127.0.0.1:9")
+                .WithEnvironment("Observability__TempoBaseUrl", "http://127.0.0.1:9")
+                .WithEnvironment("Observability__PrometheusBaseUrl", "http://127.0.0.1:9");
+            return;
+        }
+
         resourceBuilder
-            .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", alloyOtlpGrpcEndpoint)
+            .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", observability.AlloyOtlpGrpcEndpoint!)
             .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
-            .WithEnvironment("Observability__GrafanaBaseUrl", grafanaHttpEndpoint)
-            .WithEnvironment("Observability__LokiBaseUrl", lokiHttpEndpoint)
-            .WithEnvironment("Observability__TempoBaseUrl", tempoHttpEndpoint)
-            .WithEnvironment("Observability__PrometheusBaseUrl", prometheusHttpEndpoint);
+            .WithEnvironment("Observability__GrafanaBaseUrl", observability.GrafanaHttpEndpoint!)
+            .WithEnvironment("Observability__LokiBaseUrl", observability.LokiHttpEndpoint!)
+            .WithEnvironment("Observability__TempoBaseUrl", observability.TempoHttpEndpoint!)
+            .WithEnvironment("Observability__PrometheusBaseUrl", observability.PrometheusHttpEndpoint!);
+    }
+
+    sealed record ObservabilityResources(
+        bool Enabled,
+        IResourceBuilder<ContainerResource>? Alloy,
+        IResourceBuilder<ContainerResource>? Grafana,
+        IResourceBuilder<ContainerResource>? Loki,
+        IResourceBuilder<ContainerResource>? Tempo,
+        IResourceBuilder<ContainerResource>? Prometheus)
+    {
+        public EndpointReference? AlloyOtlpGrpcEndpoint => Alloy?.GetEndpoint("otlp-grpc");
+        public EndpointReference? GrafanaHttpEndpoint => Grafana?.GetEndpoint("http");
+        public EndpointReference? LokiHttpEndpoint => Loki?.GetEndpoint("http");
+        public EndpointReference? TempoHttpEndpoint => Tempo?.GetEndpoint("http");
+        public EndpointReference? PrometheusHttpEndpoint => Prometheus?.GetEndpoint("http");
+
+        public static ObservabilityResources Disabled() =>
+            new(
+                Enabled: false,
+                Alloy: null,
+                Grafana: null,
+                Loki: null,
+                Tempo: null,
+                Prometheus: null);
     }
 
     static string GetObservabilityRootPath(string repositoryRoot) =>

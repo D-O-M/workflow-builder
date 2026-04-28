@@ -180,6 +180,16 @@ public sealed class ObservabilityQueryService
             LokiQueryDirection.Forward,
             cancellationToken);
 
+        nodeLogs = MergeLogRecords(
+            nodeLogs,
+            await _lokiQueryClient.QueryRangeAsync(
+                BuildLegacyProcessStepLogQuery(runtimeProcessStepId),
+                start,
+                end,
+                normalizedLimit,
+                LokiQueryDirection.Forward,
+                cancellationToken));
+
         if (nodeLogs.Count == 0)
         {
             nodeLogs = await _lokiQueryClient.QueryRangeAsync(
@@ -228,6 +238,16 @@ public sealed class ObservabilityQueryService
             normalizedLimit,
             LokiQueryDirection.Forward,
             cancellationToken);
+
+        processLogs = MergeLogRecords(
+            processLogs,
+            await _lokiQueryClient.QueryRangeAsync(
+                BuildLegacyProcessLogQuery(processId),
+                start,
+                end,
+                normalizedLimit,
+                LokiQueryDirection.Forward,
+                cancellationToken));
 
         if (processLogs.Count == 0)
         {
@@ -325,27 +345,56 @@ public sealed class ObservabilityQueryService
     private static string BuildProcessStepLogQuery(Guid runtimeProcessStepId) =>
         $"{{process_step_id=\"{runtimeProcessStepId:D}\"}}";
 
+    private static string BuildLegacyProcessStepLogQuery(Guid runtimeProcessStepId) =>
+        $"{{workflow_task_instance_id=\"{runtimeProcessStepId:D}\"}}";
+
     private static string BuildProcessStepLogFallbackQuery(Guid runtimeProcessStepId) =>
         $"{{service_name=~\".+\"}} |= \"{runtimeProcessStepId:D}\"";
 
     private static string BuildProcessLogQuery(Guid processId) =>
         $"{{process_id=\"{processId:D}\"}}";
 
+    private static string BuildLegacyProcessLogQuery(Guid processId) =>
+        $"{{workflow_instance_id=\"{processId:D}\"}}";
+
     private static string BuildProcessLogFallbackQuery(Guid processId) =>
         $"{{service_name=~\".+\"}} |= \"{processId:D}\"";
+
+    private static IReadOnlyList<LokiLogRecord> MergeLogRecords(
+        IReadOnlyList<LokiLogRecord> first,
+        IReadOnlyList<LokiLogRecord> second)
+    {
+        if (second.Count == 0)
+        {
+            return first;
+        }
+
+        if (first.Count == 0)
+        {
+            return second;
+        }
+
+        return first
+            .Concat(second)
+            .GroupBy(record => record.Cursor, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .OrderBy(record => record.Timestamp)
+            .ToList();
+    }
 
     private static bool RecordMatchesProcessStep(
         LokiLogRecord record,
         Guid processId,
         Guid runtimeProcessStepId)
     {
-        if (record.Labels.TryGetValue("process_step_id", out var labeledProcessStepId) &&
-            Guid.TryParse(labeledProcessStepId, out var parsedProcessStepId) &&
-            parsedProcessStepId == runtimeProcessStepId)
+        if (TryGetGuidLabel(record.Labels, "process_step_id") == runtimeProcessStepId ||
+            TryGetGuidLabel(record.Labels, "workflow_task_instance_id") == runtimeProcessStepId)
         {
-            if (!record.Labels.TryGetValue("process_id", out var labeledProcessId) ||
-                !Guid.TryParse(labeledProcessId, out var parsedProcessId) ||
-                parsedProcessId == processId)
+            var labeledProcessId =
+                TryGetGuidLabel(record.Labels, "process_id") ??
+                TryGetGuidLabel(record.Labels, "workflow_instance_id");
+
+            if (labeledProcessId is null || labeledProcessId == processId)
             {
                 return true;
             }
@@ -363,9 +412,8 @@ public sealed class ObservabilityQueryService
         LokiLogRecord record,
         Guid processId)
     {
-        if (record.Labels.TryGetValue("process_id", out var labeledProcessId) &&
-            Guid.TryParse(labeledProcessId, out var parsedProcessId) &&
-            parsedProcessId == processId)
+        if (TryGetGuidLabel(record.Labels, "process_id") == processId ||
+            TryGetGuidLabel(record.Labels, "workflow_instance_id") == processId)
         {
             return true;
         }
