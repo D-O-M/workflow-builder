@@ -131,6 +131,9 @@ namespace Backend.Database.Relational.Migrations
                     b.Property<int>("BlueprintDefinitionId")
                         .HasColumnType("int");
 
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<Guid?>("StartingBlueprintNodeId")
                         .HasColumnType("uniqueidentifier");
 

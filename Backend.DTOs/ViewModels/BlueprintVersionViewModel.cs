@@ -13,6 +13,9 @@ public sealed class BlueprintVersionViewModel
     /// <summary>Monotonic version number for the blueprint definition (BlueprintVersions.Version).</summary>
     public int Version { get; init; }
 
+    /// <summary>Timestamp when this blueprint version was created.</summary>
+    public DateTimeOffset CreatedAt { get; init; }
+
     /// <summary>The task instance ID of the starting task within this payload (entry point).</summary>
     public Guid StartingBlueprintNodeId { get; init; }
 

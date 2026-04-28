@@ -317,6 +317,7 @@ public class BlueprintRepository : IBlueprintRepository
         {
             BlueprintDefinition = definition,
             Version = versionNumber,
+            CreatedAt = DateTimeOffset.UtcNow,
         };
 
         var instancesById = new Dictionary<Guid, BlueprintNode>(tasks.Count);
@@ -451,6 +452,7 @@ public class BlueprintRepository : IBlueprintRepository
             BlueprintDefinitionId = version.BlueprintDefinitionId,
             Description = null,
             Version = version.Version,
+            CreatedAt = version.CreatedAt,
             StartingBlueprintNodeId = version.StartingBlueprintNodeId ?? Guid.Empty,
             Tasks = includeTaskDetails
                 ? version.BlueprintNodes

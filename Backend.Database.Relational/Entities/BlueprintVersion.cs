@@ -9,6 +9,8 @@ public class BlueprintVersion
 
     public int Version { get; set; }
 
+    public DateTimeOffset CreatedAt { get; set; }
+
     public Guid? StartingBlueprintNodeId { get; set; }
     public BlueprintNode? StartingBlueprintNode { get; set; }
 

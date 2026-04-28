@@ -74,6 +74,7 @@ export interface BlueprintVersionViewModel {
   blueprintDefinitionId: number;
   description?: string | null;
   version: number;
+  createdAt?: string | null;
   startingBlueprintNodeId: string;
   tasks: BlueprintNodeViewModel[];
 }
