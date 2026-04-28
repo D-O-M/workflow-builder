@@ -417,6 +417,15 @@ describe('ProcessExplorerPageComponent', () => {
     expect((component as any).selectedProcess()).toBe(selectedProcess);
   });
 
+  it('keeps the history drawer closed for the default explorer route', async () => {
+    (component as any).openHistoryDrawer();
+
+    (component as any).applyBlueprintSelection(null, null, 'blueprints');
+
+    expect((component as any).historyDrawerOpen()).toBe(false);
+    expect((component as any).historyPanelMode()).toBe('blueprints');
+  });
+
   it('closes the history drawer after selecting a process row', async () => {
     await selectLoadedProcess();
     (component as any).openHistoryDrawer();

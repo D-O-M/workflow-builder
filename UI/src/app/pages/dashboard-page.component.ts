@@ -313,11 +313,11 @@ export class DashboardPageComponent {
   protected donutBackground(successfulCount: number, failedCount: number): string {
     const total = successfulCount + failedCount;
     if (total === 0) {
-      return 'conic-gradient(rgba(102, 129, 170, 0.24) 0 100%)';
+      return 'conic-gradient(var(--app-surface-muted) 0 100%)';
     }
 
     const successPercent = total === 0 ? 0 : (successfulCount / total) * 100;
-    return `conic-gradient(#12b76a 0 ${successPercent}%, rgba(217, 45, 32, 0.88) ${successPercent}% 100%)`;
+    return `conic-gradient(var(--app-status-success) 0 ${successPercent}%, var(--app-status-danger) ${successPercent}% 100%)`;
   }
 
   protected recentProcessStatusLabel(status: string): string {

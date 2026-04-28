@@ -221,10 +221,10 @@ describe('DashboardPageComponent', () => {
     const emptyBackground = (component as any).donutBackground(0, 0) as string;
     const splitBackground = (component as any).donutBackground(2, 2) as string;
 
-    expect(emptyBackground).toContain('rgba(102, 129, 170, 0.24)');
-    expect(emptyBackground).not.toContain('rgba(217, 45, 32');
-    expect(splitBackground).toContain('#12b76a 0 50%');
-    expect(splitBackground).toContain('rgba(217, 45, 32, 0.88) 50% 100%');
+    expect(emptyBackground).toContain('var(--app-surface-muted) 0 100%');
+    expect(emptyBackground).not.toContain('var(--app-status-danger)');
+    expect(splitBackground).toContain('var(--app-status-success) 0 50%');
+    expect(splitBackground).toContain('var(--app-status-danger) 50% 100%');
   });
 
   it('ranks step reliability by failing, degraded, healthy, then idle', async () => {

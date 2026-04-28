@@ -74,10 +74,21 @@
     </mat-card>
 
     @if (loading()) {
-      <mat-card class="app-state-card" appearance="outlined">
-        <div class="app-state-card__content">
-          <mat-progress-spinner diameter="48" mode="indeterminate" />
-          <p>Loading dashboard...</p>
+      <mat-card class="dashboard-loading-state" appearance="outlined" aria-busy="true">
+        <p class="sr-only">Loading dashboard...</p>
+        <div class="dashboard-loading-state__header">
+          <span class="dashboard-skeleton dashboard-skeleton--title"></span>
+          <span class="dashboard-skeleton dashboard-skeleton--chip"></span>
+        </div>
+        <div class="dashboard-loading-state__grid" aria-hidden="true">
+          <span class="dashboard-skeleton dashboard-skeleton--hero"></span>
+          <div class="dashboard-loading-state__mini">
+            <span class="dashboard-skeleton"></span>
+            <span class="dashboard-skeleton"></span>
+            <span class="dashboard-skeleton"></span>
+          </div>
+          <span class="dashboard-skeleton dashboard-skeleton--row"></span>
+          <span class="dashboard-skeleton dashboard-skeleton--row"></span>
         </div>
       </mat-card>
     } @else if (errorMessage()) {

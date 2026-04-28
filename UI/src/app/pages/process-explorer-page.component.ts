@@ -159,7 +159,7 @@ export class ProcessExplorerPageComponent {
     },
   );
 
-  protected readonly historyDrawerOpen = signal(true);
+  protected readonly historyDrawerOpen = signal(false);
   protected readonly historyPanelMode = signal<HistoryPanelMode>('blueprints');
   protected readonly selectedBlueprintId = signal<number | null>(null);
   protected readonly selectedProcessId = signal<string | null>(null);
@@ -979,8 +979,9 @@ export class ProcessExplorerPageComponent {
 
   protected async openAdvancedSearch(): Promise<void> {
     const dialogRef = this.dialog.open(ProcessSearchDialogComponent, {
-      width: 'min(64rem, calc(100vw - 2rem))',
+      width: 'min(72rem, calc(100vw - 1.5rem))',
       maxWidth: '100vw',
+      ariaLabel: 'Advanced search',
       autoFocus: false,
       data: {
         blueprints: this.blueprints(),
@@ -1325,7 +1326,7 @@ export class ProcessExplorerPageComponent {
     this.preferredProcessId.set(preferredProcessId);
     this.historyPanelMode.set(historyPanelMode);
     this.selectedProcessId.set(null);
-    this.historyDrawerOpen.set(preferredProcessId === null);
+    this.historyDrawerOpen.set(blueprintId !== null && preferredProcessId === null);
     this.closeStepDrawer();
     this.realtimeSummaryOverrides.set(new Map());
     this.realtimeNodeOverrides.set(new Map());

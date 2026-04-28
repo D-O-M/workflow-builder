@@ -13,13 +13,11 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { MatAutocompleteModule, MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
 import { MAT_DIALOG_DATA, MatDialogModule, MatDialogRef } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { MatTabsModule } from '@angular/material/tabs';
 import {
   BlueprintEditorService,
   BlueprintViewModel,
@@ -36,11 +34,23 @@ import { normalizeTaskPropertyDefinitions } from '../domain/task-property-form-u
 import { ITaskDefinition, ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
 type QuickRangeKey = '15m' | '1h' | '6h' | '24h' | '7d' | 'custom';
+type SearchPanelIndex = 0 | 1 | 2;
 
 interface QuickRangeOption {
   key: QuickRangeKey;
   label: string;
   minutes: number | null;
+}
+
+interface SearchPanelDefinition {
+  index: SearchPanelIndex;
+  label: string;
+  icon: string;
+}
+
+interface SearchSummaryChip {
+  label: string;
+  tone?: 'danger';
 }
 
 interface ProcessSearchDialogData {
@@ -106,20 +116,24 @@ const QUICK_RANGE_OPTIONS: QuickRangeOption[] = [
 
 const PROCESS_STATUS_OPTIONS: ProcessSearchStatus[] = ['Pending', 'InProgress', 'Completed', 'Failed'];
 
+const SEARCH_PANELS: SearchPanelDefinition[] = [
+  { index: 0, label: 'Scope', icon: 'account_tree' },
+  { index: 1, label: 'Execution', icon: 'schedule' },
+  { index: 2, label: 'Properties', icon: 'data_object' },
+];
+
 @Component({
   selector: 'app-process-search-dialog',
   imports: [
     ReactiveFormsModule,
     MatAutocompleteModule,
     MatButtonModule,
-    MatCardModule,
     MatChipsModule,
     MatDialogModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
     MatSelectModule,
-    MatTabsModule,
   ],
   templateUrl: './process-search-dialog.component.html',
   styleUrl: './process-search-dialog.component.css',
@@ -133,6 +147,7 @@ export class ProcessSearchDialogComponent {
 
   protected readonly quickRangeOptions = QUICK_RANGE_OPTIONS;
   protected readonly processStatusOptions = PROCESS_STATUS_OPTIONS;
+  protected readonly searchPanels = SEARCH_PANELS;
 
   protected readonly blueprintSearch = new FormControl('', { nonNullable: true });
   protected readonly nodeSearch = new FormControl('', { nonNullable: true });
@@ -299,6 +314,27 @@ export class ProcessSearchDialogComponent {
     }
 
     return null;
+  });
+  protected readonly searchSummaryChips = computed<SearchSummaryChip[]>(() => {
+    const chips: SearchSummaryChip[] = [
+      { label: this.windowSummaryLabel() },
+      { label: this.blueprintScopeSummary() },
+      { label: this.statusSummaryLabel() },
+    ];
+
+    if (this.selectedNodeFilters().length > 0) {
+      chips.splice(2, 0, { label: this.nodeScopeSummary() });
+    }
+
+    if (this.propertyFilterRows().length > 0) {
+      chips.push({ label: this.propertySummaryLabel() });
+    }
+
+    if (this.hasDateWindowError() || this.incompletePropertyRowCount() > 0) {
+      chips.push({ label: 'Needs attention', tone: 'danger' });
+    }
+
+    return chips;
   });
   constructor() {
     this.restoreInitialRequest(this.data.initialRequest);
@@ -716,8 +752,119 @@ export class ProcessSearchDialogComponent {
   }
 
   protected onTabIndexChange(index: number): void {
+    if (!this.isSearchPanelIndex(index)) {
+      return;
+    }
+
+    this.selectSearchTab(index);
+  }
+
+  protected selectSearchTab(index: SearchPanelIndex): void {
     this.selectedTabIndex.set(index);
     this.scrollDialogContentToTop();
+  }
+
+  protected searchPanelSummary(index: SearchPanelIndex): string {
+    switch (index) {
+      case 0:
+        return this.scopePanelSummary();
+      case 1:
+        return this.executionPanelSummary();
+      case 2:
+        return this.propertySummaryLabel();
+    }
+  }
+
+  protected searchPanelBadge(index: SearchPanelIndex): string | null {
+    switch (index) {
+      case 0: {
+        const selectedCount = this.selectedBlueprintIds().length + this.selectedNodeFilters().length;
+        return selectedCount === 0 ? null : String(selectedCount);
+      }
+      case 1:
+        if (this.hasDateWindowError()) {
+          return '!';
+        }
+
+        return this.statusSelectionCount() === 0 ? null : String(this.statusSelectionCount());
+      case 2:
+        if (this.incompletePropertyRowCount() > 0) {
+          return '!';
+        }
+
+        return this.propertyFilterRows().length === 0 ? null : String(this.propertyFilterRows().length);
+    }
+  }
+
+  protected searchPanelIssue(index: SearchPanelIndex): boolean {
+    switch (index) {
+      case 1:
+        return this.hasDateWindowError();
+      case 2:
+        return this.incompletePropertyRowCount() > 0;
+      default:
+        return false;
+    }
+  }
+
+  protected scopePanelSummary(): string {
+    return `${this.blueprintScopeSummary()} · ${this.nodeScopeSummary()}`;
+  }
+
+  protected executionPanelSummary(): string {
+    return `${this.windowSummaryLabel()} · ${this.statusSummaryLabel()}`;
+  }
+
+  private isSearchPanelIndex(index: number): index is SearchPanelIndex {
+    return index === 0 || index === 1 || index === 2;
+  }
+
+  private windowSummaryLabel(): string {
+    const quickRangeLabel = this.quickRangeOptions.find((option) => option.key === this.quickRange())?.label ?? 'Custom';
+    return this.quickRange() === 'custom' ? 'Custom window' : `${quickRangeLabel} window`;
+  }
+
+  private blueprintScopeSummary(): string {
+    const count = this.selectedBlueprintIds().length;
+    if (count === 0) {
+      return 'All blueprints';
+    }
+
+    return count === 1 ? '1 blueprint' : `${count} blueprints`;
+  }
+
+  private nodeScopeSummary(): string {
+    const count = this.selectedNodeFilters().length;
+    if (count === 0) {
+      return 'Any step';
+    }
+
+    return count === 1 ? '1 step' : `${count} steps`;
+  }
+
+  private propertySummaryLabel(): string {
+    const count = this.propertyFilterRows().length;
+    if (count === 0) {
+      return 'No property filters';
+    }
+
+    return count === 1 ? '1 property filter' : `${count} property filters`;
+  }
+
+  private statusSummaryLabel(): string {
+    const count = this.statusSelectionCount();
+    if (count === 0) {
+      return 'Any status';
+    }
+
+    return count === 1 ? '1 status' : `${count} statuses`;
+  }
+
+  private statusSelectionCount(): number {
+    const blueprintStatusSelections = this.selectedBlueprintRows().reduce((total, row) => total + row.statuses.length, 0);
+    const nodeStatusSelections = this.selectedNodeFilters().reduce((total, row) => total + row.statuses.length, 0);
+    const processStatusSelections = this.selectedBlueprintIds().length === 0 ? this.selectedProcessStatuses().length : 0;
+    return blueprintStatusSelections + nodeStatusSelections + processStatusSelections;
   }
 
   private restoreInitialRequest(initialRequest: ProcessSearchRequest | null): void {
@@ -1023,7 +1170,9 @@ export class ProcessSearchDialogComponent {
 
   private scrollDialogContentToTop(): void {
     this.scheduleUiWork(() => {
-      this.host?.nativeElement.querySelector('.process-search-dialog')?.scrollTo({
+      const scrollTarget = this.host?.nativeElement.querySelector('.process-search-dialog__editor')
+        ?? this.host?.nativeElement.querySelector('.process-search-dialog');
+      scrollTarget?.scrollTo({
         top: 0,
         behavior: 'smooth',
       });

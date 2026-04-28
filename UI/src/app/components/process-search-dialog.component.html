@@ -1,11 +1,19 @@
-<h2 mat-dialog-title class="process-search-dialog__title-row">
+<header class="process-search-dialog__title-row">
   <span class="process-search-dialog__title-mark" aria-hidden="true">
     <mat-icon>manage_search</mat-icon>
   </span>
   <span class="process-search-dialog__title-copy">
-    <span class="process-search-dialog__title">Advanced Search</span>
+    <h2 class="process-search-dialog__title">Advanced Search</h2>
     <span class="process-search-dialog__context">{{ searchContextSummary() }}</span>
   </span>
+
+  <div class="process-search-dialog__summary-chips" aria-label="Current search criteria">
+    @for (chip of searchSummaryChips(); track chip.label) {
+      <span class="process-search-dialog__summary-chip" [class.is-danger]="chip.tone === 'danger'">
+        {{ chip.label }}
+      </span>
+    }
+  </div>
 
   <button
     mat-icon-button
@@ -15,414 +23,480 @@
     (click)="cancel()">
     <mat-icon>close</mat-icon>
   </button>
-</h2>
+</header>
 
 <div mat-dialog-content class="process-search-dialog">
-  <mat-tab-group
-    animationDuration="180ms"
-    class="process-search-dialog__tabs"
-    [selectedIndex]="selectedTabIndex()"
-    (selectedIndexChange)="onTabIndexChange($event)">
-    <mat-tab label="Scope">
-      <div class="process-search-dialog__tab-body">
-        <div class="process-search-dialog__scope-grid">
-        <section class="process-search-dialog__section">
-          <div class="process-search-dialog__section-heading">
-            <span class="process-search-dialog__section-icon" aria-hidden="true">
-              <mat-icon>account_tree</mat-icon>
+  <div class="process-search-dialog__workbench">
+    <nav class="process-search-dialog__rail" role="tablist" aria-label="Search filter categories">
+      @for (panel of searchPanels; track panel.index) {
+        <button
+          type="button"
+          role="tab"
+          class="process-search-dialog__rail-item"
+          [id]="'process-search-tab-' + panel.index"
+          [class.is-active]="selectedTabIndex() === panel.index"
+          [class.has-issue]="searchPanelIssue(panel.index)"
+          [attr.aria-selected]="selectedTabIndex() === panel.index"
+          [attr.aria-controls]="'process-search-panel-' + panel.index"
+          (click)="selectSearchTab(panel.index)">
+          <span class="process-search-dialog__rail-icon" aria-hidden="true">
+            <mat-icon>{{ panel.icon }}</mat-icon>
+          </span>
+          <span class="process-search-dialog__rail-copy">
+            <span class="process-search-dialog__rail-label">{{ panel.label }}</span>
+            <span class="process-search-dialog__rail-summary">{{ searchPanelSummary(panel.index) }}</span>
+          </span>
+          @if (searchPanelBadge(panel.index); as badge) {
+            <span class="process-search-dialog__rail-badge" [class.is-danger]="searchPanelIssue(panel.index)">
+              {{ badge }}
             </span>
-            <div>
-              <p class="process-search-dialog__eyebrow">Blueprints</p>
-              <h3>Limit the search scope</h3>
-            </div>
-          </div>
-
-          <mat-form-field appearance="outline" class="process-search-dialog__search-field process-search-dialog__pill-field">
-            <input
-              matInput
-              type="search"
-              aria-label="Find and add blueprints"
-              placeholder="Find and add blueprints"
-              [formControl]="blueprintSearch"
-              [matAutocomplete]="blueprintAutocomplete" />
-            <mat-icon matPrefix>search</mat-icon>
-          </mat-form-field>
-
-          <mat-autocomplete
-            #blueprintAutocomplete="matAutocomplete"
-            class="process-search-dialog__autocomplete-panel"
-            (optionSelected)="onBlueprintOptionSelected($event)">
-            @for (blueprint of filteredBlueprintOptions(); track blueprint.id) {
-              <mat-option [value]="blueprint.id">
-                <span class="process-search-dialog__option-main">{{ blueprint.name }}</span>
-                <span class="process-search-dialog__option-subtitle">
-                  {{ blueprint.versions.length }} version{{ blueprint.versions.length === 1 ? '' : 's' }} available
-                </span>
-              </mat-option>
-            }
-          </mat-autocomplete>
-
-          @if (selectedBlueprints().length === 0) {
-            <mat-card appearance="outlined" class="process-search-dialog__state-card">
-              <span class="process-search-dialog__state-icon" aria-hidden="true">
-                <mat-icon>account_tree</mat-icon>
-              </span>
-              <p>No blueprint limit. Search spans every blueprint inside the active time window.</p>
-            </mat-card>
-          } @else {
-            <div class="process-search-dialog__selection-list">
-              @for (row of selectedBlueprintRows(); track row.blueprint.id) {
-                <mat-card
-                  appearance="outlined"
-                  class="process-search-dialog__selection-card"
-                  [attr.data-search-row-id]="'blueprint-' + row.blueprint.id">
-                  <div class="process-search-dialog__selection-main">
-                    <div class="process-search-dialog__selection-card-header">
-                      <div class="process-search-dialog__selection-copy">
-                        <h4>{{ row.blueprint.name }}</h4>
-                        <p>{{ row.blueprint.versions.length }} version{{ row.blueprint.versions.length === 1 ? '' : 's' }} in scope</p>
-                      </div>
-
-                      <button
-                        mat-icon-button
-                        type="button"
-                        aria-label="Remove blueprint filter"
-                        (click)="removeBlueprint(row.blueprint.id)">
-                        <mat-icon>delete_outline</mat-icon>
-                      </button>
-                    </div>
-
-                    <div class="process-search-dialog__status-strip">
-                      <span class="process-search-dialog__status-strip-label">Process status</span>
-                      <mat-chip-listbox
-                        multiple
-                        [attr.aria-label]="'Process status for ' + row.blueprint.name"
-                        class="process-search-dialog__status-chip-row process-search-dialog__status-chip-row--compact">
-                        <mat-chip-option
-                          [selected]="row.statuses.length === 0"
-                          (click)="updateBlueprintStatuses(row.blueprint.id, [])">
-                          <mat-icon>all_inclusive</mat-icon>
-                          Any
-                        </mat-chip-option>
-                        @for (status of processStatusOptions; track status) {
-                          <mat-chip-option
-                            [selected]="row.statuses.includes(status)"
-                            [class.process-search-dialog__status-option--pending]="status === 'Pending'"
-                            [class.process-search-dialog__status-option--running]="status === 'InProgress'"
-                            [class.process-search-dialog__status-option--completed]="status === 'Completed'"
-                            [class.process-search-dialog__status-option--failed]="status === 'Failed'"
-                            (click)="toggleBlueprintStatus(row.blueprint.id, status)">
-                            <mat-icon>{{ statusIcon(status) }}</mat-icon>
-                            {{ statusLabel(status) }}
-                          </mat-chip-option>
-                        }
-                      </mat-chip-listbox>
-                    </div>
-                  </div>
-                </mat-card>
-              }
-            </div>
           }
-        </section>
+        </button>
+      }
+    </nav>
 
-        <section class="process-search-dialog__section">
-          <div class="process-search-dialog__section-heading">
-            <span class="process-search-dialog__section-icon" aria-hidden="true">
-              <mat-icon>hub</mat-icon>
-            </span>
-            <div>
-              <p class="process-search-dialog__eyebrow">Specific Nodes</p>
-              <h3>Require node participation</h3>
-            </div>
-          </div>
+    <div class="process-search-dialog__editor">
+      @switch (selectedTabIndex()) {
+        @case (0) {
+          <section
+            class="process-search-dialog__panel"
+            id="process-search-panel-0"
+            role="tabpanel"
+            aria-labelledby="process-search-tab-0">
+            <header class="process-search-dialog__panel-header">
+              <div>
+                <p class="process-search-dialog__eyebrow">Scope</p>
+                <h3>Choose the process territory</h3>
+              </div>
+              <span class="process-search-dialog__panel-note">{{ scopePanelSummary() }}</span>
+            </header>
 
-          <mat-form-field appearance="outline" class="process-search-dialog__search-field process-search-dialog__pill-field">
-            <input
-              matInput
-              type="search"
-              aria-label="Find and add nodes"
-              placeholder="Find and add nodes"
-              [formControl]="nodeSearch"
-              [matAutocomplete]="nodeAutocomplete" />
-            <mat-icon matPrefix>add_circle</mat-icon>
-          </mat-form-field>
-
-          <mat-autocomplete
-            #nodeAutocomplete="matAutocomplete"
-            class="process-search-dialog__autocomplete-panel"
-            (optionSelected)="onNodeOptionSelected($event)">
-            @for (node of filteredNodeOptions(); track node.key) {
-              <mat-option [value]="node.key">
-                <span class="process-search-dialog__option-main">{{ node.label }}</span>
-                <span class="process-search-dialog__option-subtitle">{{ node.subtitle }}</span>
-              </mat-option>
-            }
-          </mat-autocomplete>
-
-          @if (selectedNodeFilters().length === 0) {
-            <mat-card appearance="outlined" class="process-search-dialog__state-card">
-              <span class="process-search-dialog__state-icon" aria-hidden="true">
-                <mat-icon>hub</mat-icon>
-              </span>
-              <p>No node requirement. Matching processes can contain any node in scope.</p>
-            </mat-card>
-          } @else {
-            <div class="process-search-dialog__selection-list">
-              @for (row of selectedNodeRows(); track row.key) {
-                <mat-card
-                  appearance="outlined"
-                  class="process-search-dialog__selection-card"
-                  [attr.data-search-row-id]="'node-' + row.key">
-                  <div class="process-search-dialog__selection-main">
-                    <div class="process-search-dialog__selection-card-header">
-                      <div class="process-search-dialog__selection-copy">
-                        <h4>{{ row.node.label }}</h4>
-                        <p>{{ row.node.subtitle }}</p>
-                      </div>
-
-                      <button
-                        mat-icon-button
-                        type="button"
-                        aria-label="Remove node filter"
-                        (click)="removeNodeFilter(row.key)">
-                        <mat-icon>delete_outline</mat-icon>
-                      </button>
-                    </div>
-
-                    <div class="process-search-dialog__status-strip">
-                      <span class="process-search-dialog__status-strip-label">Step status</span>
-                      <mat-chip-listbox
-                        multiple
-                        [attr.aria-label]="'Step status for ' + row.node.label"
-                        class="process-search-dialog__status-chip-row process-search-dialog__status-chip-row--compact">
-                        <mat-chip-option
-                          [selected]="row.statuses.length === 0"
-                          (click)="updateNodeStatuses(row.key, [])">
-                          <mat-icon>all_inclusive</mat-icon>
-                          Any
-                        </mat-chip-option>
-                        @for (status of processStatusOptions; track status) {
-                          <mat-chip-option
-                            [selected]="row.statuses.includes(status)"
-                            [class.process-search-dialog__status-option--pending]="status === 'Pending'"
-                            [class.process-search-dialog__status-option--running]="status === 'InProgress'"
-                            [class.process-search-dialog__status-option--completed]="status === 'Completed'"
-                            [class.process-search-dialog__status-option--failed]="status === 'Failed'"
-                            (click)="toggleNodeStatus(row.key, status)">
-                            <mat-icon>{{ statusIcon(status) }}</mat-icon>
-                            {{ statusLabel(status) }}
-                          </mat-chip-option>
-                        }
-                      </mat-chip-listbox>
-                    </div>
+            <div class="process-search-dialog__scope-grid">
+              <section class="process-search-dialog__section">
+                <div class="process-search-dialog__section-heading">
+                  <span class="process-search-dialog__section-icon" aria-hidden="true">
+                    <mat-icon>account_tree</mat-icon>
+                  </span>
+                  <div>
+                    <p class="process-search-dialog__eyebrow">Blueprints</p>
+                    <h4>Limit by blueprint</h4>
                   </div>
-                </mat-card>
-              }
-            </div>
-          }
-        </section>
-        </div>
-      </div>
-    </mat-tab>
-
-    <mat-tab label="Execution">
-      <div class="process-search-dialog__tab-body">
-        <div class="process-search-dialog__execution-grid">
-        <section class="process-search-dialog__section">
-          <div class="process-search-dialog__section-heading">
-            <span class="process-search-dialog__section-icon" aria-hidden="true">
-              <mat-icon>schedule</mat-icon>
-            </span>
-            <div>
-              <p class="process-search-dialog__eyebrow">Execution Window</p>
-              <h3>Keep the search bounded</h3>
-            </div>
-          </div>
-
-          <mat-chip-listbox aria-label="Execution window" class="process-search-dialog__quick-range-row">
-            @for (option of quickRangeOptions; track option.key) {
-              <mat-chip-option
-                [selected]="quickRange() === option.key"
-                (click)="selectQuickRange(option)">
-                {{ option.label }}
-              </mat-chip-option>
-            }
-          </mat-chip-listbox>
-
-        </section>
-
-        <div class="process-search-dialog__execution-stack">
-          <div class="process-search-dialog__date-window-card">
-            <div class="process-search-dialog__field-grid">
-              <mat-form-field appearance="outline" class="process-search-dialog__compact-field">
-                <mat-label>Created from</mat-label>
-                <input
-                  matInput
-                  type="datetime-local"
-                  [value]="createdFromInput()"
-                  (input)="createdFromInput.set(($any($event.target)).value); onCustomDateChanged()" />
-              </mat-form-field>
-
-              <mat-form-field appearance="outline" class="process-search-dialog__compact-field">
-                <mat-label>Created to</mat-label>
-                <input
-                  matInput
-                  type="datetime-local"
-                  [value]="createdToInput()"
-                  (input)="createdToInput.set(($any($event.target)).value); onCustomDateChanged()" />
-              </mat-form-field>
-            </div>
-          </div>
-
-        @if (selectedBlueprintIds().length === 0) {
-        <section class="process-search-dialog__section">
-          <div class="process-search-dialog__section-heading">
-            <span class="process-search-dialog__section-icon" aria-hidden="true">
-              <mat-icon>traffic</mat-icon>
-            </span>
-            <div>
-              <p class="process-search-dialog__eyebrow">Process Status</p>
-              <h3>Narrow the runtime state</h3>
-            </div>
-          </div>
-
-          <mat-chip-listbox aria-label="Process status" multiple class="process-search-dialog__status-chip-row">
-            @for (status of processStatusOptions; track status) {
-              <mat-chip-option
-                [selected]="selectedProcessStatuses().includes(status)"
-                [class.process-search-dialog__status-option--pending]="status === 'Pending'"
-                [class.process-search-dialog__status-option--running]="status === 'InProgress'"
-                [class.process-search-dialog__status-option--completed]="status === 'Completed'"
-                [class.process-search-dialog__status-option--failed]="status === 'Failed'"
-                (click)="toggleProcessStatus(status)">
-                <mat-icon>{{ statusIcon(status) }}</mat-icon>
-                {{ statusLabel(status) }}
-              </mat-chip-option>
-            }
-          </mat-chip-listbox>
-        </section>
-        } @else {
-          <mat-card appearance="outlined" class="process-search-dialog__state-card">
-            <span class="process-search-dialog__state-icon" aria-hidden="true">
-              <mat-icon>rule</mat-icon>
-            </span>
-            <p>Process statuses are selected per blueprint in the Scope tab.</p>
-          </mat-card>
-        }
-        </div>
-        </div>
-      </div>
-    </mat-tab>
-
-    <mat-tab label="Properties">
-      <div class="process-search-dialog__tab-body process-search-dialog__tab-body--properties">
-        <section class="process-search-dialog__properties-panel">
-          <div class="process-search-dialog__properties-toolbar">
-            <span class="process-search-dialog__section-icon" aria-hidden="true">
-              <mat-icon>data_object</mat-icon>
-            </span>
-            <div class="process-search-dialog__properties-copy">
-              <p class="process-search-dialog__eyebrow">Property Filters</p>
-              <h3>Match exact values</h3>
-              <p class="process-search-dialog__support-copy">{{ propertyScopeDescription() }}</p>
-            </div>
-
-            <button
-              mat-flat-button
-              type="button"
-              class="process-search-dialog__add-button"
-              [disabled]="propertyCatalog().length === 0 || hasInvalidPropertyRows()"
-              (click)="addPropertyFilterRow()">
-              <mat-icon>add</mat-icon>
-              Add property
-            </button>
-          </div>
-
-          @if (propertyCatalog().length === 0) {
-            <p class="process-search-dialog__inline-state">
-              <mat-icon>tune</mat-icon>
-              Select blueprints or nodes to expose searchable properties.
-            </p>
-          } @else if (selectedPropertyRows().length === 0) {
-            <p class="process-search-dialog__inline-state">
-              <mat-icon>data_object</mat-icon>
-              Add exact-match filters only when you need a tighter result set.
-            </p>
-          } @else {
-            <div class="process-search-dialog__property-list">
-              @for (row of selectedPropertyRows(); track row.id) {
-                <div
-                  class="process-search-dialog__property-row"
-                  [attr.data-search-row-id]="'property-' + row.id">
-                  <mat-form-field appearance="outline" class="process-search-dialog__compact-field process-search-dialog__property-field--name">
-                    <mat-label>Property</mat-label>
-                    <input
-                      matInput
-                      type="search"
-                      [value]="propertyInputDisplay(row)"
-                      placeholder="Search properties"
-                      [matAutocomplete]="propertyAutocomplete"
-                      (input)="updatePropertySearchQuery(row.id, ($any($event.target)).value)" />
-                    <mat-icon matSuffix>manage_search</mat-icon>
-                    <mat-autocomplete
-                      #propertyAutocomplete="matAutocomplete"
-                      class="process-search-dialog__autocomplete-panel process-search-dialog__property-autocomplete-panel"
-                      (optionSelected)="onPropertyOptionSelected(row.id, $event)">
-                      @for (group of filteredPropertyOptionGroups(row.id); track group.key) {
-                        <mat-optgroup [label]="group.label">
-                          @for (option of group.options; track option.key) {
-                            <mat-option [value]="option.key">
-                              <span class="process-search-dialog__option-main">{{ propertyOptionPrimary(option) }}</span>
-                              <span class="process-search-dialog__option-subtitle">{{ propertyOptionMeta(option) }}</span>
-                            </mat-option>
-                          }
-                        </mat-optgroup>
-                      }
-                    </mat-autocomplete>
-                    <mat-hint>{{ propertyRowHint(row.option) }}</mat-hint>
-                  </mat-form-field>
-
-                  <mat-form-field appearance="outline" class="process-search-dialog__compact-field">
-                    <mat-label>Value</mat-label>
-                    @if (propertyUsesSelect(row.option?.propertyType ?? 'String')) {
-                      <mat-select
-                        [value]="row.value"
-                        (valueChange)="updatePropertyValue(row.id, $event)">
-                        <mat-option value="">Select</mat-option>
-                        @for (option of propertySelectOptions(row.option); track option) {
-                          <mat-option [value]="option">{{ option }}</mat-option>
-                        }
-                      </mat-select>
-                    } @else {
-                      <input
-                        matInput
-                        [type]="propertyInputType(row.option?.propertyType ?? 'String')"
-                        [value]="row.value"
-                        [placeholder]="valuePlaceholder(row.option?.propertyType ?? 'String')"
-                        (input)="updatePropertyValue(row.id, ($any($event.target)).value)" />
-                    }
-                    @if (row.option) {
-                      <mat-hint>{{ row.option.propertyType }}</mat-hint>
-                    }
-                  </mat-form-field>
-
-                  <button
-                    mat-icon-button
-                    type="button"
-                    class="process-search-dialog__property-remove-button"
-                    aria-label="Remove property filter"
-                    (click)="removePropertyFilterRow(row.id)">
-                    <mat-icon>delete_outline</mat-icon>
-                  </button>
                 </div>
-              }
-            </div>
-          }
 
-        </section>
-      </div>
-    </mat-tab>
-  </mat-tab-group>
+                <mat-form-field appearance="outline" class="process-search-dialog__search-field process-search-dialog__pill-field">
+                  <input
+                    matInput
+                    type="search"
+                    aria-label="Find and add blueprints"
+                    placeholder="Find and add blueprints"
+                    [formControl]="blueprintSearch"
+                    [matAutocomplete]="blueprintAutocomplete" />
+                  <mat-icon matPrefix>search</mat-icon>
+                </mat-form-field>
+
+                <mat-autocomplete
+                  #blueprintAutocomplete="matAutocomplete"
+                  class="process-search-dialog__autocomplete-panel"
+                  (optionSelected)="onBlueprintOptionSelected($event)">
+                  @for (blueprint of filteredBlueprintOptions(); track blueprint.id) {
+                    <mat-option [value]="blueprint.id">
+                      <span class="process-search-dialog__option-main">{{ blueprint.name }}</span>
+                      <span class="process-search-dialog__option-subtitle">
+                        {{ blueprint.versions.length }} version{{ blueprint.versions.length === 1 ? '' : 's' }} available
+                      </span>
+                    </mat-option>
+                  }
+                </mat-autocomplete>
+
+                @if (selectedBlueprints().length === 0) {
+                  <div class="process-search-dialog__state-card">
+                    <span class="process-search-dialog__state-icon" aria-hidden="true">
+                      <mat-icon>all_inclusive</mat-icon>
+                    </span>
+                    <p>Every blueprint can match inside the active time window.</p>
+                  </div>
+                } @else {
+                  <div class="process-search-dialog__selection-list">
+                    @for (row of selectedBlueprintRows(); track row.blueprint.id) {
+                      <article
+                        class="process-search-dialog__selection-card"
+                        [attr.data-search-row-id]="'blueprint-' + row.blueprint.id">
+                        <div class="process-search-dialog__selection-card-header">
+                          <div class="process-search-dialog__selection-copy">
+                            <h5>{{ row.blueprint.name }}</h5>
+                            <p>{{ row.blueprint.versions.length }} version{{ row.blueprint.versions.length === 1 ? '' : 's' }} in scope</p>
+                          </div>
+
+                          <button
+                            mat-icon-button
+                            type="button"
+                            aria-label="Remove blueprint filter"
+                            (click)="removeBlueprint(row.blueprint.id)">
+                            <mat-icon>delete_outline</mat-icon>
+                          </button>
+                        </div>
+
+                        <div class="process-search-dialog__status-strip">
+                          <span class="process-search-dialog__status-strip-label">Process status</span>
+                          <mat-chip-listbox
+                            multiple
+                            [attr.aria-label]="'Process status for ' + row.blueprint.name"
+                            class="process-search-dialog__status-chip-row process-search-dialog__status-chip-row--compact">
+                            <mat-chip-option
+                              [selected]="row.statuses.length === 0"
+                              (click)="updateBlueprintStatuses(row.blueprint.id, [])">
+                              <mat-icon>all_inclusive</mat-icon>
+                              Any
+                            </mat-chip-option>
+                            @for (status of processStatusOptions; track status) {
+                              <mat-chip-option
+                                [selected]="row.statuses.includes(status)"
+                                [class.process-search-dialog__status-option--pending]="status === 'Pending'"
+                                [class.process-search-dialog__status-option--running]="status === 'InProgress'"
+                                [class.process-search-dialog__status-option--completed]="status === 'Completed'"
+                                [class.process-search-dialog__status-option--failed]="status === 'Failed'"
+                                (click)="toggleBlueprintStatus(row.blueprint.id, status)">
+                                <mat-icon>{{ statusIcon(status) }}</mat-icon>
+                                {{ statusLabel(status) }}
+                              </mat-chip-option>
+                            }
+                          </mat-chip-listbox>
+                        </div>
+                      </article>
+                    }
+                  </div>
+                }
+              </section>
+
+              <section class="process-search-dialog__section">
+                <div class="process-search-dialog__section-heading">
+                  <span class="process-search-dialog__section-icon" aria-hidden="true">
+                    <mat-icon>hub</mat-icon>
+                  </span>
+                  <div>
+                    <p class="process-search-dialog__eyebrow">Steps</p>
+                    <h4>Require step participation</h4>
+                  </div>
+                </div>
+
+                <mat-form-field appearance="outline" class="process-search-dialog__search-field process-search-dialog__pill-field">
+                  <input
+                    matInput
+                    type="search"
+                    aria-label="Find and add steps"
+                    placeholder="Find and add steps"
+                    [formControl]="nodeSearch"
+                    [matAutocomplete]="nodeAutocomplete" />
+                  <mat-icon matPrefix>add_circle</mat-icon>
+                </mat-form-field>
+
+                <mat-autocomplete
+                  #nodeAutocomplete="matAutocomplete"
+                  class="process-search-dialog__autocomplete-panel"
+                  (optionSelected)="onNodeOptionSelected($event)">
+                  @for (node of filteredNodeOptions(); track node.key) {
+                    <mat-option [value]="node.key">
+                      <span class="process-search-dialog__option-main">{{ node.label }}</span>
+                      <span class="process-search-dialog__option-subtitle">{{ node.subtitle }}</span>
+                    </mat-option>
+                  }
+                </mat-autocomplete>
+
+                @if (selectedNodeFilters().length === 0) {
+                  <div class="process-search-dialog__state-card">
+                    <span class="process-search-dialog__state-icon" aria-hidden="true">
+                      <mat-icon>hub</mat-icon>
+                    </span>
+                    <p>No step requirement. Matching processes can contain any step in scope.</p>
+                  </div>
+                } @else {
+                  <div class="process-search-dialog__selection-list">
+                    @for (row of selectedNodeRows(); track row.key) {
+                      <article
+                        class="process-search-dialog__selection-card"
+                        [attr.data-search-row-id]="'node-' + row.key">
+                        <div class="process-search-dialog__selection-card-header">
+                          <div class="process-search-dialog__selection-copy">
+                            <h5>{{ row.node.label }}</h5>
+                            <p>{{ row.node.subtitle }}</p>
+                          </div>
+
+                          <button
+                            mat-icon-button
+                            type="button"
+                            aria-label="Remove step filter"
+                            (click)="removeNodeFilter(row.key)">
+                            <mat-icon>delete_outline</mat-icon>
+                          </button>
+                        </div>
+
+                        <div class="process-search-dialog__status-strip">
+                          <span class="process-search-dialog__status-strip-label">Step status</span>
+                          <mat-chip-listbox
+                            multiple
+                            [attr.aria-label]="'Step status for ' + row.node.label"
+                            class="process-search-dialog__status-chip-row process-search-dialog__status-chip-row--compact">
+                            <mat-chip-option
+                              [selected]="row.statuses.length === 0"
+                              (click)="updateNodeStatuses(row.key, [])">
+                              <mat-icon>all_inclusive</mat-icon>
+                              Any
+                            </mat-chip-option>
+                            @for (status of processStatusOptions; track status) {
+                              <mat-chip-option
+                                [selected]="row.statuses.includes(status)"
+                                [class.process-search-dialog__status-option--pending]="status === 'Pending'"
+                                [class.process-search-dialog__status-option--running]="status === 'InProgress'"
+                                [class.process-search-dialog__status-option--completed]="status === 'Completed'"
+                                [class.process-search-dialog__status-option--failed]="status === 'Failed'"
+                                (click)="toggleNodeStatus(row.key, status)">
+                                <mat-icon>{{ statusIcon(status) }}</mat-icon>
+                                {{ statusLabel(status) }}
+                              </mat-chip-option>
+                            }
+                          </mat-chip-listbox>
+                        </div>
+                      </article>
+                    }
+                  </div>
+                }
+              </section>
+            </div>
+          </section>
+        }
+
+        @case (1) {
+          <section
+            class="process-search-dialog__panel"
+            id="process-search-panel-1"
+            role="tabpanel"
+            aria-labelledby="process-search-tab-1">
+            <header class="process-search-dialog__panel-header">
+              <div>
+                <p class="process-search-dialog__eyebrow">Execution</p>
+                <h3>Bound the process evidence</h3>
+              </div>
+              <span class="process-search-dialog__panel-note">{{ executionPanelSummary() }}</span>
+            </header>
+
+            <div class="process-search-dialog__execution-grid">
+              <section class="process-search-dialog__section">
+                <div class="process-search-dialog__section-heading">
+                  <span class="process-search-dialog__section-icon" aria-hidden="true">
+                    <mat-icon>schedule</mat-icon>
+                  </span>
+                  <div>
+                    <p class="process-search-dialog__eyebrow">Time Window</p>
+                    <h4>Created between</h4>
+                  </div>
+                </div>
+
+                <mat-chip-listbox aria-label="Execution window" class="process-search-dialog__quick-range-row">
+                  @for (option of quickRangeOptions; track option.key) {
+                    <mat-chip-option
+                      [selected]="quickRange() === option.key"
+                      (click)="selectQuickRange(option)">
+                      {{ option.label }}
+                    </mat-chip-option>
+                  }
+                </mat-chip-listbox>
+
+                <div class="process-search-dialog__date-window-card" [class.has-error]="hasDateWindowError()">
+                  <div class="process-search-dialog__field-group">
+                    <label class="process-search-dialog__field-label" for="process-search-created-from">Created from</label>
+                    <mat-form-field appearance="outline" class="process-search-dialog__compact-field">
+                      <input
+                        id="process-search-created-from"
+                        matInput
+                        type="datetime-local"
+                        aria-label="Created from"
+                        [value]="createdFromInput()"
+                        (input)="createdFromInput.set(($any($event.target)).value); onCustomDateChanged()" />
+                    </mat-form-field>
+                  </div>
+
+                  <div class="process-search-dialog__field-group">
+                    <label class="process-search-dialog__field-label" for="process-search-created-to">Created to</label>
+                    <mat-form-field appearance="outline" class="process-search-dialog__compact-field">
+                      <input
+                        id="process-search-created-to"
+                        matInput
+                        type="datetime-local"
+                        aria-label="Created to"
+                        [value]="createdToInput()"
+                        (input)="createdToInput.set(($any($event.target)).value); onCustomDateChanged()" />
+                    </mat-form-field>
+                  </div>
+                </div>
+
+                @if (hasDateWindowError()) {
+                  <p class="process-search-dialog__inline-state is-danger">
+                    <mat-icon>error</mat-icon>
+                    Choose a valid created-from and created-to range.
+                  </p>
+                }
+              </section>
+
+              <section class="process-search-dialog__section">
+                <div class="process-search-dialog__section-heading">
+                  <span class="process-search-dialog__section-icon" aria-hidden="true">
+                    <mat-icon>traffic</mat-icon>
+                  </span>
+                  <div>
+                    <p class="process-search-dialog__eyebrow">Process Status</p>
+                    <h4>Narrow by runtime state</h4>
+                  </div>
+                </div>
+
+                @if (selectedBlueprintIds().length === 0) {
+                  <mat-chip-listbox aria-label="Process status" multiple class="process-search-dialog__status-chip-row">
+                    @for (status of processStatusOptions; track status) {
+                      <mat-chip-option
+                        [selected]="selectedProcessStatuses().includes(status)"
+                        [class.process-search-dialog__status-option--pending]="status === 'Pending'"
+                        [class.process-search-dialog__status-option--running]="status === 'InProgress'"
+                        [class.process-search-dialog__status-option--completed]="status === 'Completed'"
+                        [class.process-search-dialog__status-option--failed]="status === 'Failed'"
+                        (click)="toggleProcessStatus(status)">
+                        <mat-icon>{{ statusIcon(status) }}</mat-icon>
+                        {{ statusLabel(status) }}
+                      </mat-chip-option>
+                    }
+                  </mat-chip-listbox>
+                } @else {
+                  <div class="process-search-dialog__state-card">
+                    <span class="process-search-dialog__state-icon" aria-hidden="true">
+                      <mat-icon>rule</mat-icon>
+                    </span>
+                    <p>Process statuses are selected per blueprint in Scope.</p>
+                  </div>
+                }
+              </section>
+            </div>
+          </section>
+        }
+
+        @case (2) {
+          <section
+            class="process-search-dialog__panel"
+            id="process-search-panel-2"
+            role="tabpanel"
+            aria-labelledby="process-search-tab-2">
+            <header class="process-search-dialog__panel-header process-search-dialog__panel-header--with-action">
+              <div>
+                <p class="process-search-dialog__eyebrow">Properties</p>
+                <h3>Match exact values</h3>
+                <p class="process-search-dialog__support-copy">{{ propertyScopeDescription() }}</p>
+              </div>
+
+              <button
+                mat-flat-button
+                type="button"
+                class="process-search-dialog__add-button"
+                [disabled]="propertyCatalog().length === 0 || hasInvalidPropertyRows()"
+                (click)="addPropertyFilterRow()">
+                <mat-icon>add</mat-icon>
+                Add property
+              </button>
+            </header>
+
+            @if (propertyCatalog().length === 0) {
+              <p class="process-search-dialog__inline-state">
+                <mat-icon>tune</mat-icon>
+                Select blueprints or steps to expose searchable properties.
+              </p>
+            } @else if (selectedPropertyRows().length === 0) {
+              <p class="process-search-dialog__inline-state">
+                <mat-icon>data_object</mat-icon>
+                Add exact-match filters only when you need a tighter result set.
+              </p>
+            } @else {
+              <div class="process-search-dialog__property-table" role="table" aria-label="Property filters">
+                <div class="process-search-dialog__property-table-head" role="row">
+                  <span role="columnheader">Property</span>
+                  <span role="columnheader">Exact value</span>
+                  <span role="columnheader">Action</span>
+                </div>
+
+                <div class="process-search-dialog__property-list">
+                  @for (row of selectedPropertyRows(); track row.id) {
+                    <div
+                      class="process-search-dialog__property-row"
+                      role="row"
+                      [class.is-incomplete]="row.option === null || row.value.trim().length === 0"
+                      [attr.data-search-row-id]="'property-' + row.id">
+                      <mat-form-field appearance="outline" class="process-search-dialog__compact-field process-search-dialog__property-field--name">
+                        <mat-label>Property</mat-label>
+                        <input
+                          matInput
+                          type="search"
+                          [value]="propertyInputDisplay(row)"
+                          placeholder="Search properties"
+                          [matAutocomplete]="propertyAutocomplete"
+                          (input)="updatePropertySearchQuery(row.id, ($any($event.target)).value)" />
+                        <mat-icon matSuffix>manage_search</mat-icon>
+                        <mat-autocomplete
+                          #propertyAutocomplete="matAutocomplete"
+                          class="process-search-dialog__autocomplete-panel process-search-dialog__property-autocomplete-panel"
+                          (optionSelected)="onPropertyOptionSelected(row.id, $event)">
+                          @for (group of filteredPropertyOptionGroups(row.id); track group.key) {
+                            <mat-optgroup [label]="group.label">
+                              @for (option of group.options; track option.key) {
+                                <mat-option [value]="option.key">
+                                  <span class="process-search-dialog__option-main">{{ propertyOptionPrimary(option) }}</span>
+                                  <span class="process-search-dialog__option-subtitle">{{ propertyOptionMeta(option) }}</span>
+                                </mat-option>
+                              }
+                            </mat-optgroup>
+                          }
+                        </mat-autocomplete>
+                        <mat-hint>{{ propertyRowHint(row.option) }}</mat-hint>
+                      </mat-form-field>
+
+                      <mat-form-field appearance="outline" class="process-search-dialog__compact-field">
+                        <mat-label>Value</mat-label>
+                        @if (propertyUsesSelect(row.option?.propertyType ?? 'String')) {
+                          <mat-select
+                            [value]="row.value"
+                            (valueChange)="updatePropertyValue(row.id, $event)">
+                            <mat-option value="">Select</mat-option>
+                            @for (option of propertySelectOptions(row.option); track option) {
+                              <mat-option [value]="option">{{ option }}</mat-option>
+                            }
+                          </mat-select>
+                        } @else {
+                          <input
+                            matInput
+                            [type]="propertyInputType(row.option?.propertyType ?? 'String')"
+                            [value]="row.value"
+                            [placeholder]="valuePlaceholder(row.option?.propertyType ?? 'String')"
+                            (input)="updatePropertyValue(row.id, ($any($event.target)).value)" />
+                        }
+                        @if (row.option) {
+                          <mat-hint>{{ row.option.propertyType }}</mat-hint>
+                        } @else {
+                          <mat-hint>Required</mat-hint>
+                        }
+                      </mat-form-field>
+
+                      <button
+                        mat-icon-button
+                        type="button"
+                        class="process-search-dialog__property-remove-button"
+                        aria-label="Remove property filter"
+                        (click)="removePropertyFilterRow(row.id)">
+                        <mat-icon>delete_outline</mat-icon>
+                      </button>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+          </section>
+        }
+      }
+    </div>
+  </div>
 </div>
 
 <div mat-dialog-actions align="end" class="process-search-dialog__actions">

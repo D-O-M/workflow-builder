@@ -7,10 +7,10 @@
 .process-explorer-page.app-page {
   --process-rail-width: clamp(22rem, 28vw, 27rem);
   --process-step-drawer-width: clamp(26rem, 34vw, 35rem);
-  --process-surface: rgba(255, 255, 255, 0.9);
-  --process-surface-strong: rgba(255, 255, 255, 0.96);
-  --process-border: rgba(102, 129, 170, 0.16);
-  --process-border-strong: rgba(72, 96, 136, 0.24);
+  --process-surface: color-mix(in oklch, var(--app-surface) 92%, transparent);
+  --process-surface-strong: var(--app-surface);
+  --process-border: var(--app-outline);
+  --process-border-strong: var(--app-outline-strong);
 
   height: 100%;
   min-height: 0;
@@ -28,20 +28,16 @@
   width: var(--process-rail-width);
   border-right: 1px solid var(--process-border);
   border-radius: 0 !important;
-  background:
-    radial-gradient(circle at 10% 0%, rgba(214, 227, 255, 0.38), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 251, 255, 0.9));
-  box-shadow: 20px 0 46px rgba(31, 56, 99, 0.14);
+  background: linear-gradient(180deg, var(--app-surface) 0%, var(--app-surface-subtle) 100%);
+  box-shadow: 16px 0 34px color-mix(in oklch, var(--app-text) 10%, transparent);
 }
 
 .process-explorer-page__step-drawer {
   width: var(--process-step-drawer-width);
   border-left: 1px solid var(--process-border);
   border-radius: 0 !important;
-  background:
-    radial-gradient(circle at top right, rgba(214, 227, 255, 0.42), transparent 38%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.96));
-  box-shadow: -22px 0 56px rgba(31, 56, 99, 0.16);
+  background: linear-gradient(180deg, var(--app-surface) 0%, var(--app-surface-subtle) 100%);
+  box-shadow: -16px 0 36px color-mix(in oklch, var(--app-text) 12%, transparent);
 }
 
 :host ::ng-deep .process-explorer-page__history.mat-drawer,
@@ -143,8 +139,8 @@
 
 :host ::ng-deep .process-explorer-page__rail-search .mat-mdc-text-field-wrapper {
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 12px 28px rgba(31, 56, 99, 0.06);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-1);
 }
 
 :host ::ng-deep .process-explorer-page__rail-search .mdc-notched-outline__leading {
@@ -190,13 +186,13 @@
   width: 100%;
   min-height: 4.55rem;
   padding: 0.82rem 0.9rem;
-  border: 1px solid rgba(102, 129, 170, 0.12);
-  border-radius: 1.15rem;
-  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid var(--app-outline);
+  border-radius: var(--app-radius-large);
+  background: var(--app-surface);
   color: var(--app-text);
   cursor: pointer;
   text-align: left;
-  box-shadow: 0 12px 30px rgba(31, 56, 99, 0.05);
+  box-shadow: var(--app-shadow-1);
   transition:
     transform 140ms ease,
     border-color 140ms ease,
@@ -206,17 +202,17 @@
 
 .process-explorer-page__rail-card:hover {
   transform: translateY(-1px);
-  border-color: rgba(0, 92, 187, 0.24);
-  background: #ffffff;
-  box-shadow: 0 16px 34px rgba(31, 56, 99, 0.09);
+  border-color: color-mix(in oklch, var(--app-status-info) 28%, transparent);
+  background: var(--app-surface-strong);
+  box-shadow: var(--app-shadow-2);
 }
 
 .process-explorer-page__rail-card.is-selected {
-  border-color: rgba(0, 92, 187, 0.35);
-  background: linear-gradient(135deg, rgba(214, 227, 255, 0.86), rgba(255, 255, 255, 0.96));
+  border-color: color-mix(in oklch, var(--app-status-info) 36%, transparent);
+  background: color-mix(in oklch, var(--app-status-info-container) 54%, var(--app-surface));
   box-shadow:
-    0 16px 34px rgba(31, 56, 99, 0.1),
-    inset 0 0 0 1px rgba(0, 92, 187, 0.08);
+    var(--app-shadow-1),
+    inset 0 0 0 1px color-mix(in oklch, var(--app-status-info) 12%, transparent);
 }
 
 .process-explorer-page__rail-card--process {
@@ -273,11 +269,11 @@
   justify-content: center;
   width: 2.35rem;
   height: 2.35rem;
-  border: 1px solid rgba(102, 129, 170, 0.13);
+  border: 1px solid var(--app-outline);
   border-radius: 0.92rem;
   box-shadow:
-    0 10px 22px rgba(31, 56, 99, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    var(--app-shadow-1),
+    inset 0 1px 0 color-mix(in oklch, var(--app-surface-strong) 78%, transparent);
 }
 
 .process-explorer-page__status-icon mat-icon {
@@ -297,9 +293,9 @@
   display: grid;
   gap: 0.35rem;
   padding: 0.72rem 0.85rem;
-  border: 1px solid rgba(102, 129, 170, 0.12);
-  border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid var(--app-outline);
+  border-radius: var(--app-radius-large);
+  background: var(--app-surface-subtle);
 }
 
 .process-explorer-page__rail-context span {
@@ -335,9 +331,9 @@
 .process-explorer-page__list-state {
   min-height: 10rem;
   align-content: center;
-  border: 1px dashed rgba(102, 129, 170, 0.18);
+  border: 1px dashed var(--app-outline-strong);
   border-radius: var(--app-radius-medium);
-  background: rgba(255, 255, 255, 0.52);
+  background: var(--app-surface-subtle);
 }
 
 .process-explorer-page__list-state p {
@@ -358,10 +354,7 @@
   min-height: 0;
   height: 100%;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 28% 8%, rgba(214, 227, 255, 0.36), transparent 24%),
-    radial-gradient(circle at 78% 82%, rgba(198, 229, 255, 0.24), transparent 30%),
-    var(--app-canvas-surface);
+  background: var(--app-canvas-surface);
 }
 
 .process-explorer-page__workbench {
@@ -380,12 +373,12 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.35rem;
-  border: 1px solid rgba(102, 129, 170, 0.18);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--app-outline);
+  border-radius: var(--app-radius-large);
+  background: var(--process-surface);
   box-shadow:
-    0 18px 44px rgba(31, 56, 99, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+    var(--app-shadow-2),
+    inset 0 1px 0 color-mix(in oklch, var(--app-surface-strong) 78%, transparent);
   transform: translateY(-50%);
   backdrop-filter: blur(20px);
 }
@@ -403,7 +396,7 @@
   width: 1.7rem;
   height: 1px;
   margin-block: 0.15rem;
-  background: rgba(102, 129, 170, 0.2);
+  background: var(--app-outline-strong);
 }
 
 .process-explorer-page__process-pill {
@@ -418,11 +411,10 @@
   gap: 1rem;
   min-height: 4.75rem;
   padding: 0.72rem 0.85rem;
-  border: 1px solid rgba(102, 129, 170, 0.18);
+  border: 1px solid var(--app-outline);
   border-radius: 999px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.9));
-  box-shadow: 0 18px 44px rgba(31, 56, 99, 0.12);
+  background: var(--process-surface);
+  box-shadow: var(--app-shadow-2);
   backdrop-filter: blur(20px);
 }
 
@@ -443,7 +435,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: clamp(1.1rem, 0.95rem + 0.5vw, 1.55rem);
+  font-size: 1.24rem;
   line-height: 1.2;
 }
 
@@ -479,9 +471,9 @@
   min-height: 2.1rem;
   padding: 0.38rem 0.62rem;
   overflow: hidden;
-  border: 1px solid rgba(102, 129, 170, 0.12);
+  border: 1px solid var(--app-outline);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--app-surface-subtle);
   color: var(--app-text-secondary);
   font-size: 0.82rem;
   font-weight: 700;
@@ -518,9 +510,7 @@
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0)),
-    var(--app-canvas-surface);
+  background: var(--app-canvas-surface);
   box-shadow: none;
 }
 
@@ -543,6 +533,12 @@
   place-items: center;
   height: 100%;
   min-height: 0;
+  padding: 1rem;
+  transition: padding-left 180ms ease;
+}
+
+.process-explorer-page__content.is-history-open .process-explorer-page__empty-state {
+  padding-left: calc(var(--process-rail-width) + 1rem);
 }
 
 .process-explorer-page__empty-card {
@@ -553,19 +549,21 @@
   padding: 1.65rem;
   border: 1px solid var(--process-border);
   border-radius: var(--app-radius-large);
-  background:
-    radial-gradient(circle at top, rgba(214, 227, 255, 0.38), transparent 58%),
-    rgba(255, 255, 255, 0.78);
+  background: var(--process-surface);
   color: var(--app-text-secondary);
   text-align: center;
   box-shadow: var(--app-shadow-1);
 }
 
-.process-explorer-page__empty-card mat-icon {
+.process-explorer-page__empty-card > mat-icon {
   width: 2.5rem;
   height: 2.5rem;
   color: var(--app-status-info);
   font-size: 2.5rem;
+}
+
+.process-explorer-page__empty-actions mat-icon {
+  color: currentColor;
 }
 
 .process-explorer-page__empty-card strong,
@@ -596,7 +594,7 @@
   gap: 0.2rem;
   min-width: 0;
   padding: 0.55rem 0.62rem;
-  border: 1px solid rgba(102, 129, 170, 0.1);
+  border: 1px solid var(--app-outline);
   border-radius: 0.85rem;
   background: rgba(248, 251, 255, 0.82);
   color: var(--app-text-secondary);
@@ -680,9 +678,9 @@
 }
 
 :host ::ng-deep .process-explorer-page__step-tabs .mat-mdc-tab-header {
-  border: 1px solid rgba(102, 129, 170, 0.12);
+  border: 1px solid var(--app-outline);
   border-radius: 999px;
-  background: rgba(238, 243, 251, 0.75);
+  background: var(--app-surface-muted);
 }
 
 :host ::ng-deep .process-explorer-page__step-tabs .mat-mdc-tab {
@@ -729,7 +727,7 @@
 .process-explorer-page__data-section,
 .process-explorer-page__mapping-card,
 .process-explorer-page__log-item {
-  border: 1px solid rgba(102, 129, 170, 0.12);
+  border: 1px solid var(--app-outline);
   border-radius: var(--app-radius-medium);
   background: var(--process-surface-strong);
 }
@@ -835,7 +833,7 @@
 
 .status-surface--pending,
 .status-surface--notexecuted {
-  background: rgba(233, 239, 247, 0.94);
+  background: var(--app-surface-muted);
   color: var(--app-text-secondary);
 }
 
@@ -916,6 +914,10 @@
 
   .process-explorer-page__content.is-history-open .process-explorer-page__process-pill {
     left: 0.75rem;
+  }
+
+  .process-explorer-page__content.is-history-open .process-explorer-page__empty-state {
+    padding-left: 0.75rem;
   }
 
   .process-explorer-page__content.is-history-open .process-explorer-page__process-summary span:nth-child(2),
