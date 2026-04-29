@@ -92,11 +92,12 @@ public sealed class ProcessProjectionService
         var blueprintNode = context.BlueprintVersion.BlueprintNodes
             .FirstOrDefault(candidate => candidate.Id == blueprintNodeId)
             ?? throw new EntityNotFoundException<ProcessStepDetailViewModel>(blueprintNodeId.ToString());
-        context.ProcessStepsByBlueprintNodeId.TryGetValue(blueprintNode.Id, out var taskState);
+        context.ProcessStepsByBlueprintNodeId.TryGetValue(blueprintNode.Id, out var taskStates);
+        var taskState = SelectRepresentativeStep(taskStates);
         var actualResolvedVersion = ResolveActualVersion(blueprintNode, taskState);
-        var endedAt = taskState?.FailedAt ?? taskState?.CompletedAt;
+        var endedAt = CalculateAggregateEndedAt(taskStates);
         var sourceNameByBlueprintNodeId = context.BlueprintVersion.BlueprintNodes
-            .ToDictionary(node => node.Id, node => node.TaskDefinition.Name);
+            .ToDictionary(node => node.Id, GetNodeDisplayName);
         var designTimeOverrides = SerializePayloads(DeserializePayloads(blueprintNode.DesignTimeInputOverridesJson));
         var runtimeOverrides = context.ProcessRecord.NodeOverrides.TryGetValue(blueprintNode.Id.ToString(), out var nodeOverrides)
             ? SerializePayloads(nodeOverrides)
@@ -105,15 +106,17 @@ public sealed class ProcessProjectionService
         return new ProcessStepDetailViewModel
         {
             BlueprintNodeId = blueprintNode.Id,
-            Name = blueprintNode.TaskDefinition.Name,
-            Status = taskState is not null
-                ? MapTaskStatus(taskState.Status)
-                : "NotExecuted",
-            ResolvedVersion = taskState?.ResolvedTaskVersion ?? actualResolvedVersion.Version.ToString(),
-            StartedAt = taskState?.StartedAt,
+            Name = GetNodeDisplayName(blueprintNode),
+            NodeKind = blueprintNode.NodeKind.ToString(),
+            CollectionIteratorItemKind = blueprintNode.CollectionIteratorItemKind,
+            RuntimeStepCount = taskStates?.Count ?? 0,
+            Iterations = BuildIterationViewModels(taskStates),
+            Status = MapAggregateStatus(taskStates),
+            ResolvedVersion = taskState?.ResolvedTaskVersion ?? actualResolvedVersion?.Version.ToString() ?? "Native",
+            StartedAt = CalculateAggregateStartedAt(taskStates),
             EndedAt = endedAt,
-            DurationMs = CalculateDurationMs(taskState?.StartedAt, endedAt),
-            FailureMessage = taskState?.ErrorMessage,
+            DurationMs = CalculateDurationMs(CalculateAggregateStartedAt(taskStates), endedAt),
+            FailureMessage = taskStates?.FirstOrDefault(step => step.Status == ProcessStepStatus.Failed)?.ErrorMessage,
             Inputs = SerializePayloads(taskState?.InputData),
             Outputs = SerializePayloads(taskState?.OutputData),
             IncomingMappings = blueprintNode.IncomingConnections
@@ -148,7 +151,13 @@ public sealed class ProcessProjectionService
             .FirstOrDefault(candidate => candidate.Id == blueprintNodeId)
             ?? throw new EntityNotFoundException<ProcessStepDetailViewModel>(blueprintNodeId.ToString());
 
-        if (!context.ProcessStepsByBlueprintNodeId.TryGetValue(blueprintNode.Id, out var taskState))
+        if (!context.ProcessStepsByBlueprintNodeId.TryGetValue(blueprintNode.Id, out var taskStates))
+        {
+            return null;
+        }
+
+        var taskState = SelectRepresentativeStep(taskStates);
+        if (taskState is null)
         {
             return null;
         }
@@ -218,9 +227,7 @@ public sealed class ProcessProjectionService
 
             if (deltaTasks.Count > 0)
             {
-                var processStepsByBlueprintNodeId = processSteps
-                    .Where(task => Guid.TryParse(task.BlueprintNodeId, out var parsedId) && parsedId != Guid.Empty)
-                    .ToDictionary(task => Guid.Parse(task.BlueprintNodeId), task => task);
+                var processStepsByBlueprintNodeId = GroupProcessStepsByBlueprintNodeId(processSteps);
 
                 var nodeDeltas = deltaTasks
                     .Select(blueprintNode => BuildNodeDelta(blueprintNode, processStepsByBlueprintNodeId))
@@ -290,9 +297,7 @@ public sealed class ProcessProjectionService
         ProcessInstanceRecord<Dictionary<string, JsonElement>> processRecord,
         IReadOnlyCollection<ProcessStepRecord> processSteps)
     {
-        var processStepsByBlueprintNodeId = processSteps
-            .Where(task => Guid.TryParse(task.BlueprintNodeId, out var parsedId) && parsedId != Guid.Empty)
-            .ToDictionary(task => Guid.Parse(task.BlueprintNodeId), task => task);
+        var processStepsByBlueprintNodeId = GroupProcessStepsByBlueprintNodeId(processSteps);
 
         var nodes = blueprintVersionEntity.BlueprintNodes
             .OrderBy(blueprintNode => blueprintNode.PositionY)
@@ -360,9 +365,7 @@ public sealed class ProcessProjectionService
         var processSteps = await _processStepRepository.GetProcessStepsForProcess(
             processId,
             cancellationToken);
-        var processStepsByBlueprintNodeId = processSteps
-            .Where(task => Guid.TryParse(task.BlueprintNodeId, out var parsedId) && parsedId != Guid.Empty)
-            .ToDictionary(task => Guid.Parse(task.BlueprintNodeId), task => task);
+        var processStepsByBlueprintNodeId = GroupProcessStepsByBlueprintNodeId(processSteps);
 
         return new ProcessProjectionContext(
             definition,
@@ -465,42 +468,43 @@ public sealed class ProcessProjectionService
 
     private static ProcessStepViewModel BuildNodeViewModel(
         BlueprintNode blueprintNode,
-        IReadOnlyDictionary<Guid, ProcessStepRecord> processStepsByBlueprintNodeId)
+        IReadOnlyDictionary<Guid, IReadOnlyList<ProcessStepRecord>> processStepsByBlueprintNodeId)
     {
-        processStepsByBlueprintNodeId.TryGetValue(blueprintNode.Id, out var taskState);
+        processStepsByBlueprintNodeId.TryGetValue(blueprintNode.Id, out var taskStates);
+        var taskState = SelectRepresentativeStep(taskStates);
         var actualResolvedVersion = ResolveActualVersion(blueprintNode, taskState);
 
         return new ProcessStepViewModel
         {
             InstanceId = blueprintNode.Id,
-            TaskDefinitionId = blueprintNode.TaskDefinitionId,
+            NodeKind = blueprintNode.NodeKind.ToString(),
+            CollectionIteratorItemKind = blueprintNode.CollectionIteratorItemKind,
+            RuntimeStepCount = taskStates?.Count ?? 0,
+            TaskDefinitionId = blueprintNode.TaskDefinitionId ?? 0,
             AllowedMajor = blueprintNode.AllowedMajor,
             AllowedMinor = blueprintNode.AllowedMinor,
-            ResolvedVersionId = taskState?.ResolvedTaskVersionId ?? actualResolvedVersion.Id,
-            ResolvedVersion = taskState?.ResolvedTaskVersion ?? actualResolvedVersion.Version.ToString(),
-            Name = blueprintNode.TaskDefinition.Name,
-            Status = taskState is not null
-                ? MapTaskStatus(taskState.Status)
-                : "NotExecuted",
-            StartedAt = taskState?.StartedAt,
-            CompletedAt = taskState?.CompletedAt,
-            FailedAt = taskState?.FailedAt,
-            FailureMessage = taskState?.ErrorMessage,
+            ResolvedVersionId = taskState?.ResolvedTaskVersionId ?? actualResolvedVersion?.Id ?? 0,
+            ResolvedVersion = taskState?.ResolvedTaskVersion ?? actualResolvedVersion?.Version.ToString() ?? "Native",
+            Name = GetNodeDisplayName(blueprintNode),
+            Status = MapAggregateStatus(taskStates),
+            StartedAt = CalculateAggregateStartedAt(taskStates),
+            CompletedAt = taskStates is not null && taskStates.Count > 0 && taskStates.All(step => step.Status == ProcessStepStatus.Completed)
+                ? taskStates.Max(step => step.CompletedAt)
+                : null,
+            FailedAt = taskStates?.Where(step => step.FailedAt.HasValue).Max(step => step.FailedAt),
+            FailureMessage = taskStates?.FirstOrDefault(step => step.Status == ProcessStepStatus.Failed)?.ErrorMessage,
             Position = new CoordinatesViewModel
             {
                 X = blueprintNode.PositionX,
                 Y = blueprintNode.PositionY,
             },
-            InputChannelName = actualResolvedVersion.InputChannels.SingleOrDefault()?.Name,
-            OutputChannelNames = actualResolvedVersion.OutputChannels
-                .OrderBy(channel => channel.Id)
-                .Select(channel => channel.Name)
-                .ToList(),
+            InputChannelName = GetInputChannelName(blueprintNode, actualResolvedVersion),
+            OutputChannelNames = GetOutputChannelNames(blueprintNode, actualResolvedVersion),
             OutgoingConnections = blueprintNode.OutgoingConnections
                 .Where(connection => connection.DestinationBlueprintNodeId.HasValue)
                 .Select(connection => new BlueprintConnectionViewModel
                 {
-                    ChannelId = actualResolvedVersion.OutputChannels.FirstOrDefault(channel => channel.Name == connection.ChannelName)?.Id,
+                    ChannelId = actualResolvedVersion?.OutputChannels.FirstOrDefault(channel => channel.Name == connection.ChannelName)?.Id,
                     ChannelName = connection.ChannelName,
                     BlueprintNodeId = connection.DestinationBlueprintNodeId!.Value,
                     Anchor = connection.Anchor,
@@ -514,9 +518,15 @@ public sealed class ProcessProjectionService
 
     private static ProcessStepDelta? BuildNodeDelta(
         BlueprintNode blueprintNode,
-        IReadOnlyDictionary<Guid, ProcessStepRecord> processStepsByBlueprintNodeId)
+        IReadOnlyDictionary<Guid, IReadOnlyList<ProcessStepRecord>> processStepsByBlueprintNodeId)
     {
-        if (!processStepsByBlueprintNodeId.TryGetValue(blueprintNode.Id, out var taskState))
+        if (!processStepsByBlueprintNodeId.TryGetValue(blueprintNode.Id, out var taskStates))
+        {
+            return null;
+        }
+
+        var taskState = SelectRepresentativeStep(taskStates);
+        if (taskState is null)
         {
             return null;
         }
@@ -527,22 +537,29 @@ public sealed class ProcessProjectionService
         {
             InstanceId = blueprintNode.Id,
             BlueprintNodeId = Guid.Parse(taskState.Id),
-            Status = MapTaskStatus(taskState.Status),
-            ResolvedVersionId = taskState.ResolvedTaskVersionId ?? actualResolvedVersion.Id,
-            ResolvedVersion = taskState.ResolvedTaskVersion ?? actualResolvedVersion.Version.ToString(),
-            StartedAt = taskState.StartedAt,
-            CompletedAt = taskState.CompletedAt,
-            FailedAt = taskState.FailedAt,
-            FailureMessage = taskState.ErrorMessage,
-            UpdatedAt = taskState.UpdatedAt,
+            Status = MapAggregateStatus(taskStates),
+            ResolvedVersionId = taskState.ResolvedTaskVersionId ?? actualResolvedVersion?.Id ?? 0,
+            ResolvedVersion = taskState.ResolvedTaskVersion ?? actualResolvedVersion?.Version.ToString() ?? "Native",
+            StartedAt = CalculateAggregateStartedAt(taskStates),
+            CompletedAt = taskStates.Count > 0 && taskStates.All(step => step.Status == ProcessStepStatus.Completed)
+                ? taskStates.Max(step => step.CompletedAt)
+                : null,
+            FailedAt = taskStates.Where(step => step.FailedAt.HasValue).Max(step => step.FailedAt),
+            FailureMessage = taskStates.FirstOrDefault(step => step.Status == ProcessStepStatus.Failed)?.ErrorMessage,
+            UpdatedAt = taskStates.Where(step => step.UpdatedAt.HasValue).Max(step => step.UpdatedAt),
         };
     }
 
-    private static TaskVersion ResolveActualVersion(BlueprintNode blueprintNode, ProcessStepRecord? taskState)
+    private static TaskVersion? ResolveActualVersion(BlueprintNode blueprintNode, ProcessStepRecord? taskState)
     {
+        if (blueprintNode.NodeKind is BlueprintNodeKind.CollectionIterator)
+        {
+            return null;
+        }
+
         var fallbackResolvedVersion = ResolveConcreteVersion(blueprintNode, requireActive: false);
         return taskState?.ResolvedTaskVersionId is int resolvedTaskVersionId
-            ? blueprintNode.TaskDefinition.Versions.FirstOrDefault(version => version.Id == resolvedTaskVersionId)
+            ? blueprintNode.TaskDefinition?.Versions.FirstOrDefault(version => version.Id == resolvedTaskVersionId)
                 ?? fallbackResolvedVersion
             : fallbackResolvedVersion;
     }
@@ -576,6 +593,117 @@ public sealed class ProcessProjectionService
         return processStatus.ToString();
     }
 
+    private static IReadOnlyDictionary<Guid, IReadOnlyList<ProcessStepRecord>> GroupProcessStepsByBlueprintNodeId(
+        IReadOnlyCollection<ProcessStepRecord> processSteps) =>
+        processSteps
+            .Where(task => Guid.TryParse(task.BlueprintNodeId, out var parsedId) && parsedId != Guid.Empty)
+            .GroupBy(task => Guid.Parse(task.BlueprintNodeId))
+            .ToDictionary(
+                grouping => grouping.Key,
+                grouping => (IReadOnlyList<ProcessStepRecord>)grouping
+                    .OrderBy(step => step.IterationContext?.ItemIndex ?? -1)
+                    .ThenBy(step => step.CreatedAt)
+                    .ToList());
+
+    private static ProcessStepRecord? SelectRepresentativeStep(
+        IReadOnlyList<ProcessStepRecord>? taskStates)
+    {
+        if (taskStates is null || taskStates.Count == 0)
+        {
+            return null;
+        }
+
+        return taskStates.FirstOrDefault(step => step.Status == ProcessStepStatus.Failed)
+            ?? taskStates.FirstOrDefault(step => step.Status == ProcessStepStatus.InProgress)
+            ?? taskStates.FirstOrDefault(step => step.Status == ProcessStepStatus.Pending)
+            ?? taskStates.FirstOrDefault(step => step.Status == ProcessStepStatus.Completed)
+            ?? taskStates[0];
+    }
+
+    private static string MapAggregateStatus(IReadOnlyList<ProcessStepRecord>? taskStates)
+    {
+        if (taskStates is null || taskStates.Count == 0)
+        {
+            return "NotExecuted";
+        }
+
+        if (taskStates.Any(step => step.Status == ProcessStepStatus.Failed))
+        {
+            return "Failed";
+        }
+
+        if (taskStates.Any(step => step.Status == ProcessStepStatus.InProgress))
+        {
+            return "InProgress";
+        }
+
+        if (taskStates.Any(step => step.Status == ProcessStepStatus.Pending))
+        {
+            return taskStates.All(step => step.Status == ProcessStepStatus.Pending)
+                ? "Pending"
+                : "InProgress";
+        }
+
+        return taskStates.All(step => step.Status == ProcessStepStatus.Completed)
+            ? "Completed"
+            : "Pending";
+    }
+
+    private static DateTimeOffset? CalculateAggregateStartedAt(IReadOnlyList<ProcessStepRecord>? taskStates) =>
+        taskStates?
+            .Where(step => step.StartedAt.HasValue)
+            .Min(step => step.StartedAt);
+
+    private static DateTimeOffset? CalculateAggregateEndedAt(IReadOnlyList<ProcessStepRecord>? taskStates)
+    {
+        if (taskStates is null || taskStates.Count == 0)
+        {
+            return null;
+        }
+
+        return taskStates.Any(step => step.Status == ProcessStepStatus.Failed)
+            ? taskStates.Where(step => step.FailedAt.HasValue).Max(step => step.FailedAt)
+            : taskStates.All(step => step.Status == ProcessStepStatus.Completed)
+                ? taskStates.Where(step => step.CompletedAt.HasValue).Max(step => step.CompletedAt)
+                : null;
+    }
+
+    private static string GetNodeDisplayName(BlueprintNode blueprintNode) =>
+        blueprintNode.NodeKind is BlueprintNodeKind.CollectionIterator
+            ? "Collection Iterator"
+            : blueprintNode.TaskDefinition?.DisplayName ?? blueprintNode.TaskDefinition?.Name ?? "Task";
+
+    private static string? GetInputChannelName(BlueprintNode blueprintNode, TaskVersion? actualResolvedVersion) =>
+        blueprintNode.NodeKind is BlueprintNodeKind.CollectionIterator
+            ? "Collection"
+            : actualResolvedVersion?.InputChannels.SingleOrDefault()?.Name;
+
+    private static List<string> GetOutputChannelNames(BlueprintNode blueprintNode, TaskVersion? actualResolvedVersion) =>
+        blueprintNode.NodeKind is BlueprintNodeKind.CollectionIterator
+            ? ["Item"]
+            : actualResolvedVersion?.OutputChannels
+                .OrderBy(channel => channel.Id)
+                .Select(channel => channel.Name)
+                .ToList() ?? [];
+
+    private static List<ProcessStepIterationViewModel> BuildIterationViewModels(
+        IReadOnlyList<ProcessStepRecord>? taskStates) =>
+        taskStates?
+            .Where(step => step.IterationContext is not null)
+            .OrderBy(step => step.IterationContext!.ItemIndex)
+            .Select(step => new ProcessStepIterationViewModel
+            {
+                RuntimeStepId = Guid.TryParse(step.Id, out var runtimeStepId)
+                    ? runtimeStepId
+                    : Guid.Empty,
+                SourceIteratorStepId = step.IterationContext!.SourceIteratorStepId,
+                SourceIteratorBlueprintNodeId = step.IterationContext.SourceIteratorBlueprintNodeId,
+                ItemIndex = step.IterationContext.ItemIndex,
+                ItemKey = step.IterationContext.ItemKey,
+                Status = MapTaskStatus(step.Status)
+            })
+            .ToList() ?? [];
+
     private static string MapTaskStatus(ProcessStepStatus status) =>
         status switch
         {
@@ -587,6 +715,12 @@ public sealed class ProcessProjectionService
 
     private static TaskVersion ResolveConcreteVersion(BlueprintNode blueprintNode, bool requireActive)
     {
+        if (blueprintNode.TaskDefinition is null)
+        {
+            throw new InvalidOperationException(
+                $"Blueprint node {blueprintNode.Id} is not backed by a plugin task definition.");
+        }
+
         var laneVersions = blueprintNode.TaskDefinition.Versions
             .Where(version => SemanticVersionUtility.IsSameLane(version.Version, blueprintNode.AllowedMajor, blueprintNode.AllowedMinor))
             .OrderByDescending(version => version.Version)
@@ -607,7 +741,7 @@ public sealed class ProcessProjectionService
         BlueprintVersion BlueprintVersion,
         ProcessInstanceRecord<Dictionary<string, JsonElement>> ProcessRecord,
         IReadOnlyCollection<ProcessStepRecord> ProcessSteps,
-        IReadOnlyDictionary<Guid, ProcessStepRecord> ProcessStepsByBlueprintNodeId);
+        IReadOnlyDictionary<Guid, IReadOnlyList<ProcessStepRecord>> ProcessStepsByBlueprintNodeId);
 
     private static List<BlueprintPropertyMappingViewModel> DeserializePropertyMappings(string? json)
     {

@@ -7,7 +7,9 @@ public sealed class BlueprintNodeViewModel
     /// <summary>Persistent task instance id (BlueprintNodes.Id).</summary>
     public Guid InstanceId { get; init; }
 
-    public int TaskDefinitionId { get; init; }
+    public string NodeKind { get; init; } = "PluginTask";
+    public int? TaskDefinitionId { get; init; }
+    public string? CollectionIteratorItemKind { get; init; }
     public int AllowedMajor { get; init; }
     public int AllowedMinor { get; init; }
     public int ResolvedVersionId { get; init; }

@@ -61,6 +61,7 @@ public sealed class NodeActivationService
                         destinationNode,
                         [source],
                         executionResult.CompletedAt,
+                        context.IterationContext,
                         cancellationToken);
                     continue;
                 }
@@ -70,6 +71,7 @@ public sealed class NodeActivationService
                     destinationNode,
                     source,
                     executionResult.CompletedAt,
+                    context.IterationContext,
                     cancellationToken);
 
                 if (readySources is null)
@@ -82,15 +84,120 @@ public sealed class NodeActivationService
                     destinationNode,
                     readySources,
                     executionResult.CompletedAt,
+                    context.IterationContext,
                     cancellationToken);
             }
         }
     }
 
+    public async Task<int> EnqueueCollectionIteratorItemStepsAsync(
+        JobContext context,
+        IReadOnlyList<JsonElement> items,
+        int batchSize,
+        DateTimeOffset timestamp,
+        CancellationToken cancellationToken)
+    {
+        var nodesById = context.ExecutableBlueprint.NodesById;
+        if (!context.BlueprintNode.OutputChannels.TryGetValue("Item", out var itemOutputChannel))
+        {
+            return 0;
+        }
+
+        var pendingActivations = new List<PendingActivation>(Math.Max(1, batchSize));
+        var enqueuedCount = 0;
+        var effectiveBatchSize = Math.Max(1, batchSize);
+
+        for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
+        {
+            var itemPayload = JsonSerializer.SerializeToElement(
+                new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                {
+                    ["item"] = items[itemIndex].Clone()
+                },
+                JsonSerializerOptions.Web);
+
+            foreach (var binding in itemOutputChannel.OutboundBindings)
+            {
+                if (!nodesById.TryGetValue(binding.DestinationBlueprintNodeId, out var destinationNode))
+                {
+                    continue;
+                }
+
+                var iterationContext = new ProcessStepIterationContext
+                {
+                    SourceIteratorStepId = context.ProcessStepId.ToString(),
+                    SourceIteratorBlueprintNodeId = context.BlueprintNodeId.ToString(),
+                    ItemIndex = itemIndex,
+                    ItemKey = $"{context.ProcessStepId:N}:{itemIndex:D8}"
+                };
+                var source = CreateHydrationSource(
+                    context,
+                    itemOutputChannel,
+                    binding,
+                    BlueprintInputMaterializer.MaterializePartialInput(
+                        itemPayload,
+                        binding.PropertyMappings));
+
+                if (destinationNode.InboundBindings.Count <= 1)
+                {
+                    pendingActivations.Add(new PendingActivation(
+                        destinationNode,
+                        [source],
+                        iterationContext,
+                        JoinStateId: null));
+                }
+                else
+                {
+                    var readySources = await RecordJoinSourceAsync(
+                        context,
+                        destinationNode,
+                        source,
+                        timestamp,
+                        iterationContext,
+                        cancellationToken);
+
+                    if (readySources is not null)
+                    {
+                        pendingActivations.Add(new PendingActivation(
+                            destinationNode,
+                            readySources,
+                            iterationContext,
+                            CreateScopedJoinStateId(
+                                context.ProcessId,
+                                destinationNode.Id,
+                                iterationContext)));
+                    }
+                }
+
+                if (pendingActivations.Count >= effectiveBatchSize)
+                {
+                    enqueuedCount += await CreateAndEnqueueStepsAsync(
+                        context,
+                        pendingActivations,
+                        timestamp,
+                        cancellationToken);
+                    pendingActivations.Clear();
+                }
+            }
+        }
+
+        if (pendingActivations.Count > 0)
+        {
+            enqueuedCount += await CreateAndEnqueueStepsAsync(
+                context,
+                pendingActivations,
+                timestamp,
+                cancellationToken);
+        }
+
+        return enqueuedCount;
+    }
+
     private static InputHydrationSource CreateHydrationSource(
         JobContext context,
         ExecutableBlueprintChannel outputChannel,
-        ExecutableBlueprintBinding binding) =>
+        ExecutableBlueprintBinding binding,
+        Dictionary<string, JsonElement>? inlineInput = null) =>
         new()
         {
             BindingId = binding.Id,
@@ -102,7 +209,8 @@ public sealed class NodeActivationService
                     SourceProperty = mapping.SourceProperty,
                     TargetProperty = mapping.TargetProperty
                 })
-                .ToList()
+                .ToList(),
+            InlineInput = inlineInput
         };
 
     private async Task<IReadOnlyList<InputHydrationSource>?> RecordJoinSourceAsync(
@@ -110,24 +218,29 @@ public sealed class NodeActivationService
         ExecutableBlueprintNode destinationNode,
         InputHydrationSource source,
         DateTimeOffset timestamp,
+        ProcessStepIterationContext? iterationContext,
         CancellationToken cancellationToken)
     {
         var requiredBindingIds = destinationNode.InboundBindings
             .Select(binding => binding.Id)
             .ToHashSet(StringComparer.Ordinal);
+        var joinStateId = CreateScopedJoinStateId(
+            context.ProcessId,
+            destinationNode.Id,
+            iterationContext);
 
         for (var attempt = 0; attempt < MaxJoinStateUpdateAttempts; attempt++)
         {
             var state = await _nodeJoinStateRepository.GetJoinStateAsync(
                 context.ProcessId,
-                destinationNode.Id,
+                joinStateId,
                 cancellationToken);
 
             if (state is null)
             {
                 state = new NodeJoinStateRecord
                 {
-                    id = destinationNode.Id.ToString(),
+                    id = joinStateId.ToString(),
                     ProcessId = context.ProcessId.ToString(),
                     BlueprintId = context.ExecutableBlueprintId.ToString(),
                     BlueprintNodeId = destinationNode.Id.ToString(),
@@ -180,19 +293,55 @@ public sealed class NodeActivationService
         ExecutableBlueprintNode destinationNode,
         IReadOnlyList<InputHydrationSource> sources,
         DateTimeOffset timestamp,
+        ProcessStepIterationContext? iterationContext,
         CancellationToken cancellationToken)
     {
-        context.ProcessNodeOverrides.TryGetValue(destinationNode.Id.ToString(), out var runtimeOverrides);
+        var activation = new PendingActivation(
+            destinationNode,
+            sources,
+            iterationContext,
+            destinationNode.InboundBindings.Count > 1
+                ? CreateScopedJoinStateId(context.ProcessId, destinationNode.Id, iterationContext)
+                : null);
 
-        var processStepId = ProcessStepIdentity.Create(context.ProcessId, destinationNode.Id);
-        await _processStepRepository.CreateProcessStepIfNotExists(
-            new ProcessStepRecord
+        await CreateAndEnqueueStepsAsync(
+            context,
+            [activation],
+            timestamp,
+            cancellationToken);
+    }
+
+    private async Task<int> CreateAndEnqueueStepsAsync(
+        JobContext context,
+        IReadOnlyCollection<PendingActivation> pendingActivations,
+        DateTimeOffset timestamp,
+        CancellationToken cancellationToken)
+    {
+        if (pendingActivations.Count == 0)
+        {
+            return 0;
+        }
+
+        var processStepRecords = new List<ProcessStepRecord>(pendingActivations.Count);
+        var messagesByStepId = new Dictionary<Guid, ProcessStepInitialisationMessage>(pendingActivations.Count);
+        var joinStateIdsByStepId = new Dictionary<Guid, Guid>(pendingActivations.Count);
+        foreach (var activation in pendingActivations)
+        {
+            context.ProcessNodeOverrides.TryGetValue(
+                activation.DestinationNode.Id.ToString(),
+                out var runtimeOverrides);
+
+            var processStepId = CreateScopedRuntimeIdentity(
+                context.ProcessId,
+                activation.DestinationNode.Id,
+                activation.IterationContext);
+            processStepRecords.Add(new ProcessStepRecord
             {
                 Id = processStepId.ToString(),
-                BlueprintNodeId = destinationNode.Id.ToString(),
-                TaskDefinitionId = destinationNode.TaskDefinitionId,
-                AllowedMajor = destinationNode.AllowedMajor,
-                AllowedMinor = destinationNode.AllowedMinor,
+                BlueprintNodeId = activation.DestinationNode.Id.ToString(),
+                TaskDefinitionId = activation.DestinationNode.TaskDefinitionId,
+                AllowedMajor = activation.DestinationNode.AllowedMajor,
+                AllowedMinor = activation.DestinationNode.AllowedMinor,
                 ProcessId = context.ProcessId.ToString(),
                 BlueprintId = context.ExecutableBlueprintId.ToString(),
                 CreatedAt = timestamp,
@@ -200,43 +349,69 @@ public sealed class NodeActivationService
                 Status = ProcessStepStatus.Pending,
                 InputHydrationPlan = new InputHydrationPlan
                 {
-                    InputChannelName = destinationNode.InputChannel.Name,
-                    Sources = sources.ToList(),
-                    DesignTimeInputOverrides = CloneJsonMap(destinationNode.DesignTimeInputOverrides),
+                    InputChannelName = activation.DestinationNode.InputChannel.Name,
+                    Sources = activation.Sources.ToList(),
+                    DesignTimeInputOverrides = CloneJsonMap(activation.DestinationNode.DesignTimeInputOverrides),
                     RuntimeInputOverrides = CloneJsonMap(runtimeOverrides)
-                }
-            },
-            cancellationToken);
+                },
+                IterationContext = activation.IterationContext
+            });
 
-        await _processStepQueueWriter.EnqueueAsync(
-            new ProcessStepInitialisationMessage
+            messagesByStepId[processStepId] = new ProcessStepInitialisationMessage
             {
                 ProcessId = context.ProcessId,
                 ExecutableBlueprintId = context.ExecutableBlueprintId,
                 ProcessStepId = processStepId,
-                BlueprintNodeId = destinationNode.Id
-            },
-            cancellationToken);
+                BlueprintNodeId = activation.DestinationNode.Id
+            };
 
-        if (destinationNode.InboundBindings.Count > 1)
+            if (activation.JoinStateId is Guid joinStateId)
+            {
+                joinStateIdsByStepId[processStepId] = joinStateId;
+            }
+        }
+
+        var createdSteps = await _processStepRepository.CreateProcessStepsIfNotExists(
+            processStepRecords,
+            cancellationToken);
+        var queueMessages = createdSteps
+            .Where(result => result.Created || result.State.Status == ProcessStepStatus.Pending)
+            .Select(result => messagesByStepId[Guid.Parse(result.State.Id)])
+            .ToList();
+
+        if (queueMessages.Count == 0)
         {
+            return 0;
+        }
+
+        await _processStepQueueWriter.EnqueueBatchAsync(queueMessages, cancellationToken);
+
+        foreach (var message in queueMessages)
+        {
+            if (!joinStateIdsByStepId.TryGetValue(message.ProcessStepId, out var joinStateId))
+            {
+                continue;
+            }
+
             await MarkJoinStepEnqueuedAsync(
                 context.ProcessId,
-                destinationNode.Id,
-                processStepId,
+                joinStateId,
+                message.ProcessStepId,
                 timestamp,
                 cancellationToken);
         }
 
         _logger.LogInformation(
-            "Queued downstream node {BlueprintNodeId} for process {ProcessId} after receiving required inbound bindings.",
-            destinationNode.Id,
+            "Queued {StepCount} downstream step(s) for process {ProcessId} after receiving required inbound bindings.",
+            queueMessages.Count,
             context.ProcessId);
+
+        return queueMessages.Count;
     }
 
     private async Task MarkJoinStepEnqueuedAsync(
         Guid processId,
-        Guid destinationNodeId,
+        Guid joinStateId,
         Guid processStepId,
         DateTimeOffset timestamp,
         CancellationToken cancellationToken)
@@ -245,7 +420,7 @@ public sealed class NodeActivationService
         {
             var state = await _nodeJoinStateRepository.GetJoinStateAsync(
                 processId,
-                destinationNodeId,
+                joinStateId,
                 cancellationToken);
 
             if (state is null || state.StepEnqueued)
@@ -264,6 +439,20 @@ public sealed class NodeActivationService
         }
     }
 
+    private static Guid CreateScopedRuntimeIdentity(
+        Guid processId,
+        Guid blueprintNodeId,
+        ProcessStepIterationContext? iterationContext) =>
+        ProcessStepIdentity.Create(processId, blueprintNodeId, iterationContext?.ItemKey);
+
+    private static Guid CreateScopedJoinStateId(
+        Guid processId,
+        Guid blueprintNodeId,
+        ProcessStepIterationContext? iterationContext) =>
+        iterationContext is null
+            ? blueprintNodeId
+            : ProcessStepIdentity.Create(processId, blueprintNodeId, iterationContext.ItemKey);
+
     private static Dictionary<string, JsonElement> CloneJsonMap(
         IReadOnlyDictionary<string, JsonElement>? values)
     {
@@ -277,4 +466,10 @@ public sealed class NodeActivationService
             entry => entry.Value.Clone(),
             StringComparer.Ordinal);
     }
+
+    private sealed record PendingActivation(
+        ExecutableBlueprintNode DestinationNode,
+        IReadOnlyList<InputHydrationSource> Sources,
+        ProcessStepIterationContext? IterationContext,
+        Guid? JoinStateId);
 }

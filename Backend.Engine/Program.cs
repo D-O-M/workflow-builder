@@ -28,6 +28,8 @@ builder.Services.AddOpenApi();
 
 builder.Services.Configure<DebuggerAutoAttachOptions>(
     builder.Configuration.GetSection("DebuggerAutoAttach"));
+builder.Services.Configure<CollectionIteratorOptions>(
+    builder.Configuration.GetSection("CollectionIterator"));
 
 var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(
     builder.Configuration,
@@ -145,6 +147,7 @@ builder.Services.AddSingleton<IPluginReloadQueueReader>(provider =>
 
 builder.Services.AddTransient<JobFinalizationService>();
 builder.Services.AddTransient<NodeActivationService>();
+builder.Services.AddTransient<CollectionIteratorExecutionService>();
 builder.Services.AddSingleton<ProcessLifecycleTelemetry>();
 builder.Services.AddSingleton<JobManager>();
 builder.Services.AddSingleton<PluginResultFinalizationQueue>();

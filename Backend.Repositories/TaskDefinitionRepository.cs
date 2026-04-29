@@ -239,6 +239,7 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
         {
             Name = property.Name,
             Kind = property.Kind,
+            IsCollection = property.IsCollection,
             IsRequired = property.IsRequired,
             EnumValuesJson = property.EnumValues.Count > 0
                 ? JsonSerializer.Serialize(property.EnumValues)

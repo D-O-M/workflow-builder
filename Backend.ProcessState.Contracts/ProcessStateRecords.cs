@@ -145,6 +145,9 @@ public class ProcessStepRecord
 
     [JsonPropertyName("outputData")]
     public Dictionary<string, JsonElement>? OutputData { get; set; }
+
+    [JsonPropertyName("iterationContext")]
+    public ProcessStepIterationContext? IterationContext { get; set; }
 }
 
 public sealed class ProcessExecutionProgress
@@ -152,11 +155,23 @@ public sealed class ProcessExecutionProgress
     [JsonPropertyName("totalNodeCount")]
     public int TotalNodeCount { get; set; }
 
+    [JsonPropertyName("totalStepCount")]
+    public int TotalStepCount { get; set; }
+
     [JsonPropertyName("completedNodeIds")]
     public HashSet<string> CompletedNodeIds { get; set; } = new(StringComparer.Ordinal);
 
     [JsonPropertyName("failedNodeIds")]
     public HashSet<string> FailedNodeIds { get; set; } = new(StringComparer.Ordinal);
+
+    [JsonPropertyName("completedStepIds")]
+    public HashSet<string> CompletedStepIds { get; set; } = new(StringComparer.Ordinal);
+
+    [JsonPropertyName("failedStepIds")]
+    public HashSet<string> FailedStepIds { get; set; } = new(StringComparer.Ordinal);
+
+    [JsonPropertyName("expandedCollectionIteratorStepIds")]
+    public HashSet<string> ExpandedCollectionIteratorStepIds { get; set; } = new(StringComparer.Ordinal);
 }
 
 public sealed class InputHydrationPlan
@@ -190,6 +205,9 @@ public sealed class InputHydrationSource
 
     [JsonPropertyName("propertyMappings")]
     public List<InputHydrationPropertyMapping> PropertyMappings { get; init; } = [];
+
+    [JsonPropertyName("inlineInput")]
+    public Dictionary<string, JsonElement>? InlineInput { get; init; }
 }
 
 public sealed class InputHydrationPropertyMapping
@@ -199,6 +217,21 @@ public sealed class InputHydrationPropertyMapping
 
     [JsonPropertyName("targetProperty")]
     public required string TargetProperty { get; init; }
+}
+
+public sealed class ProcessStepIterationContext
+{
+    [JsonPropertyName("sourceIteratorStepId")]
+    public required string SourceIteratorStepId { get; init; }
+
+    [JsonPropertyName("sourceIteratorBlueprintNodeId")]
+    public required string SourceIteratorBlueprintNodeId { get; init; }
+
+    [JsonPropertyName("itemIndex")]
+    public required int ItemIndex { get; init; }
+
+    [JsonPropertyName("itemKey")]
+    public required string ItemKey { get; init; }
 }
 
 public class NodeActivationRecord

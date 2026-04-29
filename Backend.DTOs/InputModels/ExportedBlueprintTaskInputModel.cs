@@ -9,8 +9,11 @@ public sealed class ExportedBlueprintNodeInputModel
     [Required]
     public Guid TaskKey { get; init; }
 
-    [Required, MinLength(1)]
-    public string TaskDefinitionName { get; init; } = null!;
+    public string NodeKind { get; init; } = "PluginTask";
+
+    public string? TaskDefinitionName { get; init; }
+
+    public string? CollectionIteratorItemKind { get; init; }
 
     [Range(0, int.MaxValue)]
     public int AllowedMajor { get; init; }

@@ -93,9 +93,15 @@ public sealed class BlueprintPortabilityService
             .Select(task => new BlueprintNodeInputModel
             {
                 InstanceId = task.TaskKey,
-                TaskDefinitionId = resolvedTasks[task.TaskKey].TaskDefinitionId,
-                AllowedMajor = task.AllowedMajor,
-                AllowedMinor = task.AllowedMinor,
+                NodeKind = NormalizeNodeKind(task.NodeKind).ToString(),
+                TaskDefinitionId = NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.PluginTask
+                    ? resolvedTasks[task.TaskKey].TaskDefinitionId
+                    : null,
+                CollectionIteratorItemKind = NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.CollectionIterator
+                    ? NormalizeCollectionIteratorItemKind(task.CollectionIteratorItemKind)
+                    : null,
+                AllowedMajor = NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.PluginTask ? task.AllowedMajor : 0,
+                AllowedMinor = NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.PluginTask ? task.AllowedMinor : 0,
                 Position = task.Position,
                 DesignTimeInputOverrides = task.DesignTimeInputOverrides,
                 OutgoingConnections = task.OutgoingConnections
@@ -241,6 +247,33 @@ public sealed class BlueprintPortabilityService
                     "taskKey values must be unique.",
                     $"tasks[{index}].taskKey"));
             }
+
+            if (!Enum.TryParse<BlueprintNodeKind>(task.NodeKind, ignoreCase: true, out var nodeKind) ||
+                !Enum.IsDefined(nodeKind))
+            {
+                errors.Add(new BlueprintImportValidationError(
+                    BlueprintImportErrorCodes.NodeKindInvalid,
+                    $"Node kind '{task.NodeKind}' is not supported.",
+                    $"tasks[{index}].nodeKind"));
+                continue;
+            }
+
+            if (nodeKind == BlueprintNodeKind.PluginTask && string.IsNullOrWhiteSpace(task.TaskDefinitionName))
+            {
+                errors.Add(new BlueprintImportValidationError(
+                    BlueprintImportErrorCodes.TaskDefinitionMissing,
+                    "Plugin task nodes must include taskDefinitionName.",
+                    $"tasks[{index}].taskDefinitionName"));
+            }
+
+            if (nodeKind == BlueprintNodeKind.CollectionIterator &&
+                !TryNormalizeCollectionIteratorItemKind(task.CollectionIteratorItemKind, out _))
+            {
+                errors.Add(new BlueprintImportValidationError(
+                    BlueprintImportErrorCodes.CollectionIteratorItemKindInvalid,
+                    "Collection Iterator item kind must be one of the supported scalar property types.",
+                    $"tasks[{index}].collectionIteratorItemKind"));
+            }
         }
 
         if (model.StartingTaskKey == Guid.Empty || !tasksByKey.ContainsKey(model.StartingTaskKey))
@@ -257,7 +290,8 @@ public sealed class BlueprintPortabilityService
         }
 
         var taskDefinitionNames = model.Tasks
-            .Select(task => task.TaskDefinitionName.Trim())
+            .Where(task => NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.PluginTask)
+            .Select(task => task.TaskDefinitionName!.Trim())
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
@@ -272,7 +306,23 @@ public sealed class BlueprintPortabilityService
 
         foreach (var (task, taskIndex) in model.Tasks.Select((task, taskIndex) => (task, taskIndex)))
         {
-            if (!taskDefinitionsByName.TryGetValue(task.TaskDefinitionName.Trim(), out var taskDefinition))
+            if (NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.CollectionIterator)
+            {
+                foreach (var (connection, connectionIndex) in task.OutgoingConnections.Select((connection, connectionIndex) => (connection, connectionIndex)))
+                {
+                    if (!string.Equals(connection.ChannelName, "Item", StringComparison.Ordinal))
+                    {
+                        errors.Add(new BlueprintImportValidationError(
+                            BlueprintImportErrorCodes.ChannelMissing,
+                            $"Channel '{connection.ChannelName}' does not exist on Collection Iterator.",
+                            $"tasks[{taskIndex}].outgoingConnections[{connectionIndex}].channelName"));
+                    }
+                }
+
+                continue;
+            }
+
+            if (!taskDefinitionsByName.TryGetValue(task.TaskDefinitionName!.Trim(), out var taskDefinition))
             {
                 errors.Add(new BlueprintImportValidationError(
                     BlueprintImportErrorCodes.TaskDefinitionMissing,
@@ -315,7 +365,8 @@ public sealed class BlueprintPortabilityService
         CancellationToken cancellationToken)
     {
         var taskDefinitionNames = model.Tasks
-            .Select(task => task.TaskDefinitionName.Trim())
+            .Where(task => NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.PluginTask)
+            .Select(task => task.TaskDefinitionName!.Trim())
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
@@ -332,7 +383,12 @@ public sealed class BlueprintPortabilityService
             task => task.TaskKey,
             task =>
             {
-                var taskDefinition = taskDefinitionsByName[task.TaskDefinitionName.Trim()];
+                if (NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.CollectionIterator)
+                {
+                    return ResolvedImportTask.CollectionIterator;
+                }
+
+                var taskDefinition = taskDefinitionsByName[task.TaskDefinitionName!.Trim()];
                 var resolvedVersion = ResolveLaneVersion(taskDefinition, task.AllowedMajor, task.AllowedMinor)!;
                 return new ResolvedImportTask(taskDefinition.Id, resolvedVersion);
             });
@@ -359,9 +415,15 @@ public sealed class BlueprintPortabilityService
                 .Select(task => new ExportedBlueprintNodeViewModel
                 {
                     TaskKey = task.Id,
-                    TaskDefinitionName = task.TaskDefinition.Name,
-                    AllowedMajor = task.AllowedMajor,
-                    AllowedMinor = task.AllowedMinor,
+                    NodeKind = task.NodeKind.ToString(),
+                    TaskDefinitionName = task.NodeKind == BlueprintNodeKind.PluginTask
+                        ? task.TaskDefinition?.Name
+                        : null,
+                    CollectionIteratorItemKind = task.NodeKind == BlueprintNodeKind.CollectionIterator
+                        ? NormalizeCollectionIteratorItemKind(task.CollectionIteratorItemKind)
+                        : null,
+                    AllowedMajor = task.NodeKind == BlueprintNodeKind.PluginTask ? task.AllowedMajor : 0,
+                    AllowedMinor = task.NodeKind == BlueprintNodeKind.PluginTask ? task.AllowedMinor : 0,
                     Position = new CoordinatesViewModel
                     {
                         X = task.PositionX,
@@ -398,7 +460,13 @@ public sealed class BlueprintPortabilityService
                 .Select(task => new ComparableTask
                 {
                     TaskKey = task.TaskKey,
-                    TaskDefinitionName = task.TaskDefinitionName.Trim(),
+                    NodeKind = NormalizeNodeKind(task.NodeKind).ToString(),
+                    TaskDefinitionName = NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.PluginTask
+                        ? task.TaskDefinitionName?.Trim()
+                        : null,
+                    CollectionIteratorItemKind = NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.CollectionIterator
+                        ? NormalizeCollectionIteratorItemKind(task.CollectionIteratorItemKind)
+                        : null,
                     AllowedMajor = task.AllowedMajor,
                     AllowedMinor = task.AllowedMinor,
                     PositionX = task.Position.X,
@@ -446,7 +514,9 @@ public sealed class BlueprintPortabilityService
                 .Select(task => new ComparableTask
                 {
                     TaskKey = task.TaskKey,
+                    NodeKind = NormalizeNodeKind(task.NodeKind).ToString(),
                     TaskDefinitionName = task.TaskDefinitionName,
+                    CollectionIteratorItemKind = task.CollectionIteratorItemKind,
                     AllowedMajor = task.AllowedMajor,
                     AllowedMinor = task.AllowedMinor,
                     PositionX = task.Position.X,
@@ -484,7 +554,10 @@ public sealed class BlueprintPortabilityService
         return JsonSerializer.Serialize(comparable, CanonicalJsonOptions);
     }
 
-    private sealed record ResolvedImportTask(int TaskDefinitionId, TaskVersion ResolvedVersion);
+    private sealed record ResolvedImportTask(int TaskDefinitionId, TaskVersion? ResolvedVersion)
+    {
+        public static ResolvedImportTask CollectionIterator { get; } = new(0, null);
+    }
 
     private sealed class ComparableBlueprint
     {
@@ -496,7 +569,9 @@ public sealed class BlueprintPortabilityService
     private sealed class ComparableTask
     {
         public required Guid TaskKey { get; init; }
-        public required string TaskDefinitionName { get; init; }
+        public required string NodeKind { get; init; }
+        public required string? TaskDefinitionName { get; init; }
+        public required string? CollectionIteratorItemKind { get; init; }
         public int AllowedMajor { get; init; }
         public int AllowedMinor { get; init; }
         public int PositionX { get; init; }
@@ -553,4 +628,27 @@ public sealed class BlueprintPortabilityService
             .ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
         return JsonSerializer.Serialize(ordered, CanonicalJsonOptions);
     }
+
+    private static BlueprintNodeKind NormalizeNodeKind(string? nodeKind) =>
+        Enum.TryParse<BlueprintNodeKind>(nodeKind, ignoreCase: true, out var parsed) &&
+        Enum.IsDefined(parsed)
+            ? parsed
+            : BlueprintNodeKind.PluginTask;
+
+    private static bool TryNormalizeCollectionIteratorItemKind(string? itemKind, out string normalized)
+    {
+        normalized = WorkflowPropertyKind.String.ToString();
+        if (!WorkflowPropertyTypeName.TryParse(itemKind, out var parsedKind, out var isCollection) || isCollection)
+        {
+            return false;
+        }
+
+        normalized = WorkflowPropertyTypeName.Format(parsedKind);
+        return true;
+    }
+
+    private static string NormalizeCollectionIteratorItemKind(string? itemKind) =>
+        TryNormalizeCollectionIteratorItemKind(itemKind, out var normalized)
+            ? normalized
+            : WorkflowPropertyKind.String.ToString();
 }

@@ -52,6 +52,7 @@ public class JobContext
     public DateTimeOffset? PluginQueuedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public InputHydrationPlan? InputHydrationPlan { get; private set; }
+    public ProcessStepIterationContext? IterationContext { get; private set; }
     public IReadOnlyDictionary<string, Dictionary<string, JsonElement>> ProcessNodeOverrides { get; private set; }
         = new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal);
     public string[] OutputChannelsPopulated { get; set; } = [];
@@ -159,6 +160,7 @@ public class JobContext
 
         StartedAt = taskState.StartedAt;
         ClaimedAt = taskState.StartedAt;
+        IterationContext = taskState.IterationContext;
 
         var processState = await _processInstanceRepository.GetProcessStateById(
             ProcessId,
@@ -263,12 +265,13 @@ public class JobContext
 
             var wasCompleted = processState.Status is ProcessStatus.Completed;
             processState.ExecutionProgress.CompletedNodeIds.Add(BlueprintNodeId.ToString());
+            processState.ExecutionProgress.CompletedStepIds.Add(ProcessStepId.ToString());
             processState.UpdatedAt = completedAt;
             if (processState.Status is not ProcessStatus.Failed)
             {
                 processState.Status =
-                    processState.ExecutionProgress.TotalNodeCount > 0 &&
-                    processState.ExecutionProgress.CompletedNodeIds.Count >= processState.ExecutionProgress.TotalNodeCount
+                    processState.ExecutionProgress.TotalStepCount > 0 &&
+                    processState.ExecutionProgress.CompletedStepIds.Count >= processState.ExecutionProgress.TotalStepCount
                         ? ProcessStatus.Completed
                         : ProcessStatus.InProgress;
             }
@@ -303,6 +306,7 @@ public class JobContext
             }
 
             processState.ExecutionProgress.FailedNodeIds.Add(BlueprintNodeId.ToString());
+            processState.ExecutionProgress.FailedStepIds.Add(ProcessStepId.ToString());
             processState.Status = ProcessStatus.Failed;
             processState.UpdatedAt = failedAt;
 
@@ -323,6 +327,56 @@ public class JobContext
         {
             processState.ExecutionProgress.TotalNodeCount = _executableBlueprint.AllNodes.Count;
         }
+
+        if (processState.ExecutionProgress.TotalStepCount <= 0)
+        {
+            processState.ExecutionProgress.TotalStepCount = processState.ExecutionProgress.TotalNodeCount;
+        }
+    }
+
+    public async Task<bool> ApplyCollectionIteratorExpansionAsync(
+        int repeatedBlueprintNodeCount,
+        int itemCount,
+        DateTimeOffset timestamp,
+        CancellationToken cancellationToken)
+    {
+        var expansionKey = ProcessStepId.ToString();
+        for (var attempt = 0; attempt < MaxProcessStateUpdateAttempts; attempt++)
+        {
+            var processState = await _processInstanceRepository.GetProcessStateById(
+                ProcessId,
+                ExecutableBlueprintId,
+                cancellationToken);
+
+            EnsureExecutionProgress(processState);
+            if (!processState.ExecutionProgress.ExpandedCollectionIteratorStepIds.Add(expansionKey))
+            {
+                return processState.Status is ProcessStatus.Completed;
+            }
+
+            var repeatedStepDelta = repeatedBlueprintNodeCount * itemCount - repeatedBlueprintNodeCount;
+            processState.ExecutionProgress.TotalStepCount = Math.Max(
+                processState.ExecutionProgress.CompletedStepIds.Count,
+                processState.ExecutionProgress.TotalStepCount + repeatedStepDelta);
+            processState.ExecutionProgress.TotalNodeCount = processState.ExecutionProgress.TotalStepCount;
+            processState.UpdatedAt = timestamp;
+            if (processState.Status is not ProcessStatus.Failed)
+            {
+                processState.Status =
+                    processState.ExecutionProgress.TotalStepCount > 0 &&
+                    processState.ExecutionProgress.CompletedStepIds.Count >= processState.ExecutionProgress.TotalStepCount
+                        ? ProcessStatus.Completed
+                        : ProcessStatus.InProgress;
+            }
+
+            if (await _processInstanceRepository.TryUpdateProcessState(processState, cancellationToken))
+            {
+                return processState.Status is ProcessStatus.Completed;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Could not update Collection Iterator expansion for process {ProcessId} after {MaxProcessStateUpdateAttempts} attempts.");
     }
 
     private static Dictionary<string, JsonElement> NormalizeJsonMap(

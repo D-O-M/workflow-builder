@@ -1,5 +1,6 @@
 using Backend.Database.Relational;
 using Backend.Database.Relational.Entities;
+using Backend.Models;
 using Backend.Models.InputModels;
 using Backend.Models.Versioning;
 using Microsoft.EntityFrameworkCore;
@@ -29,7 +30,8 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
             .Select((task, index) => new { task.InstanceId, index })
             .ToDictionary(item => item.InstanceId, item => item.index);
         var taskDefinitionIds = model.Tasks
-            .Select(task => task.TaskDefinitionId)
+            .Where(task => ParseNodeKind(task.NodeKind) == BlueprintNodeKind.PluginTask && task.TaskDefinitionId.HasValue)
+            .Select(task => task.TaskDefinitionId!.Value)
             .Distinct()
             .ToList();
 
@@ -47,7 +49,41 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
 
         foreach (var task in model.Tasks)
         {
-            if (!taskDefinitionsById.TryGetValue(task.TaskDefinitionId, out var taskDefinition))
+            if (ParseNodeKind(task.NodeKind) == BlueprintNodeKind.CollectionIterator)
+            {
+                if (!TryNormalizeCollectionIteratorItemKind(task.CollectionIteratorItemKind, out var itemKind))
+                {
+                    result.Add(
+                        "task.collectionIterator.itemKind.invalid",
+                        "Collection Iterator item kind must be one of the supported scalar property types.",
+                        $"tasks[{nodeIndex[task.InstanceId]}].collectionIteratorItemKind");
+                    continue;
+                }
+
+                inputPropertiesByNodeId[task.InstanceId] = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["items"] = WorkflowPropertyTypeName.ToCollectionKindName(itemKind)
+                };
+                outputPropertiesByNodeId[task.InstanceId] = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal)
+                {
+                    ["Item"] = new(StringComparer.Ordinal)
+                    {
+                        ["item"] = itemKind
+                    }
+                };
+                continue;
+            }
+
+            if (!task.TaskDefinitionId.HasValue)
+            {
+                result.Add(
+                    "task.definition.required",
+                    "Plugin task nodes must reference a task definition.",
+                    $"tasks[{nodeIndex[task.InstanceId]}].taskDefinitionId");
+                continue;
+            }
+
+            if (!taskDefinitionsById.TryGetValue(task.TaskDefinitionId.Value, out var taskDefinition))
             {
                 result.Add(
                     "task.definition.missing",
@@ -82,13 +118,13 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
 
             inputPropertiesByNodeId[task.InstanceId] = inputChannel.Properties.ToDictionary(
                 property => property.Name,
-                property => property.Kind.ToString(),
+                property => WorkflowPropertyTypeName.Format(property.Kind, property.IsCollection),
                 StringComparer.Ordinal);
             outputPropertiesByNodeId[task.InstanceId] = resolvedVersion.OutputChannels.ToDictionary(
                 channel => channel.Name,
                 channel => channel.Properties.ToDictionary(
                     property => property.Name,
-                    property => property.Kind.ToString(),
+                    property => WorkflowPropertyTypeName.Format(property.Kind, property.IsCollection),
                     StringComparer.Ordinal),
                 StringComparer.Ordinal);
 
@@ -159,6 +195,17 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
                         continue;
                     }
 
+                    if (sourceProperties.TryGetValue(sourceProperty, out var sourceKind) &&
+                        targetProperties.TryGetValue(targetProperty, out var targetKind) &&
+                        !string.Equals(sourceKind, targetKind, StringComparison.Ordinal))
+                    {
+                        result.Add(
+                            "graph.connection.mapping.typeMismatch",
+                            $"Source property '{sourceProperty}' ({sourceKind}) cannot be mapped to destination property '{targetProperty}' ({targetKind}).",
+                            $"tasks[{nodeIndex[task.InstanceId]}].outgoingConnections[{connectionIndex}].propertyMappings");
+                        continue;
+                    }
+
                     if (!incomingTargetProperties.TryGetValue(connection.ConnectedBlueprintNodeId, out var targetSet))
                     {
                         targetSet = new HashSet<string>(StringComparer.Ordinal);
@@ -177,5 +224,22 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
         }
 
         return result;
+    }
+
+    private static BlueprintNodeKind ParseNodeKind(string? value) =>
+        Enum.TryParse<BlueprintNodeKind>(value, ignoreCase: true, out var parsed)
+            ? parsed
+            : BlueprintNodeKind.PluginTask;
+
+    private static bool TryNormalizeCollectionIteratorItemKind(string? itemKind, out string normalized)
+    {
+        normalized = WorkflowPropertyKind.String.ToString();
+        if (!WorkflowPropertyTypeName.TryParse(itemKind, out var parsedKind, out var isCollection) || isCollection)
+        {
+            return false;
+        }
+
+        normalized = WorkflowPropertyTypeName.Format(parsedKind);
+        return true;
     }
 }

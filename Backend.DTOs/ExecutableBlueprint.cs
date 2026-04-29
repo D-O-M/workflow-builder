@@ -18,11 +18,19 @@ public record ExecutableBlueprint
         => _nodesById ??= AllNodes.ToDictionary(node => node.Id);
 }
 
+public enum ExecutableBlueprintNodeKind
+{
+    PluginTask,
+    CollectionIterator
+}
+
 public record ExecutableBlueprintNode
 {
     public Guid Id { get; set; }
     public required string Name { get; set; }
+    public ExecutableBlueprintNodeKind NodeKind { get; set; } = ExecutableBlueprintNodeKind.PluginTask;
     public int TaskDefinitionId { get; set; }
+    public string? CollectionIteratorItemKind { get; set; }
     public int AllowedMajor { get; set; }
     public int AllowedMinor { get; set; }
     public required Version ResolvedVersion { get; set; }

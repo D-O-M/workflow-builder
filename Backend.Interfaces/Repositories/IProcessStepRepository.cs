@@ -13,6 +13,19 @@ public interface IProcessStepRepository
         ProcessStepRecord state,
         CancellationToken cancellationToken);
 
+    async Task<IReadOnlyList<(bool Created, ProcessStepRecord State)>> CreateProcessStepsIfNotExists(
+        IReadOnlyCollection<ProcessStepRecord> states,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<(bool Created, ProcessStepRecord State)>(states.Count);
+        foreach (var state in states)
+        {
+            results.Add(await CreateProcessStepIfNotExists(state, cancellationToken));
+        }
+
+        return results;
+    }
+
     Task<ProcessStepRecord> GetProcessStepById(
         Guid taskInstanceId,
         Guid processId,

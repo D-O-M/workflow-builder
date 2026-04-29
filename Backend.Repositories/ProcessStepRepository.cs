@@ -58,6 +58,56 @@ public class ProcessStepRepository
         }
     }
 
+    public async Task<IReadOnlyList<(bool Created, ProcessStepRecord State)>> CreateProcessStepsIfNotExists(
+        IReadOnlyCollection<ProcessStepRecord> states,
+        CancellationToken cancellationToken)
+    {
+        if (states.Count == 0)
+        {
+            return [];
+        }
+
+        var results = new List<(bool Created, ProcessStepRecord State)>(states.Count);
+        foreach (var partitionGroup in states.GroupBy(state => state.ProcessId, StringComparer.Ordinal))
+        {
+            foreach (var chunk in partitionGroup.Chunk(100))
+            {
+                var batch = Container.CreateTransactionalBatch(new PartitionKey(partitionGroup.Key));
+                foreach (var state in chunk)
+                {
+                    batch.CreateItem(state);
+                }
+
+                using var response = await batch.ExecuteAsync(cancellationToken);
+                if (response.IsSuccessStatusCode)
+                {
+                    for (var index = 0; index < chunk.Length; index++)
+                    {
+                        var resource = response.GetOperationResultAtIndex<ProcessStepRecord>(index).Resource;
+                        results.Add((true, resource));
+                    }
+
+                    continue;
+                }
+
+                if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed)
+                {
+                    foreach (var state in chunk)
+                    {
+                        results.Add(await CreateProcessStepIfNotExists(state, cancellationToken));
+                    }
+
+                    continue;
+                }
+
+                throw new InvalidOperationException(
+                    $"Could not create process steps in a Cosmos transactional batch. Status code: {response.StatusCode}.");
+            }
+        }
+
+        return results;
+    }
+
     public async Task<(bool Claimed, ProcessStepRecord? State)> TryClaimProcessStepAsync(
         Guid taskInstanceId,
         Guid processId,

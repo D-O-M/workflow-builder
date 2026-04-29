@@ -33,12 +33,12 @@ public sealed class NodeJoinStateRepository
         }
         catch (CosmosException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
         {
-            var existing = await GetJoinStateAsync(
-                Guid.Parse(state.ProcessId),
-                Guid.Parse(state.BlueprintNodeId),
+            var existing = await GetAsync(
+                state.Id,
+                new PartitionKey(state.ProcessId),
                 cancellationToken);
             return (false, existing ?? throw new InvalidOperationException(
-                $"Join state '{state.BlueprintNodeId}' for process '{state.ProcessId}' already exists but could not be read."));
+                $"Join state '{state.Id}' for process '{state.ProcessId}' already exists but could not be read."));
         }
     }
 

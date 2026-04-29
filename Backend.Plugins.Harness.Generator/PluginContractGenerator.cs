@@ -408,18 +408,29 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
         }
 
         var propertyType = property.Type;
-        if (propertyType.TypeKind == TypeKind.Array ||
-            IsDictionaryType(propertyType) ||
-            IsEnumerableType(propertyType))
+        if (IsDictionaryType(propertyType))
         {
             diagnostics.Add(Diagnostic.Create(
                 ContractModelMustBeFlatRule,
                 property.Locations.FirstOrDefault(),
-                $"Property '{property.Name}' uses an unsupported collection or dictionary type. Plugin contract models must be flat."));
+                $"Property '{property.Name}' uses an unsupported dictionary type. Plugin contract models must be flat."));
             return false;
         }
 
-        if (!TryMapWorkflowScalar(property, out var kind, out var isRequired, out var enumValues, out var reason))
+        var isCollection = TryGetCollectionElementType(propertyType, out var elementType);
+        if (isCollection &&
+            (elementType.TypeKind == TypeKind.Array ||
+             IsDictionaryType(elementType) ||
+             IsEnumerableType(elementType)))
+        {
+            diagnostics.Add(Diagnostic.Create(
+                ContractModelMustBeFlatRule,
+                property.Locations.FirstOrDefault(),
+                $"Property '{property.Name}' uses a nested or unsupported collection type. Plugin contract models support only one-dimensional collections."));
+            return false;
+        }
+
+        if (!TryMapWorkflowScalar(property, isCollection ? elementType : propertyType, out var kind, out var isRequired, out var enumValues, out var reason))
         {
             diagnostics.Add(Diagnostic.Create(
                 UnsupportedPropertyTypeRule,
@@ -428,12 +439,13 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
             return false;
         }
 
-        contract = new GeneratedPropertyContract(property.Name, kind, isRequired, enumValues);
+        contract = new GeneratedPropertyContract(property.Name, kind, isRequired, enumValues, isCollection);
         return true;
     }
 
     private static bool TryMapWorkflowScalar(
         IPropertySymbol property,
+        ITypeSymbol propertyType,
         out WorkflowScalarKind kind,
         out bool isRequired,
         out IReadOnlyList<string>? enumValues,
@@ -443,8 +455,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
         enumValues = null;
         reason = string.Empty;
 
-        var type = property.Type;
-        var unwrappedType = UnwrapNullable(type, out var isNullableValueType);
+        var unwrappedType = UnwrapNullable(propertyType, out var isNullableValueType);
 
         isRequired = !isNullableValueType && property.NullableAnnotation != NullableAnnotation.Annotated;
 
@@ -565,9 +576,17 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                                 property => property.Name,
                                 property => new GeneratedSchemaProperty
                                 {
-                                    Type = GetJsonSchemaTypes(property.Kind, property.Required),
-                                    Format = GetJsonSchemaFormat(property.Kind),
-                                    Enum = property.EnumValues?.ToArray()
+                                    Type = GetJsonSchemaTypes(property.Kind, property.Required, property.IsCollection),
+                                    Format = property.IsCollection ? null : GetJsonSchemaFormat(property.Kind),
+                                    Enum = property.IsCollection ? null : property.EnumValues?.ToArray(),
+                                    Items = property.IsCollection
+                                        ? new GeneratedSchemaProperty
+                                        {
+                                            Type = GetJsonSchemaTypes(property.Kind, required: true, isCollection: false),
+                                            Format = GetJsonSchemaFormat(property.Kind),
+                                            Enum = property.EnumValues?.ToArray()
+                                        }
+                                        : null
                                 },
                                 StringComparer.Ordinal)
                         },
@@ -601,15 +620,15 @@ internal static class {{GetProviderClassName(providerTypeName)}}
             Properties = channel.Properties.Select(property => new ManifestFilePropertyInfo
             {
                 Name = property.Name,
-                Kind = property.Kind.ToString(),
+                Kind = property.IsCollection ? $"{property.Kind}[]" : property.Kind.ToString(),
                 Required = property.Required,
                 EnumValues = property.EnumValues?.ToArray() ?? []
             }).ToList()
         };
 
-    private static string[] GetJsonSchemaTypes(WorkflowScalarKind kind, bool required)
+    private static string[] GetJsonSchemaTypes(WorkflowScalarKind kind, bool required, bool isCollection)
     {
-        var primary = kind switch
+        var primary = isCollection ? "array" : kind switch
         {
             WorkflowScalarKind.Integer => "integer",
             WorkflowScalarKind.Decimal => "number",
@@ -680,6 +699,36 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         return type.AllInterfaces.Any(@interface =>
             @interface is INamedTypeSymbol namedType &&
             namedType.ConstructedFrom?.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat) == "System.Collections.Generic.IEnumerable<T>");
+    }
+
+    private static bool TryGetCollectionElementType(ITypeSymbol type, out ITypeSymbol elementType)
+    {
+        if (type.TypeKind == TypeKind.Array && type is IArrayTypeSymbol arrayType)
+        {
+            elementType = arrayType.ElementType;
+            return true;
+        }
+
+        IEnumerable<ITypeSymbol> candidateInterfaces = type.AllInterfaces;
+        if (type is INamedTypeSymbol named &&
+            named.ConstructedFrom?.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat) == "System.Collections.Generic.IEnumerable<T>")
+        {
+            candidateInterfaces = candidateInterfaces.Concat(new[] { type });
+        }
+
+        var enumerableType = candidateInterfaces
+            .OfType<INamedTypeSymbol>()
+            .FirstOrDefault(@interface =>
+                @interface.ConstructedFrom?.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat) == "System.Collections.Generic.IEnumerable<T>");
+
+        if (enumerableType is not null && type.SpecialType != SpecialType.System_String)
+        {
+            elementType = enumerableType.TypeArguments[0];
+            return true;
+        }
+
+        elementType = type;
+        return false;
     }
 
     private static string ToDisplayName(ITypeSymbol symbol) =>
@@ -794,19 +843,36 @@ internal static class {{GetProviderClassName(providerTypeName)}}
             {
                 builder.PropertyName(propertyEntry.Key);
                 builder.StartObject();
-                builder.Property("type", propertyEntry.Value.Type);
-                if (!string.IsNullOrWhiteSpace(propertyEntry.Value.Format))
-                {
-                    builder.Property("format", propertyEntry.Value.Format!);
-                }
+            builder.Property("type", propertyEntry.Value.Type);
+            if (!string.IsNullOrWhiteSpace(propertyEntry.Value.Format))
+            {
+                builder.Property("format", propertyEntry.Value.Format!);
+            }
 
                 if (propertyEntry.Value.Enum is not null && propertyEntry.Value.Enum.Length > 0)
                 {
-                    builder.Property("enum", propertyEntry.Value.Enum);
+                builder.Property("enum", propertyEntry.Value.Enum);
+            }
+
+            if (propertyEntry.Value.Items is not null)
+            {
+                builder.PropertyName("items");
+                builder.StartObject();
+                builder.Property("type", propertyEntry.Value.Items.Type);
+                if (!string.IsNullOrWhiteSpace(propertyEntry.Value.Items.Format))
+                {
+                    builder.Property("format", propertyEntry.Value.Items.Format!);
                 }
 
+                if (propertyEntry.Value.Items.Enum is not null && propertyEntry.Value.Items.Enum.Length > 0)
+                {
+                    builder.Property("enum", propertyEntry.Value.Items.Enum);
+                }
                 builder.EndObject();
             }
+
+            builder.EndObject();
+        }
 
             builder.EndObject();
             builder.EndObject();
@@ -885,7 +951,8 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         string Name,
         WorkflowScalarKind Kind,
         bool Required,
-        IReadOnlyList<string>? EnumValues);
+        IReadOnlyList<string>? EnumValues,
+        bool IsCollection);
 
     private sealed record GeneratedSchemaContract(
         IReadOnlyList<GeneratedPropertyContract> Properties);
@@ -947,6 +1014,7 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         public string[] Type { get; init; } = [];
         public string? Format { get; init; }
         public string[]? Enum { get; init; }
+        public GeneratedSchemaProperty? Items { get; init; }
     }
 
     private sealed class JsonBuilder

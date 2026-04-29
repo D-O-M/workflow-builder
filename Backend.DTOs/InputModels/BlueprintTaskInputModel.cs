@@ -12,13 +12,16 @@ public sealed class BlueprintNodeInputModel
     /// </summary>
     public Guid InstanceId { get; init; }
 
+    public string NodeKind { get; init; } = "PluginTask";
+
     /// <summary>
     /// The TaskDefinitions.Id this task instance uses.
     /// This identifies the task definition; the allowed compatibility lane is expressed by AllowedMajor/AllowedMinor.
     /// </summary>
-    [Required]
     [Range(1, int.MaxValue)]
-    public int TaskDefinitionId { get; init; }
+    public int? TaskDefinitionId { get; init; }
+
+    public string? CollectionIteratorItemKind { get; init; }
 
     [Required]
     [Range(0, int.MaxValue)]

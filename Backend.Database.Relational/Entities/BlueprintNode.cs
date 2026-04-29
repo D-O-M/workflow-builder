@@ -1,5 +1,11 @@
 namespace Backend.Database.Relational.Entities;
 
+public enum BlueprintNodeKind
+{
+    PluginTask = 0,
+    CollectionIterator = 1
+}
+
 public class BlueprintNode
 {
     public Guid Id { get; set; }
@@ -7,8 +13,12 @@ public class BlueprintNode
     public int BlueprintVersionId { get; set; }
     public BlueprintVersion BlueprintVersion { get; set; } = null!;
 
-    public int TaskDefinitionId { get; set; }
-    public TaskDefinition TaskDefinition { get; set; } = null!;
+    public BlueprintNodeKind NodeKind { get; set; } = BlueprintNodeKind.PluginTask;
+
+    public int? TaskDefinitionId { get; set; }
+    public TaskDefinition? TaskDefinition { get; set; }
+
+    public string? CollectionIteratorItemKind { get; set; }
 
     public int AllowedMajor { get; set; }
     public int AllowedMinor { get; set; }

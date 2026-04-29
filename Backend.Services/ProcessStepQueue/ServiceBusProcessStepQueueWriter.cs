@@ -37,4 +37,42 @@ public sealed class ServiceBusProcessStepQueueWriter : IProcessStepQueueWriter
 
         return _sender.SendMessageAsync(queueMessage, cancellationToken);
     }
+
+    public async Task EnqueueBatchAsync(
+        IReadOnlyCollection<ProcessStepInitialisationMessage> messages,
+        CancellationToken cancellationToken)
+    {
+        if (messages.Count == 0)
+        {
+            return;
+        }
+
+        var batch = await _sender.CreateMessageBatchAsync(cancellationToken);
+        foreach (var message in messages)
+        {
+            var queueMessage = new ServiceBusMessage(
+                BinaryData.FromBytes(JsonSerializer.SerializeToUtf8Bytes(message)))
+            {
+                ContentType = "application/json"
+            };
+
+            if (!batch.TryAddMessage(queueMessage))
+            {
+                await _sender.SendMessagesAsync(batch, cancellationToken);
+                batch.Dispose();
+                batch = await _sender.CreateMessageBatchAsync(cancellationToken);
+                if (!batch.TryAddMessage(queueMessage))
+                {
+                    throw new InvalidOperationException("Process-step queue message is too large for a Service Bus batch.");
+                }
+            }
+        }
+
+        if (batch.Count > 0)
+        {
+            await _sender.SendMessagesAsync(batch, cancellationToken);
+        }
+
+        batch.Dispose();
+    }
 }

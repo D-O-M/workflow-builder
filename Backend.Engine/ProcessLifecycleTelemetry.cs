@@ -25,6 +25,11 @@ public sealed class ProcessLifecycleTelemetry
     private static readonly Histogram<double> ProcessStepRecordedDurationMs = Meter.CreateHistogram<double>("process_step_recorded_duration_ms");
     private static readonly Histogram<double> PluginHydrationMs = Meter.CreateHistogram<double>("plugin_hydration_ms");
     private static readonly Histogram<double> PluginExecuteMs = Meter.CreateHistogram<double>("plugin_execute_ms");
+    private static readonly Histogram<long> CollectionIteratorItemCount = Meter.CreateHistogram<long>("collection_iterator_item_count");
+    private static readonly Histogram<long> CollectionIteratorBatchCount = Meter.CreateHistogram<long>("collection_iterator_batch_count");
+    private static readonly Histogram<double> CollectionIteratorEnqueueMs = Meter.CreateHistogram<double>("collection_iterator_enqueue_ms");
+    private static readonly Counter<long> CollectionIteratorSkippedEmpty = Meter.CreateCounter<long>("collection_iterator_skipped_empty_total");
+    private static readonly Counter<long> CollectionIteratorLimitFailures = Meter.CreateCounter<long>("collection_iterator_limit_failure_total");
 
     private readonly ILogger<ProcessLifecycleTelemetry> _logger;
 
@@ -239,6 +244,37 @@ public sealed class ProcessLifecycleTelemetry
         {
             PluginExecuteMs.Record(Math.Max(0, executeMs), tags);
         }
+    }
+
+    public void RecordCollectionIteratorFanOut(
+        JobContext context,
+        int itemCount,
+        int queuedStepCount,
+        int batchSize,
+        TimeSpan enqueueElapsed)
+    {
+        var tags = BuildStepMetricTags(context, outcome: "collection_iterator_fan_out");
+        var effectiveBatchSize = Math.Max(1, batchSize);
+        var batchCount = queuedStepCount == 0
+            ? 0
+            : (int)Math.Ceiling(queuedStepCount / (double)effectiveBatchSize);
+        CollectionIteratorItemCount.Record(itemCount, tags);
+        CollectionIteratorBatchCount.Record(batchCount, tags);
+        CollectionIteratorEnqueueMs.Record(Math.Max(0, enqueueElapsed.TotalMilliseconds), tags);
+    }
+
+    public void RecordCollectionIteratorSkippedEmpty(JobContext context) =>
+        CollectionIteratorSkippedEmpty.Add(1, BuildStepMetricTags(context, outcome: "collection_iterator_empty"));
+
+    public void RecordCollectionIteratorLimitFailure(
+        JobContext context,
+        int itemCount,
+        int maxItems)
+    {
+        var tags = BuildStepMetricTags(context, outcome: "collection_iterator_limit_failure");
+        tags.Add("collection_iterator.item_count", itemCount.ToString());
+        tags.Add("collection_iterator.max_items", maxItems.ToString());
+        CollectionIteratorLimitFailures.Add(1, tags);
     }
 
     public void LogStepCompleted(JobContext context, PluginExecutionResult result)

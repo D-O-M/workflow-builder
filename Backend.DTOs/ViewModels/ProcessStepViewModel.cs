@@ -3,6 +3,9 @@ namespace Backend.Models.ViewModels;
 public sealed class ProcessStepViewModel
 {
     public required Guid InstanceId { get; init; }
+    public string NodeKind { get; init; } = "PluginTask";
+    public string? CollectionIteratorItemKind { get; init; }
+    public int RuntimeStepCount { get; init; }
     public required int TaskDefinitionId { get; init; }
     public required int AllowedMajor { get; init; }
     public required int AllowedMinor { get; init; }

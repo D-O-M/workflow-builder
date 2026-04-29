@@ -129,6 +129,10 @@ public class BlueprintDbContext : DbContext
 
             entity.Property(e => e.AllowedMajor).IsRequired();
             entity.Property(e => e.AllowedMinor).IsRequired();
+            entity.Property(e => e.NodeKind)
+                .HasConversion<string>()
+                .IsRequired();
+            entity.Property(e => e.CollectionIteratorItemKind).IsRequired(false);
             entity.Property(e => e.PositionX).IsRequired();
             entity.Property(e => e.PositionY).IsRequired();
             entity.Property(e => e.DesignTimeInputOverridesJson).IsRequired(false);
@@ -211,6 +215,7 @@ public class BlueprintDbContext : DbContext
 
             entity.Property(e => e.Name).IsRequired();
             entity.Property(e => e.Kind).IsRequired();
+            entity.Property(e => e.IsCollection).IsRequired();
             entity.Property(e => e.IsRequired).IsRequired();
             entity.Property(e => e.EnumValuesJson).IsRequired(false);
         });

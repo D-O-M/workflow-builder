@@ -1,4 +1,5 @@
 using Backend.Models.InputModels;
+using Backend.Database.Relational.Entities;
 
 namespace Backend.API.Validation.Blueprints;
 
@@ -32,6 +33,8 @@ public sealed class BlueprintVersionGraphValidator : IBlueprintVersionValidator
             result.Add("graph.start.empty", "startingBlueprintNodeId must be a non-empty GUID.", "startingBlueprintNodeId");
         else if (!tasksByInstanceId.ContainsKey(model.StartingBlueprintNodeId))
             result.Add("graph.start.missing", "startingBlueprintNodeId must reference a task in tasks[].", "startingBlueprintNodeId");
+        else if (ParseNodeKind(tasksByInstanceId[model.StartingBlueprintNodeId].NodeKind) == BlueprintNodeKind.CollectionIterator)
+            result.Add("graph.start.collectionIterator", "Collection Iterator must be triggered by an upstream collection output.", "startingBlueprintNodeId");
 
         if (!result.IsValid)
             return Task.FromResult(result);
@@ -172,4 +175,9 @@ public sealed class BlueprintVersionGraphValidator : IBlueprintVersionValidator
             .Select((nodeId, index) => new { nodeId, index })
             .ToDictionary(item => item.nodeId, item => item.index);
     }
+
+    private static BlueprintNodeKind ParseNodeKind(string? value) =>
+        Enum.TryParse<BlueprintNodeKind>(value, ignoreCase: true, out var parsed)
+            ? parsed
+            : BlueprintNodeKind.PluginTask;
 }

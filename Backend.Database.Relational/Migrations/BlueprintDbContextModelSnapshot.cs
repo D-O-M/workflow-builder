@@ -99,7 +99,14 @@ namespace Backend.Database.Relational.Migrations
                     b.Property<int>("BlueprintVersionId")
                         .HasColumnType("int");
 
+                    b.Property<string>("CollectionIteratorItemKind")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("DesignTimeInputOverridesJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("NodeKind")
+                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("PositionX")
@@ -108,7 +115,7 @@ namespace Backend.Database.Relational.Migrations
                     b.Property<int>("PositionY")
                         .HasColumnType("int");
 
-                    b.Property<int>("TaskDefinitionId")
+                    b.Property<int?>("TaskDefinitionId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
@@ -197,6 +204,9 @@ namespace Backend.Database.Relational.Migrations
 
                     b.Property<string>("EnumValuesJson")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsCollection")
+                        .HasColumnType("bit");
 
                     b.Property<bool>("IsRequired")
                         .HasColumnType("bit");
@@ -321,8 +331,7 @@ namespace Backend.Database.Relational.Migrations
                     b.HasOne("Backend.Database.Relational.Entities.TaskDefinition", "TaskDefinition")
                         .WithMany()
                         .HasForeignKey("TaskDefinitionId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("BlueprintVersion");
 

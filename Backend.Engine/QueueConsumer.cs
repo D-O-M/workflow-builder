@@ -1,5 +1,6 @@
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
+using Backend.Models;
 
 namespace Backend.Engine;
 
@@ -77,6 +78,19 @@ public class QueueConsumer : BackgroundService
             if (blueprintNode is null)
             {
                 await message.AbandonAsync(stoppingToken);
+                return;
+            }
+
+            if (blueprintNode.NodeKind is ExecutableBlueprintNodeKind.CollectionIterator)
+            {
+                var nativeContext = ActivatorUtilities.CreateInstance<JobContext>(
+                    scope.ServiceProvider,
+                    job,
+                    message,
+                    executableBlueprint);
+                _processLifecycleTelemetry.RecordQueueWait(nativeContext, message.EnqueuedAt, receivedAt);
+                await scope.ServiceProvider.GetRequiredService<CollectionIteratorExecutionService>()
+                    .ExecuteAsync(nativeContext, stoppingToken);
                 return;
             }
 

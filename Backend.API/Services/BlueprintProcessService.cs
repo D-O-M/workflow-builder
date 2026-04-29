@@ -2,6 +2,7 @@ using System.Text.Json;
 using Backend.Database.State.Objects;
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
+using Backend.Database.Relational.Entities;
 using Backend.Models;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
@@ -116,7 +117,8 @@ public sealed class BlueprintProcessService
             NodeOverrides = serializedNodeOverrides,
             ExecutionProgress = new ProcessExecutionProgress
             {
-                TotalNodeCount = executableBlueprint.AllNodes.Count
+                TotalNodeCount = executableBlueprint.AllNodes.Count,
+                TotalStepCount = executableBlueprint.AllNodes.Count
             }
         };
 
@@ -196,11 +198,16 @@ public sealed class BlueprintProcessService
 
             foreach (var overrideKey in overrides.Keys)
             {
-                if (!node.InputChannel.Properties.ContainsKey(overrideKey))
+                if (!node.InputChannel.Properties.TryGetValue(overrideKey, out var propertyKindName))
                 {
                     throw new InvalidDataException(
                         $"Node override '{overrideKey}' does not exist on blueprint node '{nodeId}'.");
                 }
+
+                ValidateCollectionInputValue(
+                    overrides[overrideKey],
+                    propertyKindName,
+                    $"Node override '{overrideKey}' on blueprint node '{nodeId}'");
             }
         }
     }
@@ -208,13 +215,72 @@ public sealed class BlueprintProcessService
     private static InputHydrationPlan CreateInitialHydrationPlan(
         ExecutableBlueprintNode initialNode,
         IReadOnlyDictionary<string, JsonElement> initialTaskInput,
-        IReadOnlyDictionary<string, JsonElement>? runtimeOverrides) =>
-        new()
+        IReadOnlyDictionary<string, JsonElement>? runtimeOverrides)
+    {
+        foreach (var (propertyName, value) in initialTaskInput)
+        {
+            if (!initialNode.InputChannel.Properties.TryGetValue(propertyName, out var propertyKindName))
+            {
+                continue;
+            }
+
+            ValidateCollectionInputValue(
+                value,
+                propertyKindName,
+                $"Initial input '{propertyName}' on blueprint node '{initialNode.Id}'");
+        }
+
+        return new InputHydrationPlan
         {
             InputChannelName = initialNode.InputChannel.Name,
             InitialInput = CloneJsonMap(initialTaskInput),
             DesignTimeInputOverrides = CloneJsonMap(initialNode.DesignTimeInputOverrides),
             RuntimeInputOverrides = CloneJsonMap(runtimeOverrides)
+        };
+    }
+
+    private static void ValidateCollectionInputValue(
+        JsonElement value,
+        string propertyKindName,
+        string sourceDescription)
+    {
+        if (!WorkflowPropertyTypeName.TryParse(propertyKindName, out var scalarKind, out var isCollection) ||
+            !isCollection)
+        {
+            return;
+        }
+
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidDataException(
+                $"{sourceDescription} must be a JSON array for collection type {propertyKindName}.");
+        }
+
+        var index = 0;
+        foreach (var item in value.EnumerateArray())
+        {
+            if (!IsCompatibleJsonValue(scalarKind, item))
+            {
+                throw new InvalidDataException(
+                    $"{sourceDescription} item at index {index} is not compatible with type {propertyKindName}.");
+            }
+
+            index++;
+        }
+    }
+
+    private static bool IsCompatibleJsonValue(WorkflowPropertyKind kind, JsonElement value) =>
+        kind switch
+        {
+            WorkflowPropertyKind.String => value.ValueKind == JsonValueKind.String,
+            WorkflowPropertyKind.Integer => value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out _),
+            WorkflowPropertyKind.Decimal => value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out _),
+            WorkflowPropertyKind.Boolean => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
+            WorkflowPropertyKind.Guid => value.ValueKind == JsonValueKind.String && Guid.TryParse(value.GetString(), out _),
+            WorkflowPropertyKind.Date => value.ValueKind == JsonValueKind.String && DateOnly.TryParse(value.GetString(), out _),
+            WorkflowPropertyKind.DateTime => value.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(value.GetString(), out _),
+            WorkflowPropertyKind.Enum => value.ValueKind == JsonValueKind.String,
+            _ => false
         };
 
     private static Dictionary<string, JsonElement> CloneJsonMap(

@@ -44,6 +44,16 @@ internal sealed class InputChannelHydrationService<TChannelType>
 
         foreach (var source in plan.Sources)
         {
+            if (source.InlineInput is not null)
+            {
+                foreach (var (key, value) in source.InlineInput)
+                {
+                    merged[key] = value.Clone();
+                }
+
+                continue;
+            }
+
             var sourceStep = await _stepStore
                 .GetAsync(source.SourceProcessStepId, envelope.ProcessId.ToString(), cancellationToken)
                 .WaitAsync(_hydrationTimeout, cancellationToken);

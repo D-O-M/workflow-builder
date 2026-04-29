@@ -94,8 +94,10 @@ public sealed class ObservabilityQueryService
                 return new NodeObservabilitySummaryItemViewModel
                 {
                     BlueprintNodeId = task.Id,
-                    TaskDefinitionId = task.TaskDefinitionId,
-                    TaskName = task.TaskDefinition.Name,
+                    TaskDefinitionId = task.TaskDefinitionId ?? 0,
+                    TaskName = task.NodeKind == Backend.Database.Relational.Entities.BlueprintNodeKind.CollectionIterator
+                        ? "Collection Iterator"
+                        : task.TaskDefinition?.Name ?? "Task",
                     SuccessfulCount = matchingEvents.Count(entry => entry.EventName == "step.completed"),
                     FailedCount = matchingEvents.Count(entry => entry.EventName == "step.failed"),
                 };

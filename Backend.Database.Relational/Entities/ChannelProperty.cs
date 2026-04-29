@@ -17,6 +17,7 @@ public class ChannelProperty
     public int Id { get; set; }
     public string Name { get; set; } = null!;
     public WorkflowPropertyKind Kind { get; set; }
+    public bool IsCollection { get; set; }
     public bool IsRequired { get; set; }
     public string? EnumValuesJson { get; set; }
 

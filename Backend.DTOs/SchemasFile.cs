@@ -22,4 +22,5 @@ public record TypeInfo
     public required string[] Type { get; set; }
     public string? Format { get; set; }
     public string[]? Enum { get; set; }
+    public TypeInfo? Items { get; set; }
 }

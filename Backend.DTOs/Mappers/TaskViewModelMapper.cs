@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Backend.Database.Relational.Entities;
+using Backend.Models;
 using Backend.Models.ViewModels;
 
 namespace Backend.Models.Mappers;
@@ -51,7 +52,7 @@ public class TaskViewModelMapper
                 .Select(prop => new TaskPropertyViewModel
                 {
                     Name = prop.Name,
-                    Kind = prop.Kind.ToString(),
+                    Kind = WorkflowPropertyTypeName.Format(prop.Kind, prop.IsCollection),
                     Required = prop.IsRequired,
                     EnumValues = DeserializeEnumValues(prop.EnumValuesJson)
                 })]

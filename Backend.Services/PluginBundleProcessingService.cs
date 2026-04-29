@@ -311,7 +311,8 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                 .Select(property => new PropertyDefinitionDomainModel
                 {
                     Name = property.Name,
-                    Kind = ParseManifestPropertyKind(property.Kind),
+                    Kind = ParseManifestPropertyKind(property.Kind, out var isCollection),
+                    IsCollection = isCollection,
                     IsRequired = property.Required,
                     EnumValues = property.EnumValues
                 })
@@ -320,12 +321,13 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
 
         return GetSchemaProperties(pluginInfo, schemas, manifestChannel.Type, schemaPurpose)
             .Select(property => new PropertyDefinitionDomainModel
-            {
-                Name = property.Key,
-                Kind = property.Value.Kind,
-                IsRequired = property.Value.IsRequired,
-                EnumValues = property.Value.EnumValues
-            })
+                {
+                    Name = property.Key,
+                    Kind = property.Value.Kind,
+                    IsCollection = property.Value.IsCollection,
+                    IsRequired = property.Value.IsRequired,
+                    EnumValues = property.Value.EnumValues
+                })
             .ToArray();
     }
 
@@ -342,9 +344,10 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             return typedSchema.Properties.ToDictionary(
                 property => property.Key,
                 property => new SchemaPropertyInfo(
-                    ParseSchemaPropertyKind(property.Value.Type, property.Value.Format),
+                    ParseSchemaPropertyKind(property.Value, out var isCollection),
                     property.Value.Type.All(typeName => !string.Equals(typeName, "null", StringComparison.OrdinalIgnoreCase)),
-                    property.Value.Enum ?? []),
+                    isCollection ? property.Value.Items?.Enum ?? [] : property.Value.Enum ?? [],
+                    isCollection),
                 StringComparer.Ordinal);
         }
 
@@ -427,10 +430,39 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                 .ToArray()
             : [];
 
+        if (typeNames.Any(typeName => string.Equals(typeName, "array", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (propertyObject["items"] is not JsonObject itemsObject)
+            {
+                throw new InvalidDataException("Collection properties must declare a JSON Schema items type.");
+            }
+
+            var itemTypeNames = ReadTypeNames(itemsObject["type"]);
+            if (itemTypeNames.Any(typeName => string.Equals(typeName, "array", StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidDataException("Nested collection properties are not supported.");
+            }
+
+            var itemEnumValues = itemsObject["enum"] is JsonArray itemEnumArray
+                ? itemEnumArray
+                    .Select(value => value?.GetValue<string>())
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Cast<string>()
+                    .ToArray()
+                : [];
+
+            return new SchemaPropertyInfo(
+                ParseSchemaPropertyKind(itemTypeNames, itemsObject["format"]?.GetValue<string>()),
+                typeNames.All(typeName => !string.Equals(typeName, "null", StringComparison.OrdinalIgnoreCase)),
+                itemEnumValues,
+                IsCollection: true);
+        }
+
         return new SchemaPropertyInfo(
             ParseSchemaPropertyKind(typeNames, format),
             typeNames.All(typeName => !string.Equals(typeName, "null", StringComparison.OrdinalIgnoreCase)),
-            enumValues);
+            enumValues,
+            IsCollection: false);
     }
 
     private static IReadOnlyList<string> ReadTypeNames(JsonNode? node)
@@ -454,15 +486,48 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             .ToArray();
     }
 
-    private static WorkflowPropertyKind ParseManifestPropertyKind(string kind) =>
-        Enum.TryParse<WorkflowPropertyKind>(kind, ignoreCase: true, out var parsedKind)
+    private static WorkflowPropertyKind ParseManifestPropertyKind(string kind, out bool isCollection) =>
+        WorkflowPropertyTypeName.TryParse(kind, out var parsedKind, out isCollection)
             ? parsedKind
             : throw new InvalidDataException($"Unsupported manifest property kind '{kind}'.");
+
+    private static WorkflowPropertyKind ParseSchemaPropertyKind(TypeInfo property, out bool isCollection)
+    {
+        var typeNames = property.Type;
+        if (!typeNames.Any(typeName => string.Equals(typeName, "array", StringComparison.OrdinalIgnoreCase)))
+        {
+            isCollection = false;
+            return ParseSchemaPropertyKind(typeNames, property.Format);
+        }
+
+        if (property.Items is null)
+        {
+            throw new InvalidDataException("Collection properties must declare a JSON Schema items type.");
+        }
+
+        if (property.Items.Type.Any(typeName => string.Equals(typeName, "array", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidDataException("Nested collection properties are not supported.");
+        }
+
+        isCollection = true;
+        return ParseSchemaPropertyKind(property.Items.Type, property.Items.Format);
+    }
 
     private static WorkflowPropertyKind ParseSchemaPropertyKind(
         IReadOnlyList<string> typeNames,
         string? format)
     {
+        if (typeNames.Any(typeName => string.Equals(typeName, "array", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidDataException("Nested collection properties are not supported.");
+        }
+
+        if (typeNames.Any(typeName => string.Equals(typeName, "object", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidDataException("Object properties are not supported.");
+        }
+
         if (typeNames.Any(typeName => string.Equals(typeName, "integer", StringComparison.OrdinalIgnoreCase)))
         {
             return WorkflowPropertyKind.Integer;
@@ -530,5 +595,6 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
     private sealed record SchemaPropertyInfo(
         WorkflowPropertyKind Kind,
         bool IsRequired,
-        IReadOnlyList<string> EnumValues);
+        IReadOnlyList<string> EnumValues,
+        bool IsCollection);
 }

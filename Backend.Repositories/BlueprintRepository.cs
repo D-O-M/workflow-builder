@@ -51,48 +51,10 @@ public class BlueprintRepository : IBlueprintRepository
         var nodesById = new Dictionary<Guid, ExecutableBlueprintNode>(nodeEntities.Count);
         foreach (var nodeEntity in nodeEntities)
         {
-            var taskVersion = ResolveConcreteVersion(nodeEntity, requireActive: true);
-            var inputChannelEntity = taskVersion.InputChannels.Single();
-
-            var inputChannel = new ExecutableBlueprintChannel
+            nodesById[nodeEntity.Id] = nodeEntity.NodeKind switch
             {
-                Id = inputChannelEntity.Id,
-                Name = inputChannelEntity.Name,
-                Properties = inputChannelEntity.Properties.ToDictionary(
-                    property => property.Name,
-                    property => property.Kind.ToString(),
-                    StringComparer.Ordinal),
-                OutboundBindings = []
-            };
-
-            var outputChannels = taskVersion.OutputChannels.ToDictionary(
-                channel => channel.Name,
-                channel => new ExecutableBlueprintChannel
-                {
-                    Id = channel.Id,
-                    Name = channel.Name,
-                    Properties = channel.Properties.ToDictionary(
-                        property => property.Name,
-                        property => property.Kind.ToString(),
-                        StringComparer.Ordinal),
-                    OutboundBindings = []
-                },
-                StringComparer.Ordinal);
-
-            nodesById[nodeEntity.Id] = new ExecutableBlueprintNode
-            {
-                Id = nodeEntity.Id,
-                Name = taskVersion.TaskDefinition!.Name,
-                TaskDefinitionId = nodeEntity.TaskDefinitionId,
-                AllowedMajor = nodeEntity.AllowedMajor,
-                AllowedMinor = nodeEntity.AllowedMinor,
-                ResolvedVersion = taskVersion.Version,
-                ResolvedTaskVersionId = taskVersion.Id,
-                ExecutionOrder = 0,
-                InputChannel = inputChannel,
-                OutputChannels = outputChannels,
-                InboundBindings = [],
-                DesignTimeInputOverrides = DeserializeJsonMap(nodeEntity.DesignTimeInputOverridesJson)
+                BlueprintNodeKind.CollectionIterator => CreateExecutableCollectionIteratorNode(nodeEntity),
+                _ => CreateExecutablePluginTaskNode(nodeEntity)
             };
         }
 
@@ -148,6 +110,91 @@ public class BlueprintRepository : IBlueprintRepository
             Description = string.Empty,
             InitialNode = nodesById[blueprintVersionEntity.StartingBlueprintNodeId!.Value],
             AllNodes = allNodes
+        };
+    }
+
+    private static ExecutableBlueprintNode CreateExecutablePluginTaskNode(BlueprintNode nodeEntity)
+    {
+        var taskVersion = ResolveConcreteVersion(nodeEntity, requireActive: true);
+        var inputChannelEntity = taskVersion.InputChannels.Single();
+
+        var inputChannel = new ExecutableBlueprintChannel
+        {
+            Id = inputChannelEntity.Id,
+            Name = inputChannelEntity.Name,
+            Properties = MapChannelProperties(inputChannelEntity.Properties),
+            OutboundBindings = []
+        };
+
+        var outputChannels = taskVersion.OutputChannels.ToDictionary(
+            channel => channel.Name,
+            channel => new ExecutableBlueprintChannel
+            {
+                Id = channel.Id,
+                Name = channel.Name,
+                Properties = MapChannelProperties(channel.Properties),
+                OutboundBindings = []
+            },
+            StringComparer.Ordinal);
+
+        return new ExecutableBlueprintNode
+        {
+            Id = nodeEntity.Id,
+            Name = taskVersion.TaskDefinition!.Name,
+            NodeKind = ExecutableBlueprintNodeKind.PluginTask,
+            TaskDefinitionId = nodeEntity.TaskDefinitionId ?? 0,
+            AllowedMajor = nodeEntity.AllowedMajor,
+            AllowedMinor = nodeEntity.AllowedMinor,
+            ResolvedVersion = taskVersion.Version,
+            ResolvedTaskVersionId = taskVersion.Id,
+            ExecutionOrder = 0,
+            InputChannel = inputChannel,
+            OutputChannels = outputChannels,
+            InboundBindings = [],
+            DesignTimeInputOverrides = DeserializeJsonMap(nodeEntity.DesignTimeInputOverridesJson)
+        };
+    }
+
+    private static ExecutableBlueprintNode CreateExecutableCollectionIteratorNode(BlueprintNode nodeEntity)
+    {
+        var itemKind = NormalizeCollectionIteratorItemKind(nodeEntity.CollectionIteratorItemKind);
+        return new ExecutableBlueprintNode
+        {
+            Id = nodeEntity.Id,
+            Name = "Collection Iterator",
+            NodeKind = ExecutableBlueprintNodeKind.CollectionIterator,
+            TaskDefinitionId = 0,
+            CollectionIteratorItemKind = itemKind,
+            AllowedMajor = 0,
+            AllowedMinor = 0,
+            ResolvedVersion = new Version(0, 0, 0),
+            ResolvedTaskVersionId = 0,
+            ExecutionOrder = 0,
+            InputChannel = new ExecutableBlueprintChannel
+            {
+                Id = 0,
+                Name = "Collection",
+                Properties = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["items"] = WorkflowPropertyTypeName.ToCollectionKindName(itemKind)
+                },
+                OutboundBindings = []
+            },
+            OutputChannels = new Dictionary<string, ExecutableBlueprintChannel>(StringComparer.Ordinal)
+            {
+                ["Item"] = new()
+                {
+                    Id = 0,
+                    Name = "Item",
+                    Properties = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["item"] = itemKind
+                    },
+                    OutboundBindings = []
+                }
+            },
+            InboundBindings = [],
+            DesignTimeInputOverrides = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
         };
     }
 
@@ -328,7 +375,13 @@ public class BlueprintRepository : IBlueprintRepository
             {
                 Id = instanceId,
                 BlueprintVersion = blueprintVersion,
-                TaskDefinitionId = task.TaskDefinitionId,
+                NodeKind = ParseBlueprintNodeKind(task.NodeKind),
+                TaskDefinitionId = ParseBlueprintNodeKind(task.NodeKind) == BlueprintNodeKind.PluginTask
+                    ? task.TaskDefinitionId
+                    : null,
+                CollectionIteratorItemKind = ParseBlueprintNodeKind(task.NodeKind) == BlueprintNodeKind.CollectionIterator
+                    ? NormalizeCollectionIteratorItemKind(task.CollectionIteratorItemKind)
+                    : null,
                 AllowedMajor = task.AllowedMajor,
                 AllowedMinor = task.AllowedMinor,
                 PositionX = task.Position.X,
@@ -464,10 +517,47 @@ public class BlueprintRepository : IBlueprintRepository
 
     private BlueprintNodeViewModel MapBlueprintTask(BlueprintNode taskInstance)
     {
+        if (taskInstance.NodeKind == BlueprintNodeKind.CollectionIterator)
+        {
+            return new BlueprintNodeViewModel
+            {
+                InstanceId = taskInstance.Id,
+                NodeKind = BlueprintNodeKind.CollectionIterator.ToString(),
+                TaskDefinitionId = null,
+                CollectionIteratorItemKind = NormalizeCollectionIteratorItemKind(taskInstance.CollectionIteratorItemKind),
+                AllowedMajor = 0,
+                AllowedMinor = 0,
+                ResolvedVersionId = 0,
+                ResolvedVersion = "0.0.0",
+                Position = new CoordinatesViewModel { X = taskInstance.PositionX, Y = taskInstance.PositionY },
+                DesignTimeInputOverrides = new Dictionary<string, JsonElement>(StringComparer.Ordinal),
+                OutgoingConnections = taskInstance.OutgoingConnections
+                    .Select(connection => new BlueprintConnectionViewModel
+                    {
+                        ChannelId = null,
+                        ChannelName = connection.ChannelName,
+                        BlueprintNodeId = connection.DestinationBlueprintNodeId ?? Guid.Empty,
+                        Anchor = connection.Anchor,
+                        Side = connection.Side,
+                        Position = connection.Position,
+                        PropertyMappings = DeserializePropertyMappings(connection.PropertyMappingsJson)
+                            .Select(mapping => new BlueprintPropertyMappingViewModel
+                            {
+                                SourceProperty = mapping.SourceProperty,
+                                TargetProperty = mapping.TargetProperty
+                            })
+                            .ToList()
+                    })
+                    .Where(connection => connection.BlueprintNodeId != Guid.Empty)
+                    .ToList()
+            };
+        }
+
         var resolvedVersion = ResolveConcreteVersion(taskInstance, requireActive: false);
         return new BlueprintNodeViewModel
         {
             InstanceId = taskInstance.Id,
+            NodeKind = BlueprintNodeKind.PluginTask.ToString(),
             TaskDefinitionId = taskInstance.TaskDefinitionId,
             AllowedMajor = taskInstance.AllowedMajor,
             AllowedMinor = taskInstance.AllowedMinor,
@@ -576,8 +666,10 @@ public class BlueprintRepository : IBlueprintRepository
     private static List<ExecutableBlueprintPropertyMapping> BuildDefaultPropertyMappings(
         IReadOnlyDictionary<string, string> sourceProperties,
         IReadOnlyDictionary<string, string> targetProperties) =>
-        sourceProperties.Keys
-            .Intersect(targetProperties.Keys, StringComparer.Ordinal)
+        sourceProperties
+            .Where(source => targetProperties.TryGetValue(source.Key, out var targetKind) &&
+                             string.Equals(source.Value, targetKind, StringComparison.Ordinal))
+            .Select(source => source.Key)
             .OrderBy(property => property, StringComparer.Ordinal)
             .Select(property => new ExecutableBlueprintPropertyMapping
             {
@@ -585,6 +677,24 @@ public class BlueprintRepository : IBlueprintRepository
                 TargetProperty = property
             })
             .ToList();
+
+    private static Dictionary<string, string> MapChannelProperties(IEnumerable<ChannelProperty> properties) =>
+        properties.ToDictionary(
+            property => property.Name,
+            property => WorkflowPropertyTypeName.Format(property.Kind, property.IsCollection),
+            StringComparer.Ordinal);
+
+    private static string NormalizeCollectionIteratorItemKind(string? itemKind) =>
+        !string.IsNullOrWhiteSpace(itemKind) &&
+        WorkflowPropertyTypeName.TryParse(itemKind, out var parsedKind, out var isCollection) &&
+        !isCollection
+            ? WorkflowPropertyTypeName.Format(parsedKind)
+            : WorkflowPropertyKind.String.ToString();
+
+    private static BlueprintNodeKind ParseBlueprintNodeKind(string? value) =>
+        Enum.TryParse<BlueprintNodeKind>(value, ignoreCase: true, out var parsed)
+            ? parsed
+            : BlueprintNodeKind.PluginTask;
 
     private static string? SerializeJsonMap(Dictionary<string, JsonElement> values) =>
         values.Count == 0
@@ -630,6 +740,12 @@ public class BlueprintRepository : IBlueprintRepository
 
     private static TaskVersion ResolveConcreteVersion(BlueprintNode taskInstance, bool requireActive)
     {
+        if (taskInstance.TaskDefinition is null || taskInstance.TaskDefinitionId is null)
+        {
+            throw new InvalidOperationException(
+                $"Blueprint node {taskInstance.Id} is not backed by a plugin task definition.");
+        }
+
         var laneVersions = taskInstance.TaskDefinition.Versions
             .Where(version => SemanticVersionUtility.IsSameLane(version.Version, taskInstance.AllowedMajor, taskInstance.AllowedMinor))
             .OrderByDescending(version => version.Version)
