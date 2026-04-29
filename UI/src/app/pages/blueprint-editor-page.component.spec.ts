@@ -127,10 +127,14 @@ function createValidationTaskDefinition(
   };
 }
 
-function property(name: string, required = false): ITaskPropertyDefinition {
+function property(
+  name: string,
+  required = false,
+  kind: ITaskPropertyDefinition['kind'] = 'String',
+): ITaskPropertyDefinition {
   return {
     name,
-    kind: 'String',
+    kind,
     required,
     enumValues: [],
   };
@@ -645,9 +649,41 @@ describe('BlueprintEditorPageComponent', () => {
 
     (component as any).addLibraryItemFromDrawer(item);
 
+    expect(item.icon).toBe('call_split');
     expect(store.nodes().length).toBe(1);
     expect(store.nodes()[0].name).toBe('Collection Iterator');
+    expect(store.nodes()[0].visualKind).toBe('CollectionIteratorOperator');
     expect(store.nodes()[0].collectionIteratorItemKind).toBeNull();
+  });
+
+  it('summarizes Collection Iterator binding in node settings', () => {
+    const sourceTask = createValidationTaskDefinition(51, 'Source', {
+      outputChannels: {
+        Success: [property('ids', false, 'Guid[]')],
+      },
+    });
+    taskDefinitions = [sourceTask];
+    const source = store.createNode(sourceTask, { x: 120, y: 80 });
+    const iterator = store.createCollectionIteratorNode({ x: 540, y: 80 });
+
+    expect((component as any).iteratorBindingStatus(iterator)).toBe('Unbound');
+    expect((component as any).iteratorBindingEquation(iterator)).toBe('T[] -> T');
+    expect((component as any).iteratorSourceCollectionLabel(iterator)).toBe('Unbound');
+
+    store.createConnection(
+      source.id,
+      iterator.id,
+      source.outputAnchors()[0]!.index,
+      'left',
+      iterator.inputAnchorSnap()!.pos,
+    );
+
+    const tunedIterator = store.nodes().find((node) => node.id === iterator.id)!;
+    expect((component as any).iteratorBindingStatus(tunedIterator)).toBe('Resolved');
+    expect((component as any).iteratorBindingEquation(tunedIterator)).toBe('Guid[] -> Guid');
+    expect((component as any).iteratorSourceCollectionLabel(tunedIterator)).toBe('Source / Success / ids');
+    expect((component as any).iteratorItemTypeLabel(tunedIterator)).toBe('Guid');
+    expect((component as any).iteratorFanOutOutputLabel(tunedIterator)).toBe('Item.item');
   });
 
   it('switches drawer overlay metadata based on viewport size', () => {

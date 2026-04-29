@@ -13,6 +13,66 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlueprintCanvasComponent } from './blueprint-canvas.component';
 import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
 import { BlueprintCanvasStateStore } from '../domain/blueprint-canvas-state.store';
+import { buildCanvasRenderSnapshot } from '../domain/canvas-render-model';
+import { NodeModel } from '../domain/node-model';
+
+const pathfinderOptions = { gridSize: 10, nodeMargin: 20, obstacleBuffer: 2 };
+
+function createSourceNode(
+  outputProperties: Record<string, 'String' | 'Guid[]'>,
+): NodeModel {
+  return new NodeModel(
+    1,
+    1,
+    0,
+    0,
+    10,
+    '1.0.0',
+    'Source',
+    0,
+    0,
+    320,
+    220,
+    null,
+    ['Success'],
+    false,
+    null,
+    null,
+    {},
+    { Success: outputProperties },
+  );
+}
+
+function createIteratorNode(): NodeModel {
+  return new NodeModel(
+    2,
+    0,
+    0,
+    0,
+    0,
+    'Native',
+    'Collection Iterator',
+    420,
+    0,
+    NodeModel.collectionIteratorOperatorWidth,
+    NodeModel.collectionIteratorOperatorHeight,
+    'Collection',
+    ['Item'],
+    false,
+    null,
+    null,
+    { items: 'String[]' },
+    { Item: { item: 'String' } },
+    {},
+    [],
+    'Collection',
+    ['Item'],
+    {},
+    false,
+    'CollectionIterator',
+    null,
+  );
+}
 
 describe('BlueprintCanvasComponent', () => {
   let component: BlueprintCanvasComponent;
@@ -185,11 +245,57 @@ describe('BlueprintCanvasComponent', () => {
     const blockedTargetNodeIds = (component as any).getBlockedTargetNodeIds(
       {
         getConnectedNodeIds: () => new Set([2, 3]),
+        nodeById: new Map(),
+        nodes: [],
       },
-      1,
+      { pointerId: 1, from: 1, anchor: 0, x: 0, y: 0 },
     );
 
     expect([...blockedTargetNodeIds]).toEqual([1, 2, 3]);
+  });
+
+  it('only treats Collection Iterator as eligible for collection output drags', () => {
+    const source = createSourceNode({ town: 'String', ids: 'Guid[]' });
+    const iterator = createIteratorNode();
+    const snapshot = buildCanvasRenderSnapshot([source, iterator], [], new Map(), 'full', pathfinderOptions, false);
+
+    const scalarBlockedTargetNodeIds = (component as any).getBlockedTargetNodeIds(
+      snapshot,
+      {
+        pointerId: 1,
+        from: source.id,
+        anchor: source.outputAnchors()[0]!.index,
+        x: 0,
+        y: 0,
+        sourceProperty: 'town',
+      },
+    );
+    const collectionBlockedTargetNodeIds = (component as any).getBlockedTargetNodeIds(
+      snapshot,
+      {
+        pointerId: 1,
+        from: source.id,
+        anchor: source.outputAnchors()[0]!.index,
+        x: 0,
+        y: 0,
+        sourceProperty: 'ids',
+      },
+    );
+    const previewLabels = (component as any).getCollectionIteratorPreviewLabels(
+      snapshot,
+      {
+        pointerId: 1,
+        from: source.id,
+        anchor: source.outputAnchors()[0]!.index,
+        x: 0,
+        y: 0,
+        sourceProperty: 'ids',
+      },
+    );
+
+    expect(scalarBlockedTargetNodeIds.has(iterator.id)).toBe(true);
+    expect(collectionBlockedTargetNodeIds.has(iterator.id)).toBe(false);
+    expect(previewLabels.get(iterator.id)).toBe('Guid[] -> Guid');
   });
 
   it('tracks hovered connections when the pointer is not over a node', () => {

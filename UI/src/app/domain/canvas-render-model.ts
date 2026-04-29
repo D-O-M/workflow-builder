@@ -11,6 +11,7 @@ import {
   NodeModel,
   NodePortDefinition,
   NodeRenderStatus,
+  NodeVisualKind,
   Point,
   Rect,
   Side,
@@ -158,6 +159,14 @@ export class RenderedNode {
     return this.anySectionExpanded;
   }
 
+  get visualKind(): NodeVisualKind {
+    return this.base.visualKind;
+  }
+
+  get isCollectionIteratorOperator(): boolean {
+    return this.base.isCollectionIteratorOperator;
+  }
+
   contains(x: number, y: number): boolean {
     return x >= this.x && x <= this.x + this.width && y >= this.y && y <= this.y + this.height;
   }
@@ -220,6 +229,10 @@ export class RenderedNode {
   }
 
   sectionToggleHit(x: number, y: number): string | null {
+    if (this.isCollectionIteratorOperator) {
+      return null;
+    }
+
     const section = this.sections().find((candidate) =>
       x >= candidate.toggleRect.x &&
       x <= candidate.toggleRect.x + candidate.toggleRect.width &&
@@ -230,6 +243,10 @@ export class RenderedNode {
   }
 
   sectionHeaderHit(x: number, y: number): string | null {
+    if (this.isCollectionIteratorOperator) {
+      return null;
+    }
+
     const section = this.sections().find((candidate) =>
       x >= this.x + 14 &&
       x <= this.x + this.width - 14 &&
@@ -240,6 +257,10 @@ export class RenderedNode {
   }
 
   allSectionKeys(): string[] {
+    if (this.isCollectionIteratorOperator) {
+      return [];
+    }
+
     return this.sections().map((section) => section.key);
   }
 

@@ -537,11 +537,19 @@
             <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
               <mat-card-content>
                 <div class="blueprint-editor-page__settings-detail-grid">
-                  <span>Task definition</span>
-                  <strong>{{ taskDefinitionDisplayName(nodeSettingsTaskDefinition()) || node.name }}</strong>
+                  @if (node.nodeKind === 'PluginTask') {
+                    <span>Task definition</span>
+                    <strong>{{ taskDefinitionDisplayName(nodeSettingsTaskDefinition()) || node.name }}</strong>
 
-                  <span>Current version</span>
-                  <strong>{{ node.resolvedVersion ?? 'Unknown' }}</strong>
+                    <span>Current version</span>
+                    <strong>{{ node.resolvedVersion ?? 'Unknown' }}</strong>
+                  } @else {
+                    <span>Node type</span>
+                    <strong>Native operator</strong>
+
+                    <span>Type binding</span>
+                    <strong>{{ iteratorBindingEquation(node) }}</strong>
+                  }
 
                   <span>Node id</span>
                   <strong>node-{{ node.id }}</strong>
@@ -585,6 +593,37 @@
               </mat-card>
             }
 
+            @if (node.nodeKind === 'CollectionIterator') {
+              <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
+                <mat-card-content>
+                  <div class="blueprint-editor-page__settings-section-heading">
+                    <div>
+                      <h4>Iterator binding</h4>
+                      <p>{{ iteratorBindingStatus(node) }}</p>
+                    </div>
+                  </div>
+
+                  @if (node.collectionIteratorResolved) {
+                    <div class="blueprint-editor-page__settings-detail-grid">
+                      <span>Source collection</span>
+                      <strong>{{ iteratorSourceCollectionLabel(node) }}</strong>
+
+                      <span>Item type</span>
+                      <strong>{{ iteratorItemTypeLabel(node) }}</strong>
+
+                      <span>Fan-out output</span>
+                      <strong>{{ iteratorFanOutOutputLabel(node) }}</strong>
+                    </div>
+                  } @else {
+                    <div class="blueprint-editor-page__settings-empty">
+                      <mat-icon>call_split</mat-icon>
+                      <p>Unbound</p>
+                    </div>
+                  }
+                </mat-card-content>
+              </mat-card>
+            }
+
             @if (node.nodeKind === 'PluginTask') {
               <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
                 <mat-card-content>
@@ -617,65 +656,67 @@
               </mat-card>
             }
 
-            <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
-              <mat-card-content>
-                <div class="blueprint-editor-page__settings-section-heading">
-                  <div>
-                    <h4>Static overrides</h4>
-                    <p>Only properties added here are fixed on the Blueprint.</p>
-                  </div>
+            @if (node.nodeKind === 'PluginTask') {
+              <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
+                <mat-card-content>
+                  <div class="blueprint-editor-page__settings-section-heading">
+                    <div>
+                      <h4>Static overrides</h4>
+                      <p>Only properties added here are fixed on the Blueprint.</p>
+                    </div>
 
-                  <button
-                    mat-icon-button
-                    type="button"
-                    [matMenuTriggerFor]="staticOverridePropertyMenu"
-                    [disabled]="availableStaticOverrideProperties().length === 0"
-                    aria-label="Add static override"
-                  >
-                    <mat-icon>add</mat-icon>
-                  </button>
-                </div>
-
-                <mat-menu #staticOverridePropertyMenu="matMenu">
-                  @for (property of availableStaticOverrideProperties(); track property.name) {
-                    <button mat-menu-item type="button" (click)="addStaticOverride(property.name)">
-                      <span>{{ formatPropertyLabel(property.name) }}</span>
+                    <button
+                      mat-icon-button
+                      type="button"
+                      [matMenuTriggerFor]="staticOverridePropertyMenu"
+                      [disabled]="availableStaticOverrideProperties().length === 0"
+                      aria-label="Add static override"
+                    >
+                      <mat-icon>add</mat-icon>
                     </button>
-                  }
-                </mat-menu>
-
-                @if (staticOverrideFields().length === 0) {
-                  <div class="blueprint-editor-page__settings-empty">
-                    <mat-icon>tune</mat-icon>
-                    <p>No static overrides yet. Add a property when a node needs a fixed value.</p>
                   </div>
-                } @else {
-                  <div class="blueprint-editor-page__static-override-list" [formGroup]="staticOverrideForm">
-                    @for (field of staticOverrideFields(); track field.key) {
-                      <div class="blueprint-editor-page__static-override-row">
-                        <div class="blueprint-editor-page__static-override-row-header">
-                          <span>{{ field.label }}</span>
-                          <span>{{ staticOverrideKindLabel(field) }}</span>
-                          <button
-                            mat-icon-button
-                            type="button"
-                            (click)="removeStaticOverride(field.key)"
-                            [attr.aria-label]="'Remove ' + field.label + ' override'"
-                          >
-                            <mat-icon>close</mat-icon>
-                          </button>
-                        </div>
 
-                        <app-dynamic-form-field
-                          [group]="staticOverrideForm"
-                          [field]="field"
-                        />
-                      </div>
+                  <mat-menu #staticOverridePropertyMenu="matMenu">
+                    @for (property of availableStaticOverrideProperties(); track property.name) {
+                      <button mat-menu-item type="button" (click)="addStaticOverride(property.name)">
+                        <span>{{ formatPropertyLabel(property.name) }}</span>
+                      </button>
                     }
-                  </div>
-                }
-              </mat-card-content>
-            </mat-card>
+                  </mat-menu>
+
+                  @if (staticOverrideFields().length === 0) {
+                    <div class="blueprint-editor-page__settings-empty">
+                      <mat-icon>tune</mat-icon>
+                      <p>No static overrides yet. Add a property when a node needs a fixed value.</p>
+                    </div>
+                  } @else {
+                    <div class="blueprint-editor-page__static-override-list" [formGroup]="staticOverrideForm">
+                      @for (field of staticOverrideFields(); track field.key) {
+                        <div class="blueprint-editor-page__static-override-row">
+                          <div class="blueprint-editor-page__static-override-row-header">
+                            <span>{{ field.label }}</span>
+                            <span>{{ staticOverrideKindLabel(field) }}</span>
+                            <button
+                              mat-icon-button
+                              type="button"
+                              (click)="removeStaticOverride(field.key)"
+                              [attr.aria-label]="'Remove ' + field.label + ' override'"
+                            >
+                              <mat-icon>close</mat-icon>
+                            </button>
+                          </div>
+
+                          <app-dynamic-form-field
+                            [group]="staticOverrideForm"
+                            [field]="field"
+                          />
+                        </div>
+                      }
+                    </div>
+                  }
+                </mat-card-content>
+              </mat-card>
+            }
           </div>
           </div>
         }

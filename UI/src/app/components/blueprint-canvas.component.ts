@@ -793,6 +793,22 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     );
 
     if (target) {
+      if (target.base.nodeKind === 'CollectionIterator' && !this.canDragBindToCollectionIterator(sourceNode, drag)) {
+        this.dragConnection.set({
+          ...drag,
+          x: world.x,
+          y: world.y,
+          side: undefined,
+        });
+        this.hoveredNodeId.set(target.id);
+        this.hoveredNodeIssueNodeId.set(null);
+        this.hoveredPortKey.set(null);
+        this.hoveredSectionKey.set(null);
+        this.hoveredConnectionId.set(null);
+        this.hoveredConnectionRoute.set(null);
+        return;
+      }
+
       const targetPort = this.getInputPortAt(target, world);
       if (targetPort) {
         this.dragConnection.set({
@@ -839,6 +855,10 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     const targetPort = target ? this.getInputPortAt(target, world) : null;
     const snap = target?.inputAnchorSnap();
     if (!target || !targetPort || !snap) {
+      return;
+    }
+
+    if (target.base.nodeKind === 'CollectionIterator' && !this.canDragBindToCollectionIterator(sourceNode, drag)) {
       return;
     }
 
@@ -1129,8 +1149,67 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     return this.renderSnapshot().getConnectedNodes(node.id);
   }
 
-  private getBlockedTargetNodeIds(snapshot: CanvasRenderSnapshot, sourceNodeId: number): ReadonlySet<number> {
-    return new Set([sourceNodeId, ...snapshot.getConnectedNodeIds(sourceNodeId)]);
+  private getBlockedTargetNodeIds(snapshot: CanvasRenderSnapshot, drag: DragConnectionState): ReadonlySet<number> {
+    const blockedNodeIds = new Set([drag.from, ...snapshot.getConnectedNodeIds(drag.from)]);
+    const sourceNode = snapshot.nodeById.get(drag.from) ?? null;
+
+    for (const node of snapshot.nodes) {
+      if (node.base.nodeKind !== 'CollectionIterator' || blockedNodeIds.has(node.id)) {
+        continue;
+      }
+
+      if (!this.canDragBindToCollectionIterator(sourceNode, drag)) {
+        blockedNodeIds.add(node.id);
+      }
+    }
+
+    return blockedNodeIds;
+  }
+
+  private getCollectionIteratorPreviewLabels(
+    snapshot: CanvasRenderSnapshot,
+    drag: DragConnectionState,
+  ): ReadonlyMap<number, string> {
+    const sourceNode = snapshot.nodeById.get(drag.from) ?? null;
+    const collectionKind = this.draggedCollectionKind(sourceNode, drag);
+    if (!collectionKind) {
+      return new Map<number, string>();
+    }
+
+    const itemKind = collectionKind.slice(0, -2);
+    const blockedNodeIds = new Set([drag.from, ...snapshot.getConnectedNodeIds(drag.from)]);
+    const labels = new Map<number, string>();
+    for (const node of snapshot.nodes) {
+      if (node.base.nodeKind === 'CollectionIterator' && !blockedNodeIds.has(node.id)) {
+        labels.set(node.id, `${collectionKind} -> ${itemKind}`);
+      }
+    }
+
+    return labels;
+  }
+
+  private canDragBindToCollectionIterator(sourceNode: RenderedNode | null, drag: DragConnectionState): boolean {
+    return this.draggedCollectionKind(sourceNode, drag) !== null;
+  }
+
+  private draggedCollectionKind(sourceNode: RenderedNode | null, drag: DragConnectionState): string | null {
+    if (!sourceNode) {
+      return null;
+    }
+
+    const sourceProperties = sourceNode.outputPropertiesForAnchor(drag.anchor);
+    if (drag.sourceProperty) {
+      const sourceKind = sourceProperties[drag.sourceProperty];
+      return this.isCollectionKind(sourceKind) ? sourceKind : null;
+    }
+
+    return Object.entries(sourceProperties)
+      .filter(([, kind]) => this.isCollectionKind(kind))
+      .sort(([left], [right]) => left.localeCompare(right))[0]?.[1] ?? null;
+  }
+
+  private isCollectionKind(kind: string | null | undefined): kind is `${string}[]` {
+    return typeof kind === 'string' && kind.endsWith('[]');
   }
 
   private getPortAt(node: RenderedNode, coordinates: Point) {
@@ -1237,6 +1316,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       channelFocusedConnectionIds,
       validationFocus,
     );
+    const activeDragConnection = this.dragConnection();
 
     wrapper.drawConnections(connections, selectedConnectionIds, {
       readOnly: this.isReadonly(),
@@ -1255,15 +1335,18 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     wrapper.drawNodes(
       nodes,
       renderedGraph.portConnectivity,
-      this.dragConnection(),
+      activeDragConnection,
       this.hoveredNodeId(),
       this.hoveredPortKey(),
       selectedNodeIds,
       {
         readOnly: this.isReadonly(),
         detailTier: renderedGraph.detailTier,
-        blockedTargetNodeIds: this.dragConnection()
-          ? this.getBlockedTargetNodeIds(renderedGraph, this.dragConnection()!.from)
+        blockedTargetNodeIds: activeDragConnection
+          ? this.getBlockedTargetNodeIds(renderedGraph, activeDragConnection)
+          : undefined,
+        collectionIteratorPreviewLabels: activeDragConnection
+          ? this.getCollectionIteratorPreviewLabels(renderedGraph, activeDragConnection)
           : undefined,
         focusedPortKeys,
         nodeIssueSummaries: this.nodeIssueSummaries(),

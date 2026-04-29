@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildProcessCanvasNodes, type ProcessCanvasDetail } from './process-canvas-model';
+import { NodeModel } from './node-model';
 import type { ITaskDefinition, ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
 describe('buildProcessCanvasNodes', () => {
@@ -37,6 +38,31 @@ describe('buildProcessCanvasNodes', () => {
     expect(node.outputChannelNames).toEqual(['LegacyOutput']);
     expect(node.inputProperties).toEqual({});
     expect(node.outputChannelProperties).toEqual({});
+  });
+
+  it('hydrates Collection Iterator process nodes as compact native operators', () => {
+    const [node] = buildProcessCanvasNodes({
+      nodes: [
+        {
+          taskDefinitionId: 0,
+          nodeKind: 'CollectionIterator',
+          collectionIteratorItemKind: 'Guid',
+          allowedMajor: 0,
+          allowedMinor: 0,
+          resolvedVersionId: 0,
+          name: 'Collection Iterator',
+          status: 'Pending',
+          position: { x: 120, y: 80 },
+          inputChannelName: 'Collection',
+          outputChannelNames: ['Item'],
+        },
+      ],
+    }, []);
+
+    expect(node.visualKind).toBe('CollectionIteratorOperator');
+    expect(node.width).toBe(NodeModel.collectionIteratorOperatorWidth);
+    expect(node.height).toBe(NodeModel.collectionIteratorOperatorHeight);
+    expect(node.collectionIteratorEquation).toBe('Guid[] -> Guid');
   });
 });
 

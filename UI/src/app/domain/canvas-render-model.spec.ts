@@ -159,6 +159,47 @@ describe('NodeModel layout caching', () => {
     expect(inputPropertyPort.x).toBe(node.x);
     expect(outputPropertyPort.x).toBe(node.x + node.width);
   });
+
+  it('uses a compact operator layout for Collection Iterator nodes', () => {
+    const node = new NodeModel(
+      1,
+      0,
+      0,
+      0,
+      0,
+      'Native',
+      'Collection Iterator',
+      120,
+      80,
+      NodeModel.collectionIteratorOperatorWidth,
+      NodeModel.collectionIteratorOperatorHeight,
+      'Collection',
+      ['Item'],
+      false,
+      null,
+      null,
+      { items: 'String[]' },
+      { Item: { item: 'String' } },
+      {},
+      [],
+      'Collection',
+      ['Item'],
+      {},
+      false,
+      'CollectionIterator',
+      null,
+    );
+    const snapshot = buildCanvasRenderSnapshot([node], [], new Map([[1, new Set(['left:Collection', 'right:Item'])]]), 'full', opts, false);
+    const rendered = snapshot.nodeById.get(1)!;
+
+    expect(rendered.visualKind).toBe('CollectionIteratorOperator');
+    expect(rendered.height).toBe(NodeModel.collectionIteratorOperatorHeight);
+    expect(rendered.allSectionKeys()).toEqual([]);
+    expect(rendered.layout.inputSection?.propertyRows).toEqual([]);
+    expect(rendered.layout.outputSections[0]?.propertyRows).toEqual([]);
+    expect(rendered.inputAnchorSnap()?.x).toBe(node.x);
+    expect(rendered.outputAnchors()[0]?.x).toBe(node.x + node.width);
+  });
 });
 
 describe('buildCanvasRenderSnapshot', () => {

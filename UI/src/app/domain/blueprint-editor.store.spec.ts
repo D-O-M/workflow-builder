@@ -1,6 +1,7 @@
 import '@angular/compiler';
 import { describe, expect, it } from 'vitest';
 import { BlueprintEditorStore } from './blueprint-editor.store';
+import { NodeModel } from './node-model';
 import { ITaskDefinition, ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
 function createTaskDefinition(
@@ -174,9 +175,15 @@ describe('BlueprintEditorStore', () => {
     const iterator = store.createCollectionIteratorNode({ x: 0, y: 0 });
     const layout = iterator.layoutForExpandedSections(new Set(['left:Collection', 'right:Item']));
 
+    expect(iterator.width).toBe(NodeModel.collectionIteratorOperatorWidth);
+    expect(iterator.height).toBe(NodeModel.collectionIteratorOperatorHeight);
+    expect(iterator.visualKind).toBe('CollectionIteratorOperator');
     expect(iterator.collectionIteratorItemKind).toBeNull();
-    expect(layout.inputSection?.propertyRows[0]?.displayKind).toBe('T[]');
-    expect(layout.outputSections[0]?.propertyRows[0]?.displayKind).toBe('T');
+    expect(iterator.collectionIteratorEquation).toBe('T[] -> T');
+    expect(layout.totalHeight).toBe(NodeModel.collectionIteratorOperatorHeight);
+    expect(layout.inputSection?.propertyRows).toEqual([]);
+    expect(layout.outputSections[0]?.propertyRows).toEqual([]);
+    expect(layout.summaryPorts.map((port) => port.kind)).toEqual(['input-summary', 'output-summary']);
   });
 
   it('retunes Collection Iterator ports from the mapped collection type', () => {
@@ -198,8 +205,9 @@ describe('BlueprintEditorStore', () => {
     expect(tunedIterator.collectionIteratorItemKind).toBe('Guid');
     expect(tunedIterator.inputProperties['items']).toBe('Guid[]');
     expect(tunedIterator.outputChannelProperties['Item']['item']).toBe('Guid');
-    expect(tunedLayout.inputSection?.propertyRows[0]?.displayKind).toBe('Guid[]');
-    expect(tunedLayout.outputSections[0]?.propertyRows[0]?.displayKind).toBe('Guid');
+    expect(tunedIterator.collectionIteratorEquation).toBe('Guid[] -> Guid');
+    expect(tunedLayout.inputSection?.propertyRows).toEqual([]);
+    expect(tunedLayout.outputSections[0]?.propertyRows).toEqual([]);
 
     store.selectOnlyConnection(connection.id);
     store.deleteSelection();
@@ -208,8 +216,40 @@ describe('BlueprintEditorStore', () => {
     const resetLayout = resetIterator.layoutForExpandedSections(new Set(['left:Collection', 'right:Item']));
 
     expect(resetIterator.collectionIteratorItemKind).toBeNull();
-    expect(resetLayout.inputSection?.propertyRows[0]?.displayKind).toBe('T[]');
-    expect(resetLayout.outputSections[0]?.propertyRows[0]?.displayKind).toBe('T');
+    expect(resetIterator.collectionIteratorEquation).toBe('T[] -> T');
+    expect(resetLayout.inputSection?.propertyRows).toEqual([]);
+    expect(resetLayout.outputSections[0]?.propertyRows).toEqual([]);
+  });
+
+  it('resolves Collection Iterator display equation for each supported collection kind', () => {
+    const collectionKinds: ITaskPropertyDefinition['kind'][] = [
+      'String[]',
+      'Integer[]',
+      'Decimal[]',
+      'Boolean[]',
+      'Guid[]',
+      'Date[]',
+      'DateTime[]',
+      'Enum[]',
+    ];
+
+    for (const collectionKind of collectionKinds) {
+      const store = new BlueprintEditorStore();
+      const source = store.createNode(createCollectionSourceTaskDefinition(collectionKind), { x: 0, y: 0 });
+      const iterator = store.createCollectionIteratorNode({ x: 420, y: 0 });
+
+      store.createConnection(
+        source.id,
+        iterator.id,
+        source.outputAnchors()[0]!.index,
+        'left',
+        iterator.inputAnchorSnap()!.pos,
+      );
+
+      const itemKind = collectionKind.slice(0, -2);
+      const tunedIterator = store.nodes().find((node) => node.id === iterator.id)!;
+      expect(tunedIterator.collectionIteratorEquation).toBe(`${collectionKind} -> ${itemKind}`);
+    }
   });
 
   it('preserves compatible mappings and static overrides when changing patch versions', () => {

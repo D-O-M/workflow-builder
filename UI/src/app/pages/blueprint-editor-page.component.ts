@@ -1092,6 +1092,31 @@ export class BlueprintEditorPageComponent {
     return taskPropertyKindLabel(field.kind);
   }
 
+  protected iteratorBindingStatus(node: NodeModel): string {
+    return node.collectionIteratorResolved ? 'Resolved' : 'Unbound';
+  }
+
+  protected iteratorBindingEquation(node: NodeModel): string {
+    return node.collectionIteratorEquation;
+  }
+
+  protected iteratorSourceCollectionLabel(node: NodeModel): string {
+    const source = this.iteratorSourceCollection(node);
+    if (!source) {
+      return 'Unbound';
+    }
+
+    return `${source.nodeName} / ${source.channelLabel} / ${source.propertyName}`;
+  }
+
+  protected iteratorItemTypeLabel(node: NodeModel): string {
+    return node.collectionIteratorItemDisplayKind;
+  }
+
+  protected iteratorFanOutOutputLabel(_node: NodeModel): string {
+    return 'Item.item';
+  }
+
   protected formatPropertyLabel(value: string): string {
     return value
       .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -1471,7 +1496,7 @@ export class BlueprintEditorPageComponent {
     const collectionIterator: TaskLibraryItem = {
       kind: 'collectionIterator',
       displayName: 'Collection Iterator',
-      icon: 'data_array',
+      icon: 'call_split',
       categoryLabel: 'Logic',
       description: 'Run downstream steps for each collection item',
       tone: 'logic',
@@ -1505,6 +1530,38 @@ export class BlueprintEditorPageComponent {
     return displayName && displayName.length > 0
       ? displayName
       : task?.name ?? '';
+  }
+
+  private iteratorSourceCollection(node: NodeModel): {
+    nodeName: string;
+    channelLabel: string;
+    propertyName: string;
+  } | null {
+    const incomingConnections = this.editorStore.connections()
+      .filter((connection) => connection.to.id === node.id)
+      .sort((left, right) => left.from.name.localeCompare(right.from.name) || left.id.localeCompare(right.id));
+
+    for (const connection of incomingConnections) {
+      const sourceProperties = connection.from.outputPropertiesForAnchor(connection.anchor);
+      for (const mapping of connection.propertyMappings) {
+        if (mapping.targetProperty !== 'items') {
+          continue;
+        }
+
+        const sourceKind = sourceProperties[mapping.sourceProperty];
+        if (typeof sourceKind !== 'string' || !sourceKind.endsWith('[]')) {
+          continue;
+        }
+
+        return {
+          nodeName: connection.from.name,
+          channelLabel: connection.from.outputChannelLabelForAnchor(connection.anchor) ?? 'Output',
+          propertyName: mapping.sourceProperty,
+        };
+      }
+    }
+
+    return null;
   }
 
   private getTaskCategory(task: ITaskDefinition): {

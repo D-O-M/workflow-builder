@@ -358,6 +358,7 @@ export class CanvasWrapper {
             y: number;
             side?: Side;
             portKey?: string | null;
+            sourceProperty?: string | null;
         } | null,
         hovered: number | null,
         hoveredPortKey: string | null,
@@ -367,6 +368,7 @@ export class CanvasWrapper {
             detailTier?: CanvasDetailTier;
             blockedTargetNodeIds?: ReadonlySet<number>;
             focusedPortKeys?: ReadonlySet<string>;
+            collectionIteratorPreviewLabels?: ReadonlyMap<number, string>;
             nodeIssueSummaries?: ReadonlyMap<number, CanvasNodeIssueSummary>;
             validationFocus?: {
                 severity: CanvasValidationSeverity;
@@ -380,6 +382,7 @@ export class CanvasWrapper {
         const detailTier = options?.detailTier ?? 'full';
         const blockedTargetNodeIds = options?.blockedTargetNodeIds ?? new Set<number>();
         const focusedPortKeys = options?.focusedPortKeys ?? new Set<string>();
+        const collectionIteratorPreviewLabels = options?.collectionIteratorPreviewLabels ?? new Map<number, string>();
         const nodeIssueSummaries = options?.nodeIssueSummaries ?? new Map<number, CanvasNodeIssueSummary>();
         const validationFocus = options?.validationFocus ?? null;
         const validationPortKeys = validationFocus?.portKeys ?? new Set<string>();
@@ -401,6 +404,26 @@ export class CanvasWrapper {
                 : issueSummary
                     ? node.settingsRect()
                     : null;
+
+            if (node.isCollectionIteratorOperator) {
+                this.drawCollectionIteratorOperator(
+                    node,
+                    portConnectivity,
+                    drag,
+                    hovered,
+                    hoveredPortKey,
+                    isSelected,
+                    readOnly,
+                    detailTier,
+                    blockedTargetNodeIds,
+                    focusedPortKeys,
+                    validationNodeFocused ? validationFocus : null,
+                    validationPortKeys,
+                    issueSummary,
+                    collectionIteratorPreviewLabels.get(node.id) ?? null,
+                );
+                continue;
+            }
 
             this.ctx.save();
             this.ctx.shadowColor = detailTier === 'full' ? CanvasWrapper.theme.nodeShadow : 'transparent';
@@ -500,6 +523,175 @@ export class CanvasWrapper {
 
             this.ctx.restore();
         }
+    }
+
+    private drawCollectionIteratorOperator(
+        node: RenderedNode,
+        portConnectivity: CanvasPortConnectivityIndex,
+        drag: {
+            from: number;
+            anchor: number;
+            x: number;
+            y: number;
+            side?: Side;
+            portKey?: string | null;
+            sourceProperty?: string | null;
+        } | null,
+        hovered: number | null,
+        hoveredPortKey: string | null,
+        isSelected: boolean,
+        readOnly: boolean,
+        detailTier: CanvasDetailTier,
+        blockedTargetNodeIds: ReadonlySet<number>,
+        focusedPortKeys: ReadonlySet<string>,
+        validationFocus: {
+            severity: CanvasValidationSeverity;
+            nodeId: number | null;
+            sectionKey?: string | null;
+            portKeys?: ReadonlySet<string>;
+        } | null,
+        validationPortKeys: ReadonlySet<string>,
+        issueSummary: CanvasNodeIssueSummary | null,
+        previewEquation: string | null,
+    ): void {
+        const statusTheme = node.renderStatus ? CanvasWrapper.theme.status[node.renderStatus] : null;
+        const validationTheme = validationFocus ? CanvasWrapper.theme.validation[validationFocus.severity] : null;
+        const isHoveredDest = !!drag && node.id !== drag.from && hovered === node.id;
+        const isBlockedDest = !!drag && blockedTargetNodeIds.has(node.id);
+        const eligible = !!drag && node.id !== drag.from && !isBlockedDest;
+        const isResolved = node.base.collectionIteratorResolved || previewEquation !== null;
+        const equation = node.base.collectionIteratorResolved
+            ? node.base.collectionIteratorEquation
+            : previewEquation ?? node.base.collectionIteratorEquation;
+
+        this.ctx.save();
+        this.ctx.shadowColor = detailTier === 'full' ? CanvasWrapper.theme.nodeShadow : 'transparent';
+        this.ctx.shadowBlur = detailTier === 'full' ? 12 : 0;
+        this.ctx.shadowOffsetY = detailTier === 'full' ? 6 : 0;
+        this.ctx.fillStyle = detailTier === 'full'
+            ? this.createCollectionIteratorGradient(node, isResolved)
+            : CanvasWrapper.theme.surface;
+        this.ctx.strokeStyle = isSelected
+            ? CanvasWrapper.theme.connection.selected
+            : statusTheme?.border ?? (isResolved ? 'rgba(45, 75, 221, 0.28)' : CanvasWrapper.theme.nodeStroke);
+        this.ctx.lineJoin = 'round';
+        this.ctx.lineWidth = isSelected ? 2.25 : 1.15;
+
+        if (validationTheme) {
+            this.ctx.strokeStyle = validationTheme.stroke;
+            this.ctx.lineWidth = 1.8;
+        } else if (isHoveredDest && isBlockedDest) {
+            this.ctx.strokeStyle = 'rgba(217, 45, 32, 0.62)';
+            this.ctx.setLineDash([4, 4]);
+        } else if (isHoveredDest) {
+            this.ctx.strokeStyle = CanvasWrapper.theme.nodeStrokeHover;
+            this.ctx.setLineDash([5, 4]);
+        } else if (eligible) {
+            this.ctx.strokeStyle = CanvasWrapper.theme.eligibleDash;
+            this.ctx.globalAlpha = 0.58;
+        }
+
+        this.collectionIteratorOperatorPath(node.x, node.y, node.width, node.height);
+        this.ctx.fill();
+        this.ctx.shadowColor = 'transparent';
+        this.ctx.shadowBlur = 0;
+
+        if (validationTheme) {
+            this.ctx.save();
+            this.ctx.fillStyle = validationTheme.surface;
+            this.ctx.globalAlpha = 0.22;
+            this.collectionIteratorOperatorPath(node.x + 2, node.y + 2, node.width - 4, node.height - 4);
+            this.ctx.fill();
+            this.ctx.restore();
+        }
+
+        this.collectionIteratorOperatorPath(node.x, node.y, node.width, node.height);
+        this.ctx.stroke();
+        this.ctx.setLineDash([]);
+        this.ctx.globalAlpha = 1;
+
+        const centerX = node.x + node.width / 2;
+        const label = 'Collection Iterator';
+        this.setFont(700, 10);
+        const labelWidth = this.ctx.measureText(label).width;
+        const iconSize = 18;
+        const labelGroupWidth = iconSize + 7 + labelWidth;
+        const labelGroupX = centerX - labelGroupWidth / 2;
+        const labelY = node.y + 31;
+
+        this.drawCollectionIteratorIcon(
+            labelGroupX,
+            labelY - iconSize + 4,
+            iconSize,
+            isResolved ? CanvasWrapper.theme.accent : CanvasWrapper.theme.nodeTextMuted,
+        );
+
+        this.ctx.fillStyle = CanvasWrapper.theme.nodeTextMuted;
+        this.setFont(700, 10);
+        this.ctx.fillText(label, labelGroupX + iconSize + 7, labelY);
+
+        this.ctx.fillStyle = isResolved
+            ? CanvasWrapper.theme.accent
+            : CanvasWrapper.theme.nodeText;
+        this.setFont(700, 18);
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'alphabetic';
+        this.ctx.fillText(equation, centerX, node.y + 67);
+
+        this.ctx.fillStyle = isResolved
+            ? 'rgba(45, 75, 221, 0.72)'
+            : CanvasWrapper.theme.nodeTextMuted;
+        this.setFont(700, 8.5);
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText('COLLECTION', node.x + 24, node.y + 91);
+        this.ctx.textAlign = 'right';
+        this.ctx.fillText('ITEM', node.x + node.width - 24, node.y + 91);
+        this.ctx.textAlign = 'start';
+
+        if (issueSummary) {
+            this.drawNodeIssueIcon(node.settingsRect(), issueSummary);
+        }
+
+        if (readOnly && statusTheme && node.renderStatus) {
+            this.drawNodeStatusIcon(node, node.renderStatus, statusTheme.badgeFill, statusTheme.text, statusTheme.accent);
+        }
+
+        const draggingPortKey = drag?.from === node.id ? drag.portKey ?? null : null;
+        const inputSection = node.layout.inputSection;
+        const outputSection = node.layout.outputSections[0] ?? null;
+        if (inputSection) {
+            const inputSummaryKey = this.portFocusKey(node, inputSection.summaryPort);
+            const inputValidationFocused = validationPortKeys.has(inputSummaryKey) ||
+                validationFocus?.sectionKey === inputSection.key;
+            const inputFocused = focusedPortKeys.has(inputSummaryKey) || inputValidationFocused;
+            const inputHovered = (hovered === node.id && hoveredPortKey === inputSection.summaryPort.key) ||
+                inputFocused ||
+                (isHoveredDest && !isBlockedDest);
+            this.drawSummarySocket(
+                inputSection,
+                inputHovered,
+                portConnectivity.summaryPortKeys.has(inputSummaryKey),
+                inputValidationFocused ? validationFocus?.severity ?? null : null,
+            );
+        }
+
+        if (outputSection) {
+            const outputSummaryKey = this.portFocusKey(node, outputSection.summaryPort);
+            const outputValidationFocused = validationPortKeys.has(outputSummaryKey) ||
+                validationFocus?.sectionKey === outputSection.key;
+            const outputFocused = focusedPortKeys.has(outputSummaryKey) || outputValidationFocused;
+            const outputHovered = (hovered === node.id && hoveredPortKey === outputSection.summaryPort.key) ||
+                outputFocused ||
+                draggingPortKey === outputSection.summaryPort.key;
+            this.drawSummarySocket(
+                outputSection,
+                outputHovered,
+                portConnectivity.summaryPortKeys.has(outputSummaryKey) || draggingPortKey === outputSection.summaryPort.key,
+                outputValidationFocused ? validationFocus?.severity ?? null : null,
+            );
+        }
+
+        this.ctx.restore();
     }
 
     private drawChannelSection(
@@ -736,6 +928,33 @@ export class CanvasWrapper {
         return gradient;
     }
 
+    private createCollectionIteratorGradient(node: RenderedNode, resolved: boolean): CanvasGradient {
+        const gradient = this.ctx.createLinearGradient(node.x, node.y, node.x + node.width, node.y + node.height);
+        if (resolved) {
+            gradient.addColorStop(0, '#fbfdff');
+            gradient.addColorStop(1, '#eef5ff');
+        } else {
+            gradient.addColorStop(0, CanvasWrapper.theme.surface);
+            gradient.addColorStop(1, CanvasWrapper.theme.surfaceAlt);
+        }
+
+        return gradient;
+    }
+
+    private collectionIteratorOperatorPath(x: number, y: number, width: number, height: number): void {
+        const chamfer = Math.min(22, width * 0.11, height * 0.32);
+        const centerY = y + height / 2;
+
+        this.ctx.beginPath();
+        this.ctx.moveTo(x + chamfer, y);
+        this.ctx.lineTo(x + width - chamfer, y);
+        this.ctx.lineTo(x + width, centerY);
+        this.ctx.lineTo(x + width - chamfer, y + height);
+        this.ctx.lineTo(x + chamfer, y + height);
+        this.ctx.lineTo(x, centerY);
+        this.ctx.closePath();
+    }
+
     private drawTaskPluginIcon(x: number, y: number, width: number, height: number, color: string): void {
         const centerX = x + width / 2;
         const centerY = y + height / 2;
@@ -752,6 +971,44 @@ export class CanvasWrapper {
             this.drawFallbackPuzzleIcon(centerX, centerY, color);
         }
 
+        this.ctx.restore();
+    }
+
+    private drawCollectionIteratorIcon(x: number, y: number, size: number, color: string): void {
+        const centerX = x + size / 2;
+        const centerY = y + size / 2;
+
+        this.ctx.save();
+        this.ctx.fillStyle = color;
+        this.ctx.strokeStyle = color;
+
+        if (this.materialIconReady) {
+            this.ctx.font = `400 ${Math.round(size + 2)}px ${CanvasWrapper.materialIconFontFamily}`;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText('call_split', centerX, centerY + 0.5);
+            this.ctx.restore();
+            return;
+        }
+
+        this.ctx.lineWidth = 1.7;
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+        this.ctx.beginPath();
+        this.ctx.moveTo(x + 2.5, centerY);
+        this.ctx.lineTo(centerX - 1, centerY);
+        this.ctx.lineTo(x + size - 3, y + 4);
+        this.ctx.moveTo(centerX - 1, centerY);
+        this.ctx.lineTo(x + size - 3, y + size - 4);
+        this.ctx.stroke();
+
+        this.ctx.lineWidth = 1.2;
+        this.ctx.beginPath();
+        this.ctx.moveTo(x + 1.5, y + 3);
+        this.ctx.lineTo(x + 1.5, y + size - 3);
+        this.ctx.moveTo(x + size - 1.5, y + 3);
+        this.ctx.lineTo(x + size - 1.5, y + size - 3);
+        this.ctx.stroke();
         this.ctx.restore();
     }
 

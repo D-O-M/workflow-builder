@@ -330,9 +330,10 @@ export class BlueprintEditorService {
   private createCollectionIteratorNodeModel(
     id: number,
     coordinates: Point,
-    itemKind: TaskPropertyBaseType,
+    itemKind: TaskPropertyBaseType | null,
   ): NodeModel {
-    const collectionKind: TaskPropertyType = `${itemKind}[]`;
+    const concreteItemKind = itemKind ?? 'String';
+    const collectionKind: TaskPropertyType = `${concreteItemKind}[]`;
     return new NodeModel(
       id,
       0,
@@ -343,15 +344,15 @@ export class BlueprintEditorService {
       'Collection Iterator',
       coordinates.x,
       coordinates.y,
-      320,
-      220,
+      NodeModel.collectionIteratorOperatorWidth,
+      NodeModel.collectionIteratorOperatorHeight,
       'Collection',
       ['Item'],
       false,
       null,
       null,
       { items: collectionKind },
-      { Item: { item: itemKind } },
+      { Item: { item: concreteItemKind } },
       {},
       [{
         name: 'items',
@@ -364,7 +365,7 @@ export class BlueprintEditorService {
       {
         Item: [{
           name: 'item',
-          kind: itemKind,
+          kind: concreteItemKind,
           required: true,
           enumValues: [],
         }],
@@ -664,7 +665,7 @@ export class BlueprintEditorService {
       : taskDefinition.name;
   }
 
-  private normalizeCollectionIteratorItemKind(kind: TaskPropertyBaseType | null | undefined): TaskPropertyBaseType {
+  private normalizeCollectionIteratorItemKind(kind: TaskPropertyBaseType | null | undefined): TaskPropertyBaseType | null {
     const supported: readonly TaskPropertyBaseType[] = [
       'String',
       'Integer',
@@ -676,7 +677,7 @@ export class BlueprintEditorService {
       'Enum',
     ];
 
-    return kind && supported.includes(kind) ? kind : 'String';
+    return kind && supported.includes(kind) ? kind : null;
   }
 
   private clonePropertyDefinitions(properties: ITaskChannel['properties']): ITaskChannel['properties'] {

@@ -15,6 +15,7 @@ export interface Rect {
 export type Side = 'left' | 'right' | 'top' | 'bottom';
 export type NodeRenderStatus = 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
 export type NodeKind = 'PluginTask' | 'CollectionIterator';
+export type NodeVisualKind = 'TaskCard' | 'CollectionIteratorOperator';
 export type TaskPropertyBaseType = 'String' | 'Integer' | 'Decimal' | 'Boolean' | 'Guid' | 'Date' | 'DateTime' | 'Enum';
 export type TaskPropertyType = TaskPropertyBaseType | `${TaskPropertyBaseType}[]`;
 
@@ -86,6 +87,8 @@ export interface NodeLayout {
 
 export class NodeModel {
     static buffer = 20;
+    static readonly collectionIteratorOperatorWidth = 240;
+    static readonly collectionIteratorOperatorHeight = 112;
 
     private static readonly titleAreaHeight = 60;
     private static readonly sectionHeaderHeight = 30;
@@ -222,6 +225,11 @@ export class NodeModel {
     }
 
     layoutForState(expanded: boolean): NodeLayout {
+        if (this.isCollectionIteratorOperator) {
+            this.collapsedLayoutCache ??= this.buildCollectionIteratorOperatorLayout();
+            return this.collapsedLayoutCache;
+        }
+
         if (expanded) {
             this.expandedLayoutCache ??= this.buildLayout(true);
             return this.expandedLayoutCache;
@@ -232,6 +240,10 @@ export class NodeModel {
     }
 
     layoutForExpandedSections(expandedSectionKeys: ReadonlySet<string>): NodeLayout {
+        if (this.isCollectionIteratorOperator) {
+            return this.layoutForState(false);
+        }
+
         if (expandedSectionKeys.size === 0) {
             return this.layoutForState(false);
         }
@@ -491,6 +503,36 @@ export class NodeModel {
         return this.channelLabel(this.inputChannelName, this.inputChannelDisplayName);
     }
 
+    get visualKind(): NodeVisualKind {
+        return this.nodeKind === 'CollectionIterator'
+            ? 'CollectionIteratorOperator'
+            : 'TaskCard';
+    }
+
+    get isCollectionIteratorOperator(): boolean {
+        return this.visualKind === 'CollectionIteratorOperator';
+    }
+
+    get collectionIteratorResolved(): boolean {
+        return this.nodeKind === 'CollectionIterator' && this.collectionIteratorItemKind !== null;
+    }
+
+    get collectionIteratorInputDisplayKind(): string {
+        return this.nodeKind === 'CollectionIterator' && this.collectionIteratorItemKind
+            ? `${this.collectionIteratorItemKind}[]`
+            : 'T[]';
+    }
+
+    get collectionIteratorItemDisplayKind(): string {
+        return this.nodeKind === 'CollectionIterator' && this.collectionIteratorItemKind
+            ? this.collectionIteratorItemKind
+            : 'T';
+    }
+
+    get collectionIteratorEquation(): string {
+        return `${this.collectionIteratorInputDisplayKind} -> ${this.collectionIteratorItemDisplayKind}`;
+    }
+
     designTimeOverrideKeys(): string[] {
         return Object.keys(this.designTimeInputOverrides).sort((left, right) => left.localeCompare(right));
     }
@@ -560,6 +602,106 @@ export class NodeModel {
             outputSections,
             summaryPorts,
             propertyPorts,
+        };
+    }
+
+    private buildCollectionIteratorOperatorLayout(): NodeLayout {
+        const totalHeight = NodeModel.collectionIteratorOperatorHeight;
+        const centerY = this.y + totalHeight / 2;
+        const operatorHeaderHeight = 40;
+        const sectionTop = centerY - operatorHeaderHeight / 2;
+        const toggleRect = {
+            x: this.x + this.width - NodeModel.toggleSize - 12,
+            y: this.y + 10,
+            width: NodeModel.toggleSize,
+            height: NodeModel.toggleSize,
+        };
+        const inputSection = this.buildOperatorSection(
+            'Collection',
+            'Collection',
+            'left',
+            sectionTop,
+            operatorHeaderHeight,
+            0,
+            this.collectionIteratorInputDisplayKind,
+        );
+        const outputSection = this.buildOperatorSection(
+            'Item',
+            'Item',
+            'right',
+            sectionTop,
+            operatorHeaderHeight,
+            1,
+            this.collectionIteratorItemDisplayKind,
+        );
+
+        return {
+            totalHeight,
+            titleBaseline: this.y + 78,
+            versionBaseline: this.y + 94,
+            titleMaxWidth: this.width - 44,
+            toggleRect,
+            inputSection,
+            outputSections: [outputSection],
+            summaryPorts: [inputSection.summaryPort, outputSection.summaryPort],
+            propertyPorts: [],
+        };
+    }
+
+    private buildOperatorSection(
+        channelName: string,
+        channelLabel: string,
+        side: 'left' | 'right',
+        top: number,
+        headerHeight: number,
+        anchorIndex: number,
+        countLabel: string,
+    ): NodeChannelSectionLayout {
+        const centerY = top + headerHeight / 2;
+        const summarySocketSize = NodeModel.summarySocketSize(headerHeight);
+        const summarySocketRect = NodeModel.summarySocketRect(this.x, this.width, side, centerY, summarySocketSize);
+        const summaryPortX = side === 'left'
+            ? this.x
+            : this.x + this.width;
+        const summaryPort: NodePortDefinition = {
+            key: `${side}:${channelName}:summary`,
+            kind: side === 'left' ? 'input-summary' : 'output-summary',
+            anchorIndex,
+            channelName,
+            channelLabel,
+            propertyName: null,
+            label: channelLabel,
+            side,
+            x: summaryPortX,
+            y: centerY,
+            radius: NodeModel.summaryPortRadius,
+            visualBounds: summarySocketRect,
+            hitBounds: NodeModel.inflateRect(
+                summarySocketRect,
+                NodeModel.summarySocketHitPaddingX,
+                NodeModel.summarySocketHitPaddingY,
+            ),
+        };
+
+        return {
+            key: this.sectionKey(side, channelName),
+            name: channelName,
+            label: channelLabel,
+            countLabel,
+            side,
+            expanded: false,
+            top,
+            headerTop: top,
+            headerHeight,
+            toggleRect: {
+                x: this.x + this.width - NodeModel.toggleSize - 18,
+                y: top + (headerHeight - NodeModel.toggleSize) / 2,
+                width: NodeModel.toggleSize,
+                height: NodeModel.toggleSize,
+            },
+            bottom: top + headerHeight,
+            summaryPort,
+            propertyRows: [],
         };
     }
 
@@ -733,6 +875,10 @@ export class NodeModel {
     }
 
     private allSectionKeys(): string[] {
+        if (this.isCollectionIteratorOperator) {
+            return [];
+        }
+
         return [
             ...(this.inputChannelName ? [this.sectionKey('left', this.inputChannelName)] : []),
             ...this.outputChannelNames.map((channelName) => this.sectionKey('right', channelName)),
