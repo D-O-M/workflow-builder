@@ -48,6 +48,7 @@ export interface NodePropertyRow {
     name: string;
     label: string;
     kind: TaskPropertyType;
+    displayKind: string;
     required: boolean;
     top: number;
     height: number;
@@ -661,6 +662,7 @@ export class NodeModel {
                 name: property.name,
                 label: property.name,
                 kind: property.kind,
+                displayKind: this.propertyDisplayKind(side, channelName, property),
                 required: property.required,
                 top: cursorY,
                 height: NodeModel.propertyRowHeight,
@@ -753,6 +755,26 @@ export class NodeModel {
 
     private outputChannelLabel(channelName: string, outputIndex: number): string {
         return this.channelLabel(channelName, this.outputChannelDisplayNames[outputIndex] ?? null) ?? channelName;
+    }
+
+    private propertyDisplayKind(
+        side: 'left' | 'right',
+        channelName: string,
+        property: ITaskPropertyDefinition,
+    ): string {
+        if (this.nodeKind !== 'CollectionIterator' || this.collectionIteratorItemKind !== null) {
+            return property.kind;
+        }
+
+        if (side === 'left' && channelName === 'Collection' && property.name === 'items') {
+            return 'T[]';
+        }
+
+        if (side === 'right' && channelName === 'Item' && property.name === 'item') {
+            return 'T';
+        }
+
+        return property.kind;
     }
 
     private channelLabel(name: string | null, displayName: string | null | undefined): string | null {

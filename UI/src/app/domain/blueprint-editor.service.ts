@@ -436,7 +436,7 @@ export class BlueprintEditorService {
       instanceId: instanceIdByNodeId.get(n.id)!,
       nodeKind: n.nodeKind,
       taskDefinitionId: n.nodeKind === 'PluginTask' ? n.taskDefinitionId : null,
-      collectionIteratorItemKind: n.nodeKind === 'CollectionIterator' ? n.collectionIteratorItemKind ?? 'String' : null,
+      collectionIteratorItemKind: n.nodeKind === 'CollectionIterator' ? n.collectionIteratorItemKind : null,
       allowedMajor: n.allowedMajor,
       allowedMinor: n.allowedMinor,
       position: { x: n.x, y: n.y },

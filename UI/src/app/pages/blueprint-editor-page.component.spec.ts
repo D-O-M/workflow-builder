@@ -647,8 +647,7 @@ describe('BlueprintEditorPageComponent', () => {
 
     expect(store.nodes().length).toBe(1);
     expect(store.nodes()[0].name).toBe('Collection Iterator');
-    expect(store.nodes()[0].inputProperties['items']).toBe('String[]');
-    expect(store.nodes()[0].outputChannelProperties['Item']['item']).toBe('String');
+    expect(store.nodes()[0].collectionIteratorItemKind).toBeNull();
   });
 
   it('switches drawer overlay metadata based on viewport size', () => {

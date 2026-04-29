@@ -632,7 +632,7 @@ export class CanvasWrapper {
                     this.ctx.stroke();
                 }
 
-                const propertyType = row.kind.toUpperCase();
+                const propertyType = row.displayKind.toUpperCase();
                 this.setFont(600, 8.5);
                 const propertyTypeWidth = this.ctx.measureText(propertyType).width;
                 const propertyTypeX = node.x + node.width - 36 - propertyTypeWidth;

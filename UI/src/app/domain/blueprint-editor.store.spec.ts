@@ -135,6 +135,30 @@ function createMappingTargetTaskDefinition(): ITaskDefinition {
   };
 }
 
+function createCollectionSourceTaskDefinition(collectionKind: ITaskPropertyDefinition['kind']): ITaskDefinition {
+  return {
+    id: 42,
+    name: 'Collection Source',
+    versions: [
+      {
+        id: 420,
+        version: '1.0.0',
+        state: 'Active',
+        description: 'Collection source',
+        requiredGlobalState: null,
+        inputChannel: null,
+        outputChannels: [
+          {
+            id: 4210,
+            name: 'Success',
+            properties: [property('ids', collectionKind)],
+          },
+        ],
+      },
+    ],
+  };
+}
+
 describe('BlueprintEditorStore', () => {
   it('creates new nodes on the latest available semantic version', () => {
     const store = new BlueprintEditorStore();
@@ -143,6 +167,49 @@ describe('BlueprintEditorStore', () => {
     expect(node.resolvedVersion).toBe('2.0.0');
     expect(node.allowedMajor).toBe(2);
     expect(node.allowedMinor).toBe(0);
+  });
+
+  it('shows Collection Iterator ports as generic until a collection input is mapped', () => {
+    const store = new BlueprintEditorStore();
+    const iterator = store.createCollectionIteratorNode({ x: 0, y: 0 });
+    const layout = iterator.layoutForExpandedSections(new Set(['left:Collection', 'right:Item']));
+
+    expect(iterator.collectionIteratorItemKind).toBeNull();
+    expect(layout.inputSection?.propertyRows[0]?.displayKind).toBe('T[]');
+    expect(layout.outputSections[0]?.propertyRows[0]?.displayKind).toBe('T');
+  });
+
+  it('retunes Collection Iterator ports from the mapped collection type', () => {
+    const store = new BlueprintEditorStore();
+    const source = store.createNode(createCollectionSourceTaskDefinition('Guid[]'), { x: 0, y: 0 });
+    const iterator = store.createCollectionIteratorNode({ x: 420, y: 0 });
+
+    const connection = store.createConnection(
+      source.id,
+      iterator.id,
+      source.outputAnchors()[0]!.index,
+      'left',
+      iterator.inputAnchorSnap()!.pos,
+    )!;
+
+    const tunedIterator = store.nodes().find((node) => node.id === iterator.id)!;
+    const tunedLayout = tunedIterator.layoutForExpandedSections(new Set(['left:Collection', 'right:Item']));
+
+    expect(tunedIterator.collectionIteratorItemKind).toBe('Guid');
+    expect(tunedIterator.inputProperties['items']).toBe('Guid[]');
+    expect(tunedIterator.outputChannelProperties['Item']['item']).toBe('Guid');
+    expect(tunedLayout.inputSection?.propertyRows[0]?.displayKind).toBe('Guid[]');
+    expect(tunedLayout.outputSections[0]?.propertyRows[0]?.displayKind).toBe('Guid');
+
+    store.selectOnlyConnection(connection.id);
+    store.deleteSelection();
+
+    const resetIterator = store.nodes().find((node) => node.id === iterator.id)!;
+    const resetLayout = resetIterator.layoutForExpandedSections(new Set(['left:Collection', 'right:Item']));
+
+    expect(resetIterator.collectionIteratorItemKind).toBeNull();
+    expect(resetLayout.inputSection?.propertyRows[0]?.displayKind).toBe('T[]');
+    expect(resetLayout.outputSections[0]?.propertyRows[0]?.displayKind).toBe('T');
   });
 
   it('preserves compatible mappings and static overrides when changing patch versions', () => {

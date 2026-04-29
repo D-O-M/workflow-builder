@@ -138,6 +138,7 @@ export class BlueprintEditorStore {
   loadGraph(nodes: NodeModel[], connections: ConnectionModel[]): void {
     this._nodes.set(nodes);
     this._connections.set(this.rebindConnections(connections, nodes));
+    this.retuneCollectionIteratorNodes();
     this._selectedNodeIds.set([]);
     this._selectedConnectionIds.set([]);
     this._history.set([]);
@@ -196,7 +197,7 @@ export class BlueprintEditorStore {
       this.allocateNodeId(),
       this.snap(coordinates.x),
       this.snap(coordinates.y),
-      'String',
+      null,
     );
 
     this._nodes.update((nodes) => [...nodes, node]);
@@ -445,6 +446,7 @@ export class BlueprintEditorStore {
     this._selectedConnectionIds.set(this._selectedConnectionIds().filter((connectionId) =>
       nextConnections.some((connection) => connection.id === connectionId),
     ));
+    this.retuneCollectionIteratorNodes();
   }
 
   updateConnectionPropertyMappings(connectionId: string, propertyMappings: ConnectionPropertyMappingModel[]): void {
@@ -558,6 +560,7 @@ export class BlueprintEditorStore {
 
     this._nodes.set(remainingNodes);
     this._connections.set(this.rebindConnections(remainingConnections, remainingNodes));
+    this.retuneCollectionIteratorNodes();
     this.clearSelection();
   }
 
@@ -882,26 +885,27 @@ export class BlueprintEditorStore {
     nodeId: number,
     x: number,
     y: number,
-    itemKind: TaskPropertyBaseType,
+    itemKind: TaskPropertyBaseType | null,
   ): NodeModel {
+    const concreteItemKind = itemKind ?? 'String';
     const inputProperties: Record<string, TaskPropertyType> = {
-      items: `${itemKind}[]`,
+      items: `${concreteItemKind}[]`,
     };
     const outputChannelProperties: Record<string, Record<string, TaskPropertyType>> = {
       Item: {
-        item: itemKind,
+        item: concreteItemKind,
       },
     };
     const inputPropertyDefinitions: ITaskPropertyDefinition[] = [{
       name: 'items',
-      kind: `${itemKind}[]`,
+      kind: `${concreteItemKind}[]`,
       required: true,
       enumValues: [],
     }];
     const outputChannelPropertyDefinitions: Record<string, ITaskPropertyDefinition[]> = {
       Item: [{
         name: 'item',
-        kind: itemKind,
+        kind: concreteItemKind,
         required: true,
         enumValues: [],
       }],
@@ -1151,7 +1155,7 @@ export class BlueprintEditorStore {
       const incomingCollectionKind = this.collectionKindFromIncomingMappings(node.id);
       const itemKind = incomingCollectionKind
         ? this.toScalarKind(incomingCollectionKind)
-        : node.collectionIteratorItemKind ?? 'String';
+        : null;
       if (itemKind === node.collectionIteratorItemKind) {
         return node;
       }
