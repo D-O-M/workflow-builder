@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { ConnectionModel, ConnectionPropertyMappingModel } from './connection-model';
-import { NodeModel, Point, Side, TaskPropertyType } from './node-model';
+import { NodeKind, NodeModel, Point, Side, TaskPropertyBaseType, TaskPropertyType } from './node-model';
 import { ITaskChannel, ITaskDefinition } from '../interfaces/ITaskDefinition';
 import { taskPropertyKindMap } from './task-property-form-utils';
 import { compareTaskVersions, getTaskVersionLane } from './task-version-utils';
@@ -24,7 +24,9 @@ interface BlueprintConnectionInputModel {
 
 interface BlueprintNodeInputModel {
   instanceId: string;
-  taskDefinitionId: number;
+  nodeKind: NodeKind;
+  taskDefinitionId?: number | null;
+  collectionIteratorItemKind?: TaskPropertyBaseType | null;
   allowedMajor: number;
   allowedMinor: number;
   position: CoordinatesViewModel;
@@ -59,7 +61,9 @@ interface BlueprintConnectionViewModel {
 
 interface BlueprintNodeViewModel {
   instanceId: string;
-  taskDefinitionId: number;
+  nodeKind?: NodeKind | null;
+  taskDefinitionId?: number | null;
+  collectionIteratorItemKind?: TaskPropertyBaseType | null;
   allowedMajor: number;
   allowedMinor: number;
   resolvedVersionId: number;
@@ -189,6 +193,9 @@ export interface ProcessSearchPageViewModel {
 
 export interface ProcessStepViewModel {
   instanceId: string;
+  nodeKind?: NodeKind | null;
+  collectionIteratorItemKind?: TaskPropertyBaseType | null;
+  runtimeStepCount?: number;
   taskDefinitionId: number;
   allowedMajor: number;
   allowedMinor: number;
@@ -222,6 +229,9 @@ export interface ProcessDetailViewModel {
 export interface ProcessStepDetailViewModel {
   blueprintNodeId: string;
   name: string;
+  nodeKind?: NodeKind | null;
+  collectionIteratorItemKind?: TaskPropertyBaseType | null;
+  runtimeStepCount?: number;
   status: 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   resolvedVersion?: string | null;
   startedAt?: string | null;
@@ -233,6 +243,16 @@ export interface ProcessStepDetailViewModel {
   incomingMappings: ProcessStepIncomingMappingViewModel[];
   designTimeInputOverrides?: unknown | null;
   runtimeOverrides?: unknown | null;
+  iterations?: ProcessStepIterationViewModel[];
+}
+
+export interface ProcessStepIterationViewModel {
+  runtimeStepId: string;
+  sourceIteratorStepId: string;
+  sourceIteratorBlueprintNodeId: string;
+  itemIndex: number;
+  itemKey: string;
+  status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
 }
 
 export interface ProcessStepIncomingMappingViewModel {
@@ -272,6 +292,8 @@ export class BlueprintEditorService {
     designTimeInputOverrides: Record<string, unknown>,
     inputPropertyDefinitions: ITaskChannel['properties'],
     snap?: (v: number) => number,
+    nodeKind: NodeKind = 'PluginTask',
+    collectionIteratorItemKind: TaskPropertyBaseType | null = null,
   ): NodeModel {
     const y = snap ? snap(coordinates.y) : coordinates.y;
     const outputCount = Math.max(outputChannelNames.length, 1);
@@ -299,6 +321,57 @@ export class BlueprintEditorService {
       inputChannelDisplayName,
       [...outputChannelDisplayNames],
       this.cloneOutputChannelPropertyDefinitions(outputChannelPropertyDefinitions),
+      false,
+      nodeKind,
+      collectionIteratorItemKind,
+    );
+  }
+
+  private createCollectionIteratorNodeModel(
+    id: number,
+    coordinates: Point,
+    itemKind: TaskPropertyBaseType,
+  ): NodeModel {
+    const collectionKind: TaskPropertyType = `${itemKind}[]`;
+    return new NodeModel(
+      id,
+      0,
+      0,
+      0,
+      0,
+      'Native',
+      'Collection Iterator',
+      coordinates.x,
+      coordinates.y,
+      320,
+      220,
+      'Collection',
+      ['Item'],
+      false,
+      null,
+      null,
+      { items: collectionKind },
+      { Item: { item: itemKind } },
+      {},
+      [{
+        name: 'items',
+        kind: collectionKind,
+        required: true,
+        enumValues: [],
+      }],
+      'Collection',
+      ['Item'],
+      {
+        Item: [{
+          name: 'item',
+          kind: itemKind,
+          required: true,
+          enumValues: [],
+        }],
+      },
+      false,
+      'CollectionIterator',
+      itemKind,
     );
   }
 
@@ -361,7 +434,9 @@ export class BlueprintEditorService {
 
     const tasks: BlueprintNodeInputModel[] = nodes.map((n) => ({
       instanceId: instanceIdByNodeId.get(n.id)!,
-      taskDefinitionId: n.taskDefinitionId,
+      nodeKind: n.nodeKind,
+      taskDefinitionId: n.nodeKind === 'PluginTask' ? n.taskDefinitionId : null,
+      collectionIteratorItemKind: n.nodeKind === 'CollectionIterator' ? n.collectionIteratorItemKind ?? 'String' : null,
       allowedMajor: n.allowedMajor,
       allowedMinor: n.allowedMinor,
       position: { x: n.x, y: n.y },
@@ -387,7 +462,7 @@ export class BlueprintEditorService {
         ?? sourceTaskVersion?.outputChannels[0];
       source.outgoingConnections.push({
         channelId: null,
-        channelName: defaultOutputChannel?.name ?? null,
+        channelName: anchorChannelName ?? defaultOutputChannel?.name ?? null,
         connectedBlueprintNodeId: instanceIdByNodeId.get(c.to.id)!,
         anchor: c.anchor,
         side: c.side,
@@ -426,18 +501,27 @@ export class BlueprintEditorService {
         }
 
         const nodes = version.tasks.map((task, index) => {
-          const taskDefinition = taskDefinitionById.get(task.taskDefinitionId);
+          if (task.nodeKind === 'CollectionIterator') {
+            return this.createCollectionIteratorNodeModel(
+              index + 1,
+              task.position,
+              this.normalizeCollectionIteratorItemKind(task.collectionIteratorItemKind),
+            );
+          }
+
+          const taskDefinitionId = task.taskDefinitionId ?? 0;
+          const taskDefinition = taskDefinitionById.get(taskDefinitionId);
           const taskVersion = taskDefinition
             ? this.resolveVersionForLane(taskDefinition, task.allowedMajor, task.allowedMinor, task.resolvedVersionId)
             : null;
           return this.createNodeModel(
             index + 1,
-            task.taskDefinitionId,
+            taskDefinitionId,
             task.allowedMajor,
             task.allowedMinor,
             taskVersion?.id ?? task.resolvedVersionId,
             taskVersion?.version ?? task.resolvedVersion ?? null,
-            taskDefinition ? this.taskDefinitionDisplayName(taskDefinition) : `Task ${task.taskDefinitionId}`,
+            taskDefinition ? this.taskDefinitionDisplayName(taskDefinition) : `Task ${taskDefinitionId}`,
             task.position,
             taskVersion?.inputChannel?.name ?? null,
             taskVersion?.outputChannels.map((channel) => channel.name) ?? [],
@@ -578,6 +662,21 @@ export class BlueprintEditorService {
     return displayName && displayName.length > 0
       ? displayName
       : taskDefinition.name;
+  }
+
+  private normalizeCollectionIteratorItemKind(kind: TaskPropertyBaseType | null | undefined): TaskPropertyBaseType {
+    const supported: readonly TaskPropertyBaseType[] = [
+      'String',
+      'Integer',
+      'Decimal',
+      'Boolean',
+      'Guid',
+      'Date',
+      'DateTime',
+      'Enum',
+    ];
+
+    return kind && supported.includes(kind) ? kind : 'String';
   }
 
   private clonePropertyDefinitions(properties: ITaskChannel['properties']): ITaskChannel['properties'] {

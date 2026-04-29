@@ -20,7 +20,8 @@ export function createTaskPropertyFieldDefinitions(
       label: formatTaskPropertyLabel(property.name),
       kind: toTaskPropertyFieldKind(property.kind),
       required: required && property.required,
-      options: property.kind === 'Enum' ? [...property.enumValues] : undefined,
+      options: scalarTaskPropertyKind(property.kind) === 'Enum' ? [...property.enumValues] : undefined,
+      propertyType: property.kind,
     }));
 }
 
@@ -75,6 +76,11 @@ export function createTaskPropertyControl(
         nonNullable: true,
         validators,
       });
+    case 'array':
+      return new FormControl(normalizeArrayEditorValue(initialValue), {
+        nonNullable: true,
+        validators,
+      });
     case 'guid':
       return new FormControl(normalizeStringValue(initialValue), {
         nonNullable: true,
@@ -113,6 +119,8 @@ export function serializeTaskPropertyControlValue(
       return normalizeDateValue(value);
     case 'datetime':
       return normalizeDateTimeValue(value);
+    case 'array':
+      return normalizeArrayOutputValue(value);
     default:
       return normalizeStringValue(value);
   }
@@ -177,6 +185,10 @@ export function taskPropertyValidationMessage(
     return `Choose one of the available ${field.label} options.`;
   }
 
+  if (errors['array']) {
+    return `${field.label} must be a JSON array whose items match ${scalarTaskPropertyKind(field.propertyType ?? 'String')}.`;
+  }
+
   return `${field.label} is invalid.`;
 }
 
@@ -194,6 +206,8 @@ export function taskPropertyInputHint(field: DynamicFieldDefinition, optionalHin
       return 'Choose a calendar date and local time.';
     case 'enum':
       return field.options?.length ? 'Choose one of the available options.' : optionalHint;
+    case 'array':
+      return 'Enter a JSON array.';
     default:
       return optionalHint;
   }
@@ -215,12 +229,18 @@ export function taskPropertyKindLabel(kind: DynamicFieldDefinition['kind']): str
       return 'Date & time';
     case 'enum':
       return 'Option list';
+    case 'array':
+      return 'Collection';
     default:
       return 'String';
   }
 }
 
 function toTaskPropertyFieldKind(type: TaskPropertyType): DynamicFieldDefinition['kind'] {
+  if (isCollectionTaskPropertyKind(type)) {
+    return 'array';
+  }
+
   switch (type) {
     case 'Integer':
       return 'integer';
@@ -265,6 +285,9 @@ function createTaskPropertyValidators(field: DynamicFieldDefinition): ValidatorF
       break;
     case 'enum':
       validators.push(optionalAwareValidator('enum', (value) => isValidEnumValue(value, field.options ?? [])));
+      break;
+    case 'array':
+      validators.push(optionalAwareValidator('array', (value) => isValidArrayValue(value, field)));
       break;
   }
 
@@ -390,6 +413,31 @@ function normalizeStringValue(value: unknown): string {
   return String(value);
 }
 
+function normalizeArrayEditorValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return JSON.stringify(value, null, 2);
+  }
+
+  return normalizeStringValue(value);
+}
+
+function normalizeArrayOutputValue(value: unknown): unknown[] | null {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function isBlankValue(value: unknown): boolean {
   return value === null || value === undefined || (typeof value === 'string' && value.trim().length === 0);
 }
@@ -425,6 +473,47 @@ function isValidEnumValue(value: unknown, options: string[]): boolean {
   }
 
   return options.length === 0 || options.includes(value);
+}
+
+function isValidArrayValue(value: unknown, field: DynamicFieldDefinition): boolean {
+  const parsed = normalizeArrayOutputValue(value);
+  if (!Array.isArray(parsed)) {
+    return false;
+  }
+
+  const scalarKind = scalarTaskPropertyKind(field.propertyType ?? 'String');
+  return parsed.every((item) => isValidArrayItemValue(item, scalarKind, field.options ?? []));
+}
+
+function isValidArrayItemValue(value: unknown, scalarKind: Exclude<TaskPropertyType, `${string}[]`>, options: string[]): boolean {
+  switch (scalarKind) {
+    case 'Integer':
+      return isValidIntegerValue(value);
+    case 'Decimal':
+      return isValidDecimalValue(value);
+    case 'Boolean':
+      return isValidBooleanValue(value);
+    case 'Guid':
+      return isValidGuidValue(value);
+    case 'Date':
+      return isValidDateValue(value);
+    case 'DateTime':
+      return isValidDateTimeValue(value);
+    case 'Enum':
+      return isValidEnumValue(value, options);
+    default:
+      return typeof value === 'string';
+  }
+}
+
+function isCollectionTaskPropertyKind(type: TaskPropertyType): type is `${Exclude<TaskPropertyType, `${string}[]`>}[]` {
+  return type.endsWith('[]');
+}
+
+function scalarTaskPropertyKind(type: TaskPropertyType): Exclude<TaskPropertyType, `${string}[]`> {
+  return isCollectionTaskPropertyKind(type)
+    ? type.slice(0, -2) as Exclude<TaskPropertyType, `${string}[]`>
+    : type;
 }
 
 function isValidDateValue(value: unknown): boolean {

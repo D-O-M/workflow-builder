@@ -1,12 +1,14 @@
 import { Injectable, computed, signal } from '@angular/core';
 import { ConnectionModel, ConnectionPropertyMappingModel } from './connection-model';
-import { NodeModel, Point } from './node-model';
+import { NodeModel, Point, TaskPropertyBaseType, TaskPropertyType } from './node-model';
 import { ITaskDefinition, ITaskPropertyDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
 import { normalizeTaskPropertyDefinitions, taskPropertyKindMap } from './task-property-form-utils';
 import { getLatestTaskVersion, getTaskVersionLane } from './task-version-utils';
 
 interface GraphNodeSnapshot {
   id: number;
+  nodeKind: NodeModel['nodeKind'];
+  collectionIteratorItemKind: TaskPropertyBaseType | null;
   taskDefinitionId: number;
   allowedMajor: number;
   allowedMinor: number;
@@ -188,6 +190,21 @@ export class BlueprintEditorStore {
     return node;
   }
 
+  createCollectionIteratorNode(coordinates: Point): NodeModel {
+    this.captureHistory();
+    const node = this.createCollectionIteratorNodeModel(
+      this.allocateNodeId(),
+      this.snap(coordinates.x),
+      this.snap(coordinates.y),
+      'String',
+    );
+
+    this._nodes.update((nodes) => [...nodes, node]);
+    this._selectedNodeIds.set([node.id]);
+    this._selectedConnectionIds.set([]);
+    return node;
+  }
+
   updateNodePositions(updates: NodePositionUpdate[]): void {
     if (updates.length === 0) {
       return;
@@ -224,6 +241,9 @@ export class BlueprintEditorStore {
         node.inputChannelDisplayName,
         [...node.outputChannelDisplayNames],
         this.cloneOutputChannelPropertyDefinitions(node.outputChannelPropertyDefinitions),
+        node.expanded,
+        node.nodeKind,
+        node.collectionIteratorItemKind,
       );
     });
 
@@ -259,9 +279,10 @@ export class BlueprintEditorStore {
     const defaultMappings = this.getDefaultConnectionMappings(from, to, anchor);
     const connection = new ConnectionModel(from, to, anchor, side, this.snap(position), crypto.randomUUID(), defaultMappings);
     this._connections.update((connections) => [...connections, connection]);
+    this.retuneCollectionIteratorNodes();
     this._selectedNodeIds.set([]);
     this._selectedConnectionIds.set([connection.id]);
-    return connection;
+    return this._connections().find((candidate) => candidate.id === connection.id) ?? connection;
   }
 
   updateNodeDesignTimeOverrides(nodeId: number, overrides: Record<string, unknown>): void {
@@ -298,6 +319,9 @@ export class BlueprintEditorStore {
             candidate.inputChannelDisplayName,
             [...candidate.outputChannelDisplayNames],
             this.cloneOutputChannelPropertyDefinitions(candidate.outputChannelPropertyDefinitions),
+            candidate.expanded,
+            candidate.nodeKind,
+            candidate.collectionIteratorItemKind,
           ),
     ));
     this._connections.set(this.rebindConnections(this._connections(), this._nodes()));
@@ -443,6 +467,7 @@ export class BlueprintEditorStore {
           propertyMappings.map((mapping) => ({ ...mapping })),
         ),
     ));
+    this.retuneCollectionIteratorNodes();
   }
 
   selectOnlyNode(nodeId: number | null): void {
@@ -594,6 +619,9 @@ export class BlueprintEditorStore {
         nodeSnapshot.inputChannelDisplayName,
         [...nodeSnapshot.outputChannelDisplayNames],
         this.cloneOutputChannelPropertyDefinitions(nodeSnapshot.outputChannelPropertyDefinitions),
+        false,
+        nodeSnapshot.nodeKind,
+        nodeSnapshot.collectionIteratorItemKind,
       ));
     }
 
@@ -707,6 +735,8 @@ export class BlueprintEditorStore {
   private snapshotNode(node: NodeModel): GraphNodeSnapshot {
     return {
       id: node.id,
+      nodeKind: node.nodeKind,
+      collectionIteratorItemKind: node.collectionIteratorItemKind,
       taskDefinitionId: node.taskDefinitionId,
       allowedMajor: node.allowedMajor,
       allowedMinor: node.allowedMinor,
@@ -771,6 +801,9 @@ export class BlueprintEditorStore {
       node.inputChannelDisplayName,
       [...node.outputChannelDisplayNames],
       this.cloneOutputChannelPropertyDefinitions(node.outputChannelPropertyDefinitions),
+      false,
+      node.nodeKind,
+      node.collectionIteratorItemKind,
     );
   }
 
@@ -839,6 +872,68 @@ export class BlueprintEditorStore {
       version.inputChannel?.displayName ?? null,
       version.outputChannels.map((channel) => channel.displayName?.trim() || channel.name),
       outputChannelPropertyDefinitions,
+      false,
+      'PluginTask',
+      null,
+    );
+  }
+
+  private createCollectionIteratorNodeModel(
+    nodeId: number,
+    x: number,
+    y: number,
+    itemKind: TaskPropertyBaseType,
+  ): NodeModel {
+    const inputProperties: Record<string, TaskPropertyType> = {
+      items: `${itemKind}[]`,
+    };
+    const outputChannelProperties: Record<string, Record<string, TaskPropertyType>> = {
+      Item: {
+        item: itemKind,
+      },
+    };
+    const inputPropertyDefinitions: ITaskPropertyDefinition[] = [{
+      name: 'items',
+      kind: `${itemKind}[]`,
+      required: true,
+      enumValues: [],
+    }];
+    const outputChannelPropertyDefinitions: Record<string, ITaskPropertyDefinition[]> = {
+      Item: [{
+        name: 'item',
+        kind: itemKind,
+        required: true,
+        enumValues: [],
+      }],
+    };
+
+    return new NodeModel(
+      nodeId,
+      0,
+      0,
+      0,
+      0,
+      'Native',
+      'Collection Iterator',
+      x,
+      y,
+      320,
+      220,
+      'Collection',
+      ['Item'],
+      false,
+      null,
+      null,
+      inputProperties,
+      outputChannelProperties,
+      {},
+      inputPropertyDefinitions,
+      'Collection',
+      ['Item'],
+      outputChannelPropertyDefinitions,
+      false,
+      'CollectionIterator',
+      itemKind,
     );
   }
 
@@ -959,7 +1054,8 @@ export class BlueprintEditorStore {
     return mappings
       .filter((mapping) =>
         Object.prototype.hasOwnProperty.call(sourceProperties, mapping.sourceProperty) &&
-        Object.prototype.hasOwnProperty.call(to.inputProperties, mapping.targetProperty))
+        Object.prototype.hasOwnProperty.call(to.inputProperties, mapping.targetProperty) &&
+        sourceProperties[mapping.sourceProperty] === to.inputProperties[mapping.targetProperty])
       .map((mapping) => ({ ...mapping }));
   }
 
@@ -1024,13 +1120,89 @@ export class BlueprintEditorStore {
     anchor: number,
   ): ConnectionPropertyMappingModel[] {
     const sourceProperties = from.outputPropertiesForAnchor(anchor);
+    if (to.nodeKind === 'CollectionIterator') {
+      const collectionProperty = Object.entries(sourceProperties)
+        .filter(([, kind]) => this.isCollectionKind(kind))
+        .sort(([left], [right]) => left.localeCompare(right))[0];
+      return collectionProperty
+        ? [{
+          sourceProperty: collectionProperty[0],
+          targetProperty: 'items',
+        }]
+        : [];
+    }
+
     return Object.keys(sourceProperties)
-      .filter((property) => property in to.inputProperties)
+      .filter((property) => property in to.inputProperties && sourceProperties[property] === to.inputProperties[property])
       .sort((left, right) => left.localeCompare(right))
       .map((property) => ({
         sourceProperty: property,
         targetProperty: property,
       }));
+  }
+
+  private retuneCollectionIteratorNodes(): void {
+    const nodes = this._nodes();
+    const tunedNodes = nodes.map((node) => {
+      if (node.nodeKind !== 'CollectionIterator') {
+        return node;
+      }
+
+      const incomingCollectionKind = this.collectionKindFromIncomingMappings(node.id);
+      const itemKind = incomingCollectionKind
+        ? this.toScalarKind(incomingCollectionKind)
+        : node.collectionIteratorItemKind ?? 'String';
+      if (itemKind === node.collectionIteratorItemKind) {
+        return node;
+      }
+
+      return this.createCollectionIteratorNodeModel(
+        node.id,
+        node.x,
+        node.y,
+        itemKind,
+      ).withExpanded(node.expanded);
+    });
+
+    if (tunedNodes.every((node, index) => node === nodes[index])) {
+      return;
+    }
+
+    this._nodes.set(tunedNodes);
+    this._connections.set(this.rebindConnections(this._connections(), tunedNodes));
+  }
+
+  private collectionKindFromIncomingMappings(nodeId: number): TaskPropertyType | null {
+    const candidates: TaskPropertyType[] = [];
+    for (const connection of this._connections()) {
+      if (connection.to.id !== nodeId) {
+        continue;
+      }
+
+      const sourceProperties = connection.from.outputPropertiesForAnchor(connection.anchor);
+      for (const mapping of connection.propertyMappings) {
+        if (mapping.targetProperty !== 'items') {
+          continue;
+        }
+
+        const sourceKind = sourceProperties[mapping.sourceProperty];
+        if (sourceKind && this.isCollectionKind(sourceKind)) {
+          candidates.push(sourceKind);
+        }
+      }
+    }
+
+    return [...new Set(candidates)].length === 1 ? candidates[0] : null;
+  }
+
+  private isCollectionKind(kind: TaskPropertyType): kind is `${TaskPropertyBaseType}[]` {
+    return kind.endsWith('[]');
+  }
+
+  private toScalarKind(kind: TaskPropertyType): TaskPropertyBaseType {
+    return this.isCollectionKind(kind)
+      ? kind.slice(0, -2) as TaskPropertyBaseType
+      : kind;
   }
 
   private snap(value: number): number {

@@ -362,7 +362,9 @@ export class StartProcessPageComponent {
       return null;
     }
 
-    return this.taskDefinitionById().get(firstTask.taskDefinitionId)?.name ?? null;
+    return firstTask.nodeKind === 'CollectionIterator'
+      ? 'Collection Iterator'
+      : this.taskDefinitionById().get(firstTask.taskDefinitionId ?? 0)?.name ?? null;
   });
 
   protected readonly globalStateFields = computed(() =>
@@ -399,10 +401,19 @@ export class StartProcessPageComponent {
     return blueprintVersion.tasks
       .filter((task) => task.instanceId !== blueprintVersion.startingBlueprintNodeId)
       .map((task) => {
+        if (task.nodeKind === 'CollectionIterator') {
+          return {
+            instanceId: task.instanceId,
+            name: 'Collection Iterator',
+            inputProperties: [],
+            propertyCount: 0,
+          };
+        }
+
         const taskVersion = this.taskVersionById().get(task.resolvedVersionId);
         return {
           instanceId: task.instanceId,
-          name: this.taskDefinitionById().get(task.taskDefinitionId)?.name
+          name: this.taskDefinitionById().get(task.taskDefinitionId ?? 0)?.name
             ?? `Node ${task.instanceId}`,
           inputProperties: [...(taskVersion?.inputChannel?.properties ?? [])],
           propertyCount: (taskVersion?.inputChannel?.properties ?? []).length,

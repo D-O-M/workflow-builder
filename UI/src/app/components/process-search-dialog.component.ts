@@ -984,7 +984,7 @@ export class ProcessSearchDialogComponent {
     return blueprints
       .flatMap((blueprint) => blueprint.versions.flatMap((version) =>
         version.tasks.map((task) => {
-          const taskDefinition = taskDefinitionsById.get(task.taskDefinitionId);
+          const taskDefinition = taskDefinitionsById.get(task.taskDefinitionId ?? 0);
           return {
             key: `${blueprint.id}:${task.instanceId}`,
             blueprintDefinitionId: blueprint.id,
@@ -1022,14 +1022,20 @@ export class ProcessSearchDialogComponent {
     for (const blueprint of blueprintScope) {
       for (const version of blueprint.versions) {
         for (const task of version.tasks) {
-          const taskDefinition = taskDefinitionsById.get(task.taskDefinitionId);
+          const taskDefinition = taskDefinitionsById.get(task.taskDefinitionId ?? 0);
           const taskVersion = taskDefinition
             ? this.blueprintEditor.resolveVersionForLane(taskDefinition, task.allowedMajor, task.allowedMinor, task.resolvedVersionId)
             : null;
           const nodeKey = `${blueprint.id}:${task.instanceId}`;
-          const taskName = taskDefinition?.name ?? `Task ${task.taskDefinitionId}`;
+          const taskName = task.nodeKind === 'CollectionIterator'
+            ? 'Collection Iterator'
+            : taskDefinition?.name ?? `Task ${task.taskDefinitionId ?? 0}`;
 
           for (const property of normalizeTaskPropertyDefinitions(taskVersion?.requiredGlobalState?.properties)) {
+            if (property.kind.endsWith('[]')) {
+              continue;
+            }
+
             const option: PropertyCatalogItem = {
               key: `global:${blueprint.id}:${property.name}:${property.kind}`,
               scope: 'GlobalState',
@@ -1050,6 +1056,10 @@ export class ProcessSearchDialogComponent {
           }
 
           for (const property of normalizeTaskPropertyDefinitions(taskVersion?.inputChannel?.properties)) {
+            if (property.kind.endsWith('[]')) {
+              continue;
+            }
+
             const option: PropertyCatalogItem = {
               key: `input:${blueprint.id}:${task.instanceId}:${property.name}:${property.kind}`,
               scope: 'NodeInput',
@@ -1068,6 +1078,10 @@ export class ProcessSearchDialogComponent {
           const outputProperties = new Map<string, ITaskPropertyDefinition>();
           for (const channel of taskVersion?.outputChannels ?? []) {
             for (const property of normalizeTaskPropertyDefinitions(channel.properties)) {
+              if (property.kind.endsWith('[]')) {
+                continue;
+              }
+
               outputProperties.set(property.name, property);
             }
           }

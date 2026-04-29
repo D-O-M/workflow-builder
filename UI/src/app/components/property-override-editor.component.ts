@@ -96,6 +96,21 @@ export interface PropertyOverrideEditorState {
                     <mat-hint>{{ inputHint(field) }}</mat-hint>
                   }
                 </mat-form-field>
+              } @else if (field.kind === 'array') {
+                <mat-form-field class="override-editor-shell__control" appearance="outline" subscriptSizing="dynamic">
+                  <textarea
+                    matInput
+                    [id]="inputId(field)"
+                    [formControlName]="field.key"
+                    autocomplete="off"
+                    placeholder="Use blueprint value"
+                    rows="4"
+                  ></textarea>
+                  <mat-icon matSuffix>{{ inputIcon(field) }}</mat-icon>
+                  @if (inputHint(field)) {
+                    <mat-hint>{{ inputHint(field) }}</mat-hint>
+                  }
+                </mat-form-field>
               } @else {
                 <mat-form-field class="override-editor-shell__control" appearance="outline" subscriptSizing="dynamic">
                   <input
@@ -281,6 +296,8 @@ export class PropertyOverrideEditorComponent {
         return 'event_available';
       case 'enum':
         return 'tune';
+      case 'array':
+        return 'data_array';
       default:
         return 'edit';
     }

@@ -1,4 +1,4 @@
-import { NodeModel } from './node-model';
+import { NodeKind, NodeModel, TaskPropertyBaseType, TaskPropertyType } from './node-model';
 import { compareTaskVersions, getTaskVersionLane } from './task-version-utils';
 import type { ITaskDefinition, ITaskPropertyDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
 
@@ -8,6 +8,8 @@ export interface ProcessCanvasDetail {
 
 export interface ProcessCanvasNode {
   readonly taskDefinitionId: number;
+  readonly nodeKind?: NodeKind | null;
+  readonly collectionIteratorItemKind?: TaskPropertyBaseType | null;
   readonly allowedMajor: number;
   readonly allowedMinor: number;
   readonly resolvedVersionId: number;
@@ -32,6 +34,39 @@ export function buildProcessCanvasNodes(
   );
 
   return detail.nodes.map((node, index) => {
+    if (node.nodeKind === 'CollectionIterator') {
+      const itemKind = node.collectionIteratorItemKind ?? 'String';
+      const collectionKind: TaskPropertyType = `${itemKind}[]`;
+      return new NodeModel(
+        index + 1,
+        0,
+        0,
+        0,
+        0,
+        'Native',
+        'Collection Iterator',
+        node.position.x,
+        node.position.y,
+        320,
+        220,
+        'Collection',
+        ['Item'],
+        false,
+        node.status,
+        node.failureMessage ?? null,
+        { items: collectionKind },
+        { Item: { item: itemKind } },
+        {},
+        [{ name: 'items', kind: collectionKind, required: true, enumValues: [] }],
+        'Collection',
+        ['Item'],
+        { Item: [{ name: 'item', kind: itemKind, required: true, enumValues: [] }] },
+        false,
+        'CollectionIterator',
+        itemKind,
+      );
+    }
+
     const taskDefinition = taskDefinitionById.get(node.taskDefinitionId);
     const taskVersion = taskDefinition
       ? resolveVersionForLane(taskDefinition, node.allowedMajor, node.allowedMinor, node.resolvedVersionId)
@@ -74,6 +109,9 @@ export function buildProcessCanvasNodes(
       taskVersion?.inputChannel?.displayName ?? null,
       (taskVersion?.outputChannels ?? []).map((channel) => channel.displayName?.trim() || channel.name),
       outputChannelPropertyDefinitions,
+      false,
+      'PluginTask',
+      null,
     );
   });
 }

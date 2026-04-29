@@ -14,7 +14,9 @@ export interface Rect {
 
 export type Side = 'left' | 'right' | 'top' | 'bottom';
 export type NodeRenderStatus = 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
-export type TaskPropertyType = 'String' | 'Integer' | 'Decimal' | 'Boolean' | 'Guid' | 'Date' | 'DateTime' | 'Enum';
+export type NodeKind = 'PluginTask' | 'CollectionIterator';
+export type TaskPropertyBaseType = 'String' | 'Integer' | 'Decimal' | 'Boolean' | 'Guid' | 'Date' | 'DateTime' | 'Enum';
+export type TaskPropertyType = TaskPropertyBaseType | `${TaskPropertyBaseType}[]`;
 
 export interface NodeAnchor {
     index: number;
@@ -131,6 +133,8 @@ export class NodeModel {
         public outputChannelDisplayNames: string[] = [],
         public outputChannelPropertyDefinitions: Record<string, ITaskPropertyDefinition[]> = {},
         public expanded: boolean = false,
+        public nodeKind: NodeKind = 'PluginTask',
+        public collectionIteratorItemKind: TaskPropertyBaseType | null = null,
     ) {}
 
     withExpanded(expanded: boolean): NodeModel {
@@ -166,6 +170,8 @@ export class NodeModel {
                 ]),
             ),
             expanded,
+            this.nodeKind,
+            this.collectionIteratorItemKind,
         );
     }
 

@@ -63,7 +63,8 @@ import {
 } from '../domain/blueprint-validation';
 
 interface TaskLibraryItem {
-  task: ITaskDefinition;
+  kind: 'plugin' | 'collectionIterator';
+  task?: ITaskDefinition;
   displayName: string;
   icon: string;
   categoryLabel: string;
@@ -872,6 +873,17 @@ export class BlueprintEditorPageComponent {
     this.syncStaticOverrideForm(node);
   }
 
+  protected addLibraryItemFromDrawer(item: TaskLibraryItem): void {
+    if (item.kind === 'collectionIterator') {
+      this.addCollectionIteratorFromDrawer();
+      return;
+    }
+
+    if (item.task) {
+      this.addTaskFromDrawer(item.task);
+    }
+  }
+
   protected addTaskFromDrawer(task: ITaskDefinition): void {
     if (task.versions.length === 0) {
       return;
@@ -886,6 +898,23 @@ export class BlueprintEditorPageComponent {
         y: viewportCenter.y + stagger * 0.45,
       },
     );
+    this.scheduleUiTask(() => {
+      this.canvasViewport()?.centerOnNode(node.id);
+      this.canvasViewport()?.focusCanvas();
+    });
+
+    if (this.compactDrawerViewport()) {
+      this.closeDrawer();
+    }
+  }
+
+  protected addCollectionIteratorFromDrawer(): void {
+    const viewportCenter = this.canvasViewport()?.viewportCenterWorld() ?? { x: 420, y: 260 };
+    const stagger = (this.editorStore.nodes().length % 5) * this.gridSize * 2;
+    const node = this.editorStore.createCollectionIteratorNode({
+      x: viewportCenter.x + stagger,
+      y: viewportCenter.y + stagger * 0.45,
+    });
     this.scheduleUiTask(() => {
       this.canvasViewport()?.centerOnNode(node.id);
       this.canvasViewport()?.focusCanvas();
@@ -1439,13 +1468,24 @@ export class BlueprintEditorPageComponent {
   }
 
   private buildTaskLibraryItems(tasks: ITaskDefinition[]): TaskLibraryItem[] {
-    return [...tasks]
+    const collectionIterator: TaskLibraryItem = {
+      kind: 'collectionIterator',
+      displayName: 'Collection Iterator',
+      icon: 'data_array',
+      categoryLabel: 'Logic',
+      description: 'Run downstream steps for each collection item',
+      tone: 'logic',
+      searchText: 'collection iterator collection array list logic fan out',
+    };
+
+    const pluginItems = [...tasks]
       .map((task) => {
         const category = this.getTaskCategory(task);
         const description = getLatestTaskVersion(task.versions)?.description?.trim() || 'Available task';
         const displayName = this.taskDefinitionDisplayName(task);
 
         return {
+          kind: 'plugin' as const,
           task,
           displayName,
           icon: this.getTaskIcon(category.label, task),
@@ -1456,6 +1496,8 @@ export class BlueprintEditorPageComponent {
         };
       })
       .sort((left, right) => left.displayName.localeCompare(right.displayName));
+
+    return [collectionIterator, ...pluginItems];
   }
 
   protected taskDefinitionDisplayName(task: ITaskDefinition | null | undefined): string {

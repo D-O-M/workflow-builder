@@ -10,6 +10,8 @@ export type BlueprintValidationIssueCode =
   | 'connection.cycle'
   | 'connection.mapping.sourceMissing'
   | 'connection.mapping.targetMissing'
+  | 'connection.mapping.typeMismatch'
+  | 'node.collectionIterator.start'
   | 'node.unreachable'
   | 'node.input.requiredMissing'
   | 'connection.route.obstructed'
@@ -64,6 +66,15 @@ export function validateBlueprintGraph(input: BlueprintValidationInput): Bluepri
 
   if (nodes.length === 0) {
     issues.push(errorIssue('blueprint-empty', 'blueprint.graph.empty', 'Add at least one node before saving.'));
+  }
+
+  if (startingNode?.nodeKind === 'CollectionIterator') {
+    issues.push(errorIssue(
+      `collection-iterator-start:${startingNode.id}`,
+      'node.collectionIterator.start',
+      'Collection Iterator must be triggered by an upstream collection output.',
+      { nodeId: startingNode.id },
+    ));
   }
 
   for (const connection of connections) {
@@ -127,6 +138,22 @@ function addStaleMappingIssues(issues: BlueprintValidationIssue[], connection: C
         `mapping-target:${connection.id}:${mapping.targetProperty}`,
         'connection.mapping.targetMissing',
         `${connection.to.name} no longer has input property ${mapping.targetProperty}.`,
+        {
+          nodeId: connection.to.id,
+          connectionId: connection.id,
+          propertyName: mapping.targetProperty,
+          channelName: connection.to.inputChannelName ?? undefined,
+        },
+      ));
+    }
+
+    const sourceKind = sourceProperties[mapping.sourceProperty];
+    const targetKind = targetProperties[mapping.targetProperty];
+    if (sourceKind && targetKind && sourceKind !== targetKind) {
+      issues.push(errorIssue(
+        `mapping-type:${connection.id}:${mapping.sourceProperty}:${mapping.targetProperty}`,
+        'connection.mapping.typeMismatch',
+        `${connection.from.name} output ${mapping.sourceProperty} (${sourceKind}) cannot map to ${connection.to.name} input ${mapping.targetProperty} (${targetKind}).`,
         {
           nodeId: connection.to.id,
           connectionId: connection.id,
@@ -250,7 +277,8 @@ function collectMappedInputProperties(node: NodeModel, incomingConnections: read
     const sourceProperties = connection.from.outputPropertiesForAnchor(connection.anchor);
     for (const mapping of resolveEffectivePropertyMappings(connection)) {
       if (!Object.prototype.hasOwnProperty.call(node.inputProperties, mapping.targetProperty) ||
-        !Object.prototype.hasOwnProperty.call(sourceProperties, mapping.sourceProperty)) {
+        !Object.prototype.hasOwnProperty.call(sourceProperties, mapping.sourceProperty) ||
+        sourceProperties[mapping.sourceProperty] !== node.inputProperties[mapping.targetProperty]) {
         continue;
       }
 

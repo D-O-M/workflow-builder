@@ -461,8 +461,8 @@
                 class="blueprint-editor-page__drawer-search-input"
                 type="search"
                 [formControl]="pluginLibrarySearch"
-                aria-label="Search plugins"
-                placeholder="Search plugins..."
+                aria-label="Search tools"
+                placeholder="Search tools..."
               />
             </div>
           </div>
@@ -471,15 +471,15 @@
             @if (filteredTaskLibraryItems().length === 0) {
               <div class="blueprint-editor-page__drawer-empty">
                 <mat-icon>search_off</mat-icon>
-                <p>No plugins match that search.</p>
+                <p>No tools match that search.</p>
               </div>
             } @else {
               <div class="blueprint-editor-page__drawer-list">
-                @for (item of filteredTaskLibraryItems(); track item.task.id) {
+                @for (item of filteredTaskLibraryItems(); track item.kind === 'plugin' ? item.task?.id : item.kind) {
                   <button
                     type="button"
                     class="blueprint-editor-page__drawer-card"
-                    (click)="addTaskFromDrawer(item.task)"
+                    (click)="addLibraryItemFromDrawer(item)"
                   >
                     <span
                       class="blueprint-editor-page__drawer-card-icon"
@@ -585,35 +585,37 @@
               </mat-card>
             }
 
-            <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
-              <mat-card-content>
-                <div class="blueprint-editor-page__settings-section-heading">
-                  <div>
-                    <h4>Version</h4>
-                    <p>Choose the newest patch available within each major/minor lane.</p>
+            @if (node.nodeKind === 'PluginTask') {
+              <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
+                <mat-card-content>
+                  <div class="blueprint-editor-page__settings-section-heading">
+                    <div>
+                      <h4>Version</h4>
+                      <p>Choose the newest patch available within each major/minor lane.</p>
+                    </div>
                   </div>
-                </div>
 
-                <mat-form-field appearance="outline" class="blueprint-editor-page__settings-control">
-                  <mat-label>Task version</mat-label>
-                  <mat-select
-                    [value]="node.resolvedVersionId"
-                    panelClass="blueprint-editor-page__version-select-panel"
-                    (selectionChange)="onNodeVersionSelected($event.value)"
-                  >
-                    <mat-select-trigger>
-                      v{{ node.resolvedVersion ?? 'Unknown' }}
-                    </mat-select-trigger>
+                  <mat-form-field appearance="outline" class="blueprint-editor-page__settings-control">
+                    <mat-label>Task version</mat-label>
+                    <mat-select
+                      [value]="node.resolvedVersionId"
+                      panelClass="blueprint-editor-page__version-select-panel"
+                      (selectionChange)="onNodeVersionSelected($event.value)"
+                    >
+                      <mat-select-trigger>
+                        v{{ node.resolvedVersion ?? 'Unknown' }}
+                      </mat-select-trigger>
 
-                    @for (option of nodeVersionOptions(); track option.version.id) {
-                      <mat-option [value]="option.version.id">
-                        v{{ option.version.version }}
-                      </mat-option>
-                    }
-                  </mat-select>
-                </mat-form-field>
-              </mat-card-content>
-            </mat-card>
+                      @for (option of nodeVersionOptions(); track option.version.id) {
+                        <mat-option [value]="option.version.id">
+                          v{{ option.version.version }}
+                        </mat-option>
+                      }
+                    </mat-select>
+                  </mat-form-field>
+                </mat-card-content>
+              </mat-card>
+            }
 
             <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
               <mat-card-content>

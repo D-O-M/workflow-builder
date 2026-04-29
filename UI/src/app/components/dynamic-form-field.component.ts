@@ -7,8 +7,9 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { taskPropertyInputHint, taskPropertyValidationMessage } from '../domain/task-property-form-utils';
+import type { TaskPropertyType } from '../domain/node-model';
 
-export type DynamicFieldKind = 'string' | 'integer' | 'decimal' | 'boolean' | 'guid' | 'date' | 'datetime' | 'enum';
+export type DynamicFieldKind = 'string' | 'integer' | 'decimal' | 'boolean' | 'guid' | 'date' | 'datetime' | 'enum' | 'array';
 
 export interface DynamicFieldDefinition {
   key: string;
@@ -16,6 +17,7 @@ export interface DynamicFieldDefinition {
   kind: DynamicFieldKind;
   required: boolean;
   options?: string[];
+  propertyType?: TaskPropertyType;
 }
 
 @Component({
@@ -69,6 +71,29 @@ export interface DynamicFieldDefinition {
               }
             }
           </mat-select>
+
+          @if (inputIcon()) {
+            <mat-icon matSuffix>{{ inputIcon() }}</mat-icon>
+          }
+
+          @if (hint()) {
+            <mat-hint>{{ hint() }}</mat-hint>
+          }
+
+          @if (controlInvalid()) {
+            <mat-error>{{ errorMessage() }}</mat-error>
+          }
+        </mat-form-field>
+      } @else if (field().kind === 'array') {
+        <mat-form-field class="field__control" appearance="outline">
+          <mat-label>{{ field().label }}</mat-label>
+          <textarea
+            matInput
+            [formControlName]="field().key"
+            [attr.placeholder]="field().label"
+            autocomplete="off"
+            rows="4"
+          ></textarea>
 
           @if (inputIcon()) {
             <mat-icon matSuffix>{{ inputIcon() }}</mat-icon>
@@ -165,6 +190,8 @@ export class DynamicFormFieldComponent {
         return 'event_available';
       case 'enum':
         return 'tune';
+      case 'array':
+        return 'data_array';
       default:
         return null;
     }
