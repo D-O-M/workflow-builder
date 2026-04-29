@@ -127,6 +127,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                 _logger.LogError(ex,
                     "Failed to create task definition version for plugin {Plugin} ({Version}).",
                     pluginInfo.PluginName, pluginInfo.Version);
+                throw;
             }
         }
         finally
