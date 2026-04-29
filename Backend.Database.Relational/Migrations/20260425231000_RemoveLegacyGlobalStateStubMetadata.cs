@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 #nullable disable
 
 namespace Backend.Database.Relational.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(BlueprintDbContext))]
     [Migration("20260425231000_RemoveLegacyGlobalStateStubMetadata")]
     public partial class RemoveLegacyGlobalStateStubMetadata : Migration
     {

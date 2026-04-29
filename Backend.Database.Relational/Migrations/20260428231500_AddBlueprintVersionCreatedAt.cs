@@ -1,4 +1,5 @@
 using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -6,6 +7,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Backend.Database.Relational.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(BlueprintDbContext))]
+    [Migration("20260428231500_AddBlueprintVersionCreatedAt")]
     public partial class AddBlueprintVersionCreatedAt : Migration
     {
         /// <inheritdoc />

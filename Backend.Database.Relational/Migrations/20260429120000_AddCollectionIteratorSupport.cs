@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -5,6 +6,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Backend.Database.Relational.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(BlueprintDbContext))]
+    [Migration("20260429120000_AddCollectionIteratorSupport")]
     public partial class AddCollectionIteratorSupport : Migration
     {
         /// <inheritdoc />
