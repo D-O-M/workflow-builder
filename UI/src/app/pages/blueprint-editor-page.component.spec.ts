@@ -632,12 +632,23 @@ describe('BlueprintEditorPageComponent', () => {
   });
 
   it('adds a task to the canvas from the flat plugin library list', () => {
-    const item = (component as any).taskLibraryItems().find((candidate: any) => candidate.task.name === 'Webhook Listener');
+    const item = (component as any).taskLibraryItems().find((candidate: any) => candidate.task?.name === 'Webhook Listener');
 
-    (component as any).addTaskFromDrawer(item.task);
+    (component as any).addLibraryItemFromDrawer(item);
 
     expect(store.nodes().length).toBe(1);
     expect(store.nodes()[0].name).toBe('Webhook Listener');
+  });
+
+  it('adds Collection Iterator from the library list', () => {
+    const item = (component as any).taskLibraryItems().find((candidate: any) => candidate.kind === 'collectionIterator');
+
+    (component as any).addLibraryItemFromDrawer(item);
+
+    expect(store.nodes().length).toBe(1);
+    expect(store.nodes()[0].name).toBe('Collection Iterator');
+    expect(store.nodes()[0].inputProperties['items']).toBe('String[]');
+    expect(store.nodes()[0].outputChannelProperties['Item']['item']).toBe('String');
   });
 
   it('switches drawer overlay metadata based on viewport size', () => {

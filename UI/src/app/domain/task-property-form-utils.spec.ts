@@ -18,6 +18,7 @@ function field(
     kind,
     required: overrides.required ?? false,
     options: overrides.options,
+    propertyType: overrides.propertyType,
   };
 }
 
@@ -114,6 +115,23 @@ describe('task property form utils', () => {
     )).toEqual({
       enabled: false,
     });
+  });
+
+  it('validates and serializes collection editor values as JSON arrays', () => {
+    const definition = field('array', {
+      label: 'Ids',
+      propertyType: 'Guid[]',
+    });
+    const control = createTaskPropertyControl(definition);
+
+    control.setValue('["not-a-guid"]');
+    expect(control.hasError('array')).toBe(true);
+
+    control.setValue('["d290f1ee-6c54-4b01-90e6-d701748f0851"]');
+    expect(control.valid).toBe(true);
+    expect(serializeTaskPropertyControlValue(definition, control.value)).toEqual([
+      'd290f1ee-6c54-4b01-90e6-d701748f0851',
+    ]);
   });
 
   it('provides property-specific validation messages', () => {

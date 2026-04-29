@@ -188,6 +188,59 @@ public sealed class NodeActivationServiceTests
         stepRepository.ProcessStepListFetchCount.ShouldBe(0);
     }
 
+    [Test]
+    public async Task Collection_iterator_fan_out_creates_item_scoped_steps_with_inline_inputs()
+    {
+        var processId = Guid.NewGuid();
+        var iteratorNodeId = Guid.NewGuid();
+        var destinationNodeId = Guid.NewGuid();
+        var bindingId = "iterator-to-destination";
+        var blueprint = CreateCollectionIteratorBlueprint(iteratorNodeId, destinationNodeId, bindingId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(
+            processId,
+            blueprint,
+            new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal)));
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var context = await CreateClaimedContextAsync(
+            processId,
+            iteratorNodeId,
+            blueprint,
+            stepRepository,
+            processRepository);
+        var service = new NodeActivationService(
+            new InMemoryNodeJoinStateRepository(),
+            queueWriter,
+            stepRepository,
+            NullLogger<NodeActivationService>.Instance);
+
+        var itemCount = await service.EnqueueCollectionIteratorItemStepsAsync(
+            context,
+            [Json("alpha"), Json("bravo")],
+            batchSize: 100,
+            DateTimeOffset.UtcNow,
+            CancellationToken.None);
+
+        itemCount.ShouldBe(2);
+        stepRepository.CreatedSteps.Count.ShouldBe(2);
+        queueWriter.Messages.Count.ShouldBe(2);
+        for (var index = 0; index < 2; index++)
+        {
+            var itemKey = $"{context.ProcessStepId:N}:{index:D8}";
+            var expectedStepId = ProcessStepIdentity.Create(processId, destinationNodeId, itemKey);
+            var createdStep = stepRepository.CreatedSteps[index];
+            createdStep.Id.ShouldBe(expectedStepId.ToString());
+            createdStep.IterationContext.ShouldNotBeNull();
+            createdStep.IterationContext.ItemIndex.ShouldBe(index);
+            createdStep.IterationContext.ItemKey.ShouldBe(itemKey);
+            createdStep.InputHydrationPlan.ShouldNotBeNull();
+            createdStep.InputHydrationPlan.Sources.Single().InlineInput.ShouldNotBeNull();
+            createdStep.InputHydrationPlan.Sources.Single().InlineInput!["Text"].GetString()
+                .ShouldBe(index == 0 ? "alpha" : "bravo");
+            queueWriter.Messages[index].ProcessStepId.ShouldBe(expectedStepId);
+        }
+    }
+
     private static async Task<JobContext> CreateClaimedContextAsync(
         Guid processId,
         Guid nodeId,
@@ -325,6 +378,68 @@ public sealed class NodeActivationServiceTests
     {
         var node = CreateNode(nodeId, "Input", null, []);
         return CreateBlueprint(node, [node]);
+    }
+
+    private static ExecutableBlueprint CreateCollectionIteratorBlueprint(
+        Guid iteratorNodeId,
+        Guid destinationNodeId,
+        string bindingId)
+    {
+        var binding = new ExecutableBlueprintBinding
+        {
+            Id = bindingId,
+            SourceBlueprintNodeId = iteratorNodeId,
+            SourceChannelName = "Item",
+            DestinationBlueprintNodeId = destinationNodeId,
+            PropertyMappings =
+            [
+                new ExecutableBlueprintPropertyMapping
+                {
+                    SourceProperty = "item",
+                    TargetProperty = "Text"
+                }
+            ]
+        };
+        var iterator = new ExecutableBlueprintNode
+        {
+            Id = iteratorNodeId,
+            Name = "Collection Iterator",
+            NodeKind = ExecutableBlueprintNodeKind.CollectionIterator,
+            TaskDefinitionId = 0,
+            CollectionIteratorItemKind = "String",
+            AllowedMajor = 0,
+            AllowedMinor = 0,
+            ResolvedVersion = new Version(0, 0, 0),
+            ResolvedTaskVersionId = 0,
+            InputChannel = new ExecutableBlueprintChannel
+            {
+                Id = 0,
+                Name = "Collection",
+                Properties = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["items"] = "String[]"
+                },
+                OutboundBindings = []
+            },
+            OutputChannels = new Dictionary<string, ExecutableBlueprintChannel>(StringComparer.Ordinal)
+            {
+                ["Item"] = new()
+                {
+                    Id = 0,
+                    Name = "Item",
+                    Properties = new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["item"] = "String"
+                    },
+                    OutboundBindings = [binding]
+                }
+            },
+            InboundBindings = [],
+            DesignTimeInputOverrides = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+        };
+        var destination = CreateNode(destinationNodeId, "DestinationInput", null, [], [binding]);
+
+        return CreateBlueprint(iterator, [iterator, destination]);
     }
 
     private static ExecutableBlueprintNode CreateNode(

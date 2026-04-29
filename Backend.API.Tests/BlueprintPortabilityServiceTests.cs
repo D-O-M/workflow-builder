@@ -71,6 +71,145 @@ public sealed class BlueprintPortabilityServiceTests
     }
 
     [Test]
+    public async Task ExportLatestBlueprint_preserves_collection_iterator_nodes()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var taskDefinition = await SeedTaskDefinitionAsync(database.Context, "Lookup", new Version(1, 0, 0), "Items");
+        var repository = new BlueprintRepository(database.Context);
+        var startingNodeId = Guid.NewGuid();
+        var iteratorNodeId = Guid.NewGuid();
+
+        var createdBlueprint = await repository.CreateBlueprint(
+            new BlueprintInputModel
+            {
+                Name = "Customer Intake",
+                Key = "customer-intake",
+                StartingBlueprintNodeId = startingNodeId,
+                Tasks =
+                [
+                    new BlueprintNodeInputModel
+                    {
+                        InstanceId = startingNodeId,
+                        TaskDefinitionId = taskDefinition.Id,
+                        AllowedMajor = 1,
+                        AllowedMinor = 0,
+                        Position = new CoordinatesViewModel { X = 120, Y = 80 },
+                        OutgoingConnections =
+                        [
+                            new BlueprintConnectionInputModel
+                            {
+                                ChannelName = "Items",
+                                ConnectedBlueprintNodeId = iteratorNodeId,
+                                Side = "right",
+                                PropertyMappings =
+                                [
+                                    new BlueprintPropertyMappingInputModel
+                                    {
+                                        SourceProperty = "ids",
+                                        TargetProperty = "items"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    new BlueprintNodeInputModel
+                    {
+                        InstanceId = iteratorNodeId,
+                        NodeKind = BlueprintNodeKind.CollectionIterator.ToString(),
+                        CollectionIteratorItemKind = "Guid",
+                        AllowedMajor = 0,
+                        AllowedMinor = 0,
+                        Position = new CoordinatesViewModel { X = 420, Y = 80 }
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        var service = new BlueprintPortabilityService(
+            database.Context,
+            new RecordingBlueprintRepository(),
+            new AlwaysValidBlueprintVersionValidator());
+
+        var exported = await service.ExportLatestBlueprintAsync(createdBlueprint.Id, CancellationToken.None);
+        var iterator = exported.Tasks.Single(task => task.TaskKey == iteratorNodeId);
+
+        iterator.NodeKind.ShouldBe(BlueprintNodeKind.CollectionIterator.ToString());
+        iterator.TaskDefinitionName.ShouldBeNull();
+        iterator.CollectionIteratorItemKind.ShouldBe("Guid");
+        iterator.AllowedMajor.ShouldBe(0);
+        iterator.AllowedMinor.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task ImportBlueprint_preserves_collection_iterator_nodes()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var startingNodeId = Guid.NewGuid();
+        var iteratorNodeId = Guid.NewGuid();
+        var seed = new ExportedBlueprintInputModel
+        {
+            SchemaVersion = 3,
+            DefinitionKey = "customer-intake",
+            DisplayName = "Customer Intake",
+            StartingTaskKey = startingNodeId,
+            Tasks =
+            [
+                new ExportedBlueprintNodeInputModel
+                {
+                    TaskKey = startingNodeId,
+                    TaskDefinitionName = "Lookup",
+                    AllowedMajor = 1,
+                    AllowedMinor = 0,
+                    Position = new CoordinatesViewModel { X = 120, Y = 80 },
+                    OutgoingConnections =
+                    [
+                        new ExportedBlueprintConnectionInputModel
+                        {
+                            ChannelName = "Items",
+                            ConnectedTaskKey = iteratorNodeId,
+                            Side = "right",
+                            PropertyMappings =
+                            [
+                                new BlueprintPropertyMappingInputModel
+                                {
+                                    SourceProperty = "ids",
+                                    TargetProperty = "items"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                new ExportedBlueprintNodeInputModel
+                {
+                    TaskKey = iteratorNodeId,
+                    NodeKind = BlueprintNodeKind.CollectionIterator.ToString(),
+                    CollectionIteratorItemKind = "Guid",
+                    AllowedMajor = 0,
+                    AllowedMinor = 0,
+                    Position = new CoordinatesViewModel { X = 420, Y = 80 }
+                }
+            ]
+        };
+        await SeedImportTaskDefinitionsAsync(database.Context, seed);
+
+        var repository = new RecordingBlueprintRepository();
+        var service = new BlueprintPortabilityService(
+            database.Context,
+            repository,
+            new AlwaysValidBlueprintVersionValidator());
+
+        var imported = await service.ImportBlueprintAsync(seed, CancellationToken.None);
+        var createdIterator = repository.CreatedBlueprints.Single().Tasks.Single(task => task.InstanceId == iteratorNodeId);
+
+        imported.Status.ShouldBe(BlueprintImportStatus.CreatedDefinition);
+        createdIterator.NodeKind.ShouldBe(BlueprintNodeKind.CollectionIterator.ToString());
+        createdIterator.TaskDefinitionId.ShouldBeNull();
+        createdIterator.CollectionIteratorItemKind.ShouldBe("Guid");
+        createdIterator.AllowedMajor.ShouldBe(0);
+        createdIterator.AllowedMinor.ShouldBe(0);
+    }
+
+    [Test]
     public async Task ImportBlueprint_returns_display_name_conflict_for_mismatched_existing_definition()
     {
         await using var database = await SqliteBlueprintDb.CreateAsync();
@@ -187,7 +326,9 @@ public sealed class BlueprintPortabilityServiceTests
 
         foreach (var task in model.Tasks)
         {
-            if (!seededTaskNames.Add(task.TaskDefinitionName))
+            if (!string.Equals(task.NodeKind, BlueprintNodeKind.PluginTask.ToString(), StringComparison.OrdinalIgnoreCase) ||
+                string.IsNullOrWhiteSpace(task.TaskDefinitionName) ||
+                !seededTaskNames.Add(task.TaskDefinitionName))
             {
                 continue;
             }
