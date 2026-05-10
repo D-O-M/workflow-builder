@@ -316,6 +316,17 @@ public sealed class ProcessProjectionService
             CreatedAt = processRecord.CreatedAt,
             UpdatedAt = processRecord.UpdatedAt,
             StartingBlueprintNodeId = blueprintVersionEntity.StartingBlueprintNodeId ?? Guid.Empty,
+            Phase = processRecord.Phase is null
+                ? null
+                : new ProcessPhaseMetadataViewModel
+                {
+                    PhasedProcessId = Guid.Parse(processRecord.Phase.PhasedProcessId),
+                    PhasedBlueprintDefinitionId = processRecord.Phase.PhasedBlueprintDefinitionId,
+                    PhasedBlueprintVersionId = processRecord.Phase.PhasedBlueprintVersionId,
+                    PhaseId = Guid.Parse(processRecord.Phase.PhaseId),
+                    PhaseIndex = processRecord.Phase.PhaseIndex,
+                    PhaseName = processRecord.Phase.PhaseName,
+                },
             Nodes = nodes,
         };
     }

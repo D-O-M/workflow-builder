@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using Backend.Plugins.Communication;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Backend.Engine;
 
@@ -9,18 +10,18 @@ public class JobManager
     private readonly IAgentManager _agentManager;
     private readonly ConcurrentDictionary<Guid, JobContext> _jobs = new();
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
-    private readonly JobFinalizationService _jobFinalizationService;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ILogger<JobManager> _logger;
 
     public JobManager(
         IAgentManager agentManager,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
-        JobFinalizationService jobFinalizationService,
+        IServiceScopeFactory serviceScopeFactory,
         ILogger<JobManager> logger)
     {
         _agentManager = agentManager;
         _processLifecycleTelemetry = processLifecycleTelemetry;
-        _jobFinalizationService = jobFinalizationService;
+        _serviceScopeFactory = serviceScopeFactory;
         _logger = logger;
     }
 
@@ -162,13 +163,15 @@ public class JobManager
             _processLifecycleTelemetry.RecordRecordedStepDuration(job, executionResult.CompletedAt);
 
             var finalizationStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            await using var scope = _serviceScopeFactory.CreateAsyncScope();
+            var finalizationService = scope.ServiceProvider.GetRequiredService<JobFinalizationService>();
             if (executionResult.Succeeded)
             {
-                await _jobFinalizationService.FinalizeSuccess(job, executionResult, cancellationToken);
+                await finalizationService.FinalizeSuccess(job, executionResult, cancellationToken);
             }
             else
             {
-                await _jobFinalizationService.FinalizeFailureAsync(job, executionResult, cancellationToken);
+                await finalizationService.FinalizeFailureAsync(job, executionResult, cancellationToken);
             }
             finalizationStopwatch.Stop();
             _processLifecycleTelemetry.RecordFinalization(job, finalizationStopwatch.Elapsed, executionResult.Succeeded);

@@ -13,8 +13,10 @@ public static class ServiceExtensions
         services.AddMemoryCache();
         services.AddScoped<ITaskDefinitionRepository, TaskDefinitionRepository>();
         services.AddScoped<IBlueprintRepository, BlueprintRepository>();
+        services.AddScoped<IPhasedBlueprintRepository, PhasedBlueprintRepository>();
         services.AddSingleton<IBlueprintExecutionCache, BlueprintExecutionCache>();
         services.AddScoped<ProcessProjectionService>();
+        services.AddScoped<PhasedProcessFinalizationService>();
 
         return services;
     }
@@ -25,7 +27,9 @@ public static class ServiceExtensions
         string processesContainerName = "processes",
         string tasksContainerName = "processsteps",
         string activationsContainerName = "nodeactivations",
-        string joinStatesContainerName = "nodejoinstates")
+        string joinStatesContainerName = "nodejoinstates",
+        string phasedProcessesContainerName = "phasedprocesses",
+        string phaseCorrelationsContainerName = "phasecorrelations")
     {
         services.AddSingleton(new ProcessStateInitializationOptions
         {
@@ -33,7 +37,9 @@ public static class ServiceExtensions
             ProcessesContainerName = processesContainerName,
             TasksContainerName = tasksContainerName,
             ActivationsContainerName = activationsContainerName,
-            JoinStatesContainerName = joinStatesContainerName
+            JoinStatesContainerName = joinStatesContainerName,
+            PhasedProcessesContainerName = phasedProcessesContainerName,
+            PhaseCorrelationsContainerName = phaseCorrelationsContainerName
         });
 
         services.AddSingleton<IProcessStepRepository>(sp =>
@@ -59,6 +65,18 @@ public static class ServiceExtensions
             var client = sp.GetRequiredService<CosmosClient>();
             return new ProcessInstanceRepository<Dictionary<string, JsonElement>>(
                 client.GetContainer(databaseName, processesContainerName));
+        });
+
+        services.AddSingleton<IPhasedProcessRepository>(sp =>
+        {
+            var client = sp.GetRequiredService<CosmosClient>();
+            return new PhasedProcessRepository(client.GetContainer(databaseName, phasedProcessesContainerName));
+        });
+
+        services.AddSingleton<IPhaseCorrelationRepository>(sp =>
+        {
+            var client = sp.GetRequiredService<CosmosClient>();
+            return new PhaseCorrelationRepository(client.GetContainer(databaseName, phaseCorrelationsContainerName));
         });
 
         return services;

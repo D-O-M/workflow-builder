@@ -135,6 +135,75 @@ public sealed class ProcessProjectionServiceTests
         detail.RuntimeOverrides.Value.GetProperty("mode").GetString().ShouldBe("runtime");
     }
 
+    [Test]
+    public async Task GetProcessDetailAsync_returns_phase_metadata_when_process_is_child_phase()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var taskDefinition = await SeedTaskDefinitionWithChannelsAsync(
+            database.Context,
+            "Phase Step",
+            new Dictionary<string, WorkflowPropertyKind>());
+
+        var repository = new BlueprintRepository(database.Context);
+        var nodeId = Guid.NewGuid();
+        var created = await repository.CreateBlueprint(
+            new BlueprintInputModel
+            {
+                Name = "Phase Child Blueprint",
+                StartingBlueprintNodeId = nodeId,
+                Tasks =
+                [
+                    new BlueprintNodeInputModel
+                    {
+                        InstanceId = nodeId,
+                        TaskDefinitionId = taskDefinition.Id,
+                        AllowedMajor = 1,
+                        AllowedMinor = 0,
+                        Position = new CoordinatesViewModel { X = 120, Y = 80 },
+                    }
+                ],
+            },
+            CancellationToken.None);
+        var phasedProcessId = Guid.NewGuid();
+        var phaseId = Guid.NewGuid();
+        var processId = Guid.NewGuid();
+        var processRecord = new ProcessInstanceRecord<Dictionary<string, JsonElement>>
+        {
+            id = processId.ToString(),
+            BlueprintId = created.Versions[0].BlueprintVersionId.ToString(),
+            CreatedAt = DateTimeOffset.Parse("2026-04-21T00:10:00Z"),
+            Status = ProcessStatus.Pending,
+            GlobalState = new Dictionary<string, JsonElement>(),
+            Phase = new ProcessPhaseMetadata
+            {
+                PhasedProcessId = phasedProcessId.ToString(),
+                PhasedBlueprintDefinitionId = 42,
+                PhasedBlueprintVersionId = 99,
+                PhaseId = phaseId.ToString(),
+                PhaseIndex = 1,
+                PhaseName = "Receive alert",
+            },
+        };
+
+        var service = new ProcessProjectionService(
+            database.Context,
+            new ProcessStepRepositoryStub([]),
+            new ProcessInstanceRepositoryStub(created.Versions[0].BlueprintVersionId, processRecord));
+
+        var detail = await service.GetProcessDetailAsync(
+            created.Id,
+            processId,
+            CancellationToken.None);
+
+        detail.Phase.ShouldNotBeNull();
+        detail.Phase.PhasedProcessId.ShouldBe(phasedProcessId);
+        detail.Phase.PhasedBlueprintDefinitionId.ShouldBe(42);
+        detail.Phase.PhasedBlueprintVersionId.ShouldBe(99);
+        detail.Phase.PhaseId.ShouldBe(phaseId);
+        detail.Phase.PhaseIndex.ShouldBe(1);
+        detail.Phase.PhaseName.ShouldBe("Receive alert");
+    }
+
     private static async Task<TaskDefinition> SeedTaskDefinitionWithChannelsAsync(
         Backend.Database.Relational.BlueprintDbContext context,
         string name,

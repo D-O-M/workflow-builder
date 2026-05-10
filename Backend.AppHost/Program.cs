@@ -10,6 +10,8 @@ internal class Program
     private const string TasksContainerName = "processsteps";
     private const string NodeActivationsContainerName = "nodeactivations";
     private const string NodeJoinStatesContainerName = "nodejoinstates";
+    private const string PhasedProcessesContainerName = "phasedprocesses";
+    private const string PhaseCorrelationsContainerName = "phasecorrelations";
     private const string TaskProgressLeaseContainerName = "processstepprogressleases";
 
     private static void Main(string[] args)
@@ -435,6 +437,8 @@ internal class Program
         database.AddContainer(TasksContainerName, "/processId");
         database.AddContainer(NodeActivationsContainerName, "/processId");
         database.AddContainer(NodeJoinStatesContainerName, "/processId");
+        database.AddContainer(PhasedProcessesContainerName, "/phasedBlueprintDefinitionId");
+        database.AddContainer(PhaseCorrelationsContainerName, "/targetPhaseKey");
         database.AddContainer(TaskProgressLeaseContainerName, "/id");
 
         return (cosmos, database);
@@ -725,7 +729,7 @@ internal class Program
         var frontend = builder.AddDockerfile("frontend", uiDirectoryPath)
             .WithHttpEndpoint(
                 targetPort: 4200,
-                port: null,
+                port: 4200,
                 name: "frontend-http",
                 isProxied: false);
 

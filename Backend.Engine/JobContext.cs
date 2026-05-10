@@ -57,6 +57,7 @@ public class JobContext
         = new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal);
     public string[] OutputChannelsPopulated { get; set; } = [];
     public ExecutableBlueprintNode BlueprintNode => _blueprintNode.Value;
+    public ProcessPhaseMetadata? PhaseMetadata { get; private set; }
     public Activity? ExecutionActivity { get; set; }
 
     public DateTimeOffset ProcessingWindowExpiresAt => _messageContainer.LockedUntil;
@@ -168,6 +169,7 @@ public class JobContext
             cancellationToken);
         EnsureExecutionProgress(processState);
         ProcessNodeOverrides = processState.NodeOverrides;
+        PhaseMetadata = processState.Phase;
 
         if (processState.Status is ProcessStatus.Pending)
         {

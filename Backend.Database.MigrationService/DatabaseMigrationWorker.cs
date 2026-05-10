@@ -21,6 +21,8 @@ internal sealed class DatabaseMigrationWorker(
     private const string ProcessStepsContainerName = "processsteps";
     private const string NodeActivationsContainerName = "nodeactivations";
     private const string NodeJoinStatesContainerName = "nodejoinstates";
+    private const string PhasedProcessesContainerName = "phasedprocesses";
+    private const string PhaseCorrelationsContainerName = "phasecorrelations";
     private const string ProcessStepProgressLeasesContainerName = "processstepprogressleases";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -103,6 +105,16 @@ internal sealed class DatabaseMigrationWorker(
             databaseResponse.Database,
             NodeJoinStatesContainerName,
             "/processId",
+            cancellationToken);
+        await EnsureContainerAsync(
+            databaseResponse.Database,
+            PhasedProcessesContainerName,
+            "/phasedBlueprintDefinitionId",
+            cancellationToken);
+        await EnsureContainerAsync(
+            databaseResponse.Database,
+            PhaseCorrelationsContainerName,
+            "/targetPhaseKey",
             cancellationToken);
         await EnsureContainerAsync(
             databaseResponse.Database,

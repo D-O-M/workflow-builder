@@ -11,4 +11,8 @@ public sealed class ProcessStateInitializationOptions
     public string ActivationsContainerName { get; init; } = "nodeactivations";
 
     public string JoinStatesContainerName { get; init; } = "nodejoinstates";
+
+    public string PhasedProcessesContainerName { get; init; } = "phasedprocesses";
+
+    public string PhaseCorrelationsContainerName { get; init; } = "phasecorrelations";
 }

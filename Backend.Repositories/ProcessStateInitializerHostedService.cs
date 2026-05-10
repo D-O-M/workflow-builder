@@ -46,6 +46,14 @@ public sealed class ProcessStateInitializerHostedService : IHostedService
             new ContainerProperties(_options.JoinStatesContainerName, "/processId"),
             cancellationToken: cancellationToken);
 
+        await databaseResponse.Database.CreateContainerIfNotExistsAsync(
+            new ContainerProperties(_options.PhasedProcessesContainerName, "/phasedBlueprintDefinitionId"),
+            cancellationToken: cancellationToken);
+
+        await databaseResponse.Database.CreateContainerIfNotExistsAsync(
+            new ContainerProperties(_options.PhaseCorrelationsContainerName, "/targetPhaseKey"),
+            cancellationToken: cancellationToken);
+
         _logger.LogInformation(
             "Cosmos process state is ready for database {DatabaseName}.",
             _options.DatabaseName);

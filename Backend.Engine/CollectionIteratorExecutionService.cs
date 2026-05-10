@@ -5,6 +5,7 @@ using Backend.Database.State.Objects;
 using Backend.Interfaces.Repositories;
 using Backend.Models;
 using Backend.Plugins.Communication;
+using Backend.Repositories;
 using Microsoft.Extensions.Options;
 
 namespace Backend.Engine;
@@ -15,6 +16,7 @@ public sealed class CollectionIteratorExecutionService
     private const string ItemOutputChannelName = "Item";
 
     private readonly NodeActivationService _nodeActivationService;
+    private readonly PhasedProcessFinalizationService _phasedProcessFinalizationService;
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IOptions<CollectionIteratorOptions> _options;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
@@ -22,12 +24,14 @@ public sealed class CollectionIteratorExecutionService
 
     public CollectionIteratorExecutionService(
         NodeActivationService nodeActivationService,
+        PhasedProcessFinalizationService phasedProcessFinalizationService,
         IProcessStepRepository processStepRepository,
         IOptions<CollectionIteratorOptions> options,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
         ILogger<CollectionIteratorExecutionService> logger)
     {
         _nodeActivationService = nodeActivationService;
+        _phasedProcessFinalizationService = phasedProcessFinalizationService;
         _processStepRepository = processStepRepository;
         _options = options;
         _processLifecycleTelemetry = processLifecycleTelemetry;
@@ -132,6 +136,16 @@ public sealed class CollectionIteratorExecutionService
 
             if (completedAfterSuccess || completedAfterExpansion)
             {
+                if (context.PhaseMetadata is not null)
+                {
+                    await _phasedProcessFinalizationService.FinalizeCompletedPhaseAsync(
+                        context.PhaseMetadata,
+                        context.ExecutableBlueprintId,
+                        context.ProcessId,
+                        completedAt,
+                        cancellationToken);
+                }
+
                 _processLifecycleTelemetry.LogProcessCompleted(context, completedAt);
             }
 
@@ -167,6 +181,17 @@ public sealed class CollectionIteratorExecutionService
                 errorMessage,
                 failedAt,
                 cancellationToken);
+            if (context.PhaseMetadata is not null)
+            {
+                await _phasedProcessFinalizationService.MarkPhaseFailedAsync(
+                    context.PhaseMetadata,
+                    context.ExecutableBlueprintId,
+                    context.ProcessId,
+                    errorMessage,
+                    failedAt,
+                    cancellationToken);
+            }
+
             _processLifecycleTelemetry.LogStepFailed(context, result);
             _processLifecycleTelemetry.LogProcessFailed(context, failedAt, errorMessage);
             _logger.LogError(

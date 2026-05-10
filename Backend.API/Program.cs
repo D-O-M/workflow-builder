@@ -61,6 +61,7 @@ public class Program
         builder.Services.AddSingleton<IProcessStepQueueWriter, ServiceBusProcessStepQueueWriter>();
         builder.Services.AddSingleton<ProcessStartTelemetry>();
         builder.Services.AddScoped<BlueprintProcessService>();
+        builder.Services.AddScoped<PhasedBlueprintProcessService>();
         builder.Services.AddScoped<BlueprintPortabilityService>();
         builder.Services.AddScoped<ProcessQueryService>();
         builder.Services.AddScoped<ObservabilityQueryService>();

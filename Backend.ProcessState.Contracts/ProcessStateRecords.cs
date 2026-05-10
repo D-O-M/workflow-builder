@@ -11,6 +11,15 @@ public enum ProcessStatus
     Failed
 }
 
+public enum PhasedProcessStatus
+{
+    Pending,
+    InProgress,
+    WaitingForTrigger,
+    Completed,
+    Failed
+}
+
 public enum ProcessStepStatus
 {
     Pending,
@@ -68,6 +77,9 @@ public class ProcessInstanceRecord<TGlobalState>
 
     [JsonPropertyName("executionProgress")]
     public ProcessExecutionProgress ExecutionProgress { get; set; } = new();
+
+    [JsonPropertyName("phase")]
+    public ProcessPhaseMetadata? Phase { get; set; }
 }
 
 public class ProcessStepRecord
@@ -232,6 +244,160 @@ public sealed class ProcessStepIterationContext
 
     [JsonPropertyName("itemKey")]
     public required string ItemKey { get; init; }
+}
+
+public sealed class ProcessPhaseMetadata
+{
+    [JsonPropertyName("phasedProcessId")]
+    public required string PhasedProcessId { get; init; }
+
+    [JsonPropertyName("phasedBlueprintDefinitionId")]
+    public required int PhasedBlueprintDefinitionId { get; init; }
+
+    [JsonPropertyName("phasedBlueprintVersionId")]
+    public required int PhasedBlueprintVersionId { get; init; }
+
+    [JsonPropertyName("phaseId")]
+    public required string PhaseId { get; init; }
+
+    [JsonPropertyName("phaseIndex")]
+    public required int PhaseIndex { get; init; }
+
+    [JsonPropertyName("phaseName")]
+    public required string PhaseName { get; init; }
+}
+
+public sealed class PhasedProcessRecord
+{
+    private string _id = null!;
+
+    [JsonPropertyName("id")]
+    public required string id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonIgnore]
+    public string Id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonPropertyName("_etag")]
+    public string? ETag { get; set; }
+
+    [JsonPropertyName("phasedBlueprintDefinitionId")]
+    public required string PhasedBlueprintDefinitionId { get; init; }
+
+    [JsonPropertyName("phasedBlueprintVersionId")]
+    public required int PhasedBlueprintVersionId { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; set; }
+
+    [JsonPropertyName("status")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public PhasedProcessStatus Status { get; set; }
+
+    [JsonPropertyName("currentPhaseId")]
+    public string? CurrentPhaseId { get; set; }
+
+    [JsonPropertyName("phases")]
+    public List<PhasedProcessPhaseRecord> Phases { get; init; } = [];
+
+    [JsonPropertyName("phaseResults")]
+    public Dictionary<string, Dictionary<string, JsonElement>> PhaseResults { get; set; } = new(StringComparer.Ordinal);
+}
+
+public sealed class PhasedProcessPhaseRecord
+{
+    [JsonPropertyName("phaseId")]
+    public required string PhaseId { get; init; }
+
+    [JsonPropertyName("phaseIndex")]
+    public required int PhaseIndex { get; init; }
+
+    [JsonPropertyName("phaseName")]
+    public required string PhaseName { get; init; }
+
+    [JsonPropertyName("blueprintDefinitionId")]
+    public required int BlueprintDefinitionId { get; init; }
+
+    [JsonPropertyName("blueprintVersionId")]
+    public int? BlueprintVersionId { get; set; }
+
+    [JsonPropertyName("childProcessId")]
+    public string? ChildProcessId { get; set; }
+
+    [JsonPropertyName("status")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public PhasedProcessStatus Status { get; set; }
+
+    [JsonPropertyName("startedAt")]
+    public DateTimeOffset? StartedAt { get; set; }
+
+    [JsonPropertyName("completedAt")]
+    public DateTimeOffset? CompletedAt { get; set; }
+
+    [JsonPropertyName("triggerInput")]
+    public Dictionary<string, JsonElement> TriggerInput { get; set; } = new(StringComparer.Ordinal);
+
+    [JsonPropertyName("failureMessage")]
+    public string? FailureMessage { get; set; }
+}
+
+public sealed class PhaseCorrelationRecord
+{
+    private string _id = null!;
+
+    [JsonPropertyName("id")]
+    public required string id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonIgnore]
+    public string Id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonPropertyName("targetPhaseKey")]
+    public required string TargetPhaseKey { get; init; }
+
+    [JsonPropertyName("phasedProcessId")]
+    public required string PhasedProcessId { get; init; }
+
+    [JsonPropertyName("phasedBlueprintDefinitionId")]
+    public required int PhasedBlueprintDefinitionId { get; init; }
+
+    [JsonPropertyName("phasedBlueprintVersionId")]
+    public required int PhasedBlueprintVersionId { get; init; }
+
+    [JsonPropertyName("transitionId")]
+    public required string TransitionId { get; init; }
+
+    [JsonPropertyName("sourcePhaseId")]
+    public required string SourcePhaseId { get; init; }
+
+    [JsonPropertyName("targetPhaseId")]
+    public required string TargetPhaseId { get; init; }
+
+    [JsonPropertyName("targetPhaseIndex")]
+    public required int TargetPhaseIndex { get; init; }
+
+    [JsonPropertyName("values")]
+    public Dictionary<string, JsonElement> Values { get; init; } = new(StringComparer.Ordinal);
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset CreatedAt { get; init; }
 }
 
 public class NodeActivationRecord

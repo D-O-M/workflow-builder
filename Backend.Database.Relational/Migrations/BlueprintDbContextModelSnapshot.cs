@@ -225,6 +225,194 @@ namespace Backend.Database.Relational.Migrations
                     b.ToTable("ChannelProperties", (string)null);
                 });
 
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintCorrelationMapping", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<Guid>("PhasedBlueprintTransitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SourceResultProperty")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("TriggerProperty")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PhasedBlueprintTransitionId");
+
+                    b.ToTable("PhasedBlueprintCorrelationMappings", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintDefinition", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Key")
+                        .IsUnique();
+
+                    b.ToTable("PhasedBlueprintDefinitions", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintHandoffMapping", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<Guid>("PhasedBlueprintTransitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<double>("BridgePosition")
+                        .HasColumnType("float");
+
+                    b.Property<Guid?>("SourceBlueprintNodeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SourceChannelName")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SourceProperty")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("TargetBlueprintNodeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TargetProperty")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PhasedBlueprintTransitionId");
+
+                    b.ToTable("PhasedBlueprintHandoffMappings", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintPhase", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("BlueprintDefinitionId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("BlueprintVersionId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("PhaseIndex")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PhasedBlueprintVersionId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("VersionPolicy")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BlueprintDefinitionId");
+
+                    b.HasIndex("BlueprintVersionId");
+
+                    b.HasIndex("PhasedBlueprintVersionId", "PhaseIndex")
+                        .IsUnique();
+
+                    b.ToTable("PhasedBlueprintPhases", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintTransition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("DestinationPhaseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("PhasedBlueprintVersionId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("SourcePhaseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DestinationPhaseId");
+
+                    b.HasIndex("SourcePhaseId");
+
+                    b.HasIndex("PhasedBlueprintVersionId", "DestinationPhaseId")
+                        .IsUnique();
+
+                    b.HasIndex("PhasedBlueprintVersionId", "SourcePhaseId")
+                        .IsUnique();
+
+                    b.ToTable("PhasedBlueprintTransitions", (string)null);
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintVersion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("PhasedBlueprintDefinitionId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PhasedBlueprintDefinitionId", "Version")
+                        .IsUnique();
+
+                    b.ToTable("PhasedBlueprintVersions", (string)null);
+                });
+
             modelBuilder.Entity("Backend.Database.Relational.Entities.TaskDefinition", b =>
                 {
                     b.Property<int>("Id")
@@ -378,6 +566,92 @@ namespace Backend.Database.Relational.Migrations
                     b.Navigation("Channel");
                 });
 
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintCorrelationMapping", b =>
+                {
+                    b.HasOne("Backend.Database.Relational.Entities.PhasedBlueprintTransition", "PhasedBlueprintTransition")
+                        .WithMany("CorrelationMappings")
+                        .HasForeignKey("PhasedBlueprintTransitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PhasedBlueprintTransition");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintHandoffMapping", b =>
+                {
+                    b.HasOne("Backend.Database.Relational.Entities.PhasedBlueprintTransition", "PhasedBlueprintTransition")
+                        .WithMany("HandoffMappings")
+                        .HasForeignKey("PhasedBlueprintTransitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PhasedBlueprintTransition");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintPhase", b =>
+                {
+                    b.HasOne("Backend.Database.Relational.Entities.BlueprintDefinition", "BlueprintDefinition")
+                        .WithMany()
+                        .HasForeignKey("BlueprintDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Database.Relational.Entities.BlueprintVersion", "BlueprintVersion")
+                        .WithMany()
+                        .HasForeignKey("BlueprintVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Backend.Database.Relational.Entities.PhasedBlueprintVersion", "PhasedBlueprintVersion")
+                        .WithMany("Phases")
+                        .HasForeignKey("PhasedBlueprintVersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("BlueprintDefinition");
+
+                    b.Navigation("BlueprintVersion");
+
+                    b.Navigation("PhasedBlueprintVersion");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintTransition", b =>
+                {
+                    b.HasOne("Backend.Database.Relational.Entities.PhasedBlueprintPhase", "DestinationPhase")
+                        .WithMany()
+                        .HasForeignKey("DestinationPhaseId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Database.Relational.Entities.PhasedBlueprintVersion", "PhasedBlueprintVersion")
+                        .WithMany("Transitions")
+                        .HasForeignKey("PhasedBlueprintVersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Backend.Database.Relational.Entities.PhasedBlueprintPhase", "SourcePhase")
+                        .WithMany()
+                        .HasForeignKey("SourcePhaseId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("DestinationPhase");
+
+                    b.Navigation("PhasedBlueprintVersion");
+
+                    b.Navigation("SourcePhase");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintVersion", b =>
+                {
+                    b.HasOne("Backend.Database.Relational.Entities.PhasedBlueprintDefinition", "PhasedBlueprintDefinition")
+                        .WithMany("Versions")
+                        .HasForeignKey("PhasedBlueprintDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PhasedBlueprintDefinition");
+                });
+
             modelBuilder.Entity("Backend.Database.Relational.Entities.TaskVersion", b =>
                 {
                     b.HasOne("Backend.Database.Relational.Entities.TaskDefinition", "TaskDefinition")
@@ -409,6 +683,25 @@ namespace Backend.Database.Relational.Migrations
             modelBuilder.Entity("Backend.Database.Relational.Entities.Channel", b =>
                 {
                     b.Navigation("Properties");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintDefinition", b =>
+                {
+                    b.Navigation("Versions");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintTransition", b =>
+                {
+                    b.Navigation("CorrelationMappings");
+
+                    b.Navigation("HandoffMappings");
+                });
+
+            modelBuilder.Entity("Backend.Database.Relational.Entities.PhasedBlueprintVersion", b =>
+                {
+                    b.Navigation("Phases");
+
+                    b.Navigation("Transitions");
                 });
 
             modelBuilder.Entity("Backend.Database.Relational.Entities.TaskDefinition", b =>

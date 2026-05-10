@@ -19,6 +19,12 @@ public class BlueprintDbContext : DbContext
 
     public DbSet<BlueprintNode> BlueprintNodes => Set<BlueprintNode>();
     public DbSet<BlueprintConnection> BlueprintConnections => Set<BlueprintConnection>();
+    public DbSet<PhasedBlueprintDefinition> PhasedBlueprintDefinitions => Set<PhasedBlueprintDefinition>();
+    public DbSet<PhasedBlueprintVersion> PhasedBlueprintVersions => Set<PhasedBlueprintVersion>();
+    public DbSet<PhasedBlueprintPhase> PhasedBlueprintPhases => Set<PhasedBlueprintPhase>();
+    public DbSet<PhasedBlueprintTransition> PhasedBlueprintTransitions => Set<PhasedBlueprintTransition>();
+    public DbSet<PhasedBlueprintHandoffMapping> PhasedBlueprintHandoffMappings => Set<PhasedBlueprintHandoffMapping>();
+    public DbSet<PhasedBlueprintCorrelationMapping> PhasedBlueprintCorrelationMappings => Set<PhasedBlueprintCorrelationMapping>();
 
     // TPH base DbSet is enough; derived are still queryable
     public DbSet<Channel> Channels => Set<Channel>();
@@ -167,6 +173,120 @@ public class BlueprintDbContext : DbContext
             entity.Property(e => e.Side).IsRequired();
             entity.Property(e => e.ChannelName).IsRequired();
             entity.Property(e => e.PropertyMappingsJson).IsRequired(false);
+        });
+
+        // -----------------------------
+        // PhasedBlueprintDefinitions
+        // -----------------------------
+        modelBuilder.Entity<PhasedBlueprintDefinition>(entity =>
+        {
+            entity.ToTable("PhasedBlueprintDefinitions");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Key).IsRequired();
+            entity.Property(e => e.DisplayName).IsRequired();
+            entity.HasIndex(e => e.Key).IsUnique();
+
+            entity.HasMany(e => e.Versions)
+                .WithOne(e => e.PhasedBlueprintDefinition)
+                .HasForeignKey(e => e.PhasedBlueprintDefinitionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PhasedBlueprintVersion>(entity =>
+        {
+            entity.ToTable("PhasedBlueprintVersions");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Version).IsRequired();
+            entity.Property(e => e.Description).IsRequired(false);
+            entity.Property(e => e.CreatedAt).IsRequired();
+            entity.HasIndex(e => new { e.PhasedBlueprintDefinitionId, e.Version }).IsUnique();
+
+            entity.HasMany(e => e.Phases)
+                .WithOne(e => e.PhasedBlueprintVersion)
+                .HasForeignKey(e => e.PhasedBlueprintVersionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Transitions)
+                .WithOne(e => e.PhasedBlueprintVersion)
+                .HasForeignKey(e => e.PhasedBlueprintVersionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PhasedBlueprintPhase>(entity =>
+        {
+            entity.ToTable("PhasedBlueprintPhases");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.PhaseIndex).IsRequired();
+            entity.Property(e => e.Name).IsRequired();
+            entity.Property(e => e.VersionPolicy)
+                .HasConversion<string>()
+                .IsRequired();
+
+            entity.HasIndex(e => new { e.PhasedBlueprintVersionId, e.PhaseIndex }).IsUnique();
+
+            entity.HasOne(e => e.BlueprintDefinition)
+                .WithMany()
+                .HasForeignKey(e => e.BlueprintDefinitionId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.BlueprintVersion)
+                .WithMany()
+                .HasForeignKey(e => e.BlueprintVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PhasedBlueprintTransition>(entity =>
+        {
+            entity.ToTable("PhasedBlueprintTransitions");
+            entity.HasKey(e => e.Id);
+
+            entity.HasIndex(e => new { e.PhasedBlueprintVersionId, e.SourcePhaseId }).IsUnique();
+            entity.HasIndex(e => new { e.PhasedBlueprintVersionId, e.DestinationPhaseId }).IsUnique();
+
+            entity.HasOne(e => e.SourcePhase)
+                .WithMany()
+                .HasForeignKey(e => e.SourcePhaseId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(e => e.DestinationPhase)
+                .WithMany()
+                .HasForeignKey(e => e.DestinationPhaseId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasMany(e => e.HandoffMappings)
+                .WithOne(e => e.PhasedBlueprintTransition)
+                .HasForeignKey(e => e.PhasedBlueprintTransitionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.CorrelationMappings)
+                .WithOne(e => e.PhasedBlueprintTransition)
+                .HasForeignKey(e => e.PhasedBlueprintTransitionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PhasedBlueprintHandoffMapping>(entity =>
+        {
+            entity.ToTable("PhasedBlueprintHandoffMappings");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SourceKind)
+                .HasConversion<string>()
+                .IsRequired();
+            entity.Property(e => e.SourceChannelName).IsRequired(false);
+            entity.Property(e => e.SourceProperty).IsRequired();
+            entity.Property(e => e.BridgePosition).IsRequired();
+            entity.Property(e => e.TargetBlueprintNodeId).IsRequired();
+            entity.Property(e => e.TargetProperty).IsRequired();
+        });
+
+        modelBuilder.Entity<PhasedBlueprintCorrelationMapping>(entity =>
+        {
+            entity.ToTable("PhasedBlueprintCorrelationMappings");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SourceResultProperty).IsRequired();
+            entity.Property(e => e.TriggerProperty).IsRequired();
         });
 
         // -----------------------------
