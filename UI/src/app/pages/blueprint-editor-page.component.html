@@ -117,6 +117,13 @@
           }
         </div>
       </div>
+
+      @if (versionPinNotice()) {
+        <div class="blueprint-editor-page__version-pin-notice" role="status">
+          <mat-icon>info</mat-icon>
+          <span>Phase series stay pinned until upgraded in Phases.</span>
+        </div>
+      }
     </div>
 
     <mat-autocomplete

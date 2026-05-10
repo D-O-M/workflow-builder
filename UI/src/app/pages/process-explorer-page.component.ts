@@ -40,6 +40,8 @@ import {
   BlueprintProcessActivityViewModel,
   BlueprintProcessHistoryEntryViewModel,
   BlueprintViewModel,
+  PhasedProcessDetailViewModel,
+  PhasedProcessPhaseViewModel,
   ProcessDetailViewModel,
   ProcessSearchRequest,
   ProcessStepDetailViewModel,
@@ -335,6 +337,42 @@ export class ProcessExplorerPageComponent {
       }),
     };
   });
+  private readonly selectedPhasedProcessState = toSignal(
+    createRequestStateStream(
+      toObservable(computed(() => {
+        const phase = this.selectedProcess()?.phase;
+        if (!phase) {
+          return null;
+        }
+
+        return {
+          phasedBlueprintDefinitionId: phase.phasedBlueprintDefinitionId,
+          phasedProcessId: phase.phasedProcessId,
+          refreshVersion: this.refreshVersion(),
+        };
+      })).pipe(
+        distinctUntilChanged((left, right) =>
+          left?.phasedBlueprintDefinitionId === right?.phasedBlueprintDefinitionId &&
+          left?.phasedProcessId === right?.phasedProcessId &&
+          left?.refreshVersion === right?.refreshVersion,
+        ),
+      ),
+      ({ phasedBlueprintDefinitionId, phasedProcessId }) =>
+        this.blueprintService.getPhasedProcess(phasedBlueprintDefinitionId, phasedProcessId),
+      'Unable to load the phased process.',
+    ),
+    { initialValue: idleRequestState<PhasedProcessDetailViewModel>() },
+  );
+  protected readonly phasedProcessLoading = computed(() => this.selectedPhasedProcessState().status === 'loading');
+  protected readonly selectedPhasedProcess = computed<PhasedProcessDetailViewModel | null>(() => {
+    const state = this.selectedPhasedProcessState();
+    return isReadyRequestState(state) ? state.data : null;
+  });
+  protected readonly selectedPhasedProcessError = computed(() => {
+    const state = this.selectedPhasedProcessState();
+    return isErrorRequestState(state) ? state.message : null;
+  });
+  protected readonly selectedProcessPhaseIndex = computed(() => this.selectedProcess()?.phase?.phaseIndex ?? null);
   protected readonly selectedProcessStepCounts = computed<ProcessStepStatusCounts>(() => {
     const nodes = this.selectedProcess()?.nodes ?? [];
     return this.countStepStatuses(nodes);
@@ -703,6 +741,11 @@ export class ProcessExplorerPageComponent {
     const selectedProcessState = this.selectedProcessState();
     if (isErrorRequestState(selectedProcessState)) {
       return selectedProcessState.message;
+    }
+
+    const selectedPhasedProcessState = this.selectedPhasedProcessState();
+    if (isErrorRequestState(selectedPhasedProcessState)) {
+      return selectedPhasedProcessState.message;
     }
 
     return null;
@@ -1193,6 +1236,8 @@ export class ProcessExplorerPageComponent {
         return 'Succeeded';
       case 'InProgress':
         return 'Running';
+      case 'WaitingForTrigger':
+        return 'Waiting for trigger';
       case 'Failed':
         return 'Failed';
       case 'Pending':
@@ -1208,6 +1253,8 @@ export class ProcessExplorerPageComponent {
         return 'check_circle';
       case 'InProgress':
         return 'hourglass_top';
+      case 'WaitingForTrigger':
+        return 'notifications_active';
       case 'Failed':
         return 'error';
       case 'Pending':
@@ -1251,6 +1298,24 @@ export class ProcessExplorerPageComponent {
     process: BlueprintProcessHistoryEntryViewModel,
   ): string {
     return process.processId;
+  }
+
+  protected trackPhasedProcessPhase(
+    _: number,
+    phase: PhasedProcessPhaseViewModel,
+  ): string {
+    return phase.phaseId;
+  }
+
+  protected selectPhaseProcess(phase: PhasedProcessPhaseViewModel): void {
+    if (!phase.childProcessId) {
+      return;
+    }
+
+    this.selectedBlueprintId.set(phase.blueprintDefinitionId);
+    this.selectedProcessId.set(phase.childProcessId);
+    this.preferredProcessId.set(null);
+    this.closeHistoryDrawer();
   }
 
   protected trackStepLog(_: number, entry: NodeLogEntryViewModel): string {

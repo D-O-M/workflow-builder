@@ -535,6 +535,62 @@
             }
           </header>
 
+          @if (process.phase) {
+            <section class="process-explorer-page__phase-overview" [class.is-loading]="phasedProcessLoading()">
+              @if (selectedPhasedProcess(); as phasedProcess) {
+                <header>
+                  <div>
+                    <p class="app-hero-card__eyebrow">Phased process</p>
+                    <h2>{{ phasedProcess.phasedBlueprintName }}</h2>
+                    <span>Version {{ phasedProcess.phasedBlueprintVersionNumber }} · {{ compactProcessId(phasedProcess.phasedProcessId) }}</span>
+                  </div>
+                  <span
+                    class="process-explorer-page__status-icon"
+                    [ngClass]="'status-surface--' + phasedProcess.status.toLowerCase()"
+                    [matTooltip]="'Status: ' + statusLabel(phasedProcess.status)"
+                  >
+                    <mat-icon>{{ statusIcon(phasedProcess.status) }}</mat-icon>
+                  </span>
+                </header>
+
+                <div class="process-explorer-page__phase-strip" aria-label="Phased process sections">
+                  @for (phase of phasedProcess.phases; track trackPhasedProcessPhase($index, phase)) {
+                    <button
+                      type="button"
+                      class="process-explorer-page__phase-card"
+                      [class.is-active]="selectedProcessPhaseIndex() === phase.phaseIndex"
+                      [disabled]="!phase.childProcessId"
+                      (click)="selectPhaseProcess(phase)"
+                    >
+                      <span class="process-explorer-page__phase-index">{{ phase.phaseIndex + 1 }}</span>
+                      <span class="process-explorer-page__phase-card-copy">
+                        <strong>{{ phase.phaseName }}</strong>
+                        <small>{{ phase.blueprintName }}</small>
+                      </span>
+                      <span
+                        class="process-explorer-page__status-icon"
+                        [ngClass]="'status-surface--' + phase.status.toLowerCase()"
+                        [matTooltip]="'Status: ' + statusLabel(phase.status)"
+                      >
+                        <mat-icon>{{ statusIcon(phase.status) }}</mat-icon>
+                      </span>
+                    </button>
+                  }
+                </div>
+              } @else if (phasedProcessLoading()) {
+                <div class="process-explorer-page__phase-state">
+                  <mat-progress-spinner diameter="24" mode="indeterminate" />
+                  <span>Loading phased process...</span>
+                </div>
+              } @else if (selectedPhasedProcessError()) {
+                <div class="process-explorer-page__phase-state is-error">
+                  <mat-icon>error</mat-icon>
+                  <span>{{ selectedPhasedProcessError() }}</span>
+                </div>
+              }
+            </section>
+          }
+
           <div class="process-explorer-page__canvas-stage">
             @if (detailLoading()) {
               <div class="process-explorer-page__canvas-state">

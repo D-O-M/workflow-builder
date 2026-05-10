@@ -8,6 +8,7 @@ import {
   ɵEffectScheduler as EffectScheduler,
 } from '@angular/core';
 import { MatDialog } from '@angular/material/dialog';
+import { ActivatedRoute } from '@angular/router';
 import { of } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlueprintEditorPageComponent } from './blueprint-editor-page.component';
@@ -252,6 +253,16 @@ describe('BlueprintEditorPageComponent', () => {
       },
       { provide: BuilderInputService, useValue: {} },
       {
+        provide: ActivatedRoute,
+        useValue: {
+          snapshot: {
+            queryParamMap: {
+              get: vi.fn(() => null),
+            },
+          },
+        },
+      },
+      {
         provide: ChangeDetectionScheduler,
         useValue: {
           notify: vi.fn(),
@@ -460,6 +471,7 @@ describe('BlueprintEditorPageComponent', () => {
     expect(editorService.createBlueprintVersion.mock.calls[0][0]).toBe(7);
     expect(editorService.createBlueprintVersion.mock.calls[0][1]).toBe(3);
     expect((component as any).selectedBlueprintId()).toBe(7);
+    expect((component as any).versionPinNotice()).toBe(true);
   });
 
   it('defaults the version picker to the latest blueprint version when opening a blueprint', async () => {

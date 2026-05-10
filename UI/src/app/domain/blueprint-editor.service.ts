@@ -90,6 +90,133 @@ export interface BlueprintViewModel {
   versions: BlueprintVersionViewModel[];
 }
 
+export type PhasedBlueprintPhaseVersionPolicy = 'Pinned' | 'Latest';
+export type PhasedBlueprintHandoffSourceKind = 'Output' | 'GlobalState';
+
+export interface PhasedBlueprintHandoffMappingInputModel {
+  sourceKind: PhasedBlueprintHandoffSourceKind;
+  sourceBlueprintNodeId?: string | null;
+  sourceChannelName?: string | null;
+  sourceProperty: string;
+  bridgePosition: number;
+  targetBlueprintNodeId: string;
+  targetProperty: string;
+}
+
+export interface PhasedBlueprintCorrelationMappingInputModel {
+  sourceResultProperty: string;
+  triggerProperty: string;
+}
+
+export interface PhasedBlueprintTransitionInputModel {
+  transitionId: string;
+  sourcePhaseId: string;
+  destinationPhaseId: string;
+  handoffMappings: PhasedBlueprintHandoffMappingInputModel[];
+  correlationMappings: PhasedBlueprintCorrelationMappingInputModel[];
+}
+
+export interface PhasedBlueprintPhaseInputModel {
+  phaseId: string;
+  phaseIndex: number;
+  name: string;
+  blueprintDefinitionId: number;
+  blueprintVersionId?: number | null;
+  versionPolicy: PhasedBlueprintPhaseVersionPolicy;
+}
+
+export interface PhasedBlueprintInputModel {
+  key?: string | null;
+  name: string;
+  description?: string | null;
+  phases: PhasedBlueprintPhaseInputModel[];
+  transitions: PhasedBlueprintTransitionInputModel[];
+}
+
+export interface PhasedBlueprintVersionInputModel {
+  phasedBlueprintDefinitionId: number;
+  baseVersion?: number | null;
+  description?: string | null;
+  phases: PhasedBlueprintPhaseInputModel[];
+  transitions: PhasedBlueprintTransitionInputModel[];
+}
+
+export interface PhasedBlueprintPhaseViewModel {
+  phaseId: string;
+  phaseIndex: number;
+  name: string;
+  blueprintDefinitionId: number;
+  blueprintName: string;
+  blueprintVersionId?: number | null;
+  blueprintVersionNumber?: number | null;
+  versionPolicy: PhasedBlueprintPhaseVersionPolicy;
+}
+
+export interface PhasedBlueprintTransitionViewModel {
+  transitionId: string;
+  sourcePhaseId: string;
+  destinationPhaseId: string;
+  handoffMappings: PhasedBlueprintHandoffMappingInputModel[];
+  correlationMappings: PhasedBlueprintCorrelationMappingInputModel[];
+}
+
+export interface PhasedBlueprintVersionViewModel {
+  phasedBlueprintVersionId: number;
+  phasedBlueprintDefinitionId: number;
+  version: number;
+  description?: string | null;
+  createdAt: string;
+  phases: PhasedBlueprintPhaseViewModel[];
+  transitions: PhasedBlueprintTransitionViewModel[];
+}
+
+export interface PhasedBlueprintViewModel {
+  id: number;
+  key: string;
+  name: string;
+  description: string;
+  versions: PhasedBlueprintVersionViewModel[];
+}
+
+export type PhasedProcessStatus = 'Pending' | 'InProgress' | 'WaitingForTrigger' | 'Completed' | 'Failed';
+
+export interface ProcessPhaseMetadataViewModel {
+  phasedProcessId: string;
+  phasedBlueprintDefinitionId: number;
+  phasedBlueprintVersionId: number;
+  phaseId: string;
+  phaseIndex: number;
+  phaseName: string;
+}
+
+export interface PhasedProcessPhaseViewModel {
+  phaseId: string;
+  phaseIndex: number;
+  phaseName: string;
+  blueprintDefinitionId: number;
+  blueprintName: string;
+  blueprintVersionId?: number | null;
+  childProcessId?: string | null;
+  status: PhasedProcessStatus;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  failureMessage?: string | null;
+  phaseResult?: unknown | null;
+  childProcess?: ProcessDetailViewModel | null;
+}
+
+export interface PhasedProcessDetailViewModel {
+  phasedProcessId: string;
+  phasedBlueprintDefinitionId: number;
+  phasedBlueprintName: string;
+  phasedBlueprintVersionId: number;
+  phasedBlueprintVersionNumber: number;
+  status: PhasedProcessStatus;
+  createdAt: string;
+  updatedAt?: string | null;
+  phases: PhasedProcessPhaseViewModel[];
+}
+
 export interface BlueprintProcessInputModel {
   globalState: Record<string, unknown>;
   initialTaskInput: Record<string, unknown>;
@@ -223,6 +350,7 @@ export interface ProcessDetailViewModel {
   createdAt: string;
   updatedAt?: string | null;
   startingBlueprintNodeId: string;
+  phase?: ProcessPhaseMetadataViewModel | null;
   nodes: ProcessStepViewModel[];
 }
 
@@ -294,6 +422,7 @@ export class BlueprintEditorService {
     snap?: (v: number) => number,
     nodeKind: NodeKind = 'PluginTask',
     collectionIteratorItemKind: TaskPropertyBaseType | null = null,
+    instanceId: string | null = null,
   ): NodeModel {
     const y = snap ? snap(coordinates.y) : coordinates.y;
     const outputCount = Math.max(outputChannelNames.length, 1);
@@ -324,6 +453,7 @@ export class BlueprintEditorService {
       false,
       nodeKind,
       collectionIteratorItemKind,
+      instanceId,
     );
   }
 
@@ -331,6 +461,7 @@ export class BlueprintEditorService {
     id: number,
     coordinates: Point,
     itemKind: TaskPropertyBaseType | null,
+    instanceId: string | null = null,
   ): NodeModel {
     const concreteItemKind = itemKind ?? 'String';
     const collectionKind: TaskPropertyType = `${concreteItemKind}[]`;
@@ -373,6 +504,7 @@ export class BlueprintEditorService {
       false,
       'CollectionIterator',
       itemKind,
+      instanceId,
     );
   }
 
@@ -422,6 +554,34 @@ export class BlueprintEditorService {
     return this.http.post<BlueprintVersionViewModel>(`api/blueprints/${definitionId}/versions`, payload);
   }
 
+  createPhasedBlueprint(payload: PhasedBlueprintInputModel): Observable<PhasedBlueprintViewModel> {
+    return this.http.post<PhasedBlueprintViewModel>('api/phased-blueprints', payload);
+  }
+
+  getPhasedBlueprints(): Observable<PhasedBlueprintViewModel[]> {
+    return this.http.get<PhasedBlueprintViewModel[]>('api/phased-blueprints');
+  }
+
+  getPhasedBlueprintById(definitionId: number): Observable<PhasedBlueprintViewModel> {
+    return this.http.get<PhasedBlueprintViewModel>(`api/phased-blueprints/${definitionId}`);
+  }
+
+  createPhasedBlueprintVersion(
+    definitionId: number,
+    payload: PhasedBlueprintVersionInputModel,
+  ): Observable<PhasedBlueprintVersionViewModel> {
+    return this.http.post<PhasedBlueprintVersionViewModel>(`api/phased-blueprints/${definitionId}/versions`, payload);
+  }
+
+  getPhasedProcess(
+    phasedBlueprintDefinitionId: number,
+    phasedProcessId: string,
+  ): Observable<PhasedProcessDetailViewModel> {
+    return this.http.get<PhasedProcessDetailViewModel>(
+      `api/phased-blueprints/${phasedBlueprintDefinitionId}/processes/${phasedProcessId}`,
+    );
+  }
+
   private buildGraphPayload(
     startingNodeId: number,
     taskDefinitions: ITaskDefinition[],
@@ -431,9 +591,13 @@ export class BlueprintEditorService {
     startingBlueprintNodeId: string;
     tasks: BlueprintNodeInputModel[];
   } {
-    const instanceIdByNodeId = new Map<number, string>(nodes.map((n) => [n.id, crypto.randomUUID()]));
+    const persistedNodes = nodes.filter((node) => node.nodeKind !== 'DataBridge');
+    const persistedConnections = connections.filter((connection) =>
+      connection.from.nodeKind !== 'DataBridge' &&
+      connection.to.nodeKind !== 'DataBridge');
+    const instanceIdByNodeId = new Map<number, string>(persistedNodes.map((n) => [n.id, n.instanceId ?? crypto.randomUUID()]));
 
-    const tasks: BlueprintNodeInputModel[] = nodes.map((n) => ({
+    const tasks: BlueprintNodeInputModel[] = persistedNodes.map((n) => ({
       instanceId: instanceIdByNodeId.get(n.id)!,
       nodeKind: n.nodeKind,
       taskDefinitionId: n.nodeKind === 'PluginTask' ? n.taskDefinitionId : null,
@@ -445,7 +609,7 @@ export class BlueprintEditorService {
       outgoingConnections: [],
     }));
 
-    const taskByNodeId = new Map<number, BlueprintNodeInputModel>(nodes.map((n, index) => [n.id, tasks[index]]));
+    const taskByNodeId = new Map<number, BlueprintNodeInputModel>(persistedNodes.map((n, index) => [n.id, tasks[index]]));
     const taskDefinitionByVersionId = new Map<number, ITaskDefinition['versions'][number]>();
     for (const taskDefinition of taskDefinitions) {
       for (const version of taskDefinition.versions) {
@@ -453,7 +617,7 @@ export class BlueprintEditorService {
       }
     }
 
-    for (const c of connections) {
+    for (const c of persistedConnections) {
       const source = taskByNodeId.get(c.from.id);
       if (!source) continue;
 
@@ -473,7 +637,7 @@ export class BlueprintEditorService {
     }
 
     return {
-      startingBlueprintNodeId: instanceIdByNodeId.get(startingNodeId)!,
+      startingBlueprintNodeId: instanceIdByNodeId.get(startingNodeId) ?? instanceIdByNodeId.get(persistedNodes[0]?.id ?? 0)!,
       tasks,
     };
   }
@@ -507,6 +671,7 @@ export class BlueprintEditorService {
               index + 1,
               task.position,
               this.normalizeCollectionIteratorItemKind(task.collectionIteratorItemKind),
+              task.instanceId,
             );
           }
 
@@ -534,6 +699,10 @@ export class BlueprintEditorService {
             Object.fromEntries((taskVersion?.outputChannels ?? []).map((channel) => [channel.name, this.clonePropertyDefinitions(channel.properties)])),
             task.designTimeInputOverrides ?? {},
             taskVersion?.inputChannel?.properties ?? [],
+            undefined,
+            'PluginTask',
+            null,
+            task.instanceId,
           );
         });
 

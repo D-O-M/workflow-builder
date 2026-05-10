@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { DashboardPageComponent } from './pages/dashboard-page.component';
 import { BlueprintEditorPageComponent } from './pages/blueprint-editor-page.component';
+import { PhasesPageComponent } from './pages/phases-page.component';
 import { StartProcessPageComponent } from './pages/start-process-page.component';
 import { ProcessExplorerPageComponent } from './pages/process-explorer-page.component';
 
@@ -20,6 +21,14 @@ export const routes: Routes = [
     data: {
       shellTitle: 'Blueprint Builder',
       navId: 'blueprints',
+    },
+  },
+  {
+    path: 'phases',
+    component: PhasesPageComponent,
+    data: {
+      shellTitle: 'Phases',
+      navId: 'phases',
     },
   },
   {

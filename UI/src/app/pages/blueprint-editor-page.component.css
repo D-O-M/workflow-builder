@@ -67,6 +67,27 @@
   align-items: flex-start;
 }
 
+.blueprint-editor-page__version-pin-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+  padding: 0.48rem 0.72rem;
+  border: 1px solid color-mix(in oklch, var(--app-status-info) 24%, var(--app-outline));
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--app-status-info-container) 76%, var(--app-surface));
+  color: var(--app-status-info);
+  font-size: 0.82rem;
+  font-weight: 800;
+  box-shadow: var(--app-shadow-1);
+}
+
+.blueprint-editor-page__version-pin-notice mat-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  font-size: 1.15rem;
+}
+
 .blueprint-editor-page__picker-shell,
 .blueprint-editor-page__action-rail mat-card {
   border: 1px solid var(--blueprint-surface-border);
@@ -1185,6 +1206,7 @@ button.blueprint-editor-page__settings-issue-row:focus-visible {
     bottom: 6rem;
     transform: none;
   }
+
 }
 
 @media (max-width: 760px) {
@@ -1211,4 +1233,5 @@ button.blueprint-editor-page__settings-issue-row:focus-visible {
   .blueprint-editor-page__drawer-shell {
     padding: 1rem 0.85rem;
   }
+
 }

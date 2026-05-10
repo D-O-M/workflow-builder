@@ -28,6 +28,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatMenuModule, MatMenuTrigger } from '@angular/material/menu';
 import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
+import { ActivatedRoute } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import {
   BlueprintEditorService,
@@ -49,6 +50,7 @@ import type {
 } from '../components/blueprint-canvas.component';
 import { NodeModel } from '../domain/node-model';
 import type { Side } from '../domain/node-model';
+import { ConnectionModel } from '../domain/connection-model';
 import { DynamicFieldDefinition, DynamicFormFieldComponent } from '../components/dynamic-form-field.component';
 import {
   createTaskPropertyControl,
@@ -146,6 +148,7 @@ export class BlueprintEditorPageComponent {
   private readonly dialog = inject(MatDialog);
   private readonly taskDefinitions = inject(TaskDefinitionsService);
   private readonly builderInput = inject(BuilderInputService);
+  private readonly route = inject(ActivatedRoute);
   private readonly canvasViewport = viewChild(BlueprintCanvasComponent);
   private readonly validationMenuTriggers = viewChildren<MatMenuTrigger>('validationMenuTrigger');
   private readonly blueprintPickerInput = viewChild<ElementRef<HTMLInputElement>>('blueprintPickerInput');
@@ -156,10 +159,12 @@ export class BlueprintEditorPageComponent {
   private nodeVersionChangeDialogRef: MatDialogRef<unknown> | null = null;
   private syncingStaticOverrideForm = false;
   private staticOverrideFormKey = '';
+  private routeOpenHandled = false;
 
   protected readonly blueprintNameMaxLength = BLUEPRINT_NAME_MAX_LENGTH;
   protected readonly saving = signal(false);
   protected readonly saveHovered = signal(false);
+  protected readonly versionPinNotice = signal(false);
   protected readonly validationErrorPulse = signal(false);
   protected readonly focusedValidationIssueId = signal<string | null>(null);
   protected readonly validationFocusPulseKey = signal(0);
@@ -263,9 +268,12 @@ export class BlueprintEditorPageComponent {
   protected readonly validationSummary = computed(() =>
     validateBlueprintGraph({
       blueprintName: this.normalizedBlueprintName(),
-      nodes: this.editorStore.nodes(),
-      connections: this.editorStore.connections(),
-      routeValidationErrors: this.canvasRouteValidationErrors(),
+      nodes: this.persistedCanvasNodes(this.editorStore.nodes()),
+      connections: this.persistedCanvasConnections(this.editorStore.connections()),
+      routeValidationErrors: this.persistedRouteValidationErrors(
+        this.canvasRouteValidationErrors(),
+        this.persistedCanvasConnections(this.editorStore.connections()),
+      ),
     }),
   );
   protected readonly validationErrors = computed(() => this.validationSummary().errors);
@@ -569,6 +577,27 @@ export class BlueprintEditorPageComponent {
       }
     });
 
+    effect(() => {
+      if (this.routeOpenHandled || this.tasks().length === 0) {
+        return;
+      }
+
+      const queryParamMap = this.route.snapshot.queryParamMap;
+      const blueprintId = Number(queryParamMap.get('blueprintId'));
+      if (!Number.isInteger(blueprintId) || blueprintId <= 0) {
+        this.routeOpenHandled = true;
+        return;
+      }
+
+      const versionIdText = queryParamMap.get('versionId');
+      const versionId = versionIdText ? Number(versionIdText) : null;
+      this.routeOpenHandled = true;
+      void this.openBlueprint(
+        blueprintId,
+        versionId !== null && Number.isInteger(versionId) && versionId > 0 ? versionId : null,
+      );
+    });
+
     this.staticOverrideForm.valueChanges
       .pipe(takeUntilDestroyed())
       .subscribe(() => this.persistStaticOverridesFromForm());
@@ -581,7 +610,7 @@ export class BlueprintEditorPageComponent {
       return;
     }
 
-    const nodes = this.editorStore.nodes();
+    const nodes = this.persistedCanvasNodes(this.editorStore.nodes());
     const blueprintName = this.normalizedBlueprintName();
 
     this.blueprintNameTouched.set(true);
@@ -590,11 +619,12 @@ export class BlueprintEditorPageComponent {
       return;
     }
 
-    const connections = this.editorStore.connections();
+    const connections = this.persistedCanvasConnections(this.editorStore.connections());
     const destinationNodeIds = new Set(connections.map((connection) => connection.to.id));
     const rootNodes = nodes.filter((node) => !destinationNodeIds.has(node.id));
     const startingNodeId = rootNodes[0]?.id ?? nodes[0]!.id;
     let persistedDefinitionId = this.selectedBlueprintId();
+    const createsNewVersion = persistedDefinitionId !== null;
 
     this.saving.set(true);
     try {
@@ -632,6 +662,7 @@ export class BlueprintEditorPageComponent {
       this.blueprintSearch.setValue('');
       this.isEditingBlueprintName.set(false);
       this.blueprintNameTouched.set(false);
+      this.versionPinNotice.set(createsNewVersion);
       this.scheduleUiTask(() => this.canvasViewport()?.focusCanvas());
     } finally {
       this.saving.set(false);
@@ -649,6 +680,7 @@ export class BlueprintEditorPageComponent {
     this.blueprintSearch.setValue('');
     this.isEditingBlueprintName.set(false);
     this.blueprintNameTouched.set(false);
+    this.versionPinNotice.set(false);
     this.closeDrawer();
     this.scheduleUiTask(() => {
       this.canvasViewport()?.resetView();
@@ -664,6 +696,7 @@ export class BlueprintEditorPageComponent {
     this.pickerMode.set('draft');
     this.pickerReturnMode.set(null);
     this.blueprintSearch.setValue('');
+    this.versionPinNotice.set(false);
     this.closeDrawer();
     this.scheduleUiTask(() => this.canvasViewport()?.focusCanvas());
   }
@@ -1134,8 +1167,24 @@ export class BlueprintEditorPageComponent {
       const taskDefinition = this.tasks().find((candidate) => candidate.id === task.taskDefinitionId);
       return taskDefinition
         ? this.editor.hasNewerMajorMinorLane(taskDefinition, task.allowedMajor, task.allowedMinor)
-        : false;
+      : false;
     });
+  }
+
+  private persistedCanvasNodes(nodes: readonly NodeModel[]): NodeModel[] {
+    return nodes.filter((node) => !node.isDataBridge);
+  }
+
+  private persistedCanvasConnections(connections: readonly ConnectionModel[]): ConnectionModel[] {
+    return connections.filter((connection) => !connection.from.isDataBridge && !connection.to.isDataBridge);
+  }
+
+  private persistedRouteValidationErrors(
+    routeValidationErrors: readonly { connectionId: string; routeIndex: number; message: string }[],
+    baseConnections: readonly ConnectionModel[],
+  ): readonly { connectionId: string; routeIndex: number; message: string }[] {
+    const baseConnectionIds = new Set(baseConnections.map((connection) => connection.id));
+    return routeValidationErrors.filter((error) => baseConnectionIds.has(error.connectionId));
   }
 
   private async refreshBlueprints(): Promise<void> {
