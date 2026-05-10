@@ -14,8 +14,9 @@ export interface Rect {
 
 export type Side = 'left' | 'right' | 'top' | 'bottom';
 export type NodeRenderStatus = 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
-export type NodeKind = 'PluginTask' | 'CollectionIterator';
-export type NodeVisualKind = 'TaskCard' | 'CollectionIteratorOperator';
+export type NodeKind = 'PluginTask' | 'CollectionIterator' | 'DataBridge';
+export type NodeVisualKind = 'TaskCard' | 'CollectionIteratorOperator' | 'DataBridge';
+export type DataBridgeKind = 'input' | 'output';
 export type TaskPropertyBaseType = 'String' | 'Integer' | 'Decimal' | 'Boolean' | 'Guid' | 'Date' | 'DateTime' | 'Enum';
 export type TaskPropertyType = TaskPropertyBaseType | `${TaskPropertyBaseType}[]`;
 
@@ -139,6 +140,7 @@ export class NodeModel {
         public expanded: boolean = false,
         public nodeKind: NodeKind = 'PluginTask',
         public collectionIteratorItemKind: TaskPropertyBaseType | null = null,
+        public instanceId: string | null = null,
     ) {}
 
     withExpanded(expanded: boolean): NodeModel {
@@ -176,6 +178,46 @@ export class NodeModel {
             expanded,
             this.nodeKind,
             this.collectionIteratorItemKind,
+            this.instanceId,
+        );
+    }
+
+    withInstanceId(instanceId: string | null): NodeModel {
+        return new NodeModel(
+            this.id,
+            this.taskDefinitionId,
+            this.allowedMajor,
+            this.allowedMinor,
+            this.resolvedVersionId,
+            this.resolvedVersion,
+            this.name,
+            this.x,
+            this.y,
+            this.width,
+            this.height,
+            this.inputChannelName,
+            [...this.outputChannelNames],
+            this.hasUpgradeWarning,
+            this.renderStatus,
+            this.failureMessage,
+            { ...this.inputProperties },
+            Object.fromEntries(
+                Object.entries(this.outputChannelProperties).map(([channelName, properties]) => [channelName, { ...properties }]),
+            ),
+            { ...this.designTimeInputOverrides },
+            this.clonePropertyDefinitions(this.inputPropertyDefinitions),
+            this.inputChannelDisplayName,
+            [...this.outputChannelDisplayNames],
+            Object.fromEntries(
+                Object.entries(this.outputChannelPropertyDefinitions).map(([channelName, properties]) => [
+                    channelName,
+                    this.clonePropertyDefinitions(properties),
+                ]),
+            ),
+            this.expanded,
+            this.nodeKind,
+            this.collectionIteratorItemKind,
+            instanceId,
         );
     }
 
@@ -230,6 +272,11 @@ export class NodeModel {
             return this.collapsedLayoutCache;
         }
 
+        if (this.isDataBridge) {
+            this.expandedLayoutCache ??= this.buildLayout(true);
+            return this.expandedLayoutCache;
+        }
+
         if (expanded) {
             this.expandedLayoutCache ??= this.buildLayout(true);
             return this.expandedLayoutCache;
@@ -240,7 +287,7 @@ export class NodeModel {
     }
 
     layoutForExpandedSections(expandedSectionKeys: ReadonlySet<string>): NodeLayout {
-        if (this.isCollectionIteratorOperator) {
+        if (this.isCollectionIteratorOperator || this.isDataBridge) {
             return this.layoutForState(false);
         }
 
@@ -504,13 +551,39 @@ export class NodeModel {
     }
 
     get visualKind(): NodeVisualKind {
-        return this.nodeKind === 'CollectionIterator'
-            ? 'CollectionIteratorOperator'
-            : 'TaskCard';
+        if (this.nodeKind === 'CollectionIterator') {
+            return 'CollectionIteratorOperator';
+        }
+
+        if (this.nodeKind === 'DataBridge') {
+            return 'DataBridge';
+        }
+
+        return 'TaskCard';
     }
 
     get isCollectionIteratorOperator(): boolean {
         return this.visualKind === 'CollectionIteratorOperator';
+    }
+
+    get isDataBridge(): boolean {
+        return this.visualKind === 'DataBridge';
+    }
+
+    get dataBridgeKind(): DataBridgeKind | null {
+        if (!this.isDataBridge || !this.instanceId) {
+            return null;
+        }
+
+        if (this.instanceId.startsWith('data-bridge:input:')) {
+            return 'input';
+        }
+
+        if (this.instanceId.startsWith('data-bridge:output:')) {
+            return 'output';
+        }
+
+        return null;
     }
 
     get collectionIteratorResolved(): boolean {

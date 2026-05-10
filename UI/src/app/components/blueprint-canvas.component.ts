@@ -17,11 +17,12 @@ import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
 import { buildConnectionMappingSelections, buildConnectionMappingsFromSelections, ConnectionModel } from '../domain/connection-model';
 import { CanvasWrapper } from '../domain/canvas-wrapper';
 import type { CanvasNodeIssueSummary, CanvasPropertyIssueSummary } from '../domain/canvas-wrapper';
-import { NodeModel, NodePortDefinition, Point, Side } from '../domain/node-model';
+import { NodeModel, NodePortDefinition, Point, Side, TaskPropertyType } from '../domain/node-model';
 import { CanvasBackgroundEffect } from '../domain/canvas-backdrop';
 import {
   buildCanvasRenderSnapshot,
   CanvasBounds,
+  CanvasConnectionPresentation,
   CanvasDetailTier,
   CanvasRenderSnapshot,
   CanvasValidationSeverity,
@@ -57,6 +58,35 @@ export interface CanvasViewportInsets {
   readonly right: number;
   readonly bottom: number;
   readonly left: number;
+}
+
+export type BlueprintCanvasMode = 'edit' | 'readonly' | 'bridge-map' | 'bridge-source' | 'bridge-target';
+
+export interface CanvasOutputPropertyDragEvent {
+  readonly nodeId: number;
+  readonly nodeInstanceId: string | null;
+  readonly nodeName: string;
+  readonly channelName: string | null;
+  readonly propertyName: string;
+  readonly propertyKind: TaskPropertyType;
+  readonly clientX: number;
+  readonly clientY: number;
+  readonly cancelled?: boolean;
+}
+
+export interface CanvasInputPropertyHit {
+  readonly nodeId: number;
+  readonly nodeInstanceId: string | null;
+  readonly nodeName: string;
+  readonly propertyName: string;
+  readonly propertyKind: TaskPropertyType;
+  readonly clientX: number;
+  readonly clientY: number;
+}
+
+export interface CanvasPropertyClientPoint {
+  readonly clientX: number;
+  readonly clientY: number;
 }
 
 interface ResolvedValidationFocus {
@@ -145,14 +175,19 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   readonly nodes = input.required<NodeModel[]>();
   readonly connections = input.required<ConnectionModel[]>();
   readonly graphRevision = input(0);
-  readonly mode = input<'edit' | 'readonly'>('edit');
+  readonly mode = input<BlueprintCanvasMode>('edit');
   readonly backgroundEffect = input<CanvasBackgroundEffect>('plain');
+  readonly connectionPresentation = input<CanvasConnectionPresentation>('normal');
   readonly readonlySelectedNodeId = input<number | null>(null);
   readonly validationFocus = input<CanvasValidationFocus | null>(null);
   readonly validationIssueMarkers = input<readonly CanvasValidationIssueMarker[]>([]);
   readonly viewportInsets = input<CanvasViewportInsets>(EMPTY_VIEWPORT_INSETS);
   readonly readonlyNodeActivated = output<number>();
   readonly nodeSettingsRequested = output<number>();
+  readonly bridgeOutputPropertyDragStarted = output<CanvasOutputPropertyDragEvent>();
+  readonly bridgeOutputPropertyDragMoved = output<CanvasOutputPropertyDragEvent>();
+  readonly bridgeOutputPropertyDragEnded = output<CanvasOutputPropertyDragEvent>();
+  readonly viewportChanged = output<void>();
 
   private readonly editorStore = inject(BlueprintEditorStore);
   private readonly canvasStateStore = inject(BlueprintCanvasStateStore);
@@ -284,6 +319,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     this.resizeObserver = new ResizeObserver(() => {
       this.syncCanvasBackingSize();
       this.scheduleDraw();
+      this.notifyViewportChanged();
     });
     this.resizeObserver.observe(canvas);
   }
@@ -311,6 +347,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     if (!bounds) {
       wrapper.zoomLevel.set(1);
       wrapper.viewportOffset.set({ x: 0, y: 0 });
+      this.notifyViewportChanged();
       return;
     }
 
@@ -323,6 +360,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       x: focus.x - centerX * zoom,
       y: focus.y - centerY * zoom,
     });
+    this.notifyViewportChanged();
   }
 
   zoomIn(): void {
@@ -359,6 +397,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       x: focus.x - (node.x + node.width / 2) * zoom,
       y: focus.y - (node.y + node.height / 2) * zoom,
     });
+    this.notifyViewportChanged();
   }
 
   revealValidationFocus(focus: CanvasValidationFocus | null): void {
@@ -393,6 +432,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       x: focus.x - centerX * zoom,
       y: focus.y - centerY * zoom,
     });
+    this.notifyViewportChanged();
   }
 
   viewportCenterWorld(): Point | null {
@@ -408,6 +448,70 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     return {
       x: (focus.x - offset.x) / zoom,
       y: (focus.y - offset.y) / zoom,
+    };
+  }
+
+  outputPropertyClientPoint(
+    nodeId: number,
+    channelName: string | null,
+    propertyName: string,
+  ): CanvasPropertyClientPoint | null {
+    const renderedNode = this.getNodeById(nodeId);
+    const anchorIndex = renderedNode ? this.outputAnchorIndexByChannel(renderedNode.base, channelName) : null;
+    const port = anchorIndex === null
+      ? null
+      : renderedNode?.outputPropertyPort(anchorIndex, propertyName) ?? null;
+    return port ? this.worldToClientPoint({ x: port.x, y: port.y }) : null;
+  }
+
+  inputPropertyClientPoint(nodeId: number, propertyName: string): CanvasPropertyClientPoint | null {
+    const renderedNode = this.getNodeById(nodeId);
+    const port = renderedNode?.inputPropertyPort(propertyName) ?? null;
+    return port ? this.worldToClientPoint({ x: port.x, y: port.y }) : null;
+  }
+
+  containsClientPoint(point: { clientX: number; clientY: number }, tolerance = 0): boolean {
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!canvas) {
+      return false;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    return point.clientX >= rect.left - tolerance &&
+      point.clientX <= rect.right + tolerance &&
+      point.clientY >= rect.top - tolerance &&
+      point.clientY <= rect.bottom + tolerance;
+  }
+
+  hitTestInputPropertyAtClientPoint(clientX: number, clientY: number): CanvasInputPropertyHit | null {
+    if (!this.containsClientPoint({ clientX, clientY })) {
+      return null;
+    }
+
+    const world = this.clientToWorldPoint(clientX, clientY);
+    if (!world) {
+      return null;
+    }
+
+    const target = this.getNodeByCoordinates(world);
+    const targetPort = target ? this.getInputPortAt(target, world) : null;
+    if (!target || targetPort?.kind !== 'input-property' || !targetPort.propertyName) {
+      return null;
+    }
+
+    const propertyKind = target.base.inputProperties[targetPort.propertyName];
+    if (!propertyKind) {
+      return null;
+    }
+
+    return {
+      nodeId: target.id,
+      nodeInstanceId: target.base.instanceId,
+      nodeName: target.name,
+      propertyName: targetPort.propertyName,
+      propertyKind,
+      clientX,
+      clientY,
     };
   }
 
@@ -433,26 +537,30 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     canvas.setPointerCapture(event.pointerId);
 
     const { canvas: canvasPoint, world } = this.getCoordinates(event);
-    const shift = !this.isReadonly() && this.editorStore.modifiers().shift;
+    const shift = this.canEditGraph() && this.editorStore.modifiers().shift;
     const node = this.getNodeByCoordinates(world);
-    const connection = !this.isReadonly() && !node ? this.getConnectionByCoordinates(world) : undefined;
-    const connectionBadge = !this.isReadonly() && connection
+    const connection = this.canEditGraph() && !node ? this.getConnectionByCoordinates(world) : undefined;
+    const connectionBadge = this.canEditGraph() && connection
       ? this.getConnectionBadgeByCoordinates(connection, world)
       : undefined;
 
-    if (!this.isReadonly() && node) {
+    if (this.canMapConnections() && node) {
       const port = this.getPortAt(node, world);
-      if (port && (port.kind === 'output-summary' || port.kind === 'output-property') && port.anchorIndex !== null) {
-        this.dragConnection.set({
+      if (port && this.canStartConnectionFrom(node, port)) {
+        const drag: DragConnectionState = {
           pointerId: event.pointerId,
           from: node.id,
-          anchor: port.anchorIndex,
+          anchor: port.anchorIndex!,
           x: world.x,
           y: world.y,
           side: undefined,
           portKey: port.key,
           sourceProperty: port.propertyName,
-        });
+        };
+        this.dragConnection.set(drag);
+        if (this.mode() === 'bridge-source') {
+          this.emitBridgeSourceDrag(this.bridgeOutputPropertyDragStarted, drag, event);
+        }
         this.hoveredNodeId.set(node.id);
         this.hoveredNodeIssueNodeId.set(null);
         this.hoveredPortKey.set(port.key);
@@ -478,7 +586,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    if (!this.isReadonly() && shift && !node && !connection) {
+    if (this.canEditGraph() && shift && !node && !connection) {
       this.marqueeState.set({
         pointerId: event.pointerId,
         startWorld: world,
@@ -511,6 +619,14 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     const dragConnection = this.dragConnection();
     if (dragConnection?.pointerId === event.pointerId) {
       this.updateConnectionDrag(dragConnection, world);
+      if (this.mode() === 'bridge-source') {
+        this.emitBridgeSourceDrag(this.bridgeOutputPropertyDragMoved, {
+          ...dragConnection,
+          x: world.x,
+          y: world.y,
+          side: undefined,
+        }, event);
+      }
       return;
     }
 
@@ -526,6 +642,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         x: panState.initialOffset.x + (canvas.x - panState.startCanvas.x),
         y: panState.initialOffset.y + (canvas.y - panState.startCanvas.y),
       });
+      this.notifyViewportChanged();
       return;
     }
 
@@ -548,7 +665,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         return;
       }
 
-      if (pendingClick.nodeId !== null && !pendingClick.shift && !this.isReadonly()) {
+      if (pendingClick.nodeId !== null && !pendingClick.shift && this.canEditGraph()) {
         this.startNodeDrag(event.pointerId, pendingClick.nodeId, world);
         this.pendingClick.set(null);
         return;
@@ -628,13 +745,16 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       x: currentOffset.x - delta.x,
       y: currentOffset.y - delta.y,
     }));
+    this.notifyViewportChanged();
   }
 
   private completePointerInteraction(event: PointerEvent, cancelled: boolean): void {
     const { canvas, world } = this.getCoordinates(event);
     const dragConnection = this.dragConnection();
     if (dragConnection?.pointerId === event.pointerId) {
-      if (!cancelled) {
+      if (this.mode() === 'bridge-source') {
+        this.emitBridgeSourceDrag(this.bridgeOutputPropertyDragEnded, dragConnection, event, cancelled);
+      } else if (!cancelled) {
         this.finalizeConnectionDrag(dragConnection, world);
       }
 
@@ -704,7 +824,17 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
+    if (!this.canEditGraph()) {
+      this.editorStore.clearSelection();
+      return;
+    }
+
     if (click.nodeId !== null) {
+      const node = this.editorStore.nodes().find((candidate) => candidate.id === click.nodeId);
+      if (node?.isDataBridge) {
+        return;
+      }
+
       if (click.shift) {
         this.editorStore.toggleNodeSelection(click.nodeId);
       } else {
@@ -727,6 +857,15 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   private startNodeDrag(pointerId: number, nodeId: number, world: Point): void {
+    if (!this.canEditGraph()) {
+      return;
+    }
+
+    const dragSource = this.getNodeById(nodeId);
+    if (dragSource?.base.isDataBridge) {
+      return;
+    }
+
     const selectedNodeIds = this.editorStore.selectedNodeIds();
     const selectedConnectionIds = this.editorStore.selectedConnectionIds();
     const useCurrentSelection = selectedConnectionIds.length === 0 && selectedNodeIds.includes(nodeId);
@@ -854,8 +993,73 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     );
     const targetPort = target ? this.getInputPortAt(target, world) : null;
     const snap = target?.inputAnchorSnap();
-    if (!target || !targetPort || !snap) {
+    if (!target || !snap) {
       return;
+    }
+
+    if (this.mode() === 'bridge-map' && !sourceNode.base.isDataBridge && !target.base.isDataBridge) {
+      return;
+    }
+
+    if (target.base.isDataBridge) {
+      if (
+        target.base.dataBridgeKind !== 'output' ||
+        sourceNode.base.isDataBridge ||
+        !drag.sourceProperty
+      ) {
+        return;
+      }
+
+      const sourceProperties = sourceNode.base.outputPropertiesForAnchor(drag.anchor);
+      const propertyKind = sourceProperties[drag.sourceProperty];
+      if (!propertyKind) {
+        return;
+      }
+
+      if (!this.editorStore.upsertDataBridgeInputProperty(target.id, drag.sourceProperty, propertyKind)) {
+        return;
+      }
+
+      const connection = this.editorStore.createConnection(
+        drag.from,
+        target.id,
+        drag.anchor,
+        'left',
+        snap.pos,
+      );
+
+      if (!connection) {
+        return;
+      }
+
+      this.editorStore.updateConnectionPropertyMappings(connection.id, [{
+        sourceProperty: drag.sourceProperty,
+        targetProperty: drag.sourceProperty,
+      }]);
+      return;
+    }
+
+    if (!targetPort) {
+      return;
+    }
+
+    if (sourceNode.base.isDataBridge) {
+      if (
+        sourceNode.base.dataBridgeKind !== 'input' ||
+        target.base.isDataBridge ||
+        !drag.sourceProperty ||
+        targetPort.kind !== 'input-property' ||
+        !targetPort.propertyName
+      ) {
+        return;
+      }
+
+      const sourceProperties = sourceNode.base.outputPropertiesForAnchor(drag.anchor);
+      const sourcePropertyKind = sourceProperties[drag.sourceProperty];
+      const targetPropertyKind = target.base.inputProperties[targetPort.propertyName];
+      if (!sourcePropertyKind || sourcePropertyKind !== targetPropertyKind) {
+        return;
+      }
     }
 
     if (target.base.nodeKind === 'CollectionIterator' && !this.canDragBindToCollectionIterator(sourceNode, drag)) {
@@ -892,14 +1096,17 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
 
   private updateHoverState(world: Point): void {
     const node = this.getNodeByCoordinates(world);
-    const connectionHit = !node && !this.isReadonly()
+    const connectionHit = !node && this.canEditGraph()
       ? this.getConnectionRouteByCoordinates(world)
       : undefined;
 
     this.hoveredNodeId.set(node?.id ?? null);
-    const hoveredPort = !node || this.isReadonly() ? null : this.getPortAt(node, world);
+    const candidateHoveredPort = !node || !this.canMapConnections() ? null : this.getPortAt(node, world);
+    const hoveredPort = candidateHoveredPort && this.isPassiveSummaryPort(candidateHoveredPort)
+      ? null
+      : candidateHoveredPort;
     const hoveredNodeIssueNodeId = !node ||
-      this.isReadonly() ||
+      !this.canEditGraph() ||
       hoveredPort ||
       !this.nodeIssueSummaries().has(node.id) ||
       !this.pointWithinRect(world, node.settingsRect())
@@ -917,7 +1124,55 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   private isReadonly(): boolean {
-    return this.mode() === 'readonly';
+    return this.mode() === 'readonly' || this.mode() === 'bridge-source' || this.mode() === 'bridge-target';
+  }
+
+  private canEditGraph(): boolean {
+    return this.mode() === 'edit';
+  }
+
+  private canMapConnections(): boolean {
+    return this.mode() === 'edit' || this.mode() === 'bridge-map' || this.mode() === 'bridge-source';
+  }
+
+  private usesPassiveSummaryPorts(): boolean {
+    return this.mode() === 'bridge-source' || this.mode() === 'bridge-target';
+  }
+
+  private shouldDrawConnectionDragPreview(): boolean {
+    return this.mode() === 'edit' || this.mode() === 'bridge-map';
+  }
+
+  private isPassiveSummaryPort(port: { kind: string }): boolean {
+    return this.usesPassiveSummaryPorts() && (port.kind === 'input-summary' || port.kind === 'output-summary');
+  }
+
+  private canStartConnectionFrom(
+    node: RenderedNode,
+    port: { kind: string; anchorIndex: number | null; propertyName: string | null },
+  ): boolean {
+    if (!this.canMapConnections() || port.anchorIndex === null) {
+      return false;
+    }
+
+    if (this.mode() === 'bridge-map') {
+      if (node.base.isDataBridge) {
+        return node.base.dataBridgeKind === 'input' && port.kind === 'output-property';
+      }
+
+      return port.kind === 'output-property';
+    }
+
+    if (this.mode() === 'bridge-source') {
+      return !node.base.isDataBridge && port.kind === 'output-property';
+    }
+
+    if (node.base.isDataBridge) {
+      return node.base.dataBridgeKind === 'input' &&
+        (port.kind === 'output-summary' || port.kind === 'output-property');
+    }
+
+    return port.kind === 'output-summary' || port.kind === 'output-property';
   }
 
   private syncCanvasBackingSize(): void {
@@ -1048,6 +1303,11 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       x: focus.x - worldFocus.x * nextZoom,
       y: focus.y - worldFocus.y * nextZoom,
     });
+    this.notifyViewportChanged();
+  }
+
+  private notifyViewportChanged(): void {
+    this.viewportChanged.emit();
   }
 
   private shouldZoomFromWheel(event: WheelEvent): boolean {
@@ -1227,6 +1487,88 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     return node.inputSummaryPort();
   }
 
+  private clientToWorldPoint(clientX: number, clientY: number): Point | null {
+    const wrapper = this.canvasWrapper;
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!wrapper || !canvas) {
+      return null;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const offset = wrapper.viewportOffset();
+    const zoom = wrapper.zoomLevel();
+    return {
+      x: (clientX - rect.left - offset.x) / zoom,
+      y: (clientY - rect.top - offset.y) / zoom,
+    };
+  }
+
+  private worldToClientPoint(point: Point): CanvasPropertyClientPoint | null {
+    const wrapper = this.canvasWrapper;
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!wrapper || !canvas) {
+      return null;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const offset = wrapper.viewportOffset();
+    const zoom = wrapper.zoomLevel();
+    return {
+      clientX: rect.left + point.x * zoom + offset.x,
+      clientY: rect.top + point.y * zoom + offset.y,
+    };
+  }
+
+  private emitBridgeSourceDrag(
+    outputRef: { emit(value: CanvasOutputPropertyDragEvent): void },
+    drag: DragConnectionState,
+    event: PointerEvent,
+    cancelled = false,
+  ): void {
+    const payload = this.createBridgeSourceDragEvent(drag, event.clientX, event.clientY, cancelled);
+    if (payload) {
+      outputRef.emit(payload);
+    }
+  }
+
+  private createBridgeSourceDragEvent(
+    drag: DragConnectionState,
+    clientX: number,
+    clientY: number,
+    cancelled: boolean,
+  ): CanvasOutputPropertyDragEvent | null {
+    const sourceNode = this.getNodeById(drag.from);
+    if (!sourceNode || !drag.sourceProperty) {
+      return null;
+    }
+
+    const propertyKind = sourceNode.base.outputPropertiesForAnchor(drag.anchor)[drag.sourceProperty];
+    if (!propertyKind) {
+      return null;
+    }
+
+    return {
+      nodeId: sourceNode.id,
+      nodeInstanceId: sourceNode.base.instanceId,
+      nodeName: sourceNode.name,
+      channelName: sourceNode.base.outputChannelNameForAnchor(drag.anchor),
+      propertyName: drag.sourceProperty,
+      propertyKind,
+      clientX,
+      clientY,
+      cancelled,
+    };
+  }
+
+  private outputAnchorIndexByChannel(node: NodeModel, channelName: string | null): number | null {
+    if (!channelName) {
+      return null;
+    }
+
+    const outputIndex = node.outputChannelNames.indexOf(channelName);
+    return outputIndex < 0 ? null : outputIndex + (node.inputChannelName ? 1 : 0);
+  }
+
   private pointWithinRect(point: Point, rect: { x: number; y: number; width: number; height: number }): boolean {
     return (
       point.x >= rect.x &&
@@ -1321,6 +1663,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     wrapper.drawConnections(connections, selectedConnectionIds, {
       readOnly: this.isReadonly(),
       detailTier: renderedGraph.detailTier,
+      connectionPresentation: this.connectionPresentation(),
       hoveredConnectionId: this.hoveredConnectionId(),
       hoveredConnectionRouteIndex: this.hoveredConnectionRoute()?.routeIndex ?? null,
       channelFocusedConnectionIds,
@@ -1350,6 +1693,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
           : undefined,
         focusedPortKeys,
         nodeIssueSummaries: this.nodeIssueSummaries(),
+        passiveSummaryPorts: this.usesPassiveSummaryPorts(),
         validationFocus: validationFocus
           ? {
             severity: validationFocus.severity,
@@ -1362,7 +1706,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     );
 
     const drag = this.dragConnection();
-    if (drag) {
+    if (drag && this.shouldDrawConnectionDragPreview()) {
       const fromNode = this.getNodeById(drag.from);
       if (fromNode && !fromNode.contains(drag.x, drag.y)) {
         const startPort = drag.portKey ? fromNode.portDefinition(drag.portKey) : fromNode.outputSummaryPort(drag.anchor);

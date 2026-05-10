@@ -124,6 +124,26 @@ describe('BlueprintCanvasComponent', () => {
     expect(component.backgroundEffect()).toBe('plain');
   });
 
+  it('uses normal connection presentation by default', () => {
+    expect(component.connectionPresentation()).toBe('normal');
+  });
+
+  it('does not draw the normal connection drag preview while staging phase bridge sources', () => {
+    Object.defineProperty(component as any, 'mode', {
+      value: () => 'bridge-source',
+      configurable: true,
+    });
+
+    expect((component as any).shouldDrawConnectionDragPreview()).toBe(false);
+
+    Object.defineProperty(component as any, 'mode', {
+      value: () => 'edit',
+      configurable: true,
+    });
+
+    expect((component as any).shouldDrawConnectionDragPreview()).toBe(true);
+  });
+
   it('clears the backdrop hover point when the pointer leaves', () => {
     (component as any).backdropHoverCanvasPoint.set({ x: 120, y: 88 });
 

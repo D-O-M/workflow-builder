@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LANE_CENTER_SPACING, buildCanvasRenderSnapshot } from './canvas-render-model';
+import { LANE_CENTER_SPACING, RenderedConnection, buildCanvasRenderSnapshot } from './canvas-render-model';
 import { ConnectionModel } from './connection-model';
 import { NodeModel, NodeRenderStatus } from './node-model';
 import { PathfinderOptions } from './pathfinder';
@@ -105,6 +105,133 @@ function routeHasOppositeConsecutiveSegments(
 
   return false;
 }
+
+class RecordingCanvasContext {
+  readonly lineWidths: number[] = [];
+  readonly globalAlphas: number[] = [];
+  readonly strokeStyles: string[] = [];
+  readonly fillStyles: string[] = [];
+  readonly lineDashes: number[][] = [];
+  strokes = 0;
+  fills = 0;
+
+  private currentLineWidth = 1;
+  private currentGlobalAlpha = 1;
+  private currentStrokeStyle = '';
+  private currentFillStyle = '';
+
+  set lineWidth(value: number) {
+    this.currentLineWidth = value;
+    this.lineWidths.push(value);
+  }
+
+  get lineWidth(): number {
+    return this.currentLineWidth;
+  }
+
+  set globalAlpha(value: number) {
+    this.currentGlobalAlpha = value;
+    this.globalAlphas.push(value);
+  }
+
+  get globalAlpha(): number {
+    return this.currentGlobalAlpha;
+  }
+
+  set strokeStyle(value: string | CanvasGradient | CanvasPattern) {
+    this.currentStrokeStyle = String(value);
+    this.strokeStyles.push(this.currentStrokeStyle);
+  }
+
+  get strokeStyle(): string {
+    return this.currentStrokeStyle;
+  }
+
+  set fillStyle(value: string | CanvasGradient | CanvasPattern) {
+    this.currentFillStyle = String(value);
+    this.fillStyles.push(this.currentFillStyle);
+  }
+
+  get fillStyle(): string {
+    return this.currentFillStyle;
+  }
+
+  lineCap: CanvasLineCap = 'butt';
+  lineJoin: CanvasLineJoin = 'miter';
+
+  save(): void {}
+  restore(): void {}
+  beginPath(): void {}
+  moveTo(_x: number, _y: number): void {}
+  lineTo(_x: number, _y: number): void {}
+  quadraticCurveTo(_cpx: number, _cpy: number, _x: number, _y: number): void {}
+  arc(_x: number, _y: number, _radius: number, _startAngle: number, _endAngle: number): void {}
+  closePath(): void {}
+  setLineDash(segments: number[]): void {
+    this.lineDashes.push([...segments]);
+  }
+  stroke(): void {
+    this.strokes += 1;
+  }
+  fill(): void {
+    this.fills += 1;
+  }
+}
+
+function createDrawableConnection(): RenderedConnection {
+  const connection = Object.create(RenderedConnection.prototype) as RenderedConnection;
+  Object.assign(connection as unknown as { routes: unknown }, {
+    routes: [
+      {
+        visualSegments: [{ x1: 0, y1: 0, x2: 80, y2: 0 }],
+        visualProblemSegments: [],
+        status: 'clear',
+        shade: {
+          index: 0,
+          total: 1,
+          sourceIndex: 0,
+          sourceTotal: 1,
+          variantIndex: 0,
+          variantTotal: 1,
+        },
+        startSide: 'right',
+        side: 'left',
+      },
+    ],
+  });
+  return connection;
+}
+
+describe('RenderedConnection presentation', () => {
+  it('renders ambient connections as quiet structural context', () => {
+    const ctx = new RecordingCanvasContext();
+
+    createDrawableConnection().draw({ ctx: ctx as unknown as CanvasRenderingContext2D }, {
+      presentation: 'ambient',
+    });
+
+    expect(ctx.lineWidths).toContain(1.4);
+    expect(ctx.globalAlphas).toContain(0.18);
+    expect(ctx.strokeStyles).toContain('rgba(100, 116, 139, 0.85)');
+    expect(ctx.lineWidths).not.toContain(18);
+    expect(ctx.fills).toBe(0);
+  });
+
+  it('lets validation color break through ambient connection styling without a halo', () => {
+    const ctx = new RecordingCanvasContext();
+
+    createDrawableConnection().draw({ ctx: ctx as unknown as CanvasRenderingContext2D }, {
+      presentation: 'ambient',
+      validationSeverity: 'error',
+    });
+
+    expect(ctx.lineWidths).toContain(1.8);
+    expect(ctx.globalAlphas).toContain(0.72);
+    expect(ctx.strokeStyles).toContain('#f04438');
+    expect(ctx.lineWidths).not.toContain(18);
+    expect(ctx.fills).toBe(0);
+  });
+});
 
 describe('NodeModel layout caching', () => {
   it('reuses cached layouts for the same expansion state', () => {

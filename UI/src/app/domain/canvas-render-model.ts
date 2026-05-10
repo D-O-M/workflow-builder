@@ -29,6 +29,7 @@ import {
 import { ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
 export type CanvasDetailTier = 'full' | 'simplified';
+export type CanvasConnectionPresentation = 'normal' | 'ambient';
 export type CanvasValidationSeverity = 'error' | 'warning';
 type CanvasConnectionSemanticStatus = 'inactive' | 'completed' | 'failed';
 
@@ -165,6 +166,10 @@ export class RenderedNode {
 
   get isCollectionIteratorOperator(): boolean {
     return this.base.isCollectionIteratorOperator;
+  }
+
+  get isDataBridge(): boolean {
+    return this.base.isDataBridge;
   }
 
   contains(x: number, y: number): boolean {
@@ -505,6 +510,7 @@ export class RenderedConnection {
       selected?: boolean;
       hovered?: boolean;
       dimmed?: boolean;
+      presentation?: CanvasConnectionPresentation;
       hoveredRouteIndex?: number | null;
       validationSeverity?: CanvasValidationSeverity | null;
     },
@@ -512,28 +518,34 @@ export class RenderedConnection {
     const selected = options?.selected ?? false;
     const hovered = options?.hovered ?? false;
     const dimmed = options?.dimmed ?? false;
+    const presentation = options?.presentation ?? 'normal';
     const hoveredRouteIndex = options?.hoveredRouteIndex ?? null;
     const validationSeverity = options?.validationSeverity ?? null;
     const hasRouteFocus = hovered && hoveredRouteIndex !== null;
-    const focused = selected || hovered || validationSeverity !== null;
+    const ambient = presentation === 'ambient';
+    const validationFocused = validationSeverity !== null;
+    const focused = ambient
+      ? validationFocused
+      : selected || hovered || validationFocused;
 
     wrapper.ctx.save();
-    const hasProblemRoutes = this.routes.some((route) => route.status === 'obstacleViolation');
+    const hasProblemRoutes = !ambient && this.routes.some((route) => route.status === 'obstacleViolation');
     const problemStroke = '#d92d20';
     const problemSoft = 'rgba(217, 45, 32, 0.72)';
+    const ambientStroke = 'rgba(100, 116, 139, 0.85)';
     const validationStroke = validationSeverity ? validationConnectionColor(validationSeverity, true) : null;
     const validationSoft = validationSeverity ? validationConnectionColor(validationSeverity, false) : null;
 
     wrapper.ctx.strokeStyle = hasProblemRoutes
       ? problemSoft
-      : validationSoft ?? connectionShadeStroke(this.routes[0]?.shade ?? DEFAULT_CONNECTION_SHADE, focused);
+      : validationSoft ?? (ambient ? ambientStroke : connectionShadeStroke(this.routes[0]?.shade ?? DEFAULT_CONNECTION_SHADE, focused));
     wrapper.ctx.fillStyle = hasProblemRoutes
       ? problemStroke
-      : validationStroke ?? connectionShadeFill(this.routes[0]?.shade ?? DEFAULT_CONNECTION_SHADE, focused);
-    wrapper.ctx.lineCap = 'butt';
+      : validationStroke ?? (ambient ? ambientStroke : connectionShadeFill(this.routes[0]?.shade ?? DEFAULT_CONNECTION_SHADE, focused));
+    wrapper.ctx.lineCap = ambient ? 'round' : 'butt';
     wrapper.ctx.lineJoin = 'round';
 
-    if (focused) {
+    if (focused && !ambient) {
       wrapper.ctx.save();
       wrapper.ctx.globalAlpha = hasProblemRoutes ? 0.13 : 0.12;
       const haloWidth = CONNECTION_HALO_WIDTH;
@@ -563,24 +575,28 @@ export class RenderedConnection {
 
       const routeFocused = focused && (!hasRouteFocus || routeIndex === hoveredRouteIndex);
       const routeDimmed = dimmed || (hasRouteFocus && routeIndex !== hoveredRouteIndex);
-      const lineWidth = routeFocused ? CONNECTION_FOCUSED_STROKE_WIDTH : CONNECTION_STROKE_WIDTH;
+      const lineWidth = ambient
+        ? validationFocused ? 1.8 : 1.4
+        : routeFocused ? CONNECTION_FOCUSED_STROKE_WIDTH : CONNECTION_STROKE_WIDTH;
       const routeStroke = route.status === 'obstacleViolation'
-        ? problemSoft
-        : validationSoft ?? connectionShadeStroke(route.shade, routeFocused);
+        ? (ambient ? ambientStroke : problemSoft)
+        : validationSoft ?? (ambient ? ambientStroke : connectionShadeStroke(route.shade, routeFocused));
 
       wrapper.ctx.save();
       wrapper.ctx.lineWidth = lineWidth;
-      wrapper.ctx.globalAlpha = routeDimmed
-        ? 0.13
-        : routeFocused
-          ? 1
-          : route.status === 'obstacleViolation'
-            ? 0.9
-          : 0.42;
+      wrapper.ctx.globalAlpha = ambient
+        ? validationFocused ? 0.72 : routeDimmed ? 0.1 : 0.18
+        : routeDimmed
+          ? 0.13
+          : routeFocused
+            ? 1
+            : route.status === 'obstacleViolation'
+              ? 0.9
+              : 0.42;
       wrapper.ctx.strokeStyle = routeStroke;
       wrapper.ctx.fillStyle = routeStroke;
 
-      if (route.visualProblemSegments.length > 0) {
+      if (!ambient && route.visualProblemSegments.length > 0) {
         strokeSegments(wrapper.ctx, subtractRouteProblemSegments(route.visualSegments, route.visualProblemSegments));
         wrapper.ctx.save();
         wrapper.ctx.strokeStyle = problemStroke;
@@ -592,7 +608,9 @@ export class RenderedConnection {
         strokeContinuousRoute(wrapper.ctx, route.visualSegments);
       }
 
-      fillRouteEndpointCaps(wrapper.ctx, route, lineWidth);
+      if (!ambient) {
+        fillRouteEndpointCaps(wrapper.ctx, route, lineWidth);
+      }
       wrapper.ctx.restore();
     }
 

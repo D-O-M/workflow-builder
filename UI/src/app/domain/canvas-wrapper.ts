@@ -1,6 +1,6 @@
 import { NodeChannelSectionLayout, NodeModel, NodePortDefinition, Point, Side } from './node-model';
 import { PathfinderObstacle, PathfinderOptions, Segment, orthogonalRoute, subtractRouteProblemSegments } from './pathfinder';
-import { CanvasDetailTier, CanvasPortConnectivityIndex, CanvasValidationSeverity, RenderedConnection, RenderedNode } from './canvas-render-model';
+import { CanvasConnectionPresentation, CanvasDetailTier, CanvasPortConnectivityIndex, CanvasValidationSeverity, RenderedConnection, RenderedNode } from './canvas-render-model';
 import { signal } from '@angular/core';
 import {
     CanvasBackgroundEffect,
@@ -294,6 +294,7 @@ export class CanvasWrapper {
         options?: {
             readOnly?: boolean;
             detailTier?: CanvasDetailTier;
+            connectionPresentation?: CanvasConnectionPresentation;
             hoveredConnectionId?: string | null;
             hoveredConnectionRouteIndex?: number | null;
             channelFocusedConnectionIds?: ReadonlySet<string>;
@@ -306,6 +307,7 @@ export class CanvasWrapper {
     ): void {
         const hoveredConnectionId = options?.hoveredConnectionId ?? null;
         const hoveredConnectionRouteIndex = options?.hoveredConnectionRouteIndex ?? null;
+        const connectionPresentation = options?.connectionPresentation ?? 'normal';
         const channelFocusedConnectionIds = options?.channelFocusedConnectionIds ?? new Set<string>();
         const validationConnectionFocus = options?.validationConnectionFocus ?? null;
         const validationConnectionId = validationConnectionFocus?.connectionId ?? null;
@@ -328,6 +330,7 @@ export class CanvasWrapper {
                 selected: false,
                 hovered: false,
                 dimmed: hasConnectionFocus,
+                presentation: connectionPresentation,
             });
         }
 
@@ -344,6 +347,7 @@ export class CanvasWrapper {
                         : null,
                 validationSeverity: validationFocused ? validationConnectionFocus.severity : null,
                 dimmed: false,
+                presentation: connectionPresentation,
             });
         }
     }
@@ -370,6 +374,7 @@ export class CanvasWrapper {
             focusedPortKeys?: ReadonlySet<string>;
             collectionIteratorPreviewLabels?: ReadonlyMap<number, string>;
             nodeIssueSummaries?: ReadonlyMap<number, CanvasNodeIssueSummary>;
+            passiveSummaryPorts?: boolean;
             validationFocus?: {
                 severity: CanvasValidationSeverity;
                 nodeId: number | null;
@@ -384,6 +389,7 @@ export class CanvasWrapper {
         const focusedPortKeys = options?.focusedPortKeys ?? new Set<string>();
         const collectionIteratorPreviewLabels = options?.collectionIteratorPreviewLabels ?? new Map<number, string>();
         const nodeIssueSummaries = options?.nodeIssueSummaries ?? new Map<number, CanvasNodeIssueSummary>();
+        const passiveSummaryPorts = options?.passiveSummaryPorts ?? false;
         const validationFocus = options?.validationFocus ?? null;
         const validationPortKeys = validationFocus?.portKeys ?? new Set<string>();
         const connectedSummaryPortKeys = portConnectivity.summaryPortKeys;
@@ -405,6 +411,23 @@ export class CanvasWrapper {
                     ? node.settingsRect()
                     : null;
 
+            if (node.isDataBridge) {
+                this.drawDataBridgeNode(
+                    node,
+                    connectedSummaryPortKeys,
+                    connectedPropertyPortKeys,
+                    drag,
+                    hovered,
+                    hoveredPortKey,
+                    isSelected,
+                    focusedPortKeys,
+                    validationNodeFocused ? validationFocus : null,
+                    validationPortKeys,
+                    passiveSummaryPorts,
+                );
+                continue;
+            }
+
             if (node.isCollectionIteratorOperator) {
                 this.drawCollectionIteratorOperator(
                     node,
@@ -421,6 +444,7 @@ export class CanvasWrapper {
                     validationPortKeys,
                     issueSummary,
                     collectionIteratorPreviewLabels.get(node.id) ?? null,
+                    passiveSummaryPorts,
                 );
                 continue;
             }
@@ -515,14 +539,109 @@ export class CanvasWrapper {
             }
 
             if (layout.inputSection) {
-                this.drawChannelSection(node, layout.inputSection, hovered === node.id, hoveredPortKey, connectedSummaryPortKeys, connectedPropertyPortKeys, drag?.from === node.id ? drag.portKey ?? null : null, focusedPortKeys, validationNodeFocused ? validationFocus : null, validationPortKeys, issueSummary);
+                this.drawChannelSection(node, layout.inputSection, hovered === node.id, hoveredPortKey, connectedSummaryPortKeys, connectedPropertyPortKeys, drag?.from === node.id ? drag.portKey ?? null : null, focusedPortKeys, validationNodeFocused ? validationFocus : null, validationPortKeys, issueSummary, passiveSummaryPorts);
             }
             layout.outputSections.forEach((section) => {
-                this.drawChannelSection(node, section, hovered === node.id, hoveredPortKey, connectedSummaryPortKeys, connectedPropertyPortKeys, drag?.from === node.id ? drag.portKey ?? null : null, focusedPortKeys, validationNodeFocused ? validationFocus : null, validationPortKeys, issueSummary);
+                this.drawChannelSection(node, section, hovered === node.id, hoveredPortKey, connectedSummaryPortKeys, connectedPropertyPortKeys, drag?.from === node.id ? drag.portKey ?? null : null, focusedPortKeys, validationNodeFocused ? validationFocus : null, validationPortKeys, issueSummary, passiveSummaryPorts);
             });
 
             this.ctx.restore();
         }
+    }
+
+    private drawDataBridgeNode(
+        node: RenderedNode,
+        connectedSummaryPortKeys: ReadonlySet<string>,
+        connectedPropertyPortKeys: ReadonlySet<string>,
+        drag: {
+            from: number;
+            anchor: number;
+            x: number;
+            y: number;
+            side?: Side;
+            portKey?: string | null;
+            sourceProperty?: string | null;
+        } | null,
+        hovered: number | null,
+        hoveredPortKey: string | null,
+        isSelected: boolean,
+        focusedPortKeys: ReadonlySet<string>,
+        validationFocus: {
+            severity: CanvasValidationSeverity;
+            nodeId: number | null;
+            sectionKey?: string | null;
+            portKeys?: ReadonlySet<string>;
+        } | null,
+        validationPortKeys: ReadonlySet<string>,
+        passiveSummaryPorts: boolean,
+    ): void {
+        const layout = node.layout;
+        this.ctx.save();
+        this.ctx.shadowColor = CanvasWrapper.theme.nodeShadow;
+        this.ctx.shadowBlur = 10;
+        this.ctx.shadowOffsetY = 5;
+
+        const gradient = this.ctx.createLinearGradient(node.x, node.y, node.x, node.y + node.height);
+        gradient.addColorStop(0, '#ecfeff');
+        gradient.addColorStop(1, '#eff6ff');
+        this.ctx.fillStyle = gradient;
+        this.ctx.strokeStyle = isSelected
+            ? CanvasWrapper.theme.connection.selected
+            : 'rgba(14, 116, 144, 0.42)';
+        this.ctx.lineWidth = isSelected ? 2.1 : 1.2;
+        this.roundedRect(node.x, node.y, node.width, node.height, 12);
+        this.ctx.fill();
+        this.ctx.shadowColor = 'transparent';
+        this.ctx.stroke();
+
+        this.ctx.fillStyle = '#0e7490';
+        this.roundedRect(node.x + 16, node.y + 14, 32, 32, 10);
+        this.ctx.fill();
+        this.ctx.strokeStyle = 'rgba(14, 116, 144, 0.28)';
+        this.roundedRect(node.x + 16.5, node.y + 14.5, 31, 31, 9.5);
+        this.ctx.stroke();
+        this.drawDataBridgeIcon(node.x + 22, node.y + 20, 20);
+
+        this.ctx.fillStyle = CanvasWrapper.theme.nodeText;
+        this.setFont(700, 15);
+        this.drawEllipsizedText('Data Bridge', node.x + 62, layout.titleBaseline, node.width - 88);
+        this.ctx.fillStyle = CanvasWrapper.theme.nodeTextMuted;
+        this.setFont(600, 10.5);
+        this.drawEllipsizedText(node.name.replace(/^Data Bridge\s*/i, '') || 'Phase data contract', node.x + 62, layout.versionBaseline, node.width - 88);
+
+        if (layout.inputSection) {
+            this.drawChannelSection(node, layout.inputSection, hovered === node.id, hoveredPortKey, connectedSummaryPortKeys, connectedPropertyPortKeys, drag?.from === node.id ? drag.portKey ?? null : null, focusedPortKeys, validationFocus, validationPortKeys, null, passiveSummaryPorts);
+        }
+
+        for (const section of layout.outputSections) {
+            this.drawChannelSection(node, section, hovered === node.id, hoveredPortKey, connectedSummaryPortKeys, connectedPropertyPortKeys, drag?.from === node.id ? drag.portKey ?? null : null, focusedPortKeys, validationFocus, validationPortKeys, null, passiveSummaryPorts);
+        }
+
+        this.ctx.restore();
+    }
+
+    private drawDataBridgeIcon(x: number, y: number, size: number): void {
+        this.ctx.save();
+        this.ctx.strokeStyle = '#ecfeff';
+        this.ctx.lineWidth = 2.4;
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+        const midY = y + size / 2;
+        this.ctx.beginPath();
+        this.ctx.moveTo(x, y + 4);
+        this.ctx.lineTo(x + size * 0.34, y + 4);
+        this.ctx.quadraticCurveTo(x + size * 0.5, y + 4, x + size * 0.5, midY);
+        this.ctx.quadraticCurveTo(x + size * 0.5, y + size - 4, x + size * 0.66, y + size - 4);
+        this.ctx.lineTo(x + size, y + size - 4);
+        this.ctx.stroke();
+        this.ctx.beginPath();
+        this.ctx.moveTo(x, y + size - 4);
+        this.ctx.lineTo(x + size * 0.34, y + size - 4);
+        this.ctx.quadraticCurveTo(x + size * 0.5, y + size - 4, x + size * 0.5, midY);
+        this.ctx.quadraticCurveTo(x + size * 0.5, y + 4, x + size * 0.66, y + 4);
+        this.ctx.lineTo(x + size, y + 4);
+        this.ctx.stroke();
+        this.ctx.restore();
     }
 
     private drawCollectionIteratorOperator(
@@ -553,6 +672,7 @@ export class CanvasWrapper {
         validationPortKeys: ReadonlySet<string>,
         issueSummary: CanvasNodeIssueSummary | null,
         previewEquation: string | null,
+        passiveSummaryPorts: boolean,
     ): void {
         const statusTheme = node.renderStatus ? CanvasWrapper.theme.status[node.renderStatus] : null;
         const validationTheme = validationFocus ? CanvasWrapper.theme.validation[validationFocus.severity] : null;
@@ -661,32 +781,34 @@ export class CanvasWrapper {
         const outputSection = node.layout.outputSections[0] ?? null;
         if (inputSection) {
             const inputSummaryKey = this.portFocusKey(node, inputSection.summaryPort);
-            const inputValidationFocused = validationPortKeys.has(inputSummaryKey) ||
-                validationFocus?.sectionKey === inputSection.key;
-            const inputFocused = focusedPortKeys.has(inputSummaryKey) || inputValidationFocused;
-            const inputHovered = (hovered === node.id && hoveredPortKey === inputSection.summaryPort.key) ||
+            const inputValidationFocused = !passiveSummaryPorts && (validationPortKeys.has(inputSummaryKey) ||
+                validationFocus?.sectionKey === inputSection.key);
+            const inputFocused = !passiveSummaryPorts && (focusedPortKeys.has(inputSummaryKey) || inputValidationFocused);
+            const inputHovered = !passiveSummaryPorts && ((hovered === node.id && hoveredPortKey === inputSection.summaryPort.key) ||
                 inputFocused ||
-                (isHoveredDest && !isBlockedDest);
+                (isHoveredDest && !isBlockedDest));
             this.drawSummarySocket(
                 inputSection,
                 inputHovered,
-                portConnectivity.summaryPortKeys.has(inputSummaryKey),
+                !passiveSummaryPorts && portConnectivity.summaryPortKeys.has(inputSummaryKey),
                 inputValidationFocused ? validationFocus?.severity ?? null : null,
             );
         }
 
         if (outputSection) {
             const outputSummaryKey = this.portFocusKey(node, outputSection.summaryPort);
-            const outputValidationFocused = validationPortKeys.has(outputSummaryKey) ||
-                validationFocus?.sectionKey === outputSection.key;
-            const outputFocused = focusedPortKeys.has(outputSummaryKey) || outputValidationFocused;
-            const outputHovered = (hovered === node.id && hoveredPortKey === outputSection.summaryPort.key) ||
+            const outputValidationFocused = !passiveSummaryPorts && (validationPortKeys.has(outputSummaryKey) ||
+                validationFocus?.sectionKey === outputSection.key);
+            const outputFocused = !passiveSummaryPorts && (focusedPortKeys.has(outputSummaryKey) || outputValidationFocused);
+            const outputHovered = !passiveSummaryPorts && ((hovered === node.id && hoveredPortKey === outputSection.summaryPort.key) ||
                 outputFocused ||
-                draggingPortKey === outputSection.summaryPort.key;
+                draggingPortKey === outputSection.summaryPort.key);
             this.drawSummarySocket(
                 outputSection,
                 outputHovered,
-                portConnectivity.summaryPortKeys.has(outputSummaryKey) || draggingPortKey === outputSection.summaryPort.key,
+                !passiveSummaryPorts &&
+                    (portConnectivity.summaryPortKeys.has(outputSummaryKey) ||
+                        draggingPortKey === outputSection.summaryPort.key),
                 outputValidationFocused ? validationFocus?.severity ?? null : null,
             );
         }
@@ -711,6 +833,7 @@ export class CanvasWrapper {
         } | null,
         validationPortKeys: ReadonlySet<string>,
         issueSummary: CanvasNodeIssueSummary | null,
+        passiveSummaryPorts: boolean,
     ): void {
         this.ctx.save();
 
@@ -718,11 +841,12 @@ export class CanvasWrapper {
         const summaryScopedKey = this.portFocusKey(node, summaryPort);
         const validationTheme = validationFocus ? CanvasWrapper.theme.validation[validationFocus.severity] : null;
         const validationSectionFocused = validationFocus?.sectionKey === section.key;
-        const summaryValidationFocused = validationSectionFocused || validationPortKeys.has(summaryScopedKey);
-        const summaryFocused = focusedPortKeys.has(summaryScopedKey) || summaryValidationFocused;
-        const summaryHover = (isHoveredNode && hoveredPortKey === summaryPort.key) || summaryFocused;
-        const summaryConnected = connectedSummaryPortKeys.has(summaryScopedKey);
-        const summaryActive = summaryHover || draggingPortKey === summaryPort.key;
+        const summaryValidationFocused = !passiveSummaryPorts &&
+            (validationSectionFocused || validationPortKeys.has(summaryScopedKey));
+        const summaryFocused = !passiveSummaryPorts && (focusedPortKeys.has(summaryScopedKey) || summaryValidationFocused);
+        const summaryHover = !passiveSummaryPorts && ((isHoveredNode && hoveredPortKey === summaryPort.key) || summaryFocused);
+        const summaryConnected = !passiveSummaryPorts && connectedSummaryPortKeys.has(summaryScopedKey);
+        const summaryActive = summaryHover || (!passiveSummaryPorts && draggingPortKey === summaryPort.key);
 
         const sectionX = node.x + 16;
         const sectionWidth = node.width - 32;
@@ -873,7 +997,7 @@ export class CanvasWrapper {
         this.drawSummarySocket(
             section,
             summaryActive,
-            summaryConnected || draggingPortKey === summaryPort.key,
+            summaryConnected || (!passiveSummaryPorts && draggingPortKey === summaryPort.key),
             summaryValidationFocused ? validationFocus?.severity ?? null : null,
         );
 

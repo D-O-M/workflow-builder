@@ -31,6 +31,7 @@ interface GraphNodeSnapshot {
   inputChannelDisplayName: string | null;
   outputChannelDisplayNames: string[];
   outputChannelPropertyDefinitions: Record<string, ITaskPropertyDefinition[]>;
+  instanceId: string | null;
 }
 
 interface GraphConnectionSnapshot {
@@ -245,6 +246,7 @@ export class BlueprintEditorStore {
         node.expanded,
         node.nodeKind,
         node.collectionIteratorItemKind,
+        node.instanceId,
       );
     });
 
@@ -262,6 +264,10 @@ export class BlueprintEditorStore {
     const from = this.getNodeById(sourceNodeId);
     const to = this.getNodeById(destinationNodeId);
     if (!from || !to || sourceNodeId === destinationNodeId) {
+      return null;
+    }
+
+    if (!this.canCreateConnection(from, to)) {
       return null;
     }
 
@@ -284,6 +290,84 @@ export class BlueprintEditorStore {
     this._selectedNodeIds.set([]);
     this._selectedConnectionIds.set([connection.id]);
     return this._connections().find((candidate) => candidate.id === connection.id) ?? connection;
+  }
+
+  upsertDataBridgeInputProperty(
+    nodeId: number,
+    propertyName: string,
+    propertyKind: TaskPropertyType,
+  ): boolean {
+    const normalizedPropertyName = propertyName.trim();
+    if (!normalizedPropertyName) {
+      return false;
+    }
+
+    const bridge = this.getNodeById(nodeId);
+    if (!bridge?.isDataBridge || bridge.dataBridgeKind !== 'output' || !bridge.inputChannelName) {
+      return false;
+    }
+
+    const existingKind = bridge.inputProperties[normalizedPropertyName];
+    if (existingKind && existingKind !== propertyKind) {
+      return false;
+    }
+
+    if (existingKind === propertyKind) {
+      return true;
+    }
+
+    this.captureHistory();
+    this._nodes.update((nodes) => nodes.map((node) => {
+      if (node.id !== nodeId) {
+        return node;
+      }
+
+      const inputProperties = {
+        ...node.inputProperties,
+        [normalizedPropertyName]: propertyKind,
+      };
+      const inputPropertyDefinitions = [
+        ...this.clonePropertyDefinitions(node.inputPropertyDefinitions),
+        {
+          name: normalizedPropertyName,
+          kind: propertyKind,
+          required: false,
+          enumValues: [],
+        },
+      ];
+
+      return new NodeModel(
+        node.id,
+        node.taskDefinitionId,
+        node.allowedMajor,
+        node.allowedMinor,
+        node.resolvedVersionId,
+        node.resolvedVersion,
+        node.name,
+        node.x,
+        node.y,
+        node.width,
+        node.height,
+        node.inputChannelName,
+        node.outputChannelNames,
+        node.hasUpgradeWarning,
+        node.renderStatus,
+        node.failureMessage,
+        inputProperties,
+        node.outputChannelProperties,
+        node.designTimeInputOverrides,
+        inputPropertyDefinitions,
+        node.inputChannelDisplayName,
+        [...node.outputChannelDisplayNames],
+        this.cloneOutputChannelPropertyDefinitions(node.outputChannelPropertyDefinitions),
+        node.expanded,
+        node.nodeKind,
+        node.collectionIteratorItemKind,
+        node.instanceId,
+      );
+    }));
+    this._connections.set(this.rebindConnections(this._connections(), this._nodes()));
+    return true;
   }
 
   updateNodeDesignTimeOverrides(nodeId: number, overrides: Record<string, unknown>): void {
@@ -323,6 +407,7 @@ export class BlueprintEditorStore {
             candidate.expanded,
             candidate.nodeKind,
             candidate.collectionIteratorItemKind,
+            candidate.instanceId,
           ),
     ));
     this._connections.set(this.rebindConnections(this._connections(), this._nodes()));
@@ -625,6 +710,7 @@ export class BlueprintEditorStore {
         false,
         nodeSnapshot.nodeKind,
         nodeSnapshot.collectionIteratorItemKind,
+        null,
       ));
     }
 
@@ -764,6 +850,7 @@ export class BlueprintEditorStore {
       inputChannelDisplayName: node.inputChannelDisplayName,
       outputChannelDisplayNames: [...node.outputChannelDisplayNames],
       outputChannelPropertyDefinitions: this.cloneOutputChannelPropertyDefinitions(node.outputChannelPropertyDefinitions),
+      instanceId: node.instanceId,
     };
   }
 
@@ -807,6 +894,7 @@ export class BlueprintEditorStore {
       false,
       node.nodeKind,
       node.collectionIteratorItemKind,
+      node.instanceId,
     );
   }
 
@@ -886,6 +974,7 @@ export class BlueprintEditorStore {
     x: number,
     y: number,
     itemKind: TaskPropertyBaseType | null,
+    instanceId: string | null = null,
   ): NodeModel {
     const concreteItemKind = itemKind ?? 'String';
     const inputProperties: Record<string, TaskPropertyType> = {
@@ -938,6 +1027,7 @@ export class BlueprintEditorStore {
       false,
       'CollectionIterator',
       itemKind,
+      instanceId,
     );
   }
 
@@ -1145,6 +1235,22 @@ export class BlueprintEditorStore {
       }));
   }
 
+  private canCreateConnection(from: NodeModel, to: NodeModel): boolean {
+    if (from.isDataBridge && to.isDataBridge) {
+      return false;
+    }
+
+    if (to.isDataBridge) {
+      return !from.isDataBridge && to.dataBridgeKind === 'output';
+    }
+
+    if (from.isDataBridge) {
+      return from.dataBridgeKind === 'input' && !to.isDataBridge;
+    }
+
+    return true;
+  }
+
   private retuneCollectionIteratorNodes(): void {
     const nodes = this._nodes();
     const tunedNodes = nodes.map((node) => {
@@ -1165,6 +1271,7 @@ export class BlueprintEditorStore {
         node.x,
         node.y,
         itemKind,
+        node.instanceId,
       ).withExpanded(node.expanded);
     });
 
