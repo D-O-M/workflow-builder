@@ -3,11 +3,10 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# Install Angular CLI v20 and dependencies
+# Install project dependencies, including the local Angular CLI version.
 COPY package*.json .
 
 RUN npm install
-RUN npm install -g @angular/cli@20
 
 # Copy app code
 COPY . .
@@ -16,4 +15,4 @@ COPY . .
 EXPOSE 4200
 
 # Use polling for Docker file changes
-CMD ["ng", "serve", "--host", "0.0.0.0", "--poll=2000"]
+CMD ["npm", "run", "start", "--", "--host", "0.0.0.0", "--poll=2000"]
