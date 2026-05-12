@@ -91,6 +91,18 @@ public class PluginRuntimeAgent
                 LocalDevelopmentResourceSettings.GetCosmosConnectionString(
                     _configuration,
                     _hostEnvironment);
+            var blobConnectionString =
+                LocalDevelopmentResourceSettings.GetBlobConnectionString(
+                    _configuration,
+                    _hostEnvironment);
+            var pluginsBlobContainerName =
+                LocalDevelopmentResourceSettings.GetPluginsBlobContainerName(
+                    _configuration,
+                    _hostEnvironment);
+            var artifactsBlobContainerName =
+                LocalDevelopmentResourceSettings.GetArtifactsBlobContainerName(
+                    _configuration,
+                    _hostEnvironment);
             var environmentVariables = new Dictionary<string, string?>
             {
                 {
@@ -128,8 +140,26 @@ public class PluginRuntimeAgent
                 {
                     "PluginRuntime__HydrationTimeoutSeconds",
                     _configuration["PluginRuntime:HydrationTimeoutSeconds"]
+                },
+                {
+                    "WorkflowBuilder__RepositoryRoot",
+                    _configuration["WorkflowBuilder:RepositoryRoot"]
+                    ?? Environment.GetEnvironmentVariable("WorkflowBuilder__RepositoryRoot")
+                },
+                {
+                    "WORKFLOW_BUILDER_DEMO_REPOSITORY",
+                    _configuration["WORKFLOW_BUILDER_DEMO_REPOSITORY"]
+                    ?? Environment.GetEnvironmentVariable("WORKFLOW_BUILDER_DEMO_REPOSITORY")
                 }
             };
+
+            if (!string.IsNullOrWhiteSpace(blobConnectionString))
+            {
+                environmentVariables["AzureStorage__ConnectionString"] = blobConnectionString;
+                environmentVariables["ConnectionStrings__BlobConnection"] = blobConnectionString;
+                environmentVariables["AzureStorage__BlobContainers__Plugins__ContainerName"] = pluginsBlobContainerName;
+                environmentVariables["AzureStorage__BlobContainers__Artifacts__ContainerName"] = artifactsBlobContainerName;
+            }
 
             if (!string.IsNullOrWhiteSpace(cosmosConnectionString))
             {

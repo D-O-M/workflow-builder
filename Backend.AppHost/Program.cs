@@ -49,15 +49,27 @@ internal class Program
         var sql = AddSqlServer(builder, password);
         var sqlDb = sql.AddDatabase("TasksDB");
 
-        var pluginsBlobResourceName = builder.Configuration.GetValue<string>(
-            "AzureStorage:BlobContainers:Plugins:ResourceName")!;
+        var pluginsBlobResourceName = builder.Configuration.GetValue(
+            "AzureStorage:BlobContainers:Plugins:ResourceName",
+            "plugins");
 
-        var pluginsBlobContainerName = builder.Configuration.GetValue<string>(
-            "AzureStorage:BlobContainers:Plugins:ContainerName")!;
+        var pluginsBlobContainerName = builder.Configuration.GetValue(
+            "AzureStorage:BlobContainers:Plugins:ContainerName",
+            "plugins");
 
-        var (storage, blobs, blobContainer) = AddStorage(builder,
+        var artifactsBlobResourceName = builder.Configuration.GetValue(
+            "AzureStorage:BlobContainers:Artifacts:ResourceName",
+            "artifacts");
+
+        var artifactsBlobContainerName = builder.Configuration.GetValue(
+            "AzureStorage:BlobContainers:Artifacts:ContainerName",
+            "artifacts");
+
+        var (storage, blobs, pluginsBlobContainer, artifactsBlobContainer) = AddStorage(builder,
             pluginsBlobResourceName,
-            pluginsBlobContainerName);
+            pluginsBlobContainerName,
+            artifactsBlobResourceName,
+            artifactsBlobContainerName);
 
         var (serviceBus, processStepQueue, pluginControlQueue) = AddServiceBus(builder);
         var observability = builder.Configuration.GetValue("Observability:Enabled", true)
@@ -102,7 +114,8 @@ internal class Program
             .WithReference(cosmos, connectionName: cosmosConnectionName)
             .WaitFor(cosmosDb)
             .WithReference(blobs)
-            .WaitFor(blobContainer)
+            .WaitFor(pluginsBlobContainer)
+            .WaitFor(artifactsBlobContainer)
             .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
@@ -166,7 +179,8 @@ internal class Program
             .WithReference(cosmos, connectionName: cosmosConnectionName)
             .WaitFor(cosmosDb)
             .WithReference(blobs)
-            .WaitFor(blobContainer)
+            .WaitFor(pluginsBlobContainer)
+            .WaitFor(artifactsBlobContainer)
             .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
             .WithReference(pluginControlQueue, connectionName: pluginControlQueueConnectionName)
             .WaitFor(serviceBus)
@@ -177,6 +191,7 @@ internal class Program
         engine.WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
             .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
             .WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName)
+            .WithEnvironment("AzureStorage__BlobContainers__Artifacts__ContainerName", artifactsBlobContainerName)
             .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__ConnectionName", processStepQueueConnectionName)
             .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__Name", processStepQueueName)
             .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__ConnectionName", pluginControlQueueConnectionName)
@@ -192,7 +207,9 @@ internal class Program
                 processStepQueuePrefetchCount.ToString())
             .WithEnvironment(
                 "ProcessStepQueue__MaxAutoLockRenewalMinutes",
-                processStepQueueMaxAutoLockRenewalMinutes.ToString());
+                processStepQueueMaxAutoLockRenewalMinutes.ToString())
+            .WithEnvironment("WorkflowBuilder__RepositoryRoot", repositoryRoot)
+            .WithEnvironment("WORKFLOW_BUILDER_DEMO_REPOSITORY", repositoryRoot);
         if (integrationTestsEnabled)
         {
             engine.WithEnvironment("PluginRuntime__Diagnostics", "true")
@@ -212,7 +229,7 @@ internal class Program
 
         var pluginDetector = builder.AddAzureFunctionsProject<Projects.Backend_Functions_PluginDetector>("plugin-detector")
             .WithHostStorage(storage)
-            .WaitFor(blobContainer)
+            .WaitFor(pluginsBlobContainer)
             .WithReference(serviceBus, connectionName: "ServiceBus")
             .WithReference(pluginControlQueue, connectionName: pluginControlQueueConnectionName)
             .WaitFor(serviceBus)
@@ -260,7 +277,7 @@ internal class Program
         {
             pluginSeeder = builder.AddProject<Projects.Backend_PluginSeeder>("backend-plugin-seeder")
                 .WithReference(blobs)
-                .WaitFor(blobContainer)
+                .WaitFor(pluginsBlobContainer)
                 .WaitFor(api)
                 .WaitFor(engine)
                 .WaitFor(signalR)
@@ -470,13 +487,16 @@ internal class Program
     static (
         IResourceBuilder<AzureStorageResource> storage,
         IResourceBuilder<AzureBlobStorageResource> blobStorage,
-        IResourceBuilder<AzureBlobStorageContainerResource> blobContainer)
+        IResourceBuilder<AzureBlobStorageContainerResource> pluginsBlobContainer,
+        IResourceBuilder<AzureBlobStorageContainerResource> artifactsBlobContainer)
         AddStorage(IDistributedApplicationBuilder builder,
             string pluginsBlobResourceName,
-            string pluginsBlobContainerName)
+            string pluginsBlobContainerName,
+            string artifactsBlobResourceName,
+            string artifactsBlobContainerName)
     {
         var azureStorage = builder.AddAzureStorage(
-            builder.Configuration.GetValue<string>("AzureStorage:ResourceName")!);
+            builder.Configuration.GetValue("AzureStorage:ResourceName", "workflow-storage"));
         var persistStorageData = builder.Configuration.GetValue("AzureStorage:PersistData", false);
 
         if (builder.Environment.IsDevelopment())
@@ -490,11 +510,15 @@ internal class Program
 
         var blobs = azureStorage.AddBlobs("BlobConnection");
 
-        var blobContainer = azureStorage.AddBlobContainer(
+        var pluginsBlobContainer = azureStorage.AddBlobContainer(
             pluginsBlobResourceName,
             pluginsBlobContainerName);
 
-        return (azureStorage, blobs, blobContainer);
+        var artifactsBlobContainer = azureStorage.AddBlobContainer(
+            artifactsBlobResourceName,
+            artifactsBlobContainerName);
+
+        return (azureStorage, blobs, pluginsBlobContainer, artifactsBlobContainer);
     }
 
     static (IResourceBuilder<AzureServiceBusResource> serviceBus,

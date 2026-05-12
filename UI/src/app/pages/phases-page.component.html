@@ -529,6 +529,82 @@
           }
         </div>
 
+        @if (activeTransition(); as transition) {
+          <section class="phases-page__correlation-panel" data-testid="phases-correlation-panel">
+            <header>
+              <div>
+                <span>Correlation</span>
+                <strong>{{ phasePairOptions()[activePairIndex()]?.label ?? 'Active transition' }}</strong>
+              </div>
+              <button
+                mat-icon-button
+                type="button"
+                [disabled]="correlationSourceOptions().length === 0"
+                (click)="addCorrelationMapping()"
+                matTooltip="Add correlation"
+                aria-label="Add correlation"
+                data-testid="phases-add-correlation"
+              >
+                <mat-icon>add_link</mat-icon>
+              </button>
+            </header>
+
+            @if (transition.correlationMappings.length > 0) {
+              <div class="phases-page__correlation-list" data-testid="phases-correlation-list">
+                @for (correlation of transition.correlationMappings; track trackCorrelation($index, correlation)) {
+                  <div class="phases-page__correlation-row" data-testid="phases-correlation-row">
+                    <mat-form-field appearance="outline">
+                      <mat-label>Result</mat-label>
+                      <mat-select
+                        [value]="correlation.sourceResultProperty"
+                        (selectionChange)="updateCorrelationSource(correlation.id, $event.value)"
+                        data-testid="phases-correlation-source"
+                      >
+                        @for (sourceProperty of correlationSourceOptions(); track sourceProperty) {
+                          <mat-option [value]="sourceProperty">{{ sourceProperty }}</mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+
+                    <mat-form-field appearance="outline">
+                      <mat-label>Trigger</mat-label>
+                      <input
+                        matInput
+                        [value]="correlation.triggerProperty"
+                        data-testid="phases-correlation-trigger"
+                        (input)="updateCorrelationTrigger(correlation.id, $any($event.target).value)"
+                      />
+                    </mat-form-field>
+
+                    <button
+                      mat-icon-button
+                      type="button"
+                      (click)="removeCorrelation(correlation.id)"
+                      matTooltip="Remove correlation"
+                      aria-label="Remove correlation"
+                      data-testid="phases-remove-correlation"
+                    >
+                      <mat-icon>link_off</mat-icon>
+                    </button>
+                  </div>
+                }
+              </div>
+            } @else {
+              <button
+                mat-button
+                type="button"
+                class="phases-page__correlation-empty"
+                [disabled]="correlationSourceOptions().length === 0"
+                (click)="addCorrelationMapping()"
+                data-testid="phases-correlation-empty-add"
+              >
+                <mat-icon>add_link</mat-icon>
+                Add correlation
+              </button>
+            }
+          </section>
+        }
+
         @if (validationMessages().length > 0) {
           <div class="phases-page__issues" data-testid="phases-validation-messages">
             @for (message of validationMessages(); track message) {

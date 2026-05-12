@@ -85,6 +85,7 @@ export interface BlueprintVersionViewModel {
 
 export interface BlueprintViewModel {
   id: number;
+  key?: string | null;
   name: string;
   description: string;
   versions: BlueprintVersionViewModel[];
@@ -226,6 +227,15 @@ export interface BlueprintProcessInputModel {
 export interface BlueprintProcessAcceptedViewModel {
   processId: string;
   blueprintId: number;
+  acceptedAt: string;
+}
+
+export interface PhasedProcessAcceptedViewModel {
+  phasedProcessId: string;
+  phasedBlueprintDefinitionId: number;
+  phasedBlueprintVersionId: number;
+  childProcessId: string;
+  phaseIndex: number;
   acceptedAt: string;
 }
 
@@ -740,6 +750,10 @@ export class BlueprintEditorService {
 
   startProcess(definitionId: number, payload: BlueprintProcessInputModel): Observable<BlueprintProcessAcceptedViewModel> {
     return this.http.post<BlueprintProcessAcceptedViewModel>(`api/blueprints/${definitionId}/processes`, payload);
+  }
+
+  startPhasedProcess(definitionId: number, payload: BlueprintProcessInputModel): Observable<PhasedProcessAcceptedViewModel> {
+    return this.http.post<PhasedProcessAcceptedViewModel>(`api/phased-blueprints/${definitionId}/processes`, payload);
   }
 
   getBlueprintProcesses(definitionId: number): Observable<ProcessSummaryViewModel[]> {

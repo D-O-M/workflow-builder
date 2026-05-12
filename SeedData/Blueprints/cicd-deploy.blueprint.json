@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 3,
+  "definitionKey": "cicd-deploy",
+  "displayName": "CI/CD Deploy",
+  "startingTaskKey": "bbbbbbbb-0000-0000-0000-000000000201",
+  "tasks": [
+    {
+      "taskKey": "bbbbbbbb-0000-0000-0000-000000000201",
+      "taskDefinitionName": "CiCd.DeployArtifactSimulation",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": { "x": 120, "y": 140 },
+      "designTimeInputOverrides": {
+        "BuildId": "",
+        "ArtifactContainerName": "",
+        "ArtifactPackageBlobName": "",
+        "ArtifactManifestBlobName": "",
+        "EnvironmentName": "Development",
+        "DeploymentRoot": "",
+        "ReleaseName": "workflow-builder-demo"
+      },
+      "outgoingConnections": []
+    }
+  ]
+}

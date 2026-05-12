@@ -58,10 +58,14 @@ internal sealed class BlueprintSeedingHostedService : BackgroundService
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            if (files.Count == 0)
+            var phaseSeriesFiles = Directory.EnumerateFiles(blueprintsRoot, "*.phase-series.json", SearchOption.AllDirectories)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (files.Count == 0 && phaseSeriesFiles.Count == 0)
             {
                 _logger.LogInformation(
-                    "Blueprint seeding found no blueprint files under {BlueprintsRoot}.",
+                    "Blueprint seeding found no blueprint or phase-series files under {BlueprintsRoot}.",
                     blueprintsRoot);
                 return;
             }
@@ -112,16 +116,124 @@ internal sealed class BlueprintSeedingHostedService : BackgroundService
                 }
             }
 
+            var importedPhaseSeriesCount = 0;
+            var failedPhaseSeriesCount = 0;
+            var skippedInvalidPhaseSeriesCount = 0;
+            foreach (var filePath in phaseSeriesFiles)
+            {
+                stoppingToken.ThrowIfCancellationRequested();
+
+                ExportedPhasedBlueprintInputModel? payload;
+                try
+                {
+                    await using var stream = File.OpenRead(filePath);
+                    payload = await JsonSerializer.DeserializeAsync<ExportedPhasedBlueprintInputModel>(
+                        stream,
+                        JsonOptions,
+                        stoppingToken);
+                }
+                catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+                {
+                    skippedInvalidPhaseSeriesCount++;
+                    _logger.LogWarning(ex, "Skipping invalid phase-series seed file {FilePath}.", filePath);
+                    continue;
+                }
+
+                if (payload is null)
+                {
+                    skippedInvalidPhaseSeriesCount++;
+                    _logger.LogWarning("Skipping phase-series seed file {FilePath} because it was empty.", filePath);
+                    continue;
+                }
+
+                var imported = await ImportPhaseSeriesWithRetriesAsync(filePath, payload, stoppingToken);
+                if (imported)
+                {
+                    importedPhaseSeriesCount++;
+                }
+                else
+                {
+                    failedPhaseSeriesCount++;
+                }
+            }
+
             _logger.LogInformation(
-                "Blueprint seeding finished. Imported: {ImportedCount}, invalid: {SkippedInvalidCount}, failed: {FailedCount}.",
+                "Blueprint seeding finished. Blueprints imported: {ImportedCount}, invalid: {SkippedInvalidCount}, failed: {FailedCount}. Phase series imported: {ImportedPhaseSeriesCount}, invalid: {SkippedInvalidPhaseSeriesCount}, failed: {FailedPhaseSeriesCount}.",
                 importedCount,
                 skippedInvalidCount,
-                failedCount);
+                failedCount,
+                importedPhaseSeriesCount,
+                skippedInvalidPhaseSeriesCount,
+                failedPhaseSeriesCount);
         }
         finally
         {
             _applicationLifetime.StopApplication();
         }
+    }
+
+    private async Task<bool> ImportPhaseSeriesWithRetriesAsync(
+        string filePath,
+        ExportedPhasedBlueprintInputModel payload,
+        CancellationToken stoppingToken)
+    {
+        for (var attempt = 1; attempt <= MaxRetryAttempts; attempt++)
+        {
+            stoppingToken.ThrowIfCancellationRequested();
+
+            PhaseSeriesImportAttemptResult result;
+            try
+            {
+                result = await _importClient.ImportPhaseSeriesAsync(payload, stoppingToken);
+            }
+            catch (HttpRequestException ex)
+            {
+                if (attempt == MaxRetryAttempts)
+                {
+                    _logger.LogWarning(ex, "Failed to import phase-series seed {FilePath}.", filePath);
+                    return false;
+                }
+
+                _logger.LogInformation(
+                    ex,
+                    "Phase-series seed {FilePath} could not reach the API on attempt {Attempt}/{MaxAttempts}; retrying in {DelaySeconds}s.",
+                    filePath,
+                    attempt,
+                    MaxRetryAttempts,
+                    RetryDelay.TotalSeconds);
+                await Task.Delay(RetryDelay, stoppingToken);
+                continue;
+            }
+            catch (InvalidDataException ex)
+            {
+                _logger.LogWarning(ex, "Skipping invalid phase-series seed {FilePath}.", filePath);
+                return false;
+            }
+
+            if (result.Succeeded)
+            {
+                _logger.LogInformation(
+                    "Imported phase-series seed {FilePath} with status {Status} for key {PhaseSeriesKey}.",
+                    filePath,
+                    result.Status,
+                    result.PhaseSeriesKey);
+                return true;
+            }
+
+            if (!result.Retryable || attempt == MaxRetryAttempts)
+            {
+                _logger.LogWarning(
+                    "Failed to import phase-series seed {FilePath}. StatusCode: {StatusCode}. Response: {ResponseBody}",
+                    filePath,
+                    result.StatusCode,
+                    result.ResponseBody);
+                return false;
+            }
+
+            await Task.Delay(RetryDelay, stoppingToken);
+        }
+
+        return false;
     }
 
     private async Task<bool> ImportWithRetriesAsync(

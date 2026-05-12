@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "definitionKey": "cicd-phase-series-demo",
+  "displayName": "CI/CD Phase Series Demo",
+  "description": "Build, test, publish artifacts, wait for approval email, then deploy the published artifact.",
+  "phases": [
+    {
+      "phaseId": "11111111-1111-1111-1111-111111111101",
+      "phaseIndex": 0,
+      "name": "Build, Test, Publish",
+      "blueprintDefinitionKey": "cicd-build-test-publish",
+      "versionPolicy": "Pinned"
+    },
+    {
+      "phaseId": "11111111-1111-1111-1111-111111111102",
+      "phaseIndex": 1,
+      "name": "Deploy",
+      "blueprintDefinitionKey": "cicd-deploy",
+      "versionPolicy": "Pinned"
+    }
+  ],
+  "transitions": [
+    {
+      "transitionId": "11111111-1111-1111-1111-111111111201",
+      "sourcePhaseId": "11111111-1111-1111-1111-111111111101",
+      "destinationPhaseId": "11111111-1111-1111-1111-111111111102",
+      "handoffMappings": [
+        {
+          "sourceKind": "Output",
+          "sourceBlueprintNodeKey": "aaaaaaaa-0000-0000-0000-000000000110",
+          "sourceChannelName": "Result",
+          "sourceProperty": "BuildId",
+          "bridgePosition": 0.2,
+          "targetBlueprintNodeKey": "bbbbbbbb-0000-0000-0000-000000000201",
+          "targetProperty": "BuildId"
+        },
+        {
+          "sourceKind": "Output",
+          "sourceBlueprintNodeKey": "aaaaaaaa-0000-0000-0000-000000000110",
+          "sourceChannelName": "Result",
+          "sourceProperty": "ArtifactContainerName",
+          "bridgePosition": 0.38,
+          "targetBlueprintNodeKey": "bbbbbbbb-0000-0000-0000-000000000201",
+          "targetProperty": "ArtifactContainerName"
+        },
+        {
+          "sourceKind": "Output",
+          "sourceBlueprintNodeKey": "aaaaaaaa-0000-0000-0000-000000000110",
+          "sourceChannelName": "Result",
+          "sourceProperty": "ArtifactPackageBlobName",
+          "bridgePosition": 0.56,
+          "targetBlueprintNodeKey": "bbbbbbbb-0000-0000-0000-000000000201",
+          "targetProperty": "ArtifactPackageBlobName"
+        },
+        {
+          "sourceKind": "Output",
+          "sourceBlueprintNodeKey": "aaaaaaaa-0000-0000-0000-000000000110",
+          "sourceChannelName": "Result",
+          "sourceProperty": "ArtifactManifestBlobName",
+          "bridgePosition": 0.74,
+          "targetBlueprintNodeKey": "bbbbbbbb-0000-0000-0000-000000000201",
+          "targetProperty": "ArtifactManifestBlobName"
+        }
+      ],
+      "correlationMappings": [
+        {
+          "sourceResultProperty": "BuildId",
+          "triggerProperty": "BuildId"
+        }
+      ]
+    }
+  ]
+}

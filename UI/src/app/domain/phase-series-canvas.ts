@@ -1,5 +1,6 @@
 import { ConnectionModel } from './connection-model';
 import {
+  PhasedBlueprintCorrelationMappingInputModel,
   PhasedBlueprintHandoffMappingInputModel,
   PhasedBlueprintTransitionInputModel,
 } from './blueprint-editor.service';
@@ -31,6 +32,10 @@ export interface DataBridgeMappingDraft extends DataBridgeSourceProperty {
   targetProperty: string | null;
 }
 
+export interface PhaseSeriesCorrelationMappingDraft extends PhasedBlueprintCorrelationMappingInputModel {
+  id: string;
+}
+
 export interface PhaseSeriesPhaseCanvas {
   phaseId: string;
   name: string;
@@ -47,6 +52,7 @@ export interface PhaseSeriesTransitionCanvas {
   sourcePhaseId: string;
   destinationPhaseId: string;
   mappings: DataBridgeMappingDraft[];
+  correlationMappings: PhaseSeriesCorrelationMappingDraft[];
 }
 
 export interface PhaseSeriesCanvasModel {
@@ -77,12 +83,18 @@ export function createTransitionDraft(
   destinationPhaseId: string,
   mappings: DataBridgeMappingDraft[] = [],
   transitionId: string = crypto.randomUUID(),
+  correlationMappings: PhasedBlueprintCorrelationMappingInputModel[] = [],
 ): PhaseSeriesTransitionCanvas {
   return {
     transitionId,
     sourcePhaseId,
     destinationPhaseId,
     mappings,
+    correlationMappings: correlationMappings.map((mapping) => ({
+      id: crypto.randomUUID(),
+      sourceResultProperty: mapping.sourceResultProperty,
+      triggerProperty: mapping.triggerProperty,
+    })),
   };
 }
 
@@ -251,6 +263,45 @@ export function removeDataBridgeMapping(
   };
 }
 
+export function createCorrelationMapping(
+  sourceResultProperty: string,
+  triggerProperty: string = sourceResultProperty,
+  id: string = crypto.randomUUID(),
+): PhaseSeriesCorrelationMappingDraft {
+  return {
+    id,
+    sourceResultProperty,
+    triggerProperty,
+  };
+}
+
+export function upsertCorrelationMapping(
+  transition: PhaseSeriesTransitionCanvas,
+  correlationId: string,
+  patch: Partial<Pick<PhaseSeriesCorrelationMappingDraft, 'sourceResultProperty' | 'triggerProperty'>>,
+): PhaseSeriesTransitionCanvas {
+  return {
+    ...transition,
+    correlationMappings: transition.correlationMappings.map((mapping) =>
+      mapping.id === correlationId
+        ? {
+            ...mapping,
+            ...patch,
+          }
+        : mapping),
+  };
+}
+
+export function removeCorrelationMapping(
+  transition: PhaseSeriesTransitionCanvas,
+  correlationId: string,
+): PhaseSeriesTransitionCanvas {
+  return {
+    ...transition,
+    correlationMappings: transition.correlationMappings.filter((mapping) => mapping.id !== correlationId),
+  };
+}
+
 export function serializeTransitionMappings(
   transition: PhaseSeriesTransitionCanvas,
 ): PhasedBlueprintTransitionInputModel {
@@ -273,7 +324,14 @@ export function serializeTransitionMappings(
         targetBlueprintNodeId: mapping.targetBlueprintNodeId!,
         targetProperty: mapping.targetProperty!,
       })),
-    correlationMappings: [],
+    correlationMappings: transition.correlationMappings
+      .filter((mapping) =>
+        mapping.sourceResultProperty.trim().length > 0 &&
+        mapping.triggerProperty.trim().length > 0)
+      .map((mapping) => ({
+        sourceResultProperty: mapping.sourceResultProperty.trim(),
+        triggerProperty: mapping.triggerProperty.trim(),
+      })),
   };
 }
 
@@ -291,6 +349,7 @@ export function validatePhaseSeries(model: PhaseSeriesCanvasModel): DataBridgeVa
     const sourcePhase = model.phases.find((phase) => phase.phaseId === transition.sourcePhaseId) ?? null;
     const destinationPhase = model.phases.find((phase) => phase.phaseId === transition.destinationPhaseId) ?? null;
     const targetKeys = new Set<string>();
+    const handoffResultProperties = new Set<string>();
     for (const mapping of transition.mappings) {
       if (!mapping.sourceBlueprintNodeId || !mapping.sourceChannelName || !mapping.sourceProperty) {
         issues.push({
@@ -376,7 +435,43 @@ export function validatePhaseSeries(model: PhaseSeriesCanvasModel): DataBridgeVa
           mappingId: mapping.id,
           message: `${mapping.sourceProperty} (${mapping.propertyKind}) cannot map to ${targetNode.name}.${mapping.targetProperty} (${targetKind}).`,
         });
+        continue;
       }
+
+      handoffResultProperties.add(mapping.targetProperty);
+    }
+
+    const triggerProperties = new Set<string>();
+    for (const correlation of transition.correlationMappings) {
+      const sourceResultProperty = correlation.sourceResultProperty.trim();
+      const triggerProperty = correlation.triggerProperty.trim();
+      if (!sourceResultProperty || !triggerProperty) {
+        issues.push({
+          transitionIndex,
+          mappingId: correlation.id,
+          message: 'Correlation mappings need a source result and trigger property.',
+        });
+        continue;
+      }
+
+      if (!handoffResultProperties.has(sourceResultProperty)) {
+        issues.push({
+          transitionIndex,
+          mappingId: correlation.id,
+          message: `${sourceResultProperty} is not a Data Bridge result property.`,
+        });
+      }
+
+      if (triggerProperties.has(triggerProperty)) {
+        issues.push({
+          transitionIndex,
+          mappingId: correlation.id,
+          message: `${triggerProperty} is already used as a trigger property.`,
+        });
+        continue;
+      }
+
+      triggerProperties.add(triggerProperty);
     }
   }
 

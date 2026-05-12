@@ -66,6 +66,31 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
             : MapDefinition(definition);
     }
 
+    public async Task<PhasedBlueprintViewModel> GetByKeyAsync(string key, CancellationToken cancellationToken)
+    {
+        var normalizedKey = key.Trim();
+        var definition = await _context.PhasedBlueprintDefinitions
+            .Include(candidate => candidate.Versions)
+                .ThenInclude(version => version.Phases)
+                    .ThenInclude(phase => phase.BlueprintDefinition)
+            .Include(candidate => candidate.Versions)
+                .ThenInclude(version => version.Phases)
+                    .ThenInclude(phase => phase.BlueprintVersion)
+            .Include(candidate => candidate.Versions)
+                .ThenInclude(version => version.Transitions)
+                    .ThenInclude(transition => transition.HandoffMappings)
+            .Include(candidate => candidate.Versions)
+                .ThenInclude(version => version.Transitions)
+                    .ThenInclude(transition => transition.CorrelationMappings)
+            .AsNoTracking()
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(candidate => candidate.Key == normalizedKey, cancellationToken);
+
+        return definition is null
+            ? throw new EntityNotFoundException<PhasedBlueprintViewModel>(normalizedKey)
+            : MapDefinition(definition);
+    }
+
     public async Task<PhasedBlueprintVersion> GetVersionGraphAsync(
         int phasedBlueprintVersionId,
         CancellationToken cancellationToken)
@@ -426,11 +451,27 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
             }
         }
 
+        var triggerProperties = new HashSet<string>(StringComparer.Ordinal);
         foreach (var correlation in transition.CorrelationMappings)
         {
+            if (string.IsNullOrWhiteSpace(correlation.SourceResultProperty))
+            {
+                throw new InvalidDataException("Correlation mappings must include a source result property.");
+            }
+
+            if (string.IsNullOrWhiteSpace(correlation.TriggerProperty))
+            {
+                throw new InvalidDataException("Correlation mappings must include a trigger property.");
+            }
+
             if (!targetResultProperties.Contains(correlation.SourceResultProperty))
             {
                 throw new InvalidDataException("Correlation mappings must reference a handoff result property.");
+            }
+
+            if (!triggerProperties.Add(correlation.TriggerProperty))
+            {
+                throw new InvalidDataException("Correlation trigger property names must be unique within a transition.");
             }
         }
     }

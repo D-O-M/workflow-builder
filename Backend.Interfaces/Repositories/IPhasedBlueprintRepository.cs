@@ -10,6 +10,8 @@ public interface IPhasedBlueprintRepository
 
     Task<PhasedBlueprintViewModel> GetByIdAsync(int id, CancellationToken cancellationToken);
 
+    Task<PhasedBlueprintViewModel> GetByKeyAsync(string key, CancellationToken cancellationToken);
+
     Task<PhasedBlueprintVersion> GetVersionGraphAsync(int phasedBlueprintVersionId, CancellationToken cancellationToken);
 
     Task<int> GetLatestVersionIdAsync(int phasedBlueprintDefinitionId, CancellationToken cancellationToken);

@@ -7,6 +7,7 @@ import {
   PhaseSeriesCanvasModel,
   clearDataBridgeMappingTarget,
   completeDataBridgeMappingTarget,
+  createCorrelationMapping,
   createPhasePairOptions,
   createTransitionDraft,
   reconcileTransitionsForPhaseVersionChange,
@@ -203,6 +204,53 @@ describe('phase-series canvas utilities', () => {
         targetProperty: 'result',
       },
     ]);
+  });
+
+  it('serializes explicit correlation mappings against Data Bridge result properties', () => {
+    const model = createModel({
+      targetNodeId: 2,
+      targetBlueprintNodeId: 'destination-node',
+      targetNodeName: 'Start',
+      targetProperty: 'result',
+    });
+    const transition = {
+      ...model.transitions[0]!,
+      correlationMappings: [
+        createCorrelationMapping(' result ', ' BuildId ', 'correlation-1'),
+      ],
+    };
+
+    expect(serializeTransitionMappings(transition).correlationMappings).toEqual([
+      {
+        sourceResultProperty: 'result',
+        triggerProperty: 'BuildId',
+      },
+    ]);
+    expect(validatePhaseSeries({
+      ...model,
+      transitions: [transition],
+    })).toEqual([]);
+  });
+
+  it('flags duplicate correlation trigger property names', () => {
+    const model = createModel({
+      targetNodeId: 2,
+      targetBlueprintNodeId: 'destination-node',
+      targetNodeName: 'Start',
+      targetProperty: 'result',
+    });
+    const transition = {
+      ...model.transitions[0]!,
+      correlationMappings: [
+        createCorrelationMapping('result', 'BuildId', 'correlation-1'),
+        createCorrelationMapping('result', 'BuildId', 'correlation-2'),
+      ],
+    };
+
+    expect(validatePhaseSeries({
+      ...model,
+      transitions: [transition],
+    }).map((issue) => issue.message)).toContain('BuildId is already used as a trigger property.');
   });
 
   it('marks incompatible bridge mappings incomplete after a phase version change', () => {

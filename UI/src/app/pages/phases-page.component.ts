@@ -53,17 +53,21 @@ import { PhaseBridgeCurveFactory, PhaseBridgeCurvePlan } from '../domain/phase-b
 import { PhaseCanvasPairPresenter } from '../domain/phase-canvas-pair-presenter';
 import {
   DataBridgeMappingDraft,
+  PhaseSeriesCorrelationMappingDraft,
   PhaseSeriesCanvasModel,
   PhaseSeriesPhaseCanvas,
   PhaseSeriesTransitionCanvas,
   clearDataBridgeMappingTarget,
   completeDataBridgeMappingTarget,
+  createCorrelationMapping,
   createDataBridgeMappingFromHandoff,
   createPhasePairOptions,
   createTransitionDraft,
   reconcileTransitionsForPhaseVersionChange,
+  removeCorrelationMapping,
   removeDataBridgeMapping,
   serializeTransitionMappings,
+  upsertCorrelationMapping,
   upsertDataBridgeSourceMapping,
   validatePhaseSeries,
 } from '../domain/phase-series-canvas';
@@ -307,6 +311,19 @@ export class PhasesPageComponent implements OnDestroy {
 
   protected readonly bridgeGuidanceLabel = computed(() =>
     this.bridgeController.guidanceLabel(this.bridgeMappingCount(), this.incompleteBridgeMappingCount()));
+
+  protected readonly correlationSourceOptions = computed(() => {
+    const transition = this.activeTransition();
+    if (!transition) {
+      return [];
+    }
+
+    return [...new Set(
+      transition.mappings
+        .map((mapping) => mapping.targetProperty)
+        .filter((property): property is string => !!property),
+    )].sort((left, right) => left.localeCompare(right));
+  });
 
   protected readonly phaseSetupRequired = computed(() => {
     const series = this.selectedSeries();
@@ -898,6 +915,35 @@ export class PhasesPageComponent implements OnDestroy {
     return mapping.id;
   }
 
+  protected trackCorrelation(_index: number, mapping: PhaseSeriesCorrelationMappingDraft): string {
+    return mapping.id;
+  }
+
+  protected addCorrelationMapping(): void {
+    const sourceResultProperty = this.correlationSourceOptions()[0] ?? '';
+    this.updateActiveTransition((transition) => ({
+      ...transition,
+      correlationMappings: [
+        ...transition.correlationMappings,
+        createCorrelationMapping(sourceResultProperty),
+      ],
+    }));
+  }
+
+  protected updateCorrelationSource(correlationId: string, sourceResultProperty: string): void {
+    this.updateActiveTransition((transition) =>
+      upsertCorrelationMapping(transition, correlationId, { sourceResultProperty }));
+  }
+
+  protected updateCorrelationTrigger(correlationId: string, triggerProperty: string): void {
+    this.updateActiveTransition((transition) =>
+      upsertCorrelationMapping(transition, correlationId, { triggerProperty }));
+  }
+
+  protected removeCorrelation(correlationId: string): void {
+    this.updateActiveTransition((transition) => removeCorrelationMapping(transition, correlationId));
+  }
+
   private async createPhaseFromViewModel(
     phase: PhasedBlueprintVersionViewModel['phases'][number],
     index: number,
@@ -962,6 +1008,7 @@ export class PhasesPageComponent implements OnDestroy {
         .map((mapping) => createDataBridgeMappingFromHandoff(mapping, sourcePhase, destinationPhase))
         .filter((mapping): mapping is DataBridgeMappingDraft => mapping !== null),
       transition.transitionId,
+      transition.correlationMappings,
     );
   }
 

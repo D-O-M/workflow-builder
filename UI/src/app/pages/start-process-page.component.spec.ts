@@ -17,6 +17,8 @@ import {
   BlueprintProcessAcceptedViewModel,
   BlueprintVersionViewModel,
   BlueprintViewModel,
+  PhasedBlueprintViewModel,
+  PhasedProcessAcceptedViewModel,
 } from '../domain/blueprint-editor.service';
 import { TaskDefinitionsService } from '../domain/task-definitions.service';
 import { ITaskDefinition } from '../interfaces/ITaskDefinition';
@@ -72,6 +74,49 @@ function createBlueprints(): BlueprintViewModel[] {
       ...createBlueprint(),
       id: 2,
       name: 'Showcase Town Weekend Recommendation',
+    },
+  ];
+}
+
+function createPhaseSeries(): PhasedBlueprintViewModel[] {
+  return [
+    {
+      id: 10,
+      key: 'cicd-phase-series-demo',
+      name: 'CI/CD Phase Series Demo',
+      description: 'Build then deploy',
+      versions: [
+        {
+          phasedBlueprintDefinitionId: 10,
+          phasedBlueprintVersionId: 100,
+          version: 1,
+          createdAt: '2026-05-12T00:00:00Z',
+          description: null,
+          phases: [
+            {
+              phaseId: 'phase-1',
+              phaseIndex: 0,
+              name: 'Build, Test, Publish',
+              blueprintDefinitionId: 1,
+              blueprintName: 'Runtime Override Blueprint',
+              blueprintVersionId: 101,
+              blueprintVersionNumber: 3,
+              versionPolicy: 'Pinned',
+            },
+            {
+              phaseId: 'phase-2',
+              phaseIndex: 1,
+              name: 'Deploy',
+              blueprintDefinitionId: 2,
+              blueprintName: 'Showcase Town Weekend Recommendation',
+              blueprintVersionId: 201,
+              blueprintVersionNumber: 1,
+              versionPolicy: 'Pinned',
+            },
+          ],
+          transitions: [],
+        },
+      ],
     },
   ];
 }
@@ -145,13 +190,17 @@ describe('StartProcessPageComponent', () => {
   let component: StartProcessPageComponent;
   let injector: EnvironmentInjector;
   let startResponse: BlueprintProcessAcceptedViewModel;
+  let phasedStartResponse: PhasedProcessAcceptedViewModel;
   let taskDefinitions: ITaskDefinition[];
   let blueprints: BlueprintViewModel[];
+  let phasedBlueprints: PhasedBlueprintViewModel[];
 
   let editorService: {
     getBlueprints: ReturnType<typeof vi.fn>;
+    getPhasedBlueprints: ReturnType<typeof vi.fn>;
     getBlueprintById: ReturnType<typeof vi.fn>;
     startProcess: ReturnType<typeof vi.fn>;
+    startPhasedProcess: ReturnType<typeof vi.fn>;
   };
   let router: {
     navigate: ReturnType<typeof vi.fn>;
@@ -160,17 +209,28 @@ describe('StartProcessPageComponent', () => {
   beforeEach(async () => {
     taskDefinitions = createTaskDefinitions();
     blueprints = createBlueprints();
+    phasedBlueprints = createPhaseSeries();
     startResponse = {
       processId: 'process-123',
       blueprintId: 1,
       acceptedAt: '2026-04-21T00:00:00Z',
     };
+    phasedStartResponse = {
+      phasedProcessId: 'phased-process-123',
+      phasedBlueprintDefinitionId: 10,
+      phasedBlueprintVersionId: 100,
+      childProcessId: 'phase-process-123',
+      phaseIndex: 0,
+      acceptedAt: '2026-05-12T00:00:00Z',
+    };
 
     editorService = {
       getBlueprints: vi.fn(() => of(blueprints)),
+      getPhasedBlueprints: vi.fn(() => of(phasedBlueprints)),
       getBlueprintById: vi.fn((blueprintId: number) =>
         of(blueprints.find((blueprint) => blueprint.id === blueprintId) ?? blueprints[0])),
       startProcess: vi.fn(() => of(startResponse)),
+      startPhasedProcess: vi.fn(() => of(phasedStartResponse)),
     };
 
     router = {
@@ -359,7 +419,12 @@ describe('StartProcessPageComponent', () => {
 
     expect((component as any).pickerSuggestions()).toEqual([
       {
-        blueprint: blueprints[1],
+        id: 'blueprint:2',
+        label: 'Showcase Town Weekend Recommendation',
+        support: 'Blueprint',
+        kind: 'blueprint',
+        definitionId: 2,
+        firstPhaseBlueprintId: 2,
         isActive: false,
       },
     ]);
@@ -368,7 +433,7 @@ describe('StartProcessPageComponent', () => {
   it('selects a blueprint from the picker suggestions and switches to selected mode', async () => {
     (component as any).onBlueprintSuggestionSelected({
       option: {
-        value: 2,
+        value: 'blueprint:2',
       },
     });
     await flushSignals();
@@ -376,6 +441,30 @@ describe('StartProcessPageComponent', () => {
     expect(component.form.controls.blueprintId.value).toBe(2);
     expect((component as any).pickerMode()).toBe('selected');
     expect((component as any).pickerDisplayName()).toBe('Showcase Town Weekend Recommendation');
+  });
+
+  it('starts a selected phase series through the phased process API', async () => {
+    (component as any).onBlueprintSuggestionSelected({
+      option: {
+        value: 'phaseSeries:10',
+      },
+    });
+    await flushSignals();
+
+    await component.execute();
+
+    expect(editorService.startProcess).not.toHaveBeenCalled();
+    expect(editorService.startPhasedProcess).toHaveBeenCalledWith(10, {
+      globalState: {},
+      initialTaskInput: {},
+      nodeOverrides: {},
+    });
+    expect(router.navigate).toHaveBeenCalledWith(['/processes'], {
+      queryParams: {
+        blueprintId: 1,
+        processId: 'phase-process-123',
+      },
+    });
   });
 
   it('recomputes the initialisation step gate when form validity changes', async () => {
@@ -400,7 +489,7 @@ describe('StartProcessPageComponent', () => {
     (component as any).onWizardStepIndexChanged(2);
     (component as any).onBlueprintSuggestionSelected({
       option: {
-        value: 2,
+        value: 'blueprint:2',
       },
     });
     await flushSignals();

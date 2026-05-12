@@ -687,7 +687,8 @@
 }
 
 .phases-page__phase-list,
-.phases-page__issues {
+.phases-page__issues,
+.phases-page__correlation-list {
   display: grid;
   gap: 0.65rem;
 }
@@ -762,6 +763,33 @@
   align-items: center;
   gap: 0.15rem;
   margin-top: -0.35rem;
+}
+
+.phases-page__correlation-panel {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.65rem;
+  border: 1px solid var(--app-outline);
+  border-radius: 8px;
+  background: var(--app-surface);
+}
+
+.phases-page__correlation-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.phases-page__correlation-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.phases-page__correlation-empty {
+  justify-self: start;
 }
 
 .phases-page__issue {

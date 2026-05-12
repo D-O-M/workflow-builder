@@ -72,14 +72,15 @@
         @if (pickerSuggestions().length === 0) {
           <mat-option disabled>No blueprints found</mat-option>
         } @else {
-          @for (suggestion of pickerSuggestions(); track suggestion.blueprint.id) {
-            <mat-option [value]="suggestion.blueprint.id" [class.is-active]="suggestion.isActive" [attr.data-testid]="'start-process-blueprint-option-' + suggestion.blueprint.id">
+          @for (suggestion of pickerSuggestions(); track suggestion.id) {
+            <mat-option [value]="suggestion.id" [class.is-active]="suggestion.isActive" [attr.data-testid]="'start-process-blueprint-option-' + suggestion.id">
               <span class="start-process-page__picker-option">
                 <span class="start-process-page__picker-option-copy">
-                  <span class="start-process-page__picker-option-title">{{ suggestion.blueprint.name }}</span>
+                  <span class="start-process-page__picker-option-title">{{ suggestion.label }}</span>
+                  <span class="start-process-page__picker-option-support">{{ suggestion.support }}</span>
                   @if (suggestion.isActive) {
                     <span class="start-process-page__picker-option-support">
-                      Current blueprint
+                      Current selection
                     </span>
                   }
                 </span>
@@ -382,7 +383,7 @@
                           data-testid="start-process-submit"
                         >
                           <mat-icon>rocket_launch</mat-icon>
-                          {{ executing() ? 'Starting...' : 'Start Process' }}
+                          {{ executing() ? 'Starting...' : startButtonLabel() }}
                         </button>
                       </div>
                     </div>

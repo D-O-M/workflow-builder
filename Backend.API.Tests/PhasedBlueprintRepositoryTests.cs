@@ -292,6 +292,80 @@ public sealed class PhasedBlueprintRepositoryTests
         exception.Message.ShouldContain("Correlation mappings must reference a handoff result property");
     }
 
+    [Test]
+    public async Task CreateAsync_rejects_duplicate_correlation_trigger_properties()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var sourceBlueprint = await SeedSingleNodeBlueprintAsync(
+            database.Context,
+            "Duplicate Correlation Source",
+            new Dictionary<string, WorkflowPropertyKind>(),
+            new Dictionary<string, WorkflowPropertyKind>
+            {
+                ["buildId"] = WorkflowPropertyKind.String,
+            });
+        var targetBlueprint = await SeedSingleNodeBlueprintAsync(
+            database.Context,
+            "Duplicate Correlation Target",
+            new Dictionary<string, WorkflowPropertyKind>
+            {
+                ["buildId"] = WorkflowPropertyKind.String,
+            },
+            new Dictionary<string, WorkflowPropertyKind>());
+        var firstPhaseId = Guid.NewGuid();
+        var secondPhaseId = Guid.NewGuid();
+
+        var repository = new PhasedBlueprintRepository(database.Context);
+
+        var exception = await Should.ThrowAsync<InvalidDataException>(() => repository.CreateAsync(
+            new PhasedBlueprintInputModel
+            {
+                Name = "Rejected Duplicate Correlation",
+                Phases =
+                [
+                    CreatePhase(firstPhaseId, 0, "Source", sourceBlueprint),
+                    CreatePhase(secondPhaseId, 1, "Target", targetBlueprint),
+                ],
+                Transitions =
+                [
+                    new PhasedBlueprintTransitionInputModel
+                    {
+                        TransitionId = Guid.NewGuid(),
+                        SourcePhaseId = firstPhaseId,
+                        DestinationPhaseId = secondPhaseId,
+                        HandoffMappings =
+                        [
+                            new PhasedBlueprintHandoffMappingInputModel
+                            {
+                                SourceKind = "Output",
+                                SourceBlueprintNodeId = sourceBlueprint.NodeId,
+                                SourceChannelName = "Result",
+                                SourceProperty = "buildId",
+                                TargetBlueprintNodeId = targetBlueprint.NodeId,
+                                TargetProperty = "buildId",
+                            }
+                        ],
+                        CorrelationMappings =
+                        [
+                            new PhasedBlueprintCorrelationMappingInputModel
+                            {
+                                SourceResultProperty = "buildId",
+                                TriggerProperty = "BuildId",
+                            },
+                            new PhasedBlueprintCorrelationMappingInputModel
+                            {
+                                SourceResultProperty = "buildId",
+                                TriggerProperty = "BuildId",
+                            }
+                        ],
+                    }
+                ],
+            },
+            CancellationToken.None));
+
+        exception.Message.ShouldContain("Correlation trigger property names must be unique");
+    }
+
     private static PhasedBlueprintPhaseInputModel CreatePhase(
         Guid phaseId,
         int phaseIndex,

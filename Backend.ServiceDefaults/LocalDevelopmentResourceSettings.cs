@@ -13,6 +13,7 @@ public static class LocalDevelopmentResourceSettings
     private const string DefaultProcessStepQueueName = "processsteps";
     private const string DefaultPluginReloadQueueName = "pluginreloadqueue";
     private const string DefaultPluginsBlobContainerName = "pluginblob";
+    private const string DefaultArtifactsBlobContainerName = "artifacts";
 
     public static string GetTasksDbConnectionString(
         IConfiguration configuration,
@@ -105,6 +106,13 @@ public static class LocalDevelopmentResourceSettings
         TryGetConfigurationValue(configuration, "AzureStorage:BlobContainers:Plugins:ContainerName")
         ?? UseDevelopmentFallback(environment, DefaultPluginsBlobContainerName)
         ?? throw new InvalidOperationException("Plugins blob container name is not configured.");
+
+    public static string GetArtifactsBlobContainerName(
+        IConfiguration configuration,
+        IHostEnvironment environment) =>
+        TryGetConfigurationValue(configuration, "AzureStorage:BlobContainers:Artifacts:ContainerName")
+        ?? UseDevelopmentFallback(environment, DefaultArtifactsBlobContainerName)
+        ?? throw new InvalidOperationException("Artifacts blob container name is not configured.");
 
     private static string? TryGetConfiguredConnectionString(
         IConfiguration configuration,

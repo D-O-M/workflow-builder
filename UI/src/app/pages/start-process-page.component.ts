@@ -26,7 +26,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatStepperModule } from '@angular/material/stepper';
 import { catchError, distinctUntilChanged, firstValueFrom, forkJoin, map, of, startWith } from 'rxjs';
-import { BlueprintEditorService, BlueprintViewModel, BlueprintVersionViewModel } from '../domain/blueprint-editor.service';
+import { BlueprintEditorService, BlueprintViewModel, BlueprintVersionViewModel, PhasedBlueprintViewModel } from '../domain/blueprint-editor.service';
 import { DynamicFieldDefinition, DynamicFormFieldComponent } from '../components/dynamic-form-field.component';
 import {
   PropertyOverrideEditorComponent,
@@ -59,11 +59,17 @@ interface RuntimeOverrideNode {
 
 interface StartProcessInitialData {
   blueprints: BlueprintViewModel[];
+  phasedBlueprints: PhasedBlueprintViewModel[];
   taskDefinitions: ITaskDefinition[];
 }
 
 interface BlueprintPickerSuggestion {
-  blueprint: BlueprintViewModel;
+  id: string;
+  label: string;
+  support: string;
+  kind: 'blueprint' | 'phaseSeries';
+  definitionId: number;
+  firstPhaseBlueprintId: number;
   isActive: boolean;
 }
 
@@ -174,26 +180,26 @@ function getFuzzyMatchScore(text: string, query: string): number | null {
   return gapScore + (text.length - query.length);
 }
 
-function filterBlueprintSuggestions(
-  blueprints: BlueprintViewModel[],
+function filterBlueprintSuggestions<T extends { label: string }>(
+  blueprints: T[],
   query: string,
-): BlueprintViewModel[] {
+): T[] {
   const trimmedQuery = query.trim();
   if (!trimmedQuery) {
-    return [...blueprints].sort((a, b) => a.name.localeCompare(b.name));
+    return [...blueprints].sort((a, b) => a.label.localeCompare(b.label));
   }
 
   return blueprints
     .map((blueprint) => ({
       blueprint,
-      match: getBlueprintMatch(blueprint.name, trimmedQuery),
+      match: getBlueprintMatch(blueprint.label, trimmedQuery),
     }))
-    .filter((item): item is { blueprint: BlueprintViewModel; match: { rank: number; score: number } } =>
+    .filter((item): item is { blueprint: T; match: { rank: number; score: number } } =>
       item.match !== null)
     .sort((a, b) =>
       a.match.rank - b.match.rank
       || a.match.score - b.match.score
-      || a.blueprint.name.localeCompare(b.blueprint.name))
+      || a.blueprint.label.localeCompare(b.blueprint.label))
     .map((item) => item.blueprint);
 }
 
@@ -248,6 +254,7 @@ export class StartProcessPageComponent {
   private readonly initialDataState = toSignal(
     forkJoin({
       blueprints: this.blueprintService.getBlueprints(),
+      phasedBlueprints: this.blueprintService.getPhasedBlueprints(),
       taskDefinitions: this.taskDefinitionsService.getTaskDefinitions(),
     }).pipe(
       map((data) => readyRequestState<StartProcessInitialData>(data)),
@@ -289,6 +296,10 @@ export class StartProcessPageComponent {
     const state = this.initialDataState();
     return isReadyRequestState(state) ? state.data.blueprints : [];
   });
+  protected readonly phasedBlueprints = computed<PhasedBlueprintViewModel[]>(() => {
+    const state = this.initialDataState();
+    return isReadyRequestState(state) ? state.data.phasedBlueprints : [];
+  });
   protected readonly taskDefinitions = computed<ITaskDefinition[]>(() => {
     const state = this.initialDataState();
     return isReadyRequestState(state) ? state.data.taskDefinitions : [];
@@ -300,30 +311,61 @@ export class StartProcessPageComponent {
   protected readonly selectedBlueprintSummary = computed<BlueprintViewModel | null>(() =>
     this.blueprints().find((blueprint) => blueprint.id === this.selectedBlueprintId()) ?? null,
   );
+  protected readonly selectedPhaseSeriesId = signal<number | null>(null);
+  protected readonly selectedPhaseSeriesSummary = computed<PhasedBlueprintViewModel | null>(() =>
+    this.phasedBlueprints().find((phaseSeries) => phaseSeries.id === this.selectedPhaseSeriesId()) ?? null,
+  );
   protected readonly selectedBlueprintVersion = computed<BlueprintVersionViewModel | null>(() =>
     this.selectedBlueprint()?.versions[0] ?? null,
   );
   protected readonly pickerDisplayName = computed(() =>
-    this.selectedBlueprintSummary()?.name ?? 'Select a blueprint',
+    this.selectedPhaseSeriesSummary()?.name ?? this.selectedBlueprintSummary()?.name ?? 'Select a blueprint',
   );
   protected readonly pickerSuggestions = computed<BlueprintPickerSuggestion[]>(() => {
-    const filteredBlueprints = filterBlueprintSuggestions(this.blueprints(), this.blueprintSearchQuery());
+    const query = this.blueprintSearchQuery();
+    const launchTargets = [
+      ...this.blueprints().map((blueprint) => ({
+        id: `blueprint:${blueprint.id}`,
+        label: blueprint.name,
+        support: 'Blueprint',
+        kind: 'blueprint' as const,
+        definitionId: blueprint.id,
+        firstPhaseBlueprintId: blueprint.id,
+      })),
+      ...this.phasedBlueprints().flatMap((phaseSeries) => {
+        const version = this.latestPhasedVersion(phaseSeries);
+        const firstPhase = version?.phases.find((phase) => phase.phaseIndex === 0) ?? null;
+        return firstPhase
+          ? [{
+              id: `phaseSeries:${phaseSeries.id}`,
+              label: phaseSeries.name,
+              support: `${version?.phases.length ?? 0} phase series`,
+              kind: 'phaseSeries' as const,
+              definitionId: phaseSeries.id,
+              firstPhaseBlueprintId: firstPhase.blueprintDefinitionId,
+            }]
+          : [];
+      }),
+    ];
+    const filteredTargets = filterBlueprintSuggestions(launchTargets, query);
     const activeBlueprintId = this.selectedBlueprintId();
-    if (activeBlueprintId === null) {
-      return filteredBlueprints.map((blueprint) => ({
-        blueprint,
+    const activePhaseSeriesId = this.selectedPhaseSeriesId();
+    if (activeBlueprintId === null && activePhaseSeriesId === null) {
+      return filteredTargets.map((target) => ({
+        ...target,
         isActive: false,
       }));
     }
 
-    const activeBlueprint = filteredBlueprints.find((blueprint) => blueprint.id === activeBlueprintId);
-    const orderedBlueprints = activeBlueprint
-      ? [activeBlueprint, ...filteredBlueprints.filter((blueprint) => blueprint.id !== activeBlueprintId)]
-      : filteredBlueprints;
+    const activeId = activePhaseSeriesId !== null ? `phaseSeries:${activePhaseSeriesId}` : `blueprint:${activeBlueprintId}`;
+    const activeTarget = filteredTargets.find((target) => target.id === activeId);
+    const orderedTargets = activeTarget
+      ? [activeTarget, ...filteredTargets.filter((target) => target.id !== activeId)]
+      : filteredTargets;
 
-    return orderedBlueprints.map((blueprint) => ({
-      blueprint,
-      isActive: blueprint.id === activeBlueprintId,
+    return orderedTargets.map((target) => ({
+      ...target,
+      isActive: target.id === activeId,
     }));
   });
 
@@ -391,6 +433,8 @@ export class StartProcessPageComponent {
     && this.formStatus() === 'VALID'
     && this.runtimeOverridesValid(),
   );
+  protected readonly startButtonLabel = computed(() =>
+    this.selectedPhaseSeriesId() === null ? 'Start Process' : 'Start Phase Series');
 
   protected readonly runtimeOverrideNodes = computed<RuntimeOverrideNode[]>(() => {
     const blueprintVersion = this.selectedBlueprintVersion();
@@ -504,22 +548,33 @@ export class StartProcessPageComponent {
 
     this.executing.set(true);
     try {
-      const response = await firstValueFrom(this.blueprintService.startProcess(
-        this.form.controls.blueprintId.value,
-        {
-          globalState: this.serializeFieldGroup(this.globalStateFields(), this.form.controls.globalState),
-          initialTaskInput: this.serializeFieldGroup(this.firstTaskFields(), this.form.controls.initialTaskInput),
-          nodeOverrides: this.collectRuntimeOverrides(),
-        },
-      ));
+      const processPayload = {
+        globalState: this.serializeFieldGroup(this.globalStateFields(), this.form.controls.globalState),
+        initialTaskInput: this.serializeFieldGroup(this.firstTaskFields(), this.form.controls.initialTaskInput),
+        nodeOverrides: this.collectRuntimeOverrides(),
+      };
+      const phaseSeriesId = this.selectedPhaseSeriesId();
+      let processId: string;
+      if (phaseSeriesId !== null) {
+        const phasedResponse = await firstValueFrom(this.blueprintService.startPhasedProcess(
+          phaseSeriesId,
+          processPayload,
+        ));
+        processId = phasedResponse.childProcessId;
+        this.successMessage.set(`Phase series accepted with id ${phasedResponse.phasedProcessId}.`);
+      } else {
+        const response = await firstValueFrom(this.blueprintService.startProcess(
+          this.form.controls.blueprintId.value,
+          processPayload,
+        ));
+        processId = response.processId;
+        this.successMessage.set(`Process accepted with id ${processId}.`);
+      }
 
-      this.successMessage.set(
-        `Process accepted with id ${response.processId}.`,
-      );
       await this.router.navigate(['/processes'], {
         queryParams: {
           blueprintId: this.form.controls.blueprintId.value,
-          processId: response.processId,
+          processId,
         },
       });
     } catch {
@@ -553,6 +608,7 @@ export class StartProcessPageComponent {
       blueprintId: null,
     });
     this.blueprintSearch.setValue('');
+    this.selectedPhaseSeriesId.set(null);
     this.pickerMode.set('search');
     this.pickerPanelOpen.set(false);
     this.pickerSelectionInProgress.set(false);
@@ -618,13 +674,21 @@ export class StartProcessPageComponent {
   }
 
   protected onBlueprintSuggestionSelected(event: MatAutocompleteSelectedEvent): void {
-    const blueprintId = Number(event.option.value);
-    if (Number.isNaN(blueprintId)) {
+    const value = String(event.option.value);
+    const [kind, idText] = value.split(':');
+    const definitionId = Number(idText);
+    if ((kind !== 'blueprint' && kind !== 'phaseSeries') || Number.isNaN(definitionId)) {
+      return;
+    }
+
+    const suggestion = this.pickerSuggestions().find((candidate) => candidate.id === value) ?? null;
+    if (!suggestion) {
       return;
     }
 
     this.pickerSelectionInProgress.set(true);
-    this.form.controls.blueprintId.setValue(blueprintId);
+    this.selectedPhaseSeriesId.set(kind === 'phaseSeries' ? definitionId : null);
+    this.form.controls.blueprintId.setValue(suggestion.firstPhaseBlueprintId);
     this.blueprintSearch.setValue('');
     this.pickerMode.set('selected');
     this.wizardStepIndex.set(0);
@@ -660,6 +724,10 @@ export class StartProcessPageComponent {
     this.pickerFocusRequested.set(false);
     this.blueprintSearch.setValue('');
     this.pickerMode.set(this.selectedBlueprintId() === null ? 'search' : 'selected');
+  }
+
+  private latestPhasedVersion(series: PhasedBlueprintViewModel) {
+    return [...series.versions].sort((left, right) => right.version - left.version)[0] ?? null;
   }
 
   private scheduleUiTask(task: () => void): void {
