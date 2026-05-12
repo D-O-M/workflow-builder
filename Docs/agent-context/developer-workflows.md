@@ -40,9 +40,66 @@ Frontend:
 
 ```powershell
 Set-Location UI
-npm run build
 npm run test:unit
+npm run build
 ```
+
+The Angular build currently passes with an initial bundle budget warning. Treat new build errors as blockers; treat the existing budget warning as known until a bundle-size pass is planned.
+
+## Frontend Playwright
+
+The frontend-first Playwright suite lives under `UI/e2e/`.
+
+Default mocked confidence lane:
+
+```powershell
+Set-Location UI
+npm run test:e2e
+```
+
+Equivalent mocked lane alias:
+
+```powershell
+Set-Location UI
+npm run test:e2e:mocked
+```
+
+Interactive Playwright UI:
+
+```powershell
+Set-Location UI
+npm run test:e2e:ui
+```
+
+Snapshot update lane:
+
+```powershell
+Set-Location UI
+npm run test:e2e:update-snapshots
+```
+
+Runtime smoke assumes AppHost is already running and uses the real API through the dev proxy:
+
+```powershell
+Set-Location UI
+npm run test:e2e:runtime
+```
+
+Playwright artifacts are ignored:
+
+- `UI/playwright-report/`
+- `UI/test-results/`
+
+The PR/manual mocked Playwright workflow is `.github/workflows/ui-playwright.yml`.
+
+## Frontend Test Conventions
+
+- Use maintained `data-testid` attributes for broad E2E flows.
+- Use the passive `?e2e=1` canvas inspection seam for reliable canvas pointer interactions.
+- Keep the seam readonly; do not add test-only mutation behavior.
+- Page objects live in `UI/e2e/pages`.
+- Mocked API state lives in `UI/e2e/support/mock-workflow-api.ts` and fixture data in `UI/e2e/fixtures`.
+- Runtime smoke should stay separate from PR gating because it depends on distributed AppHost health.
 
 ## Rebuild Canonical Plugin Bundles
 
@@ -81,12 +138,16 @@ AppHost smoke run:
 ./IntegrationTests/scripts/run-apphost-smoke.ps1
 ```
 
+Performance probe assets and scripts live under `PerformanceTests/`. Use them for targeted non-functional probes rather than replacing the normal unit/build/E2E confidence lanes.
+
 ## Practical Rules
 
 - AppHost is the source of truth for distributed wiring.
 - Use targeted builds when iterating on one subsystem, but use AppHost when validating end-to-end behavior.
 - Rebuild plugin bundles after harness or communication-contract changes.
 - Treat realtime regressions as runtime correctness issues, not just observability issues.
+- For UI work, run `npm run test:unit`, `npm run build`, and the relevant Playwright lane before committing.
+- For Phases/canvas work, include mocked Playwright Phases coverage when behavior or performance can be user-visible.
 
 ## Local-Only and Ignored Outputs
 
@@ -105,3 +166,4 @@ These are intentionally not committed:
 - the progress broadcaster can fail independently of process execution
 - AppHost/client-config mismatches can make SignalR look broken from the UI side
 - `_bundles` output is disposable and is meant to be reseeded, not treated as source
+- stale Playwright snapshots usually indicate either intentional UI change or a real layout regression; inspect before updating

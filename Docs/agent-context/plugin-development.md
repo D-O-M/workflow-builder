@@ -11,6 +11,8 @@ At runtime:
 - the engine resolves the task version and launches the plugin through the harness
 - the plugin hydrates runtime state via identifiers in the invocation envelope
 
+Collection Iterator is not a plugin. It is a native engine operator and should be handled through the engine/frontend node model rather than plugin bundle registration.
+
 ## Where Plugin Code Lives
 
 - production plugins: `Backend.Plugins/*`
@@ -70,7 +72,8 @@ It delegates to the canonical bundle script but targets the integration-test plu
    - `manifest.json`
    - schema files
 3. `PluginBundleProcessingService` registers the task version metadata in SQL.
-4. A plugin reload message is emitted so the engine refreshes its runtime catalog.
+4. Registration failures are surfaced by the processing service instead of being silently swallowed.
+5. A plugin reload message is emitted so the engine refreshes its runtime catalog.
 
 ## When to Rebuild Plugins
 
@@ -83,3 +86,9 @@ Rebuild bundles when any of these change:
 - container names or hydration assumptions used by the harness
 
 If a process is failing inside the first plugin step after a runtime contract change, stale bundles are one of the first things to verify.
+
+## Recent Plugin Runtime Notes
+
+- Invocation envelopes carry hydration identifiers and process-step telemetry context.
+- Plugin logs, spans, and standard HTTP/runtime metrics flow to the same OTLP collector as the engine through inherited AppHost configuration.
+- Bundle version refreshes for the showcase/runtime plugin set should still be done through the canonical bundle script, not by editing project versions or ZIP contents by hand.

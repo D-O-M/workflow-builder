@@ -18,19 +18,32 @@ Key runtime resources wired there:
 - Grafana, Loki, Tempo, Prometheus, and Alloy for observability
 - API, Engine, SignalR, Plugin Detector, Progress Broadcaster, Plugin Seeder, and Blueprint Seeder services
 
-The API currently exposes a fixed external HTTP endpoint on port `5180` in the AppHost.
+The API currently exposes a fixed external HTTP endpoint on port `5180` in the AppHost. The UI development proxy expects the API/client-config path to remain aligned with AppHost.
 
 ## Service Ownership
 
 | Service | Owns |
 |---|---|
 | `Backend.API` | Blueprint/process HTTP API, process queries, client-config |
-| `Backend.Engine` | Consumes process-step messages and executes plugins |
+| `Backend.Engine` | Consumes process-step messages, executes plugins, and runs native Collection Iterator steps |
 | `Backend.SignalR` | Hosts `/hubs/processes` subscriptions |
 | `PluginDetector` | Reacts to plugin bundle uploads and registers task versions |
 | `ProgressBroadcaster` | Watches Cosmos process-step changes and publishes SignalR updates |
 | `PluginSeeder` | Seeds canonical bundles from `Backend.Plugins/_bundles` into blob storage |
 | `BlueprintSeeder` | Seeds exported blueprints into the API |
+
+## Design-Time Storage
+
+SQL owns:
+
+- blueprints and blueprint versions
+- blueprint nodes and connections
+- task definitions and task versions
+- Collection Iterator node metadata
+- phased blueprint definitions and versions
+- phased blueprint phases, transitions, handoff mappings, and correlation mappings
+
+Hand-authored migrations in `Backend.Database.Relational/Migrations` must remain discoverable by the migration service.
 
 ## Runtime Flow
 
@@ -63,6 +76,36 @@ flowchart LR
 10. `ProgressBroadcaster` builds realtime batches and publishes them to SignalR subscribers.
 11. The UI receives `processSummaryUpdated` and `processStepsUpdated` events and refreshes the process explorer state.
 
+## Collection Iterator Lifecycle
+
+Collection Iterator is a native engine operator, not a packaged plugin.
+
+1. The blueprint graph stores a Collection Iterator node with collection input and item output shape.
+2. The frontend renders it as a compact splitter operator.
+3. Ports stay generic until a collection source mapping determines the item kind.
+4. `Backend.Engine/CollectionIteratorExecutionService.cs` expands collection items for downstream work.
+5. Process projections and step details preserve iterator identity and item flow for inspection.
+
+When changing collection typing, update backend validation/projection, frontend node modeling, and canvas rendering together.
+
+## Phased Blueprint Runtime
+
+Phased blueprints let users version a series of blueprint versions and Data Bridge mappings.
+
+Important backend pieces:
+
+- `Backend.API/Controllers/PhasedBlueprintsController.cs`
+- `Backend.API/Services/PhasedBlueprintProcessService.cs`
+- `Backend.Repositories/PhasedBlueprintRepository.cs`
+- `Backend.Repositories/PhaseCorrelationRepository.cs`
+- `Backend.Repositories/PhasedProcessRepository.cs`
+- `Backend.Repositories/PhasedProcessFinalizationService.cs`
+- `Backend.DTOs/InputModels/PhasedBlueprint*`
+- `Backend.DTOs/ViewModels/PhasedBlueprint*`
+- `Backend.Database.Relational/Entities/PhasedBlueprint*`
+
+Phase handoff mappings are design-time SQL data. Runtime phase correlation and finalization state must remain consistent with process and process-step Cosmos state.
+
 ## Plugin Ingestion Path
 
 1. Canonical bundle ZIPs are uploaded to the plugin blob container.
@@ -76,3 +119,5 @@ flowchart LR
 - The engine depends on the process-step queue configuration staying aligned across AppHost, Engine, tests, and smoke scripts.
 - The progress broadcaster depends on Cosmos binding configuration being correct at startup.
 - Realtime is part of the normal product flow, not optional observability garnish.
+- Phased blueprint process startup and finalization must keep phase correlation state, process state, and projected process detail in agreement.
+- Collection Iterator behavior is engine-native; do not model it as a plugin bundle.

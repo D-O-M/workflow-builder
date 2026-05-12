@@ -3,9 +3,10 @@ name: workflow-builder
 description: >
   Repo-local orchestrator skill for the WorkflowBuilder application. Use when working in this
   repository or when the task mentions blueprints, processes, process explorer, AppHost,
-  plugin bundles, plugin seeding, SignalR live updates, progress broadcasting, or process-step
-  queue behavior. This skill teaches the app's purpose, routes to the right repo docs, and
-  conditionally loads the best companion skills for Aspire, Angular, and realtime work.
+  phases, Data Bridge, canvas behavior, Playwright, plugin bundles, plugin seeding, SignalR live
+  updates, progress broadcasting, or process-step queue behavior. This skill teaches the app's
+  purpose, routes to the right repo docs, and conditionally loads the best companion skills for
+  Aspire, Angular, frontend testing, and realtime work.
 ---
 
 # WorkflowBuilder
@@ -25,7 +26,8 @@ Do not load every companion skill by default.
 WorkflowBuilder is a blueprint-driven orchestration application:
 
 - users author versioned blueprint graphs
-- users start runtime process instances from those blueprints
+- users compose phased blueprint series with Data Bridge mappings
+- users start runtime process instances from blueprints or phased blueprint series
 - users inspect live process progress, step details, and logs in the UI
 
 The app depends on a working distributed runtime and a working realtime path.
@@ -37,6 +39,9 @@ The app depends on a working distributed runtime and a working realtime path.
 - `Step` = executed blueprint node in a process
 - `TaskDefinition` = reusable capability in the catalog
 - `Plugin` = packaged executable implementation for a task version
+- `Phase Series` = ordered set of blueprint versions connected by Data Bridge mappings
+- `Data Bridge` = phase handoff mapping between source output properties and destination inputs
+- `Collection Iterator` = native engine operator for collection fan-out, not a plugin
 
 Do not reintroduce old `workflow`, `execution`, or `run` terminology in new user-facing or domain-facing changes.
 
@@ -77,6 +82,23 @@ Read:
 Load:
 
 - `$angular-developer`
+
+### Phases, Data Bridge, shared canvas, canvas performance, or Playwright E2E work
+
+Read:
+
+- `Docs/agent-context/frontend-map.md`
+- `Docs/agent-context/developer-workflows.md`
+
+Load:
+
+- `$angular-developer`
+
+Also load:
+
+- `$frontend-design`
+
+when the work changes UX, layout, visual hierarchy, interaction affordances, or responsive behavior.
 
 ### Realtime updates, progress broadcaster, SignalR, OTEL, observability, live logs
 
@@ -125,6 +147,10 @@ Then use normal engineering reasoning. Do not force an unrelated generic skill.
 - Plugin bundles are built through `BuildScripts/bundle-plugins.ps1`, not by ad hoc zipping.
 - `Backend.Plugins/_bundles` is ignored by git and is meant to be seeded on wiped startup.
 - If harness or communication contracts change, rebuild canonical plugin bundles before trusting seeded or uploaded plugins.
+- `Collection Iterator` is engine-native; do not model it as a plugin bundle.
+- The shared canvas public contract is grouped in `blueprint-canvas-contract.ts`; do not reintroduce prop-by-prop canvas APIs.
+- Canvas internals use `utility`, `renderer`, `surface`, `theme`, `policy`, `controller`, `factory`, `resolver`, `presenter`, or `contract` terminology. Avoid new `helper` names.
+- Stable `data-testid` attributes and the readonly `?e2e=1` canvas inspection seam are maintained frontend test contracts.
 - The required live-update event names are:
   - `processSummaryUpdated`
   - `processStepsUpdated`
@@ -144,6 +170,22 @@ Canonical output path:
 - `Backend.Plugins/_bundles`
 
 Do not hand-edit bundle ZIP structure or use manual version bumps as a substitute for the canonical bundle script.
+
+## UI Validation Guidance
+
+Frontend confidence lane:
+
+- `Set-Location UI`
+- `npm run test:unit`
+- `npm run build`
+- `npm run test:e2e`
+
+Runtime smoke lane, only when AppHost is already running:
+
+- `Set-Location UI`
+- `npm run test:e2e:runtime`
+
+The Angular build currently passes with an initial bundle budget warning; new build errors are blockers.
 
 ## Realtime Diagnostic Frame
 

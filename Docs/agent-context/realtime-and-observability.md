@@ -9,6 +9,8 @@ The process explorer depends on them to reflect:
 - process status changes
 - step status transitions
 - live progress while a process is running
+- phased process progression
+- native Collection Iterator step progression
 
 If execution succeeds but the UI stays stale, treat that as a real product issue, not cosmetic polish.
 
@@ -48,6 +50,10 @@ For a healthy end-to-end path:
   - engine-created process-step spans pass W3C trace context through `InvocationEnvelope`
   - plugin harness logs include the same `process.id` and `process.step_id` labels used by engine logs
   - plugin telemetry exports through the OTLP endpoint inherited from the engine/AppHost, with no plugin-author setup
+- `Backend.Engine/CollectionIteratorExecutionService.cs`
+  - native operator execution still writes process-step state into the same realtime path
+- `Backend.Repositories/PhasedProcessRepository.cs`
+  - phased process projection and finalization still flow through process/process-step state observed by the UI
 
 ## Known Brittle Points
 
@@ -73,6 +79,10 @@ The frontend uses runtime client-config to discover the SignalR base URL. If cli
 ### Dashboard and Process Explorer dependence
 
 The dashboard’s recent/runtime views and the process explorer’s live graph behavior both depend on the realtime path. Regressions here often surface as “UI stale” symptoms rather than obvious backend failures.
+
+### Phases dependence
+
+Phased blueprint runtime should not require a separate realtime channel. Phase progression and Data Bridge handoffs must remain observable through the normal process and process-step update path.
 
 ## Debugging Frame
 

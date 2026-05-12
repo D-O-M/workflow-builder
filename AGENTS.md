@@ -1,6 +1,6 @@
 # WorkflowBuilder Agent Guide
 
-WorkflowBuilder is a blueprint-driven orchestration app. Users design versioned blueprint graphs, start process instances from those blueprints, and inspect process progress and logs in near real time.
+WorkflowBuilder is a blueprint-driven orchestration app. Users design versioned blueprint graphs, compose phase series from those blueprints, start process instances, and inspect process progress and logs in near real time.
 
 ## Canonical Terms
 
@@ -9,6 +9,7 @@ WorkflowBuilder is a blueprint-driven orchestration app. Users design versioned 
 - `Step`: executed blueprint node in a process
 - `TaskDefinition`: reusable capability in the catalog
 - `Plugin`: packaged implementation used to execute a task version
+- `Phase Series`: ordered set of blueprint versions connected by Data Bridge mappings
 
 `WorkflowBuilder` remains the product and repo token. New app-domain work should use `Blueprint / Process / Step` language.
 
@@ -16,6 +17,7 @@ WorkflowBuilder is a blueprint-driven orchestration app. Users design versioned 
 
 - `Dashboard`
 - `Blueprint Builder`
+- `Phases`
 - `Start Process`
 - `Process Explorer`
 
@@ -30,8 +32,8 @@ WorkflowBuilder is a blueprint-driven orchestration app. Users design versioned 
 
 ## Routing Hints
 
-- Page, template, routing, or Angular state work: read `frontend-map.md`
+- Page, template, routing, Angular state, canvas, or Phases work: read `frontend-map.md`
 - AppHost, Functions, queues, Cosmos, SignalR, or distributed runtime work: read `topology-and-runtime.md`
 - Plugin bundle, harness, manifest, or seeding work: read `plugin-development.md`
 - Live updates, broadcaster issues, or runtime log flow: read `realtime-and-observability.md`
-- Local commands, builds, tests, and bundle rebuilds: read `developer-workflows.md`
+- Local commands, unit tests, Playwright, builds, and bundle rebuilds: read `developer-workflows.md`
