@@ -26,6 +26,7 @@ describe('canvasModeCapabilities', () => {
       passiveSummaryPorts: false,
       dragConnectionPreview: true,
       selectableConnections: true,
+      viewportCulling: false,
     });
   });
 
@@ -36,9 +37,17 @@ describe('canvasModeCapabilities', () => {
       connectionMapping: true,
       passiveSummaryPorts: true,
       dragConnectionPreview: false,
+      viewportCulling: true,
     });
     expect(isPassiveCanvasSummaryPort('bridge-source', { kind: 'output-summary' })).toBe(true);
     expect(isPassiveCanvasSummaryPort('bridge-source', { kind: 'output-property' })).toBe(false);
+  });
+
+  it('limits viewport culling to phase bridge canvases', () => {
+    expect(canvasModeCapabilities('readonly').viewportCulling).toBe(false);
+    expect(canvasModeCapabilities('bridge-map').viewportCulling).toBe(false);
+    expect(canvasModeCapabilities('bridge-source').viewportCulling).toBe(true);
+    expect(canvasModeCapabilities('bridge-target').viewportCulling).toBe(true);
   });
 });
 

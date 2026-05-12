@@ -31,7 +31,9 @@ export interface CanvasRenderSnapshot {
   getConnectedNodeIds(nodeId: number): ReadonlySet<number>;
   getConnectedNodes(nodeId: number): RenderedNode[];
   queryNodesAtPoint(x: number, y: number, exceptIds?: ReadonlySet<number>): RenderedNode[];
+  queryNodesInBounds(bounds: CanvasBounds, exceptIds?: ReadonlySet<number>): RenderedNode[];
   queryConnectionsAtPoint(x: number, y: number): RenderedConnection[];
+  queryConnectionsInBounds(bounds: CanvasBounds): RenderedConnection[];
 }
 
 export interface CanvasRouteValidationError {

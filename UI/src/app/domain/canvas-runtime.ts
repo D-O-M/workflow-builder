@@ -25,6 +25,7 @@ export interface CanvasModeCapabilities {
   readonly passiveSummaryPorts: boolean;
   readonly dragConnectionPreview: boolean;
   readonly selectableConnections: boolean;
+  readonly viewportCulling: boolean;
 }
 
 export interface CanvasViewportState {

@@ -11,7 +11,7 @@
           <section class="phases-page__canvas-pane phases-page__canvas-pane--source" aria-label="Source phase canvas" (pointerdown)="clearBridgeSelection()" data-testid="phases-source-pane">
             <app-blueprint-canvas
               [canvasId]="'phases-source-canvas'"
-              [graph]="phaseCanvasGraph(sourcePhase)"
+              [graph]="sourceCanvasGraph()!"
               [runtime]="sourceCanvasRuntime()"
               [selection]="phaseCanvasSelection()"
               (canvasEvent)="onSourceCanvasEvent($event)"
@@ -120,7 +120,7 @@
           <section class="phases-page__canvas-pane phases-page__canvas-pane--destination" aria-label="Destination phase canvas" (pointerdown)="clearBridgeSelection()" data-testid="phases-destination-pane">
             <app-blueprint-canvas
               [canvasId]="'phases-destination-canvas'"
-              [graph]="phaseCanvasGraph(destinationPhase)"
+              [graph]="destinationCanvasGraph()!"
               [runtime]="destinationCanvasRuntime()"
               [selection]="phaseCanvasSelection()"
               (canvasEvent)="onDestinationCanvasEvent($event)"

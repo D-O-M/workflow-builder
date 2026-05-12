@@ -49,7 +49,7 @@ import { ConnectionModel } from '../domain/connection-model';
 import { NodeModel } from '../domain/node-model';
 import { PhaseSplitMode, normalizeBridgePosition as normalizePhaseBridgePosition } from '../domain/phase-bridge-geometry';
 import { PhaseBridgeController } from '../domain/phase-bridge-controller';
-import { PhaseBridgeCurveFactory } from '../domain/phase-bridge-curve-factory';
+import { PhaseBridgeCurveFactory, PhaseBridgeCurvePlan } from '../domain/phase-bridge-curve-factory';
 import { PhaseCanvasPairPresenter } from '../domain/phase-canvas-pair-presenter';
 import {
   DataBridgeMappingDraft,
@@ -184,6 +184,14 @@ export class PhasesPageComponent implements OnDestroy {
     this.canvasPairPresenter.destinationRuntime(this.destinationCanvasViewportInsets()));
   protected readonly phaseCanvasSelection = computed<BlueprintCanvasSelection>(() =>
     this.canvasPairPresenter.selection());
+  protected readonly sourceCanvasGraph = computed<BlueprintCanvasGraph | null>(() => {
+    const phase = this.activeSourcePhase();
+    return phase ? this.canvasPairPresenter.graph(phase, this.phaseCanvasRevision()) : null;
+  });
+  protected readonly destinationCanvasGraph = computed<BlueprintCanvasGraph | null>(() => {
+    const phase = this.activeDestinationPhase();
+    return phase ? this.canvasPairPresenter.graph(phase, this.phaseCanvasRevision()) : null;
+  });
 
   protected readonly blueprintVersionOptions = computed<BlueprintVersionOption[]>(() =>
     [...this.blueprints()]
@@ -732,10 +740,6 @@ export class PhasesPageComponent implements OnDestroy {
     this.scheduleBridgeLineRefresh();
   }
 
-  protected phaseCanvasGraph(phase: PhaseSeriesPhaseCanvas): BlueprintCanvasGraph {
-    return this.canvasPairPresenter.graph(phase, this.phaseCanvasRevision());
-  }
-
   protected onSourceCanvasEvent(event: BlueprintCanvasEvent): void {
     this.canvasPairPresenter.handleSourceEvent(event, {
       viewportChanged: () => this.onCanvasViewportChanged(),
@@ -1219,8 +1223,7 @@ export class PhasesPageComponent implements OnDestroy {
     const workbenchRect = this.workbenchRect();
     const dividerRect = this.bridgeDividerRect();
     if (!workbenchRect || !dividerRect) {
-      this.bridgeCurves.set([]);
-      this.bridgeDragCurve.set(null);
+      this.setBridgeCurvePlan({ curves: [], dragCurve: null });
       return;
     }
 
@@ -1234,8 +1237,33 @@ export class PhasesPageComponent implements OnDestroy {
       destinationCanvas: this.destinationCanvas(),
       mappingIssueMessage: (mappingId) => this.mappingIssueMessage(mappingId),
     });
-    this.bridgeCurves.set([...plan.curves]);
-    this.bridgeDragCurve.set(plan.dragCurve);
+    this.setBridgeCurvePlan(plan);
+  }
+
+  private setBridgeCurvePlan(plan: PhaseBridgeCurvePlan): void {
+    if (!this.bridgeCurvesEqual(this.bridgeCurves(), plan.curves)) {
+      this.bridgeCurves.set([...plan.curves]);
+    }
+
+    if (this.bridgeDragCurve() !== plan.dragCurve) {
+      this.bridgeDragCurve.set(plan.dragCurve);
+    }
+  }
+
+  private bridgeCurvesEqual(left: readonly BridgeCurve[], right: readonly BridgeCurve[]): boolean {
+    if (left.length !== right.length) {
+      return false;
+    }
+
+    return left.every((curve, index) => {
+      const other = right[index];
+      return !!other &&
+        curve.id === other.id &&
+        curve.mappingId === other.mappingId &&
+        curve.side === other.side &&
+        curve.path === other.path &&
+        curve.state === other.state;
+    });
   }
 
   private bridgeAnchorClientPoint(kind: 'input' | 'output', mappingId: string): { clientX: number; clientY: number } | null {

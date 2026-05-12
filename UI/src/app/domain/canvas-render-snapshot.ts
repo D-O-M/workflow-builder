@@ -3,7 +3,7 @@ import { NodeModel } from './node-model';
 import { PathfinderOptions } from './pathfinder';
 import { CanvasDetailTier, CanvasRenderSnapshot, CanvasRouteValidationError } from './canvas-render-types';
 import { RenderedConnection } from './canvas-render-connection-model';
-import { addConnectedNodeId, portScopedKey } from './canvas-render-geometry-utilities';
+import { addConnectedNodeId, boundsIntersect, portScopedKey } from './canvas-render-geometry-utilities';
 import {
   buildConnectionLaneAssignments,
   buildConnectionShadeAssignments,
@@ -127,8 +127,18 @@ export function buildCanvasRenderSnapshot(
     queryNodesAtPoint(x: number, y: number, exceptIds: ReadonlySet<number> = EMPTY_NODE_ID_SET): RenderedNode[] {
       return nodeIndex.queryPoint(x, y).filter((node) => !exceptIds.has(node.id));
     },
+    queryNodesInBounds(bounds, exceptIds: ReadonlySet<number> = EMPTY_NODE_ID_SET): RenderedNode[] {
+      return nodeIndex
+        .queryBounds(bounds)
+        .filter((node) => !exceptIds.has(node.id) && boundsIntersect(node.interactionBounds(), bounds));
+    },
     queryConnectionsAtPoint(x: number, y: number): RenderedConnection[] {
       return connectionIndex.queryPoint(x, y);
+    },
+    queryConnectionsInBounds(bounds): RenderedConnection[] {
+      return connectionIndex
+        .queryBounds(bounds)
+        .filter((connection) => !!connection.routeBounds && boundsIntersect(connection.routeBounds, bounds));
     },
   };
 }

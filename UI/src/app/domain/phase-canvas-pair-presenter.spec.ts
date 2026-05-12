@@ -84,6 +84,28 @@ describe('PhaseCanvasPairPresenter', () => {
     });
   });
 
+  it('keeps graph contracts stable until the phase or revision changes', () => {
+    const presenter = new PhaseCanvasPairPresenter();
+    const activePhase = phase();
+    const sameRevision = presenter.graph(activePhase, 12);
+
+    expect(presenter.graph(activePhase, 12)).toBe(sameRevision);
+    expect(presenter.graph(activePhase, 13)).not.toBe(sameRevision);
+    expect(presenter.graph(phase({ phaseId: 'phase-2' }), 12)).not.toBe(sameRevision);
+  });
+
+  it('keeps runtime and selection contracts stable for repeated reads', () => {
+    const presenter = new PhaseCanvasPairPresenter();
+    const viewportInsets = { top: 1, right: 2, bottom: 3, left: 4 };
+    const sourceRuntime = presenter.sourceRuntime(viewportInsets);
+    const destinationRuntime = presenter.destinationRuntime(viewportInsets);
+
+    expect(presenter.sourceRuntime(viewportInsets)).toBe(sourceRuntime);
+    expect(presenter.destinationRuntime(viewportInsets)).toBe(destinationRuntime);
+    expect(sourceRuntime).not.toBe(destinationRuntime);
+    expect(presenter.selection()).toBe(presenter.selection());
+  });
+
   it('routes source canvas events to viewport and bridge handlers', () => {
     const presenter = new PhaseCanvasPairPresenter();
     const viewportChanged = vi.fn();

@@ -497,6 +497,24 @@ export function boundsContainPoint(bounds: CanvasBounds, x: number, y: number, p
   );
 }
 
+export function boundsIntersect(left: CanvasBounds, right: CanvasBounds, padding = 0): boolean {
+  return (
+    left.left <= right.right + padding &&
+    left.right >= right.left - padding &&
+    left.top <= right.bottom + padding &&
+    left.bottom >= right.top - padding
+  );
+}
+
+export function inflateBounds(bounds: CanvasBounds, padding: number): CanvasBounds {
+  return {
+    left: bounds.left - padding,
+    top: bounds.top - padding,
+    right: bounds.right + padding,
+    bottom: bounds.bottom + padding,
+  };
+}
+
 export function addConnectedNodeId(map: Map<number, Set<number>>, sourceId: number, targetId: number): void {
   const existing = map.get(sourceId);
   if (existing) {

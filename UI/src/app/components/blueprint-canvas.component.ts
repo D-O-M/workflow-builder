@@ -20,6 +20,7 @@ import {
   createCanvasInputPropertyHit,
   createCanvasOutputPropertyDragEvent,
 } from '../domain/canvas-bridge-adapter';
+import { getVisibleWorldBounds } from '../domain/canvas-backdrop';
 import { canvasModeCapabilities, canStartCanvasConnectionFrom, isPassiveCanvasSummaryPort } from '../domain/canvas-mode-policy';
 import {
   CanvasConnectionRouteHit,
@@ -32,7 +33,8 @@ import {
   CanvasInteractionEffect,
   CanvasPendingClickState,
 } from '../domain/canvas-interaction-controller';
-import { CanvasRenderFrameFactory } from '../domain/canvas-render-frame-factory';
+import { createCanvasRenderCullPlan, CanvasRenderCullPlan } from '../domain/canvas-render-culling';
+import { CanvasRenderFrameFactory, CanvasRenderFramePlan } from '../domain/canvas-render-frame-factory';
 import { CanvasViewportController } from '../domain/canvas-viewport-controller';
 import { CanvasWrapper } from '../domain/canvas-wrapper';
 import type { CanvasNodeIssueSummary } from '../domain/canvas-wrapper';
@@ -199,6 +201,8 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   private canvasWrapper?: CanvasWrapper;
   private resizeObserver?: ResizeObserver;
   private pendingDrawFrameId: number | null = null;
+  private pendingViewportChangedFrameId: number | null = null;
+  private pendingViewportChangedUsesAnimationFrame = false;
   private detailTierTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   protected readonly hoveredNodeId = this.interactionController.hoveredNodeId;
@@ -356,6 +360,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       cancelAnimationFrame(this.pendingDrawFrameId);
       this.pendingDrawFrameId = null;
     }
+    this.cancelPendingViewportChanged();
     if (this.detailTierTimeoutId !== null) {
       clearTimeout(this.detailTierTimeoutId);
       this.detailTierTimeoutId = null;
@@ -1109,7 +1114,24 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   private notifyViewportChanged(): void {
+    if (this.pendingViewportChangedFrameId !== null) {
+      return;
+    }
+
     this.emitCanvasEvent({ kind: 'viewportChanged' });
+
+    const reset = () => {
+      this.pendingViewportChangedFrameId = null;
+      this.pendingViewportChangedUsesAnimationFrame = false;
+    };
+
+    if (typeof requestAnimationFrame === 'function') {
+      this.pendingViewportChangedUsesAnimationFrame = true;
+      this.pendingViewportChangedFrameId = requestAnimationFrame(reset);
+      return;
+    }
+
+    this.pendingViewportChangedFrameId = globalThis.setTimeout(reset, 16) as unknown as number;
   }
 
   private shouldZoomFromWheel(event: WheelEvent): boolean {
@@ -1449,10 +1471,11 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       validationFocus: this.resolvedValidationFocus(),
       nodeIssueSummaries: this.nodeIssueSummaries(),
     });
+    const cullPlan = this.renderCullPlan(renderedGraph, frame, canvas, offset, zoom);
 
-    wrapper.drawConnections(renderedGraph.connections, frame.connectionLayer.selectedConnectionIds, frame.connectionLayer.options);
+    wrapper.drawConnections(cullPlan.connections, frame.connectionLayer.selectedConnectionIds, frame.connectionLayer.options);
     wrapper.drawNodes(
-      renderedGraph.nodes,
+      cullPlan.nodes,
       renderedGraph.portConnectivity,
       this.dragConnection(),
       this.hoveredNodeId(),
@@ -1494,6 +1517,99 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     }
 
     context.restore();
+  }
+
+  private renderCullPlan(
+    snapshot: CanvasRenderSnapshot,
+    frame: CanvasRenderFramePlan,
+    canvas: HTMLCanvasElement,
+    offset: Point,
+    zoom: number,
+  ): CanvasRenderCullPlan {
+    if (!this.modeCapabilities().viewportCulling) {
+      return {
+        nodes: snapshot.nodes,
+        connections: snapshot.connections,
+      };
+    }
+
+    return createCanvasRenderCullPlan({
+      snapshot,
+      visibleWorldBounds: getVisibleWorldBounds(canvas.clientWidth, canvas.clientHeight, offset, zoom),
+      worldPadding: Math.max(180, 260 / Math.max(zoom, 0.0001)),
+      forcedNodeIds: this.forcedCullNodeIds(frame),
+      forcedConnectionIds: this.forcedCullConnectionIds(frame),
+    });
+  }
+
+  private forcedCullNodeIds(frame: CanvasRenderFramePlan): ReadonlySet<number> {
+    const nodeIds = new Set(frame.nodeLayer.selectedNodeIds);
+    const hoveredNodeId = this.hoveredNodeId();
+    const validationNodeId = this.resolvedValidationFocus()?.nodeId ?? null;
+    const dragNode = this.dragNode();
+    const dragConnection = this.dragConnection();
+
+    if (hoveredNodeId !== null) {
+      nodeIds.add(hoveredNodeId);
+    }
+    if (validationNodeId !== null) {
+      nodeIds.add(validationNodeId);
+    }
+    if (frame.failureTooltip) {
+      nodeIds.add(frame.failureTooltip.node.id);
+    }
+    this.addObstacleNodeId(nodeIds, frame.connectionPreview?.startNode);
+    this.addObstacleNodeId(nodeIds, frame.connectionPreview?.destNode);
+    if (dragNode) {
+      for (const nodeId of dragNode.nodeIds) {
+        nodeIds.add(nodeId);
+      }
+    }
+    if (dragConnection) {
+      nodeIds.add(dragConnection.from);
+    }
+
+    return nodeIds;
+  }
+
+  private addObstacleNodeId(nodeIds: Set<number>, obstacle: unknown): void {
+    const id = (obstacle as { readonly id?: unknown } | null | undefined)?.id;
+    if (typeof id === 'number') {
+      nodeIds.add(id);
+    }
+  }
+
+  private forcedCullConnectionIds(frame: CanvasRenderFramePlan): ReadonlySet<string> {
+    const connectionIds = new Set(frame.connectionLayer.selectedConnectionIds);
+    const hoveredConnectionId = frame.connectionLayer.options.hoveredConnectionId ?? null;
+    const validationConnectionId = frame.connectionLayer.options.validationConnectionFocus?.connectionId ?? null;
+
+    if (hoveredConnectionId) {
+      connectionIds.add(hoveredConnectionId);
+    }
+    if (validationConnectionId) {
+      connectionIds.add(validationConnectionId);
+    }
+    for (const connectionId of frame.connectionLayer.options.channelFocusedConnectionIds ?? []) {
+      connectionIds.add(connectionId);
+    }
+
+    return connectionIds;
+  }
+
+  private cancelPendingViewportChanged(): void {
+    if (this.pendingViewportChangedFrameId === null) {
+      return;
+    }
+
+    if (this.pendingViewportChangedUsesAnimationFrame) {
+      cancelAnimationFrame(this.pendingViewportChangedFrameId);
+    } else {
+      clearTimeout(this.pendingViewportChangedFrameId);
+    }
+
+    this.pendingViewportChangedFrameId = null;
+    this.pendingViewportChangedUsesAnimationFrame = false;
   }
 
   private buildNodeIssueSummaries(markers: readonly CanvasValidationIssueMarker[]): ReadonlyMap<number, CanvasNodeIssueSummary> {

@@ -161,6 +161,9 @@ describe('BlueprintCanvasComponent', () => {
   });
 
   afterEach(() => {
+    component.ngOnDestroy();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
     injector.destroy();
   });
 
@@ -305,6 +308,32 @@ describe('BlueprintCanvasComponent', () => {
 
     expect(zoomLevel()).toBe(1.1);
     expect(viewportOffset()).toEqual({ x: -18.000000000000057, y: 14 });
+  });
+
+  it('coalesces viewport changed events to one event per animation frame', () => {
+    const frameCallbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
+      frameCallbacks.push(callback);
+      return frameCallbacks.length;
+    }));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+    const emittedEvents: string[] = [];
+    const subscription = component.canvasEvent.subscribe((event) => emittedEvents.push(event.kind));
+
+    (component as any).notifyViewportChanged();
+    (component as any).notifyViewportChanged();
+    (component as any).notifyViewportChanged();
+
+    expect(frameCallbacks).toHaveLength(1);
+    expect(emittedEvents).toEqual(['viewportChanged']);
+
+    frameCallbacks[0]!(0);
+
+    (component as any).notifyViewportChanged();
+    expect(frameCallbacks).toHaveLength(2);
+    expect(emittedEvents).toEqual(['viewportChanged', 'viewportChanged']);
+    subscription.unsubscribe();
   });
 
   it('blocks the source node as a connection target while dragging', () => {

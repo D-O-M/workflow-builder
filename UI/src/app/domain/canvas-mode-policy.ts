@@ -20,6 +20,7 @@ const CANVAS_MODE_CAPABILITIES: Record<BlueprintCanvasMode, CanvasModeCapabiliti
     passiveSummaryPorts: false,
     dragConnectionPreview: true,
     selectableConnections: true,
+    viewportCulling: false,
   },
   readonly: {
     readOnly: true,
@@ -28,6 +29,7 @@ const CANVAS_MODE_CAPABILITIES: Record<BlueprintCanvasMode, CanvasModeCapabiliti
     passiveSummaryPorts: false,
     dragConnectionPreview: false,
     selectableConnections: false,
+    viewportCulling: false,
   },
   'bridge-map': {
     readOnly: false,
@@ -36,6 +38,7 @@ const CANVAS_MODE_CAPABILITIES: Record<BlueprintCanvasMode, CanvasModeCapabiliti
     passiveSummaryPorts: false,
     dragConnectionPreview: true,
     selectableConnections: false,
+    viewportCulling: false,
   },
   'bridge-source': {
     readOnly: true,
@@ -44,6 +47,7 @@ const CANVAS_MODE_CAPABILITIES: Record<BlueprintCanvasMode, CanvasModeCapabiliti
     passiveSummaryPorts: true,
     dragConnectionPreview: false,
     selectableConnections: false,
+    viewportCulling: true,
   },
   'bridge-target': {
     readOnly: true,
@@ -52,6 +56,7 @@ const CANVAS_MODE_CAPABILITIES: Record<BlueprintCanvasMode, CanvasModeCapabiliti
     passiveSummaryPorts: true,
     dragConnectionPreview: false,
     selectableConnections: false,
+    viewportCulling: true,
   },
 };
 

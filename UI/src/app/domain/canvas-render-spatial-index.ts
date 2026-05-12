@@ -31,6 +31,27 @@ export class SpatialIndex<T> {
     return [...new Set(bucket)];
   }
 
+  queryBounds(bounds: CanvasBounds): T[] {
+    const [startX, endX] = this.bucketRange(bounds.left, bounds.right);
+    const [startY, endY] = this.bucketRange(bounds.top, bounds.bottom);
+    const matches = new Set<T>();
+
+    for (let bucketX = startX; bucketX <= endX; bucketX += 1) {
+      for (let bucketY = startY; bucketY <= endY; bucketY += 1) {
+        const bucket = this.buckets.get(`${bucketX}:${bucketY}`);
+        if (!bucket) {
+          continue;
+        }
+
+        for (const item of bucket) {
+          matches.add(item);
+        }
+      }
+    }
+
+    return [...matches];
+  }
+
   private bucketRange(min: number, max: number): [number, number] {
     return [Math.floor(min / this.bucketSize), Math.floor(max / this.bucketSize)];
   }

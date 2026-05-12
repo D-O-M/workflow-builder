@@ -31,4 +31,23 @@ test.describe('Phases', () => {
     await expect(page.getByTestId('phases-series-name-input')).toHaveValue('Untitled phase series');
     await expect(page.getByTestId('phases-add-phase-select')).toBeVisible();
   });
+
+  test('keeps bridge curves live while phase canvases zoom', async ({ page, workflowApi: _workflowApi }) => {
+    const phases = new PhasesPage(page);
+    await phases.goto();
+    await phases.openExistingSeries();
+    await phases.sourceCanvas.expandSection('Dispatch Summary', 'right');
+    await phases.destinationCanvas.expandSection('Dispatch Summary', 'left');
+
+    const bridgeCurve = page.getByTestId('phases-bridge-overlay').locator('path.phases-page__bridge-curve').first();
+    await page.getByTestId('phases-source-zoom-in').click();
+    await expect(bridgeCurve).toHaveAttribute('d', /M/);
+    const sourceZoomPath = await bridgeCurve.getAttribute('d');
+
+    await page.getByTestId('phases-destination-zoom-in').click();
+    await expect.poll(() => bridgeCurve.getAttribute('d')).not.toBe(sourceZoomPath);
+
+    await phases.switchVertical();
+    await expect(bridgeCurve).toHaveAttribute('d', /M/);
+  });
 });
