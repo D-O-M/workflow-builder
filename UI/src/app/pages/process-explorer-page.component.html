@@ -1,11 +1,12 @@
-<section class="app-page process-explorer-page">
-  <mat-drawer-container class="process-explorer-page__surface" [hasBackdrop]="false">
+<section class="app-page process-explorer-page" data-testid="process-explorer-page">
+  <mat-drawer-container class="process-explorer-page__surface" [hasBackdrop]="false" data-testid="process-explorer-surface">
     <mat-drawer
       class="process-explorer-page__history"
       mode="over"
       position="start"
       [autoFocus]="false"
       [opened]="historyDrawerOpen()"
+      data-testid="process-explorer-history-drawer"
     >
       <div class="process-explorer-page__history-shell">
         <header class="process-explorer-page__rail-header">
@@ -20,10 +21,10 @@
           </div>
 
           <div class="process-explorer-page__rail-actions">
-            <button mat-icon-button type="button" (click)="openAdvancedSearch()" matTooltip="Advanced search" aria-label="Advanced search">
+            <button mat-icon-button type="button" (click)="openAdvancedSearch()" matTooltip="Advanced search" aria-label="Advanced search" data-testid="process-explorer-history-advanced-search">
               <mat-icon>tune</mat-icon>
             </button>
-            <button mat-icon-button type="button" (click)="closeHistoryDrawer()" matTooltip="Close history" aria-label="Close process history">
+            <button mat-icon-button type="button" (click)="closeHistoryDrawer()" matTooltip="Close history" aria-label="Close process history" data-testid="process-explorer-close-history">
               <mat-icon>close</mat-icon>
             </button>
           </div>
@@ -32,12 +33,12 @@
         @if (historyPanelMode() === 'blueprints') {
           <mat-form-field appearance="outline" class="process-explorer-page__rail-search">
             <mat-icon matPrefix>search</mat-icon>
-            <input matInput type="search" placeholder="Search blueprint activity..." [formControl]="blueprintSearch" />
+            <input matInput type="search" placeholder="Search blueprint activity..." [formControl]="blueprintSearch" data-testid="process-explorer-blueprint-search" />
           </mat-form-field>
 
           <div class="process-explorer-page__rail-scroll">
             @if (loading()) {
-              <div class="process-explorer-page__list-state">
+              <div class="process-explorer-page__list-state" data-testid="process-explorer-blueprints-loading">
                 <mat-progress-spinner diameter="32" mode="indeterminate" />
                 <p>Loading blueprints...</p>
               </div>
@@ -47,7 +48,7 @@
                 <p>Loading blueprint activity...</p>
               </div>
             } @else if (blueprintActivityError()) {
-              <div class="process-explorer-page__list-state is-error">
+              <div class="process-explorer-page__list-state is-error" data-testid="process-explorer-blueprints-error">
                 <mat-icon>error</mat-icon>
                 <p>{{ blueprintActivityError() }}</p>
               </div>
@@ -57,11 +58,13 @@
                 <p>No blueprints with processes match that search.</p>
               </div>
             } @else {
-              <div class="process-explorer-page__rail-list" aria-label="Blueprint activity">
+              <div class="process-explorer-page__rail-list" aria-label="Blueprint activity" data-testid="process-explorer-blueprint-list">
                 @for (activity of blueprintActivities(); track trackBlueprintActivity($index, activity)) {
                   <button
                     type="button"
                     class="process-explorer-page__rail-card"
+                    data-testid="process-explorer-blueprint-row"
+                    [attr.data-blueprint-id]="activity.blueprintDefinitionId"
                     [class.is-selected]="selectedBlueprintId() === activity.blueprintDefinitionId"
                     (click)="selectBlueprintActivity(activity)"
                   >
@@ -85,6 +88,7 @@
                   class="process-explorer-page__load-more"
                   (click)="loadMoreBlueprintActivities()"
                   [disabled]="blueprintActivityLoadingMore()"
+                  data-testid="process-explorer-load-more-blueprints"
                 >
                   <mat-icon>{{ blueprintActivityLoadingMore() ? 'hourglass_top' : 'expand_more' }}</mat-icon>
                   {{ blueprintActivityLoadingMore() ? 'Loading...' : 'Load more blueprints' }}
@@ -93,7 +97,7 @@
             }
           </div>
         } @else if (historyPanelMode() === 'processes') {
-          <button mat-button type="button" class="process-explorer-page__back-button" (click)="returnToBlueprintPicker()">
+          <button mat-button type="button" class="process-explorer-page__back-button" (click)="returnToBlueprintPicker()" data-testid="process-explorer-back-to-blueprints">
             <mat-icon>arrow_back</mat-icon>
             All blueprint activity
           </button>
@@ -115,7 +119,7 @@
                 <p>Loading process history...</p>
               </div>
             } @else if (processHistoryError()) {
-              <div class="process-explorer-page__list-state is-error">
+              <div class="process-explorer-page__list-state is-error" data-testid="process-explorer-processes-error">
                 <mat-icon>error</mat-icon>
                 <p>{{ processHistoryError() }}</p>
               </div>
@@ -130,11 +134,14 @@
                 <p>No processes have been loaded for this blueprint yet.</p>
               </div>
             } @else {
-              <div class="process-explorer-page__rail-list" aria-label="Processes">
+              <div class="process-explorer-page__rail-list" aria-label="Processes" data-testid="process-explorer-process-list">
                 @for (processRow of processHistoryRows(); track trackProcess($index, processRow)) {
                   <button
                     type="button"
                     class="process-explorer-page__rail-card process-explorer-page__rail-card--process"
+                    data-testid="process-explorer-process-row"
+                    [attr.data-process-id]="processRow.processId"
+                    [attr.data-blueprint-id]="processRow.blueprintDefinitionId"
                     [class.is-selected]="activeProcessId() === processRow.processId"
                     (click)="selectProcess(processRow)"
                   >
@@ -162,6 +169,7 @@
                   class="process-explorer-page__load-more"
                   (click)="loadMoreProcessHistory()"
                   [disabled]="processHistoryLoadingMore()"
+                  data-testid="process-explorer-load-more-processes"
                 >
                   <mat-icon>{{ processHistoryLoadingMore() ? 'hourglass_top' : 'expand_more' }}</mat-icon>
                   {{ processHistoryLoadingMore() ? 'Loading...' : 'Load more processes' }}
@@ -171,12 +179,12 @@
           </div>
         } @else {
           <div class="process-explorer-page__search-actions">
-            <button mat-flat-button type="button" (click)="openAdvancedSearch()">
+            <button mat-flat-button type="button" (click)="openAdvancedSearch()" data-testid="process-explorer-edit-search">
               <mat-icon>edit</mat-icon>
               Edit filters
             </button>
 
-            <button mat-button type="button" (click)="clearAdvancedSearch()">
+            <button mat-button type="button" (click)="clearAdvancedSearch()" data-testid="process-explorer-clear-search">
               <mat-icon>close</mat-icon>
               Clear
             </button>
@@ -197,7 +205,7 @@
                 <p>Searching processes...</p>
               </div>
             } @else if (searchResultsError()) {
-              <div class="process-explorer-page__list-state is-error">
+              <div class="process-explorer-page__list-state is-error" data-testid="process-explorer-search-error">
                 <mat-icon>error</mat-icon>
                 <p>{{ searchResultsError() }}</p>
               </div>
@@ -207,11 +215,14 @@
                 <p>No processes matched the current filters.</p>
               </div>
             } @else {
-              <div class="process-explorer-page__rail-list" aria-label="Search results">
+              <div class="process-explorer-page__rail-list" aria-label="Search results" data-testid="process-explorer-search-results">
                 @for (processRow of searchResultsRows(); track trackProcess($index, processRow)) {
                   <button
                     type="button"
                     class="process-explorer-page__rail-card process-explorer-page__rail-card--process"
+                    data-testid="process-explorer-search-result-row"
+                    [attr.data-process-id]="processRow.processId"
+                    [attr.data-blueprint-id]="processRow.blueprintDefinitionId"
                     [class.is-selected]="selectedProcessId() === processRow.processId"
                     (click)="selectProcess(processRow)"
                   >
@@ -239,6 +250,7 @@
                   class="process-explorer-page__load-more"
                   (click)="loadMoreSearchResults()"
                   [disabled]="searchResultsLoadingMore()"
+                  data-testid="process-explorer-load-more-search-results"
                 >
                   <mat-icon>{{ searchResultsLoadingMore() ? 'hourglass_top' : 'expand_more' }}</mat-icon>
                   {{ searchResultsLoadingMore() ? 'Loading...' : 'Load more results' }}
@@ -257,6 +269,7 @@
       [autoFocus]="false"
       [disableClose]="true"
       [opened]="stepDrawerOpen() && selectedProcess() !== null"
+      data-testid="process-explorer-step-drawer"
     >
       <div class="process-explorer-page__step-shell">
         <header class="process-explorer-page__step-header">
@@ -271,13 +284,13 @@
             </div>
           </div>
 
-          <button mat-icon-button type="button" (click)="closeStepDrawer()" aria-label="Close task details">
+          <button mat-icon-button type="button" (click)="closeStepDrawer()" aria-label="Close task details" data-testid="process-explorer-close-step-drawer">
             <mat-icon>close</mat-icon>
           </button>
         </header>
 
         @if (stepDetailLoading()) {
-          <mat-progress-bar mode="indeterminate" />
+          <mat-progress-bar mode="indeterminate" data-testid="process-explorer-step-detail-loading" />
         }
 
         <div class="process-explorer-page__metric-grid process-explorer-page__metric-grid--drawer">
@@ -304,7 +317,7 @@
         </div>
 
         @if (selectedStepFailureMessage()) {
-          <aside class="process-explorer-page__failure-banner">
+          <aside class="process-explorer-page__failure-banner" data-testid="process-explorer-step-failure">
             <mat-icon>error</mat-icon>
             <div>
               <strong>Failure message</strong>
@@ -318,6 +331,7 @@
           animationDuration="0ms"
           [selectedIndex]="stepTabIndex()"
           (selectedIndexChange)="onStepTabIndexChange($event)"
+          data-testid="process-explorer-step-tabs"
         >
           <mat-tab label="Inputs">
             <div class="process-explorer-page__tab-body">
@@ -326,7 +340,7 @@
               } @else if (stepDetailLoading() && !hasStructuredPayload(selectedStepInputs())) {
                 <p class="process-explorer-page__drawer-state">Loading step inputs...</p>
               } @else if (hasStructuredPayload(selectedStepInputs())) {
-                <pre class="app-json-block process-explorer-page__payload-block">{{ formatStructuredPayload(selectedStepInputs()) }}</pre>
+                <pre class="app-json-block process-explorer-page__payload-block" data-testid="process-explorer-step-inputs">{{ formatStructuredPayload(selectedStepInputs()) }}</pre>
               } @else {
                 <p class="process-explorer-page__drawer-state">No inputs were captured for this step.</p>
               }
@@ -340,7 +354,7 @@
               } @else if (stepDetailLoading() && !hasStructuredPayload(selectedStepOutputs())) {
                 <p class="process-explorer-page__drawer-state">Loading step outputs...</p>
               } @else if (hasStructuredPayload(selectedStepOutputs())) {
-                <pre class="app-json-block process-explorer-page__payload-block">{{ formatStructuredPayload(selectedStepOutputs()) }}</pre>
+                <pre class="app-json-block process-explorer-page__payload-block" data-testid="process-explorer-step-outputs">{{ formatStructuredPayload(selectedStepOutputs()) }}</pre>
               } @else {
                 <p class="process-explorer-page__drawer-state">No outputs were captured for this step.</p>
               }
@@ -363,7 +377,7 @@
                 } @else {
                   <div class="process-explorer-page__mapping-list">
                     @for (mapping of selectedStepIncomingMappings(); track trackIncomingMapping($index, mapping)) {
-                      <article class="process-explorer-page__mapping-card">
+                      <article class="process-explorer-page__mapping-card" data-testid="process-explorer-step-mapping">
                         <div>
                           <strong>{{ mapping.sourceName }}</strong>
                           <span>{{ mapping.channelName ?? 'Default output channel' }}</span>
@@ -428,9 +442,9 @@
               } @else if (stepLogs().length === 0) {
                 <p class="process-explorer-page__drawer-state">No logs are available for this step yet.</p>
               } @else {
-                <div class="process-explorer-page__log-list" aria-label="Step logs">
+                <div class="process-explorer-page__log-list" aria-label="Step logs" data-testid="process-explorer-step-logs">
                   @for (entry of stepLogs(); track trackStepLog($index, entry)) {
-                    <article class="process-explorer-page__log-item">
+                    <article class="process-explorer-page__log-item" data-testid="process-explorer-step-log-row">
                       <span>{{ entry.timestamp | date: 'HH:mm:ss.SSS' }}</span>
                       <strong>{{ entry.level ?? 'Info' }}</strong>
                       <small>{{ stepLogLabel(entry) }}</small>
@@ -457,7 +471,7 @@
         </a>
       </mat-menu>
 
-      <nav class="process-explorer-page__canvas-rail" aria-label="Process explorer actions">
+      <nav class="process-explorer-page__canvas-rail" aria-label="Process explorer actions" data-testid="process-explorer-canvas-rail">
         <button
           mat-icon-button
           type="button"
@@ -465,39 +479,41 @@
           (click)="toggleHistoryDrawer()"
           matTooltip="Process history"
           aria-label="Process history"
+          data-testid="process-explorer-toggle-history"
         >
           <mat-icon>receipt_long</mat-icon>
         </button>
-        <button mat-icon-button type="button" (click)="openAdvancedSearch()" matTooltip="Advanced search" aria-label="Advanced search">
+        <button mat-icon-button type="button" (click)="openAdvancedSearch()" matTooltip="Advanced search" aria-label="Advanced search" data-testid="process-explorer-open-advanced-search">
           <mat-icon>tune</mat-icon>
         </button>
 
         @if (selectedProcess()) {
           <span class="process-explorer-page__rail-divider" aria-hidden="true"></span>
-          <button mat-icon-button type="button" (click)="zoomOut()" matTooltip="Zoom out" aria-label="Zoom out">
+          <button mat-icon-button type="button" (click)="zoomOut()" matTooltip="Zoom out" aria-label="Zoom out" data-testid="process-explorer-zoom-out">
             <mat-icon>zoom_out</mat-icon>
           </button>
-          <button mat-icon-button type="button" (click)="zoomIn()" matTooltip="Zoom in" aria-label="Zoom in">
+          <button mat-icon-button type="button" (click)="zoomIn()" matTooltip="Zoom in" aria-label="Zoom in" data-testid="process-explorer-zoom-in">
             <mat-icon>zoom_in</mat-icon>
           </button>
-          <button mat-icon-button type="button" (click)="resetView()" matTooltip="Reset view" aria-label="Reset canvas view">
+          <button mat-icon-button type="button" (click)="resetView()" matTooltip="Reset view" aria-label="Reset canvas view" data-testid="process-explorer-reset-view">
             <mat-icon>center_focus_strong</mat-icon>
           </button>
           <span class="process-explorer-page__rail-divider" aria-hidden="true"></span>
-          <button mat-icon-button type="button" [matMenuTriggerFor]="processActionsMenu" matTooltip="Process actions" aria-label="Process actions">
+          <button mat-icon-button type="button" [matMenuTriggerFor]="processActionsMenu" matTooltip="Process actions" aria-label="Process actions" data-testid="process-explorer-process-actions">
             <mat-icon>more_horiz</mat-icon>
           </button>
         }
       </nav>
 
       @if (selectedProcess(); as process) {
-        <div class="process-explorer-page__workbench">
-          <header class="process-explorer-page__process-pill">
+        <div class="process-explorer-page__workbench" data-testid="process-explorer-workbench" [attr.data-process-id]="process.processId">
+          <header class="process-explorer-page__process-pill" data-testid="process-explorer-process-pill">
             <div class="process-explorer-page__process-title">
               <span
                 class="process-explorer-page__process-glyph"
                 [ngClass]="'status-surface--' + process.status.toLowerCase()"
                 [matTooltip]="'Status: ' + statusLabel(process.status)"
+                role="img"
                 [attr.aria-label]="'Status: ' + statusLabel(process.status)"
               >
                 <mat-icon>{{ statusIcon(process.status) }}</mat-icon>
@@ -536,7 +552,7 @@
           </header>
 
           @if (process.phase) {
-            <section class="process-explorer-page__phase-overview" [class.is-loading]="phasedProcessLoading()">
+            <section class="process-explorer-page__phase-overview" [class.is-loading]="phasedProcessLoading()" data-testid="process-explorer-phase-overview">
               @if (selectedPhasedProcess(); as phasedProcess) {
                 <header>
                   <div>
@@ -558,6 +574,8 @@
                     <button
                       type="button"
                       class="process-explorer-page__phase-card"
+                      data-testid="process-explorer-phase-card"
+                      [attr.data-phase-id]="phase.phaseId"
                       [class.is-active]="selectedProcessPhaseIndex() === phase.phaseIndex"
                       [disabled]="!phase.childProcessId"
                       (click)="selectPhaseProcess(phase)"
@@ -591,26 +609,25 @@
             </section>
           }
 
-          <div class="process-explorer-page__canvas-stage">
+          <div class="process-explorer-page__canvas-stage" data-testid="process-explorer-canvas-stage">
             @if (detailLoading()) {
-              <div class="process-explorer-page__canvas-state">
+              <div class="process-explorer-page__canvas-state" data-testid="process-explorer-detail-loading">
                 <mat-progress-spinner diameter="44" mode="indeterminate" />
                 <p>Loading process detail...</p>
               </div>
             } @else {
               <app-blueprint-canvas
-                [nodes]="processNodes()"
-                [connections]="processConnections()"
-                [readonlySelectedNodeId]="selectedProcessCanvasNodeId()"
-                [backgroundEffect]="'stitch'"
-                mode="readonly"
-                (readonlyNodeActivated)="onReadonlyNodeActivated($event)"
+                [canvasId]="'process-explorer-canvas'"
+                [graph]="processCanvasGraph()"
+                [runtime]="processCanvasRuntime()"
+                [selection]="processCanvasSelection()"
+                (canvasEvent)="onCanvasEvent($event)"
               />
             }
           </div>
         </div>
       } @else {
-        <div class="process-explorer-page__empty-state">
+        <div class="process-explorer-page__empty-state" data-testid="process-explorer-empty-state">
           <div class="process-explorer-page__empty-card">
             @if (errorMessage()) {
               <mat-icon>error</mat-icon>
@@ -632,11 +649,11 @@
 
             @if (!loading() && !searchResultsLoading() && !detailLoading()) {
               <div class="process-explorer-page__empty-actions">
-                <button mat-flat-button type="button" (click)="openHistoryDrawer()">
+                <button mat-flat-button type="button" (click)="openHistoryDrawer()" data-testid="process-explorer-empty-open-history">
                   <mat-icon>receipt_long</mat-icon>
                   Open history
                 </button>
-                <button mat-button type="button" (click)="openAdvancedSearch()">
+                <button mat-button type="button" (click)="openAdvancedSearch()" data-testid="process-explorer-empty-advanced-search">
                   <mat-icon>tune</mat-icon>
                   Advanced search
                 </button>

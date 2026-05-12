@@ -4,6 +4,7 @@ import { ConnectionModel } from './connection-model';
 import { NodeModel, NodeRenderStatus } from './node-model';
 import { PathfinderOptions } from './pathfinder';
 import { createCanvasPerformanceFixture } from './canvas-performance-fixtures';
+import { drawRenderedConnection } from './canvas-connection-drawing-utility';
 
 const opts: PathfinderOptions = { gridSize: 10, nodeMargin: 20, obstacleBuffer: 2 };
 
@@ -202,11 +203,11 @@ function createDrawableConnection(): RenderedConnection {
   return connection;
 }
 
-describe('RenderedConnection presentation', () => {
+describe('drawRenderedConnection presentation', () => {
   it('renders ambient connections as quiet structural context', () => {
     const ctx = new RecordingCanvasContext();
 
-    createDrawableConnection().draw({ ctx: ctx as unknown as CanvasRenderingContext2D }, {
+    drawRenderedConnection(createDrawableConnection(), { ctx: ctx as unknown as CanvasRenderingContext2D }, {
       presentation: 'ambient',
     });
 
@@ -220,7 +221,7 @@ describe('RenderedConnection presentation', () => {
   it('lets validation color break through ambient connection styling without a halo', () => {
     const ctx = new RecordingCanvasContext();
 
-    createDrawableConnection().draw({ ctx: ctx as unknown as CanvasRenderingContext2D }, {
+    drawRenderedConnection(createDrawableConnection(), { ctx: ctx as unknown as CanvasRenderingContext2D }, {
       presentation: 'ambient',
       validationSeverity: 'error',
     });

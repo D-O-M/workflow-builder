@@ -32,12 +32,19 @@ export interface DynamicFieldDefinition {
   ],
   providers: [provideNativeDateAdapter()],
   template: `
-    <div class="field" [formGroup]="group()">
+    <div
+      class="field"
+      [formGroup]="group()"
+      [attr.data-testid]="testIdPrefix() + '-field'"
+      [attr.data-field-key]="field().key"
+      [attr.data-field-kind]="field().kind"
+    >
       @if (field().kind === 'date') {
         <mat-form-field class="field__control" appearance="outline">
           <mat-label>{{ field().label }}</mat-label>
           <input
             matInput
+            [attr.data-testid]="testIdPrefix() + '-input-' + field().key"
             [matDatepicker]="datePicker"
             [formControlName]="field().key"
             [attr.placeholder]="field().label"
@@ -57,7 +64,7 @@ export interface DynamicFieldDefinition {
       } @else if (field().kind === 'boolean' || field().kind === 'enum') {
         <mat-form-field class="field__control" appearance="outline">
           <mat-label>{{ field().label }}</mat-label>
-          <mat-select [formControlName]="field().key">
+          <mat-select [formControlName]="field().key" [attr.data-testid]="testIdPrefix() + '-select-' + field().key">
             @if (!field().required) {
               <mat-option value="">No value</mat-option>
             }
@@ -89,6 +96,7 @@ export interface DynamicFieldDefinition {
           <mat-label>{{ field().label }}</mat-label>
           <textarea
             matInput
+            [attr.data-testid]="testIdPrefix() + '-textarea-' + field().key"
             [formControlName]="field().key"
             [attr.placeholder]="field().label"
             autocomplete="off"
@@ -112,6 +120,7 @@ export interface DynamicFieldDefinition {
           <mat-label>{{ field().label }}</mat-label>
           <input
             matInput
+            [attr.data-testid]="testIdPrefix() + '-input-' + field().key"
             [type]="inputType()"
             [formControlName]="field().key"
             [attr.placeholder]="field().label"
@@ -150,6 +159,7 @@ export interface DynamicFieldDefinition {
 export class DynamicFormFieldComponent {
   readonly group = input.required<FormGroup>();
   readonly field = input.required<DynamicFieldDefinition>();
+  readonly testIdPrefix = input('dynamic-form');
 
   protected readonly inputType = computed(() =>
     this.field().kind === 'date'

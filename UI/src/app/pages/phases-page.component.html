@@ -1,41 +1,36 @@
-<section class="app-page phases-page">
-  <div #workbench class="phases-page__workbench" [class.is-panel-open]="phasePanelOpen()">
+<section class="app-page phases-page" data-testid="phases-page">
+  <div #workbench class="phases-page__workbench" [class.is-panel-open]="phasePanelOpen()" data-testid="phases-workbench">
     <div
       class="phases-page__canvas-stack"
+      data-testid="phases-canvas-stack"
       [class.is-horizontal]="splitMode() === 'horizontal'"
       [class.is-vertical]="splitMode() === 'vertical'"
     >
       @if (activeSourcePhase(); as sourcePhase) {
         @if (activeDestinationPhase(); as destinationPhase) {
-          <section class="phases-page__canvas-pane phases-page__canvas-pane--source" aria-label="Source phase canvas" (pointerdown)="clearBridgeSelection()">
+          <section class="phases-page__canvas-pane phases-page__canvas-pane--source" aria-label="Source phase canvas" (pointerdown)="clearBridgeSelection()" data-testid="phases-source-pane">
             <app-blueprint-canvas
-              [nodes]="sourcePhase.nodes"
-              [connections]="sourcePhase.connections"
-              [graphRevision]="phaseCanvasRevision()"
-              [backgroundEffect]="canvasBackgroundEffect"
-              [connectionPresentation]="'ambient'"
-              [viewportInsets]="sourceCanvasViewportInsets()"
-              mode="bridge-source"
-              (bridgeOutputPropertyDragStarted)="onSourceBridgeDragStarted($event)"
-              (bridgeOutputPropertyDragMoved)="onSourceBridgeDragMoved($event)"
-              (bridgeOutputPropertyDragEnded)="onSourceBridgeDragEnded($event)"
-              (viewportChanged)="onCanvasViewportChanged()"
+              [canvasId]="'phases-source-canvas'"
+              [graph]="phaseCanvasGraph(sourcePhase)"
+              [runtime]="sourceCanvasRuntime()"
+              [selection]="phaseCanvasSelection()"
+              (canvasEvent)="onSourceCanvasEvent($event)"
             />
 
-            <div class="phases-page__canvas-label">
+            <div class="phases-page__canvas-label" data-testid="phases-source-label">
               <span>Phase {{ activePairIndex() + 1 }}</span>
               <strong>{{ sourcePhase.name }}</strong>
               <small>{{ phaseVersionLabel(sourcePhase) }}</small>
             </div>
 
-            <div class="phases-page__canvas-tools" aria-label="Source canvas controls">
-              <button mat-icon-button type="button" (click)="zoomSourceOut()" matTooltip="Zoom out source phase" aria-label="Zoom out source phase">
+            <div class="phases-page__canvas-tools" aria-label="Source canvas controls" data-testid="phases-source-canvas-controls">
+              <button mat-icon-button type="button" (click)="zoomSourceOut()" matTooltip="Zoom out source phase" aria-label="Zoom out source phase" data-testid="phases-source-zoom-out">
                 <mat-icon>zoom_out</mat-icon>
               </button>
-              <button mat-icon-button type="button" (click)="zoomSourceIn()" matTooltip="Zoom in source phase" aria-label="Zoom in source phase">
+              <button mat-icon-button type="button" (click)="zoomSourceIn()" matTooltip="Zoom in source phase" aria-label="Zoom in source phase" data-testid="phases-source-zoom-in">
                 <mat-icon>zoom_in</mat-icon>
               </button>
-              <button mat-icon-button type="button" (click)="resetSourceView()" matTooltip="Reset source phase view" aria-label="Reset source phase view">
+              <button mat-icon-button type="button" (click)="resetSourceView()" matTooltip="Reset source phase view" aria-label="Reset source phase view" data-testid="phases-source-reset-view">
                 <mat-icon>center_focus_strong</mat-icon>
               </button>
             </div>
@@ -44,6 +39,7 @@
           <section
             #bridgeDivider
             class="phases-page__data-bridge"
+            data-testid="phases-data-bridge"
             [class.is-source-dragging]="bridgeDrag()?.kind === 'source-output'"
             [class.is-output-dragging]="bridgeDrag()?.kind === 'bridge-output'"
             aria-label="Data Bridge"
@@ -51,6 +47,7 @@
           >
             <div
               class="phases-page__bridge-guidance"
+              data-testid="phases-bridge-guidance"
               [class.is-info]="bridgeGuidance().tone === 'info'"
               [class.is-warning]="bridgeGuidance().tone === 'warning'"
               [class.is-success]="bridgeGuidance().tone === 'success'"
@@ -76,11 +73,13 @@
             </div>
 
             @if (activeTransition(); as transition) {
-              <div class="phases-page__bridge-anchors" aria-label="Data Bridge mappings">
+              <div class="phases-page__bridge-anchors" aria-label="Data Bridge mappings" data-testid="phases-bridge-anchors">
                 @for (mapping of transition.mappings; track trackMapping($index, mapping)) {
                   <button
                     type="button"
                     class="phases-page__bridge-anchor phases-page__bridge-anchor--source"
+                    data-testid="phases-bridge-source-anchor"
+                    [attr.data-mapping-id]="mapping.id"
                     [class.is-selected]="isBridgeAnchorSelected(mapping.id, 'source')"
                     [class.has-issue]="!!mappingIssueMessage(mapping.id)"
                     [style.left.%]="splitMode() === 'horizontal' ? bridgeAnchorPosition(mapping) : null"
@@ -93,6 +92,8 @@
                   <button
                     type="button"
                     class="phases-page__bridge-anchor phases-page__bridge-anchor--destination"
+                    data-testid="phases-bridge-destination-anchor"
+                    [attr.data-mapping-id]="mapping.id"
                     [class.is-selected]="isBridgeAnchorSelected(mapping.id, 'destination')"
                     [class.is-disconnected]="!mapping.targetProperty"
                     [class.has-issue]="!!mappingIssueMessage(mapping.id)"
@@ -116,55 +117,52 @@
             }
           </section>
 
-          <section class="phases-page__canvas-pane phases-page__canvas-pane--destination" aria-label="Destination phase canvas" (pointerdown)="clearBridgeSelection()">
+          <section class="phases-page__canvas-pane phases-page__canvas-pane--destination" aria-label="Destination phase canvas" (pointerdown)="clearBridgeSelection()" data-testid="phases-destination-pane">
             <app-blueprint-canvas
-              [nodes]="destinationPhase.nodes"
-              [connections]="destinationPhase.connections"
-              [graphRevision]="phaseCanvasRevision()"
-              [backgroundEffect]="canvasBackgroundEffect"
-              [connectionPresentation]="'ambient'"
-              [viewportInsets]="destinationCanvasViewportInsets()"
-              mode="bridge-target"
-              (viewportChanged)="onCanvasViewportChanged()"
+              [canvasId]="'phases-destination-canvas'"
+              [graph]="phaseCanvasGraph(destinationPhase)"
+              [runtime]="destinationCanvasRuntime()"
+              [selection]="phaseCanvasSelection()"
+              (canvasEvent)="onDestinationCanvasEvent($event)"
             />
 
-            <div class="phases-page__canvas-label phases-page__canvas-label--destination">
+            <div class="phases-page__canvas-label phases-page__canvas-label--destination" data-testid="phases-destination-label">
               <span>Phase {{ activePairIndex() + 2 }}</span>
               <strong>{{ destinationPhase.name }}</strong>
               <small>{{ phaseVersionLabel(destinationPhase) }}</small>
             </div>
 
-            <div class="phases-page__canvas-tools" aria-label="Destination canvas controls">
-              <button mat-icon-button type="button" (click)="zoomDestinationOut()" matTooltip="Zoom out destination phase" aria-label="Zoom out destination phase">
+            <div class="phases-page__canvas-tools" aria-label="Destination canvas controls" data-testid="phases-destination-canvas-controls">
+              <button mat-icon-button type="button" (click)="zoomDestinationOut()" matTooltip="Zoom out destination phase" aria-label="Zoom out destination phase" data-testid="phases-destination-zoom-out">
                 <mat-icon>zoom_out</mat-icon>
               </button>
-              <button mat-icon-button type="button" (click)="zoomDestinationIn()" matTooltip="Zoom in destination phase" aria-label="Zoom in destination phase">
+              <button mat-icon-button type="button" (click)="zoomDestinationIn()" matTooltip="Zoom in destination phase" aria-label="Zoom in destination phase" data-testid="phases-destination-zoom-in">
                 <mat-icon>zoom_in</mat-icon>
               </button>
-              <button mat-icon-button type="button" (click)="resetDestinationView()" matTooltip="Reset destination phase view" aria-label="Reset destination phase view">
+              <button mat-icon-button type="button" (click)="resetDestinationView()" matTooltip="Reset destination phase view" aria-label="Reset destination phase view" data-testid="phases-destination-reset-view">
                 <mat-icon>center_focus_strong</mat-icon>
               </button>
             </div>
           </section>
         } @else {
-          <div class="phases-page__empty-workbench">
+          <div class="phases-page__empty-workbench" data-testid="phases-empty-workbench">
             <mat-icon>timeline</mat-icon>
             <strong>Select at least two blueprint versions.</strong>
-            <button mat-flat-button type="button" (click)="phasePanelOpen.set(true)">
+            <button mat-flat-button type="button" (click)="phasePanelOpen.set(true)" data-testid="phases-empty-setup">
               <mat-icon>tune</mat-icon>
               Set up phases
             </button>
           </div>
         }
       } @else {
-        <div class="phases-page__empty-workbench">
+          <div class="phases-page__empty-workbench" data-testid="phases-empty-workbench">
           @if (loading()) {
             <mat-progress-spinner diameter="44" mode="indeterminate" />
             <strong>Loading phase series...</strong>
           } @else {
             <mat-icon>timeline</mat-icon>
             <strong>Open a phase series or create one from existing blueprints.</strong>
-            <button mat-flat-button type="button" (click)="createSeries()">
+            <button mat-flat-button type="button" (click)="createSeries()" data-testid="phases-empty-new-series">
               <mat-icon>add</mat-icon>
               New phase series
             </button>
@@ -173,7 +171,7 @@
       }
     </div>
 
-    <svg class="phases-page__bridge-overlay" aria-hidden="true">
+    <svg class="phases-page__bridge-overlay" aria-hidden="true" data-testid="phases-bridge-overlay">
       @for (curve of bridgeCurves(); track curve.id) {
         <path
           class="phases-page__bridge-curve-hit-target"
@@ -193,8 +191,8 @@
       }
     </svg>
 
-    <div class="phases-page__floating-bar">
-      <div class="phases-page__series-picker">
+    <div class="phases-page__floating-bar" data-testid="phases-toolbar">
+      <div class="phases-page__series-picker" data-testid="phases-series-picker">
         <mat-icon>timeline</mat-icon>
         <input
           #seriesPickerInput
@@ -204,6 +202,7 @@
           [matAutocomplete]="seriesAutocomplete"
           placeholder="Search phase series"
           aria-label="Search phase series"
+          data-testid="phases-series-search"
           (focus)="seriesPickerTrigger.openPanel()"
         />
         <button
@@ -212,6 +211,7 @@
           (click)="focusSeriesPicker()"
           matTooltip="Search phase series"
           aria-label="Search phase series"
+          data-testid="phases-series-search-open"
         >
           <mat-icon>keyboard_arrow_down</mat-icon>
         </button>
@@ -220,7 +220,7 @@
       @if (phasePairOptions().length > 0) {
         <mat-form-field appearance="outline" class="phases-page__pair-field">
           <mat-label>Pair</mat-label>
-          <mat-select [value]="activePairIndex()" (selectionChange)="selectPair($event.value)">
+          <mat-select [value]="activePairIndex()" (selectionChange)="selectPair($event.value)" data-testid="phases-pair-select">
             @for (option of phasePairOptions(); track option.index) {
               <mat-option [value]="option.index">{{ option.label }}</mat-option>
             }
@@ -230,7 +230,7 @@
 
       <span class="phases-page__bar-spacer"></span>
 
-      <div class="phases-page__split-toggle" role="group" aria-label="Split orientation">
+      <div class="phases-page__split-toggle" role="group" aria-label="Split orientation" data-testid="phases-split-toggle">
         <button
           mat-icon-button
           type="button"
@@ -239,6 +239,7 @@
           (click)="setSplitMode('horizontal')"
           matTooltip="Horizontal split"
           aria-label="Horizontal split"
+          data-testid="phases-horizontal-split"
         >
           <mat-icon>view_day</mat-icon>
         </button>
@@ -250,13 +251,14 @@
           (click)="setSplitMode('vertical')"
           matTooltip="Vertical split"
           aria-label="Vertical split"
+          data-testid="phases-vertical-split"
         >
           <mat-icon>view_column</mat-icon>
         </button>
       </div>
 
       <div class="phases-page__toolbar-actions">
-        <button mat-icon-button type="button" (click)="resetBothCanvases()" matTooltip="Reset both canvases" aria-label="Reset both canvases">
+        <button mat-icon-button type="button" (click)="resetBothCanvases()" matTooltip="Reset both canvases" aria-label="Reset both canvases" data-testid="phases-reset-both">
           <mat-icon>fit_screen</mat-icon>
         </button>
 
@@ -267,12 +269,13 @@
           (click)="togglePhasePanel()"
           matTooltip="Phase setup"
           aria-label="Phase setup"
+          data-testid="phases-toggle-setup"
         >
           <mat-icon>tune</mat-icon>
         </button>
 
         @if (showTopNewSeriesButton()) {
-          <button mat-icon-button type="button" (click)="createSeries()" matTooltip="New phase series" aria-label="New phase series">
+          <button mat-icon-button type="button" (click)="createSeries()" matTooltip="New phase series" aria-label="New phase series" data-testid="phases-new-series">
             <mat-icon>add</mat-icon>
           </button>
         }
@@ -285,6 +288,7 @@
         [matMenuTriggerFor]="phaseActionsMenu"
         matTooltip="More phase actions"
         aria-label="More phase actions"
+        data-testid="phases-more-actions"
       >
         <mat-icon>more_horiz</mat-icon>
       </button>
@@ -296,6 +300,7 @@
           type="button"
           [disabled]="!canSaveSeries()"
           (click)="saveSeries()"
+          data-testid="phases-save-series"
         >
           <mat-icon>save</mat-icon>
           <span>{{ series.id === null ? 'Create' : 'Save Version' }}</span>
@@ -338,7 +343,7 @@
         <mat-option disabled>No phase series found</mat-option>
       } @else {
         @for (summary of seriesPickerOptions(); track trackSummary($index, summary)) {
-          <mat-option [value]="summary.id">
+          <mat-option [value]="summary.id" [attr.data-testid]="'phases-series-option-' + summary.id">
             <span class="phases-page__series-option">
               <strong>{{ summary.name }}</strong>
               <span>v{{ summary.version ?? 'draft' }} · {{ summary.phaseCount }} phases</span>
@@ -353,32 +358,32 @@
     </mat-autocomplete>
 
     @if (loading()) {
-      <mat-progress-bar class="phases-page__loading-bar" mode="indeterminate" />
+      <mat-progress-bar class="phases-page__loading-bar" mode="indeterminate" data-testid="phases-loading" />
     }
 
     @if (bridgeDropMessage(); as bridgeMessage) {
-      <div class="phases-page__toast is-warning" role="status">
+      <div class="phases-page__toast is-warning" role="status" data-testid="phases-bridge-drop-message">
         <mat-icon>warning</mat-icon>
         <span>{{ bridgeMessage }}</span>
       </div>
     }
 
     @if (errorMessage(); as error) {
-      <div class="phases-page__toast is-error" role="alert">
+      <div class="phases-page__toast is-error" role="alert" data-testid="phases-error-message">
         <mat-icon>error</mat-icon>
         <span>{{ error }}</span>
       </div>
     }
 
     @if (successMessage(); as success) {
-      <div class="phases-page__toast is-success" role="status">
+      <div class="phases-page__toast is-success" role="status" data-testid="phases-success-message">
         <mat-icon>check_circle</mat-icon>
         <span>{{ success }}</span>
       </div>
     }
 
     @if (bridgeDrag(); as drag) {
-      <div class="phases-page__drag-chip" [style.transform]="bridgeDragTransform(drag)">
+      <div class="phases-page__drag-chip" [style.transform]="bridgeDragTransform(drag)" data-testid="phases-bridge-drag-chip">
         <span>{{ drag.label }}</span>
         <small>{{ drag.propertyKind }}</small>
       </div>
@@ -388,6 +393,7 @@
       <button
         type="button"
         class="phases-page__panel-backdrop"
+        data-testid="phases-setup-backdrop"
         aria-label="Close phase setup"
         (click)="closePhasePanel()"
       ></button>
@@ -395,6 +401,7 @@
 
     <aside
       class="phases-page__phase-panel"
+      data-testid="phases-setup-panel"
       [class.is-open]="phasePanelOpen()"
       [attr.aria-hidden]="phasePanelOpen() ? null : 'true'"
       [attr.inert]="phasePanelOpen() ? null : ''"
@@ -411,6 +418,7 @@
           [disabled]="phaseSetupRequired()"
           (click)="closePhasePanel()"
           aria-label="Close phase setup"
+          data-testid="phases-close-setup"
         >
           <mat-icon>close</mat-icon>
         </button>
@@ -424,13 +432,14 @@
             [readonly]="series.id !== null"
             [value]="series.name"
             maxlength="100"
+            data-testid="phases-series-name-input"
             (input)="renameSelectedSeries($any($event.target).value)"
           />
         </mat-form-field>
 
-        <div class="phases-page__phase-list" aria-label="Series phases">
+        <div class="phases-page__phase-list" aria-label="Series phases" data-testid="phases-phase-list">
           @for (phase of series.phases; track trackPhase($index, phase); let index = $index) {
-            <article class="phases-page__phase-row">
+            <article class="phases-page__phase-row" data-testid="phases-phase-row" [attr.data-phase-id]="phase.phaseId" [attr.data-blueprint-id]="phase.blueprintDefinitionId">
               <span class="phases-page__phase-index">{{ index + 1 }}</span>
 
               <div class="phases-page__phase-copy">
@@ -446,6 +455,7 @@
                 <mat-select
                   [value]="phaseVersionValue(phase)"
                   (selectionChange)="changePhaseVersion(index, $event.value)"
+                  data-testid="phases-phase-version-select"
                 >
                   @for (option of blueprintVersionOptions(); track option.value) {
                     <mat-option [value]="option.value">{{ option.label }}</mat-option>
@@ -455,7 +465,7 @@
 
               <div class="phases-page__phase-actions">
                 @if (phaseHasUpdate(phase)) {
-                  <button mat-icon-button type="button" (click)="updatePhaseToLatest(index)" matTooltip="Update to latest" aria-label="Update to latest">
+                  <button mat-icon-button type="button" (click)="updatePhaseToLatest(index)" matTooltip="Update to latest" aria-label="Update to latest" data-testid="phases-update-phase-latest">
                     <mat-icon>upgrade</mat-icon>
                   </button>
                 }
@@ -466,6 +476,7 @@
                   [matTooltip]="'Edit ' + phaseVersionLabel(phase)"
                   (click)="editPhaseBlueprint(phase)"
                   aria-label="Edit phase blueprint"
+                  data-testid="phases-edit-phase-blueprint"
                 >
                   <mat-icon>edit</mat-icon>
                 </button>
@@ -476,6 +487,7 @@
                   [disabled]="index === 0"
                   (click)="movePhase(index, -1)"
                   aria-label="Move phase earlier"
+                  data-testid="phases-move-phase-earlier"
                 >
                   <mat-icon>arrow_upward</mat-icon>
                 </button>
@@ -486,6 +498,7 @@
                   [disabled]="index === series.phases.length - 1"
                   (click)="movePhase(index, 1)"
                   aria-label="Move phase later"
+                  data-testid="phases-move-phase-later"
                 >
                   <mat-icon>arrow_downward</mat-icon>
                 </button>
@@ -496,6 +509,7 @@
                   [disabled]="series.phases.length <= 2"
                   (click)="removePhase(index)"
                   aria-label="Remove phase"
+                  data-testid="phases-remove-phase"
                 >
                   <mat-icon>delete</mat-icon>
                 </button>
@@ -506,7 +520,7 @@
           @if (series.phases.length < 4) {
             <mat-form-field appearance="outline" class="phases-page__add-phase-field">
               <mat-label>Add phase</mat-label>
-              <mat-select [value]="addPhaseSelection()" (selectionChange)="addPhaseFromSelection($event.value)">
+              <mat-select [value]="addPhaseSelection()" (selectionChange)="addPhaseFromSelection($event.value)" data-testid="phases-add-phase-select">
                 @for (option of blueprintVersionOptions(); track option.value) {
                   <mat-option [value]="option.value">{{ option.label }}</mat-option>
                 }
@@ -516,7 +530,7 @@
         </div>
 
         @if (validationMessages().length > 0) {
-          <div class="phases-page__issues">
+          <div class="phases-page__issues" data-testid="phases-validation-messages">
             @for (message of validationMessages(); track message) {
               <div class="phases-page__issue">
                 <mat-icon>warning</mat-icon>
@@ -526,10 +540,10 @@
           </div>
         }
       } @else {
-        <div class="phases-page__panel-empty">
+        <div class="phases-page__panel-empty" data-testid="phases-setup-empty">
           <mat-icon>timeline</mat-icon>
           <span>Create or open a phase series first.</span>
-          <button mat-flat-button type="button" (click)="createSeries()">
+          <button mat-flat-button type="button" (click)="createSeries()" data-testid="phases-panel-new-series">
             <mat-icon>add</mat-icon>
             New phase series
           </button>

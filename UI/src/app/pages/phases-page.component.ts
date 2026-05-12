@@ -24,12 +24,16 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Router } from '@angular/router';
 import { firstValueFrom, forkJoin } from 'rxjs';
+import { BlueprintCanvasComponent } from '../components/blueprint-canvas.component';
 import {
-  BlueprintCanvasComponent,
+  BlueprintCanvasEvent,
+  BlueprintCanvasGraph,
+  BlueprintCanvasRuntime,
+  BlueprintCanvasSelection,
   CanvasInputPropertyHit,
   CanvasOutputPropertyDragEvent,
   CanvasViewportInsets,
-} from '../components/blueprint-canvas.component';
+} from '../components/blueprint-canvas-contract';
 import {
   BlueprintEditorService,
   BlueprintViewModel,
@@ -42,10 +46,13 @@ import {
   PhasedBlueprintViewModel,
 } from '../domain/blueprint-editor.service';
 import { ConnectionModel } from '../domain/connection-model';
-import { NodeModel, TaskPropertyType } from '../domain/node-model';
+import { NodeModel } from '../domain/node-model';
+import { PhaseSplitMode, normalizeBridgePosition as normalizePhaseBridgePosition } from '../domain/phase-bridge-geometry';
+import { PhaseBridgeController } from '../domain/phase-bridge-controller';
+import { PhaseBridgeCurveFactory } from '../domain/phase-bridge-curve-factory';
+import { PhaseCanvasPairPresenter } from '../domain/phase-canvas-pair-presenter';
 import {
   DataBridgeMappingDraft,
-  DataBridgeSourceProperty,
   PhaseSeriesCanvasModel,
   PhaseSeriesPhaseCanvas,
   PhaseSeriesTransitionCanvas,
@@ -62,6 +69,13 @@ import {
 } from '../domain/phase-series-canvas';
 import { TaskDefinitionsService } from '../domain/task-definitions.service';
 import { ITaskDefinition } from '../interfaces/ITaskDefinition';
+import {
+  PhaseBridgeCurve,
+  PhaseBridgeDragState,
+  PhaseBridgeGuidance,
+  PhaseBridgeSelection,
+  PhaseWorkbenchDomRect,
+} from '../domain/phase-workbench-contract';
 
 interface EditablePhaseSeries extends PhaseSeriesCanvasModel {
   id: number | null;
@@ -89,52 +103,10 @@ interface BlueprintVersionOption {
   label: string;
 }
 
-interface BridgeDragState {
-  kind: 'source-output' | 'bridge-output';
-  clientX: number;
-  clientY: number;
-  label: string;
-  propertyKind: TaskPropertyType;
-  mappingId: string | null;
-  bridgePosition?: number | null;
-  sourceNodeId?: number | null;
-  sourceBlueprintNodeId?: string | null;
-  sourceNodeName?: string | null;
-  sourceChannelName?: string | null;
-  sourceProperty?: string | null;
-}
-
-interface BridgeSelection {
-  mappingId: string;
-  side: 'source' | 'destination';
-}
-
-interface BridgeCurve {
-  id: string;
-  mappingId: string;
-  side: BridgeSelection['side'];
-  path: string;
-  state: 'complete' | 'incomplete' | 'issue' | 'preview';
-}
-
-type BridgeCurveOutwardSide = 'left' | 'right';
-
-type PhaseSplitMode = 'horizontal' | 'vertical';
-
-interface BridgeCurvePathOptions {
-  startOutward?: BridgeCurveOutwardSide;
-  endOutward?: BridgeCurveOutwardSide;
-}
-
-type BridgeGuidanceTone = 'neutral' | 'info' | 'warning' | 'success';
-
-interface BridgeGuidance {
-  icon: string;
-  text: string;
-  tone: BridgeGuidanceTone;
-}
-
-const BRIDGE_NODE_PROTRUSION = 34;
+type BridgeDragState = PhaseBridgeDragState;
+type BridgeSelection = PhaseBridgeSelection;
+type BridgeCurve = PhaseBridgeCurve;
+type BridgeGuidance = PhaseBridgeGuidance;
 
 @Component({
   selector: 'app-phases-page',
@@ -165,7 +137,9 @@ export class PhasesPageComponent implements OnDestroy {
   private readonly bridgeDivider = viewChild<ElementRef<HTMLElement>>('bridgeDivider');
   private readonly seriesPickerInput = viewChild<ElementRef<HTMLInputElement>>('seriesPickerInput');
   private readonly seriesPickerTrigger = viewChild(MatAutocompleteTrigger);
-  private bridgeOutputDragCleanup: (() => void) | null = null;
+  private readonly canvasPairPresenter = new PhaseCanvasPairPresenter();
+  private readonly bridgeCurveFactory = new PhaseBridgeCurveFactory();
+  private readonly bridgeController = new PhaseBridgeController(() => this.scheduleBridgeLineRefresh());
   private bridgeLineFrameId: number | null = null;
 
   protected readonly seriesSearch = new FormControl('', { nonNullable: true });
@@ -178,10 +152,10 @@ export class PhasesPageComponent implements OnDestroy {
   protected readonly phasePanelOpen = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly successMessage = signal<string | null>(null);
-  protected readonly bridgeDropMessage = signal<string | null>(null);
-  protected readonly bridgeDrag = signal<BridgeDragState | null>(null);
-  protected readonly bridgePreviewPosition = signal<number | null>(null);
-  protected readonly selectedBridgeConnection = signal<BridgeSelection | null>(null);
+  protected readonly bridgeDropMessage = this.bridgeController.dropMessage;
+  protected readonly bridgeDrag = this.bridgeController.drag;
+  protected readonly bridgePreviewPosition = this.bridgeController.previewPosition;
+  protected readonly selectedBridgeConnection = this.bridgeController.selection;
   protected readonly bridgeCurves = signal<BridgeCurve[]>([]);
   protected readonly bridgeDragCurve = signal<string | null>(null);
   protected readonly blueprints = signal<BlueprintViewModel[]>([]);
@@ -192,7 +166,6 @@ export class PhasesPageComponent implements OnDestroy {
   protected readonly phaseCanvasRevision = signal(0);
   protected readonly splitMode = signal<PhaseSplitMode>('horizontal');
 
-  protected readonly canvasBackgroundEffect = 'stitch' as const;
   protected readonly sourceCanvasViewportInsets = computed<CanvasViewportInsets>(() => ({
     top: 42,
     right: 78,
@@ -205,6 +178,12 @@ export class PhasesPageComponent implements OnDestroy {
     bottom: 42,
     left: 32,
   }));
+  protected readonly sourceCanvasRuntime = computed<BlueprintCanvasRuntime>(() =>
+    this.canvasPairPresenter.sourceRuntime(this.sourceCanvasViewportInsets()));
+  protected readonly destinationCanvasRuntime = computed<BlueprintCanvasRuntime>(() =>
+    this.canvasPairPresenter.destinationRuntime(this.destinationCanvasViewportInsets()));
+  protected readonly phaseCanvasSelection = computed<BlueprintCanvasSelection>(() =>
+    this.canvasPairPresenter.selection());
 
   protected readonly blueprintVersionOptions = computed<BlueprintVersionOption[]>(() =>
     [...this.blueprints()]
@@ -312,75 +291,14 @@ export class PhasesPageComponent implements OnDestroy {
     this.activeTransition()?.mappings.filter((mapping) => !mapping.targetProperty).length ?? 0,
   );
 
-  protected readonly bridgeMappingCountLabel = computed(() => {
-    const count = this.bridgeMappingCount();
-    if (count === 0) {
-      return null;
-    }
+  protected readonly bridgeMappingCountLabel = computed(() =>
+    this.bridgeController.mappingCountLabel(this.bridgeMappingCount(), this.incompleteBridgeMappingCount()));
 
-    if (this.incompleteBridgeMappingCount() === 0) {
-      return count === 1 ? '1 completed mapping' : `${count} completed mappings`;
-    }
+  protected readonly bridgeGuidance = computed<BridgeGuidance>(() =>
+    this.bridgeController.guidance(this.bridgeMappingCount(), this.incompleteBridgeMappingCount()));
 
-    return count === 1 ? '1 staged mapping' : `${count} staged mappings`;
-  });
-
-  protected readonly bridgeGuidance = computed<BridgeGuidance>(() => {
-    const dropMessage = this.bridgeDropMessage();
-    if (dropMessage) {
-      return {
-        icon: 'warning',
-        text: dropMessage,
-        tone: 'warning',
-      };
-    }
-
-    const drag = this.bridgeDrag();
-    if (drag?.kind === 'source-output') {
-      return {
-        icon: 'vertical_align_center',
-        text: 'Drop to stage this property.',
-        tone: 'info',
-      };
-    }
-
-    if (drag?.kind === 'bridge-output') {
-      return {
-        icon: 'input',
-        text: 'Drop on a compatible destination input.',
-        tone: 'info',
-      };
-    }
-
-    if (this.bridgeMappingCount() > 0) {
-      if (this.incompleteBridgeMappingCount() === 0) {
-        return {
-          icon: 'check_circle',
-          text: this.bridgeMappingCount() === 1 ? 'Mapping complete.' : 'Mappings complete.',
-          tone: 'success',
-        };
-      }
-
-      return {
-        icon: 'hub',
-        text: 'Drag the lower handle to a compatible destination input.',
-        tone: 'warning',
-      };
-    }
-
-    return {
-      icon: 'drag_indicator',
-      text: 'Drag an expanded source output here.',
-      tone: 'neutral',
-    };
-  });
-
-  protected readonly bridgeGuidanceLabel = computed(() => {
-    const countLabel = this.bridgeMappingCountLabel();
-    return countLabel
-      ? `${this.bridgeGuidance().text} ${countLabel}.`
-      : this.bridgeGuidance().text;
-  });
+  protected readonly bridgeGuidanceLabel = computed(() =>
+    this.bridgeController.guidanceLabel(this.bridgeMappingCount(), this.incompleteBridgeMappingCount()));
 
   protected readonly phaseSetupRequired = computed(() => {
     const series = this.selectedSeries();
@@ -776,16 +694,13 @@ export class PhasesPageComponent implements OnDestroy {
   }
 
   protected onSourceBridgeDragStarted(event: CanvasOutputPropertyDragEvent): void {
-    this.bridgeDropMessage.set(null);
     const bridgePosition = this.bridgePositionFromClientPoint(event.clientX, event.clientY);
-    this.bridgePreviewPosition.set(bridgePosition);
-    this.setBridgeDrag(this.createSourceDragState(event, bridgePosition));
+    this.bridgeController.startSourceDrag(event, bridgePosition);
   }
 
   protected onSourceBridgeDragMoved(event: CanvasOutputPropertyDragEvent): void {
     const bridgePosition = this.bridgePositionFromClientPoint(event.clientX, event.clientY);
-    this.bridgePreviewPosition.set(bridgePosition);
-    this.setBridgeDrag(this.createSourceDragState(event, bridgePosition));
+    this.bridgeController.moveSourceDrag(event, bridgePosition);
   }
 
   protected onSourceBridgeDragEnded(event: CanvasOutputPropertyDragEvent): void {
@@ -793,48 +708,14 @@ export class PhasesPageComponent implements OnDestroy {
   }
 
   protected cancelBridgeDrag(): void {
-    this.stopBridgeOutputDragListeners();
-    this.setBridgeDrag(null);
-    this.bridgePreviewPosition.set(null);
-    this.bridgeDropMessage.set(null);
+    this.bridgeController.cancelDrag();
   }
 
   protected startBridgeOutputDrag(event: PointerEvent, mapping: DataBridgeMappingDraft): void {
-    event.preventDefault();
-    event.stopPropagation();
-    this.bridgeDropMessage.set(null);
-    this.stopBridgeOutputDragListeners();
-    this.setBridgeDrag(this.createBridgeOutputDragState(mapping, event.clientX, event.clientY));
-
-    const startClientX = event.clientX;
-    const startClientY = event.clientY;
-    let movedBeyondClick = false;
-    const onMove = (moveEvent: PointerEvent) => {
-      movedBeyondClick ||= Math.abs(moveEvent.clientX - startClientX) > 3 || Math.abs(moveEvent.clientY - startClientY) > 3;
-      this.setBridgeDrag(this.createBridgeOutputDragState(mapping, moveEvent.clientX, moveEvent.clientY));
-    };
-    const onUp = (upEvent: PointerEvent) => {
-      if (!movedBeyondClick) {
-        this.stopBridgeOutputDragListeners();
-        this.setBridgeDrag(null);
-        this.selectBridgeConnection(mapping.id, 'destination');
-        return;
-      }
-
-      this.finishBridgeOutputDrag(mapping.id, upEvent.clientX, upEvent.clientY, false);
-    };
-    const onCancel = (cancelEvent: PointerEvent) => {
-      this.finishBridgeOutputDrag(mapping.id, cancelEvent.clientX, cancelEvent.clientY, true);
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp, { once: true });
-    window.addEventListener('pointercancel', onCancel, { once: true });
-    this.bridgeOutputDragCleanup = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onCancel);
-      this.bridgeOutputDragCleanup = null;
-    };
+    this.bridgeController.startBridgeOutputDrag(event, mapping, {
+      complete: (mappingId, clientX, clientY, cancelled) =>
+        this.finishBridgeOutputDrag(mappingId, clientX, clientY, cancelled),
+    });
   }
 
   protected clearMappingTarget(mappingId: string): void {
@@ -851,33 +732,52 @@ export class PhasesPageComponent implements OnDestroy {
     this.scheduleBridgeLineRefresh();
   }
 
+  protected phaseCanvasGraph(phase: PhaseSeriesPhaseCanvas): BlueprintCanvasGraph {
+    return this.canvasPairPresenter.graph(phase, this.phaseCanvasRevision());
+  }
+
+  protected onSourceCanvasEvent(event: BlueprintCanvasEvent): void {
+    this.canvasPairPresenter.handleSourceEvent(event, {
+      viewportChanged: () => this.onCanvasViewportChanged(),
+      sourceDragStarted: (drag) => this.onSourceBridgeDragStarted(drag),
+      sourceDragMoved: (drag) => this.onSourceBridgeDragMoved(drag),
+      sourceDragEnded: (drag) => this.onSourceBridgeDragEnded(drag),
+    });
+  }
+
+  protected onDestinationCanvasEvent(event: BlueprintCanvasEvent): void {
+    this.canvasPairPresenter.handleDestinationEvent(event, {
+      viewportChanged: () => this.onCanvasViewportChanged(),
+    });
+  }
+
   protected resetSourceView(): void {
-    this.sourceCanvas()?.resetView();
+    this.canvasPairPresenter.reset(this.sourceCanvas());
   }
 
   protected zoomSourceIn(): void {
-    this.sourceCanvas()?.zoomIn();
+    this.canvasPairPresenter.zoomIn(this.sourceCanvas());
   }
 
   protected zoomSourceOut(): void {
-    this.sourceCanvas()?.zoomOut();
+    this.canvasPairPresenter.zoomOut(this.sourceCanvas());
   }
 
   protected resetDestinationView(): void {
-    this.destinationCanvas()?.resetView();
+    this.canvasPairPresenter.reset(this.destinationCanvas());
   }
 
   protected zoomDestinationIn(): void {
-    this.destinationCanvas()?.zoomIn();
+    this.canvasPairPresenter.zoomIn(this.destinationCanvas());
   }
 
   protected zoomDestinationOut(): void {
-    this.destinationCanvas()?.zoomOut();
+    this.canvasPairPresenter.zoomOut(this.destinationCanvas());
   }
 
   protected resetBothCanvases(): void {
-    this.sourceCanvas()?.resetView();
-    this.destinationCanvas()?.resetView();
+    this.canvasPairPresenter.reset(this.sourceCanvas());
+    this.canvasPairPresenter.reset(this.destinationCanvas());
   }
 
   protected phaseVersionValue(phase: PhaseSeriesPhaseCanvas): string | null {
@@ -953,7 +853,7 @@ export class PhasesPageComponent implements OnDestroy {
   }
 
   protected bridgePreviewPositionPercent(position: number | null | undefined): number {
-    return this.normalizeBridgePosition(position) * 100;
+    return normalizePhaseBridgePosition(position) * 100;
   }
 
   protected selectBridgeConnection(
@@ -963,16 +863,15 @@ export class PhasesPageComponent implements OnDestroy {
   ): void {
     event?.preventDefault();
     event?.stopPropagation();
-    this.selectedBridgeConnection.set({ mappingId, side });
+    this.bridgeController.select(mappingId, side);
   }
 
   protected clearBridgeSelection(): void {
-    this.selectedBridgeConnection.set(null);
+    this.bridgeController.clearSelection();
   }
 
   protected isBridgeAnchorSelected(mappingId: string, side: BridgeSelection['side']): boolean {
-    const selection = this.selectedBridgeConnection();
-    return selection?.mappingId === mappingId && selection.side === side;
+    return this.bridgeController.isAnchorSelected(mappingId, side);
   }
 
   protected isBridgeCurveSelected(curve: BridgeCurve): boolean {
@@ -1104,17 +1003,15 @@ export class PhasesPageComponent implements OnDestroy {
   }
 
   private finishBridgeOutputDrag(mappingId: string, clientX: number, clientY: number, cancelled: boolean): void {
-    this.stopBridgeOutputDragListeners();
-    this.setBridgeDrag(null);
-    if (cancelled) {
+    if (!this.bridgeController.prepareDestinationDrop(cancelled)) {
       return;
     }
 
     const destinationPhase = this.activeDestinationPhase();
-    const target = this.destinationCanvas()?.hitTestInputPropertyAtClientPoint(clientX, clientY) ?? null;
+    const target = this.destinationCanvas()?.bridge.hitTestInputPropertyAtClientPoint(clientX, clientY) ?? null;
     const transition = this.activeTransition();
     if (!destinationPhase || !target || !transition) {
-      this.bridgeDropMessage.set('Drop on a compatible destination input.');
+      this.bridgeController.rejectDestinationDrop();
       return;
     }
 
@@ -1125,13 +1022,12 @@ export class PhasesPageComponent implements OnDestroy {
       this.createTargetProperty(target),
     );
     if (!result.accepted) {
-      this.bridgeDropMessage.set('Drop on a compatible destination input.');
+      this.bridgeController.rejectDestinationDrop();
       return;
     }
 
     this.updateActiveTransition(() => result.transition);
-    this.selectBridgeConnection(mappingId, 'destination');
-    this.bridgeDropMessage.set(null);
+    this.bridgeController.acceptDestinationDrop(mappingId);
   }
 
   private finishSourceBridgeDrag(
@@ -1140,40 +1036,18 @@ export class PhasesPageComponent implements OnDestroy {
     cancelled: boolean,
     event?: CanvasOutputPropertyDragEvent,
   ): void {
-    const drag = this.bridgeDrag();
-    if (drag?.kind !== 'source-output' && !event) {
-      return;
-    }
-
     const bridgePosition = this.bridgePositionFromClientPoint(clientX, clientY);
-    this.setBridgeDrag(null);
-    this.bridgePreviewPosition.set(null);
-    if (cancelled) {
-      return;
+    const result = this.bridgeController.finishSourceDrag({
+      clientX,
+      clientY,
+      cancelled,
+      bridgePosition,
+      event,
+    });
+    if (result.kind === 'stageSource') {
+      this.updateActiveTransition((transition) =>
+        upsertDataBridgeSourceMapping(transition, result.source, result.bridgePosition));
     }
-
-    if (bridgePosition === null) {
-      this.bridgeDropMessage.set('Drop on the bridge.');
-      return;
-    }
-
-    const sourceProperty = event?.propertyName ?? drag?.sourceProperty ?? null;
-    if (!sourceProperty) {
-      this.bridgeDropMessage.set('Drop on the bridge.');
-      return;
-    }
-
-    const source: DataBridgeSourceProperty = {
-      sourceNodeId: event?.nodeId ?? drag?.sourceNodeId ?? null,
-      sourceBlueprintNodeId: event?.nodeInstanceId ?? drag?.sourceBlueprintNodeId ?? null,
-      sourceNodeName: event?.nodeName ?? drag?.sourceNodeName ?? drag?.label ?? 'Source',
-      sourceChannelName: event?.channelName ?? drag?.sourceChannelName ?? null,
-      sourceProperty,
-      propertyKind: event?.propertyKind ?? drag?.propertyKind ?? 'String',
-    };
-    this.updateActiveTransition((transition) => upsertDataBridgeSourceMapping(transition, source, bridgePosition));
-    this.bridgeDropMessage.set(null);
-    this.scheduleBridgeLineRefresh();
   }
 
   private createTargetProperty(hit: CanvasInputPropertyHit) {
@@ -1305,86 +1179,29 @@ export class PhasesPageComponent implements OnDestroy {
   }
 
   private deleteSelectedBridgeConnection(): void {
-    const selection = this.selectedBridgeConnection();
-    if (!selection) {
+    const effect = this.bridgeController.deleteSelectionEffect();
+    if (!effect) {
       return;
     }
 
-    if (selection.side === 'source') {
-      this.updateActiveTransition((transition) => removeDataBridgeMapping(transition, selection.mappingId));
+    if (effect.kind === 'removeMapping') {
+      this.updateActiveTransition((transition) => removeDataBridgeMapping(transition, effect.mappingId));
     } else {
-      this.updateActiveTransition((transition) => clearDataBridgeMappingTarget(transition, selection.mappingId));
+      this.updateActiveTransition((transition) => clearDataBridgeMappingTarget(transition, effect.mappingId));
     }
-
-    this.clearBridgeSelection();
   }
 
   private bridgePositionFromClientPoint(clientX: number, clientY: number): number | null {
-    const element = this.bridgeDivider()?.nativeElement;
-    if (!element) {
-      return null;
-    }
-
-    const rect = element.getBoundingClientRect();
-    if (this.splitMode() === 'vertical') {
-      const horizontalHitSlop = 24;
-      if (clientX < rect.left - horizontalHitSlop || clientX > rect.right + horizontalHitSlop) {
-        return null;
-      }
-
-      if (clientY < rect.top || clientY > rect.bottom || rect.height <= 0) {
-        return null;
-      }
-
-      return this.normalizeBridgePosition((clientY - rect.top) / rect.height);
-    }
-
-    const verticalHitSlop = 24;
-    if (clientY < rect.top - verticalHitSlop || clientY > rect.bottom + verticalHitSlop) {
-      return null;
-    }
-
-    if (clientX < rect.left || clientX > rect.right || rect.width <= 0) {
-      return null;
-    }
-
-    return this.normalizeBridgePosition((clientX - rect.left) / rect.width);
-  }
-
-  private createSourceDragState(
-    event: CanvasOutputPropertyDragEvent,
-    bridgePosition: number | null,
-  ): BridgeDragState {
-    return {
-      kind: 'source-output',
-      clientX: event.clientX,
-      clientY: event.clientY,
-      label: `${event.nodeName}.${event.propertyName}`,
-      propertyKind: event.propertyKind,
-      mappingId: null,
-      bridgePosition,
-      sourceNodeId: event.nodeId,
-      sourceBlueprintNodeId: event.nodeInstanceId,
-      sourceNodeName: event.nodeName,
-      sourceChannelName: event.channelName,
-      sourceProperty: event.propertyName,
-    };
-  }
-
-  private createBridgeOutputDragState(mapping: DataBridgeMappingDraft, clientX: number, clientY: number): BridgeDragState {
-    return {
-      kind: 'bridge-output',
+    return this.bridgeCurveFactory.bridgePositionFromClientPoint(
       clientX,
       clientY,
-      label: mapping.sourceProperty,
-      propertyKind: mapping.propertyKind,
-      mappingId: mapping.id,
-    };
+      this.bridgeDividerRect(),
+      this.splitMode(),
+    );
   }
 
   private setBridgeDrag(drag: BridgeDragState | null): void {
-    this.bridgeDrag.set(drag);
-    this.scheduleBridgeLineRefresh();
+    this.bridgeController.setDrag(drag);
   }
 
   private scheduleBridgeLineRefresh(): void {
@@ -1399,97 +1216,26 @@ export class PhasesPageComponent implements OnDestroy {
   }
 
   private refreshBridgeLines(): void {
-    const workbenchElement = this.workbench()?.nativeElement;
-    const transition = this.activeTransition();
-    if (!workbenchElement || !transition) {
+    const workbenchRect = this.workbenchRect();
+    const dividerRect = this.bridgeDividerRect();
+    if (!workbenchRect || !dividerRect) {
       this.bridgeCurves.set([]);
       this.bridgeDragCurve.set(null);
       return;
     }
 
-    const curves: BridgeCurve[] = [];
-    const sourceCanvas = this.sourceCanvas();
-    const destinationCanvas = this.destinationCanvas();
-    for (const mapping of transition.mappings) {
-      const sourcePoint = mapping.sourceNodeId !== null && mapping.sourceChannelName !== null
-        ? this.visibleCanvasPoint(sourceCanvas, sourceCanvas?.outputPropertyClientPoint(
-            mapping.sourceNodeId,
-            mapping.sourceChannelName,
-            mapping.sourceProperty,
-          ) ?? null)
-        : null;
-      const bridgeInputPoint = this.bridgeAnchorClientPoint('input', mapping.id);
-      if (sourcePoint && bridgeInputPoint) {
-        curves.push({
-          id: `${mapping.id}:input`,
-          mappingId: mapping.id,
-          side: 'source',
-          path: this.createBridgeCurvePath(workbenchElement, sourcePoint, bridgeInputPoint, {
-            startOutward: 'right',
-          }),
-          state: this.mappingIssueMessage(mapping.id) ? 'issue' : 'complete',
-        });
-      }
-
-      const bridgeOutputPoint = this.bridgeAnchorClientPoint('output', mapping.id);
-      const targetPoint = mapping.targetNodeId !== null && mapping.targetProperty
-        ? this.visibleCanvasPoint(
-            destinationCanvas,
-            destinationCanvas?.inputPropertyClientPoint(mapping.targetNodeId, mapping.targetProperty) ?? null,
-          )
-        : null;
-      if (bridgeOutputPoint && targetPoint) {
-        curves.push({
-          id: `${mapping.id}:output`,
-          mappingId: mapping.id,
-          side: 'destination',
-          path: this.createBridgeCurvePath(workbenchElement, bridgeOutputPoint, targetPoint, {
-            endOutward: 'left',
-          }),
-          state: this.mappingIssueMessage(mapping.id) ? 'issue' : 'complete',
-        });
-      }
-    }
-
-    this.bridgeCurves.set(curves);
-    this.bridgeDragCurve.set(this.createBridgeDragCurvePath(workbenchElement));
-  }
-
-  private createBridgeDragCurvePath(workbenchElement: HTMLElement): string | null {
-    const drag = this.bridgeDrag();
-    if (!drag) {
-      return null;
-    }
-
-    if (drag.kind === 'source-output' && drag.sourceNodeId !== undefined && drag.sourceChannelName !== undefined && drag.sourceProperty) {
-      const sourceCanvas = this.sourceCanvas();
-      const sourcePoint = this.visibleCanvasPoint(sourceCanvas, sourceCanvas?.outputPropertyClientPoint(
-        drag.sourceNodeId ?? -1,
-        drag.sourceChannelName,
-        drag.sourceProperty,
-      ) ?? null);
-      const endPoint = drag.bridgePosition === null || drag.bridgePosition === undefined
-        ? { clientX: drag.clientX, clientY: drag.clientY }
-        : this.bridgeClientPoint('input', drag.bridgePosition);
-      return sourcePoint && endPoint
-        ? this.createBridgeCurvePath(workbenchElement, sourcePoint, endPoint, { startOutward: 'right' })
-        : null;
-    }
-
-    if (drag.kind === 'bridge-output' && drag.mappingId) {
-      const bridgeOutputPoint = this.bridgeAnchorClientPoint('output', drag.mappingId);
-      const endPoint = { clientX: drag.clientX, clientY: drag.clientY };
-      return bridgeOutputPoint ? this.createBridgeCurvePath(workbenchElement, bridgeOutputPoint, endPoint) : null;
-    }
-
-    return null;
-  }
-
-  private visibleCanvasPoint(
-    canvas: BlueprintCanvasComponent | undefined,
-    point: { clientX: number; clientY: number } | null,
-  ): { clientX: number; clientY: number } | null {
-    return canvas && point && canvas.containsClientPoint(point) ? point : null;
+    const plan = this.bridgeCurveFactory.createCurvePlan({
+      workbenchRect,
+      dividerRect,
+      splitMode: this.splitMode(),
+      transition: this.activeTransition(),
+      drag: this.bridgeDrag(),
+      sourceCanvas: this.sourceCanvas(),
+      destinationCanvas: this.destinationCanvas(),
+      mappingIssueMessage: (mappingId) => this.mappingIssueMessage(mappingId),
+    });
+    this.bridgeCurves.set([...plan.curves]);
+    this.bridgeDragCurve.set(plan.dragCurve);
   }
 
   private bridgeAnchorClientPoint(kind: 'input' | 'output', mappingId: string): { clientX: number; clientY: number } | null {
@@ -1498,74 +1244,27 @@ export class PhasesPageComponent implements OnDestroy {
   }
 
   private bridgeClientPoint(kind: 'input' | 'output', bridgePosition: number): { clientX: number; clientY: number } | null {
-    const divider = this.bridgeDivider()?.nativeElement;
-    if (!divider) {
-      return null;
-    }
-
-    const rect = divider.getBoundingClientRect();
-    if (this.splitMode() === 'vertical') {
-      return {
-        clientX: kind === 'input' ? rect.left : rect.right,
-        clientY: rect.top + rect.height * this.normalizeBridgePosition(bridgePosition),
-      };
-    }
-
-    return {
-      clientX: rect.left + rect.width * this.normalizeBridgePosition(bridgePosition),
-      clientY: kind === 'input' ? rect.top : rect.bottom,
-    };
+    return this.bridgeCurveFactory.bridgeClientPoint(kind, bridgePosition, this.bridgeDividerRect(), this.splitMode());
   }
 
   private createBridgeCurvePath(
-    workbenchElement: HTMLElement,
+    workbenchElement: HTMLElement | Pick<PhaseWorkbenchDomRect, 'left' | 'top'>,
     startClient: { clientX: number; clientY: number },
     endClient: { clientX: number; clientY: number },
-    options: BridgeCurvePathOptions = {},
+    options: Parameters<PhaseBridgeCurveFactory['createBridgeCurvePath']>[3] = {},
   ): string {
-    const start = this.toWorkbenchPoint(workbenchElement, startClient);
-    const end = this.toWorkbenchPoint(workbenchElement, endClient);
-    const direction = end.y >= start.y ? 1 : -1;
-    const verticalDistance = Math.abs(end.y - start.y);
-    const controlOffset = Math.max(42, Math.min(220, verticalDistance * 0.62));
-    const firstControl = options.startOutward
-      ? this.protrudeBridgeCurvePoint(start, options.startOutward)
-      : { x: start.x, y: start.y + controlOffset * direction };
-    const secondControl = options.endOutward
-      ? this.protrudeBridgeCurvePoint(end, options.endOutward)
-      : { x: end.x, y: end.y - controlOffset * direction };
-
-    return [
-      `M ${this.roundPathCoordinate(start.x)} ${this.roundPathCoordinate(start.y)}`,
-      `C ${this.roundPathCoordinate(firstControl.x)} ${this.roundPathCoordinate(firstControl.y)}`,
-      `${this.roundPathCoordinate(secondControl.x)} ${this.roundPathCoordinate(secondControl.y)}`,
-      `${this.roundPathCoordinate(end.x)} ${this.roundPathCoordinate(end.y)}`,
-    ].join(' ');
+    const workbenchRect = 'getBoundingClientRect' in workbenchElement
+      ? workbenchElement.getBoundingClientRect()
+      : workbenchElement;
+    return this.bridgeCurveFactory.createBridgeCurvePath(workbenchRect, startClient, endClient, options);
   }
 
-  private protrudeBridgeCurvePoint(
-    point: { x: number; y: number },
-    side: BridgeCurveOutwardSide,
-  ): { x: number; y: number } {
-    return {
-      x: point.x + (side === 'right' ? BRIDGE_NODE_PROTRUSION : -BRIDGE_NODE_PROTRUSION),
-      y: point.y,
-    };
+  private workbenchRect(): Pick<PhaseWorkbenchDomRect, 'left' | 'top'> | null {
+    return this.workbench()?.nativeElement.getBoundingClientRect() ?? null;
   }
 
-  private toWorkbenchPoint(
-    workbenchElement: HTMLElement,
-    point: { clientX: number; clientY: number },
-  ): { x: number; y: number } {
-    const rect = workbenchElement.getBoundingClientRect();
-    return {
-      x: point.clientX - rect.left,
-      y: point.clientY - rect.top,
-    };
-  }
-
-  private roundPathCoordinate(value: number): number {
-    return Math.round(value * 10) / 10;
+  private bridgeDividerRect(): PhaseWorkbenchDomRect | null {
+    return this.bridgeDivider()?.nativeElement.getBoundingClientRect() ?? null;
   }
 
   private requestBridgeLineFrame(callback: FrameRequestCallback): number {
@@ -1583,14 +1282,6 @@ export class PhasesPageComponent implements OnDestroy {
     globalThis.clearTimeout(frameId);
   }
 
-  private normalizeBridgePosition(value: number | null | undefined): number {
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
-      return 0.5;
-    }
-
-    return Math.min(1, Math.max(0, value));
-  }
-
   private isEditableTarget(target: EventTarget | null): boolean {
     if (typeof HTMLElement === 'undefined' || !(target instanceof HTMLElement)) {
       return false;
@@ -1600,7 +1291,7 @@ export class PhasesPageComponent implements OnDestroy {
   }
 
   private stopBridgeOutputDragListeners(): void {
-    this.bridgeOutputDragCleanup?.();
+    this.bridgeController.stopOutputDragListeners();
   }
 
   private blueprintVersionValue(blueprintId: number, versionId: number): string {

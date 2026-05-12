@@ -44,6 +44,11 @@ import { TaskDefinitionsService } from '../domain/task-definitions.service';
 import { ITaskDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
 import { BlueprintCanvasComponent } from '../components/blueprint-canvas.component';
 import type {
+  BlueprintCanvasEvent,
+  BlueprintCanvasGraph,
+  BlueprintCanvasRuntime,
+  BlueprintCanvasSelection,
+  BlueprintCanvasValidation,
   CanvasValidationFocus,
   CanvasValidationIssueMarker,
   CanvasViewportInsets,
@@ -63,6 +68,7 @@ import {
   BlueprintValidationIssue,
   validateBlueprintGraph,
 } from '../domain/blueprint-validation';
+import { applyBlueprintCanvasStoreEvent } from '../domain/blueprint-canvas-store-action-utility';
 
 interface TaskLibraryItem {
   kind: 'plugin' | 'collectionIterator';
@@ -163,6 +169,7 @@ export class BlueprintEditorPageComponent {
 
   protected readonly blueprintNameMaxLength = BLUEPRINT_NAME_MAX_LENGTH;
   protected readonly saving = signal(false);
+  protected readonly saveErrorMessage = signal<string | null>(null);
   protected readonly saveHovered = signal(false);
   protected readonly versionPinNotice = signal(false);
   protected readonly validationErrorPulse = signal(false);
@@ -198,6 +205,11 @@ export class BlueprintEditorPageComponent {
     initialValue: this.pluginLibrarySearch.value,
   });
   protected readonly zoomPercent = computed(() => this.canvasViewport()?.zoomPercent() ?? 100);
+  protected readonly canvasGraph = computed<BlueprintCanvasGraph>(() => ({
+    nodes: this.editorStore.nodes(),
+    connections: this.editorStore.connections(),
+    revision: this.editorStore.graphRevision(),
+  }));
   protected readonly canvasViewportInsets = computed<CanvasViewportInsets>(() => ({
     top: 96,
     right: this.drawerCollapsed()
@@ -208,7 +220,24 @@ export class BlueprintEditorPageComponent {
     bottom: 96,
     left: 24,
   }));
-  private readonly canvasRouteValidationErrors = computed(() => this.canvasViewport()?.routeValidationErrors() ?? []);
+  protected readonly canvasRuntime = computed<BlueprintCanvasRuntime>(() => ({
+    mode: 'edit',
+    backgroundEffect: this.canvasBackgroundEffect,
+    connectionPresentation: 'normal',
+    viewportInsets: this.canvasViewportInsets(),
+  }));
+  protected readonly canvasSelection = computed<BlueprintCanvasSelection>(() => ({
+    selectedNodeIds: this.editorStore.selectedNodeIds(),
+    selectedConnectionIds: this.editorStore.selectedConnectionIds(),
+    readonlySelectedNodeId: null,
+    canvasFocused: this.editorStore.canvasFocused(),
+    modifiers: this.editorStore.modifiers(),
+  }));
+  protected readonly canvasValidation = computed<BlueprintCanvasValidation>(() => ({
+    focus: this.validationCanvasFocus(),
+    issueMarkers: this.canvasIssueMarkers(),
+  }));
+  private readonly canvasRouteValidationErrors = computed(() => this.canvasViewport()?.validation.routeErrors() ?? []);
   protected readonly taskLibraryItems = computed(() =>
     this.buildTaskLibraryItems(this.tasks()),
   );
@@ -610,6 +639,7 @@ export class BlueprintEditorPageComponent {
       return;
     }
 
+    this.saveErrorMessage.set(null);
     const nodes = this.persistedCanvasNodes(this.editorStore.nodes());
     const blueprintName = this.normalizedBlueprintName();
 
@@ -663,7 +693,9 @@ export class BlueprintEditorPageComponent {
       this.isEditingBlueprintName.set(false);
       this.blueprintNameTouched.set(false);
       this.versionPinNotice.set(createsNewVersion);
-      this.scheduleUiTask(() => this.canvasViewport()?.focusCanvas());
+      this.scheduleUiTask(() => this.canvasViewport()?.viewport.focus());
+    } catch {
+      this.saveErrorMessage.set('Unable to save the blueprint. Check the connection and try again.');
     } finally {
       this.saving.set(false);
     }
@@ -671,7 +703,10 @@ export class BlueprintEditorPageComponent {
 
   protected async openBlueprint(blueprintId: number, blueprintVersionId?: number | null): Promise<void> {
     const graph = await firstValueFrom(this.editor.loadBlueprintGraph(blueprintId, this.tasks(), blueprintVersionId));
-    this.editorStore.loadGraph(graph.nodes, graph.connections);
+    this.editorStore.loadGraph({
+      nodes: graph.nodes,
+      connections: graph.connections,
+    });
     this.selectedBlueprintId.set(graph.blueprint.id);
     this.selectedBlueprintVersionId.set(this.getPreferredBlueprintVersionId(graph.blueprint, blueprintVersionId ?? null));
     this.setBlueprintName(graph.blueprint.name);
@@ -683,8 +718,8 @@ export class BlueprintEditorPageComponent {
     this.versionPinNotice.set(false);
     this.closeDrawer();
     this.scheduleUiTask(() => {
-      this.canvasViewport()?.resetView();
-      this.canvasViewport()?.focusCanvas();
+      this.canvasViewport()?.viewport.reset();
+      this.canvasViewport()?.viewport.focus();
     });
   }
 
@@ -698,7 +733,7 @@ export class BlueprintEditorPageComponent {
     this.blueprintSearch.setValue('');
     this.versionPinNotice.set(false);
     this.closeDrawer();
-    this.scheduleUiTask(() => this.canvasViewport()?.focusCanvas());
+    this.scheduleUiTask(() => this.canvasViewport()?.viewport.focus());
   }
 
   protected beginBlueprintNameEdit(): void {
@@ -906,6 +941,13 @@ export class BlueprintEditorPageComponent {
     this.syncStaticOverrideForm(node);
   }
 
+  protected onCanvasEvent(event: BlueprintCanvasEvent): void {
+    applyBlueprintCanvasStoreEvent(this.editorStore, event);
+    if (event.kind === 'nodeSettingsRequested') {
+      this.openNodeSettings(event.nodeId);
+    }
+  }
+
   protected addLibraryItemFromDrawer(item: TaskLibraryItem): void {
     if (item.kind === 'collectionIterator') {
       this.addCollectionIteratorFromDrawer();
@@ -922,18 +964,20 @@ export class BlueprintEditorPageComponent {
       return;
     }
 
-    const viewportCenter = this.canvasViewport()?.viewportCenterWorld() ?? { x: 420, y: 260 };
+    const viewportCenter = this.canvasViewport()?.viewport.centerWorld() ?? { x: 420, y: 260 };
     const stagger = (this.editorStore.nodes().length % 5) * this.gridSize * 2;
-    const node = this.editorStore.createNode(
-      task,
-      {
-        x: viewportCenter.x + stagger,
-        y: viewportCenter.y + stagger * 0.45,
+    const node = this.editorStore.createNode({
+      taskDefinition: task,
+      placement: {
+        coordinates: {
+          x: viewportCenter.x + stagger,
+          y: viewportCenter.y + stagger * 0.45,
+        },
       },
-    );
+    });
     this.scheduleUiTask(() => {
-      this.canvasViewport()?.centerOnNode(node.id);
-      this.canvasViewport()?.focusCanvas();
+      this.canvasViewport()?.viewport.centerOnNode(node.id);
+      this.canvasViewport()?.viewport.focus();
     });
 
     if (this.compactDrawerViewport()) {
@@ -942,15 +986,19 @@ export class BlueprintEditorPageComponent {
   }
 
   protected addCollectionIteratorFromDrawer(): void {
-    const viewportCenter = this.canvasViewport()?.viewportCenterWorld() ?? { x: 420, y: 260 };
+    const viewportCenter = this.canvasViewport()?.viewport.centerWorld() ?? { x: 420, y: 260 };
     const stagger = (this.editorStore.nodes().length % 5) * this.gridSize * 2;
     const node = this.editorStore.createCollectionIteratorNode({
-      x: viewportCenter.x + stagger,
-      y: viewportCenter.y + stagger * 0.45,
+      placement: {
+        coordinates: {
+          x: viewportCenter.x + stagger,
+          y: viewportCenter.y + stagger * 0.45,
+        },
+      },
     });
     this.scheduleUiTask(() => {
-      this.canvasViewport()?.centerOnNode(node.id);
-      this.canvasViewport()?.focusCanvas();
+      this.canvasViewport()?.viewport.centerOnNode(node.id);
+      this.canvasViewport()?.viewport.focus();
     });
 
     if (this.compactDrawerViewport()) {
@@ -959,15 +1007,15 @@ export class BlueprintEditorPageComponent {
   }
 
   protected resetView(): void {
-    this.canvasViewport()?.resetView();
+    this.canvasViewport()?.viewport.reset();
   }
 
   protected zoomIn(): void {
-    this.canvasViewport()?.zoomIn();
+    this.canvasViewport()?.viewport.zoomIn();
   }
 
   protected zoomOut(): void {
-    this.canvasViewport()?.zoomOut();
+    this.canvasViewport()?.viewport.zoomOut();
   }
 
   protected onSaveHover(value: boolean): void {
@@ -1008,32 +1056,32 @@ export class BlueprintEditorPageComponent {
       trigger.closeMenu();
     }
 
-    this.scheduleUiTask(() => this.canvasViewport()?.revealValidationFocus(focus));
+    this.scheduleUiTask(() => this.canvasViewport()?.validation.reveal(focus));
   }
 
   protected undo(): void {
     this.editorStore.undo();
-    this.canvasViewport()?.focusCanvas();
+    this.canvasViewport()?.viewport.focus();
   }
 
   protected redo(): void {
     this.editorStore.redo();
-    this.canvasViewport()?.focusCanvas();
+    this.canvasViewport()?.viewport.focus();
   }
 
   protected copySelection(): void {
     this.editorStore.copySelection();
-    this.canvasViewport()?.focusCanvas();
+    this.canvasViewport()?.viewport.focus();
   }
 
   protected pasteSelection(): void {
     this.editorStore.pasteClipboard();
-    this.canvasViewport()?.focusCanvas();
+    this.canvasViewport()?.viewport.focus();
   }
 
   protected deleteSelection(): void {
     this.editorStore.deleteSelection();
-    this.canvasViewport()?.focusCanvas();
+    this.canvasViewport()?.viewport.focus();
   }
 
   protected onNodeVersionSelected(versionId: number | null): void {
@@ -1048,7 +1096,7 @@ export class BlueprintEditorPageComponent {
       return;
     }
 
-    const impact = this.editorStore.analyzeNodeVersionChange(node.id, version);
+    const impact = this.editorStore.analyzeNodeVersionChange({ nodeId: node.id, version });
     if (!impact.hasDestructiveChanges) {
       this.applyNodeVersionChange(node.id, version);
       return;
@@ -1116,7 +1164,7 @@ export class BlueprintEditorPageComponent {
     this.staticOverrideDraftKeys.update((keys) => keys.filter((key) => key !== propertyName));
     const nextOverrides = { ...node.designTimeInputOverrides };
     delete nextOverrides[propertyName];
-    this.editorStore.updateNodeDesignTimeOverrides(node.id, nextOverrides);
+    this.editorStore.updateNodeDesignTimeOverrides({ nodeId: node.id, overrides: nextOverrides });
     const refreshedNode = this.editorStore.nodes().find((candidate) => candidate.id === node.id) ?? node;
     this.syncStaticOverrideForm(refreshedNode, true);
   }
@@ -1369,7 +1417,7 @@ export class BlueprintEditorPageComponent {
   }
 
   private applyNodeVersionChange(nodeId: number, version: ITaskVersion): void {
-    this.editorStore.updateNodeTaskVersion(nodeId, version);
+    this.editorStore.updateNodeTaskVersion({ nodeId, version });
     const node = this.editorStore.nodes().find((candidate) => candidate.id === nodeId) ?? null;
     if (node) {
       this.syncStaticOverrideForm(node, true);
@@ -1441,7 +1489,7 @@ export class BlueprintEditorPageComponent {
       return;
     }
 
-    this.editorStore.updateNodeDesignTimeOverrides(node.id, overrides);
+    this.editorStore.updateNodeDesignTimeOverrides({ nodeId: node.id, overrides });
   }
 
   private serializeStaticOverrideValue(field: DynamicFieldDefinition, value: unknown): unknown {

@@ -1,4 +1,4 @@
-<header class="process-search-dialog__title-row">
+<header class="process-search-dialog__title-row" data-testid="process-search-dialog-header">
   <span class="process-search-dialog__title-mark" aria-hidden="true">
     <mat-icon>manage_search</mat-icon>
   </span>
@@ -7,7 +7,7 @@
     <span class="process-search-dialog__context">{{ searchContextSummary() }}</span>
   </span>
 
-  <div class="process-search-dialog__summary-chips" aria-label="Current search criteria">
+  <div class="process-search-dialog__summary-chips" aria-label="Current search criteria" data-testid="process-search-summary-chips">
     @for (chip of searchSummaryChips(); track chip.label) {
       <span class="process-search-dialog__summary-chip" [class.is-danger]="chip.tone === 'danger'">
         {{ chip.label }}
@@ -20,14 +20,15 @@
     type="button"
     class="process-search-dialog__close-button"
     aria-label="Close advanced search"
+    data-testid="process-search-close"
     (click)="cancel()">
     <mat-icon>close</mat-icon>
   </button>
 </header>
 
-<div mat-dialog-content class="process-search-dialog">
+<div mat-dialog-content class="process-search-dialog" data-testid="process-search-dialog">
   <div class="process-search-dialog__workbench">
-    <nav class="process-search-dialog__rail" role="tablist" aria-label="Search filter categories">
+    <nav class="process-search-dialog__rail" role="tablist" aria-label="Search filter categories" data-testid="process-search-tabs">
       @for (panel of searchPanels; track panel.index) {
         <button
           type="button"
@@ -38,6 +39,7 @@
           [class.has-issue]="searchPanelIssue(panel.index)"
           [attr.aria-selected]="selectedTabIndex() === panel.index"
           [attr.aria-controls]="'process-search-panel-' + panel.index"
+          [attr.data-testid]="'process-search-tab-' + panel.index"
           (click)="selectSearchTab(panel.index)">
           <span class="process-search-dialog__rail-icon" aria-hidden="true">
             <mat-icon>{{ panel.icon }}</mat-icon>
@@ -88,6 +90,7 @@
                     matInput
                     type="search"
                     aria-label="Find and add blueprints"
+                    data-testid="process-search-blueprint-input"
                     placeholder="Find and add blueprints"
                     [formControl]="blueprintSearch"
                     [matAutocomplete]="blueprintAutocomplete" />
@@ -99,7 +102,7 @@
                   class="process-search-dialog__autocomplete-panel"
                   (optionSelected)="onBlueprintOptionSelected($event)">
                   @for (blueprint of filteredBlueprintOptions(); track blueprint.id) {
-                    <mat-option [value]="blueprint.id">
+                    <mat-option [value]="blueprint.id" [attr.data-testid]="'process-search-blueprint-option-' + blueprint.id">
                       <span class="process-search-dialog__option-main">{{ blueprint.name }}</span>
                       <span class="process-search-dialog__option-subtitle">
                         {{ blueprint.versions.length }} version{{ blueprint.versions.length === 1 ? '' : 's' }} available
@@ -109,7 +112,7 @@
                 </mat-autocomplete>
 
                 @if (selectedBlueprints().length === 0) {
-                  <div class="process-search-dialog__state-card">
+                  <div class="process-search-dialog__state-card" data-testid="process-search-blueprint-any-state">
                     <span class="process-search-dialog__state-icon" aria-hidden="true">
                       <mat-icon>all_inclusive</mat-icon>
                     </span>
@@ -120,6 +123,8 @@
                     @for (row of selectedBlueprintRows(); track row.blueprint.id) {
                       <article
                         class="process-search-dialog__selection-card"
+                        data-testid="process-search-blueprint-filter-row"
+                        [attr.data-blueprint-id]="row.blueprint.id"
                         [attr.data-search-row-id]="'blueprint-' + row.blueprint.id">
                         <div class="process-search-dialog__selection-card-header">
                           <div class="process-search-dialog__selection-copy">
@@ -131,6 +136,7 @@
                             mat-icon-button
                             type="button"
                             aria-label="Remove blueprint filter"
+                            data-testid="process-search-remove-blueprint-filter"
                             (click)="removeBlueprint(row.blueprint.id)">
                             <mat-icon>delete_outline</mat-icon>
                           </button>
@@ -144,6 +150,7 @@
                             class="process-search-dialog__status-chip-row process-search-dialog__status-chip-row--compact">
                             <mat-chip-option
                               [selected]="row.statuses.length === 0"
+                              [attr.data-testid]="'process-search-blueprint-status-option-' + row.blueprint.id + '-any'"
                               (click)="updateBlueprintStatuses(row.blueprint.id, [])">
                               <mat-icon>all_inclusive</mat-icon>
                               Any
@@ -151,6 +158,7 @@
                             @for (status of processStatusOptions; track status) {
                               <mat-chip-option
                                 [selected]="row.statuses.includes(status)"
+                                [attr.data-testid]="'process-search-blueprint-status-option-' + row.blueprint.id + '-' + status"
                                 [class.process-search-dialog__status-option--pending]="status === 'Pending'"
                                 [class.process-search-dialog__status-option--running]="status === 'InProgress'"
                                 [class.process-search-dialog__status-option--completed]="status === 'Completed'"
@@ -183,7 +191,8 @@
                   <input
                     matInput
                     type="search"
-                    aria-label="Find and add steps"
+                   aria-label="Find and add steps"
+                    data-testid="process-search-step-input"
                     placeholder="Find and add steps"
                     [formControl]="nodeSearch"
                     [matAutocomplete]="nodeAutocomplete" />
@@ -195,7 +204,7 @@
                   class="process-search-dialog__autocomplete-panel"
                   (optionSelected)="onNodeOptionSelected($event)">
                   @for (node of filteredNodeOptions(); track node.key) {
-                    <mat-option [value]="node.key">
+                    <mat-option [value]="node.key" [attr.data-testid]="'process-search-step-option-' + node.key">
                       <span class="process-search-dialog__option-main">{{ node.label }}</span>
                       <span class="process-search-dialog__option-subtitle">{{ node.subtitle }}</span>
                     </mat-option>
@@ -203,7 +212,7 @@
                 </mat-autocomplete>
 
                 @if (selectedNodeFilters().length === 0) {
-                  <div class="process-search-dialog__state-card">
+                  <div class="process-search-dialog__state-card" data-testid="process-search-step-any-state">
                     <span class="process-search-dialog__state-icon" aria-hidden="true">
                       <mat-icon>hub</mat-icon>
                     </span>
@@ -214,6 +223,7 @@
                     @for (row of selectedNodeRows(); track row.key) {
                       <article
                         class="process-search-dialog__selection-card"
+                        data-testid="process-search-step-filter-row"
                         [attr.data-search-row-id]="'node-' + row.key">
                         <div class="process-search-dialog__selection-card-header">
                           <div class="process-search-dialog__selection-copy">
@@ -225,6 +235,7 @@
                             mat-icon-button
                             type="button"
                             aria-label="Remove step filter"
+                            data-testid="process-search-remove-step-filter"
                             (click)="removeNodeFilter(row.key)">
                             <mat-icon>delete_outline</mat-icon>
                           </button>
@@ -291,7 +302,7 @@
                   </div>
                 </div>
 
-                <mat-chip-listbox aria-label="Execution window" class="process-search-dialog__quick-range-row">
+                <mat-chip-listbox aria-label="Execution window" class="process-search-dialog__quick-range-row" data-testid="process-search-quick-range">
                   @for (option of quickRangeOptions; track option.key) {
                     <mat-chip-option
                       [selected]="quickRange() === option.key"
@@ -310,6 +321,7 @@
                         matInput
                         type="datetime-local"
                         aria-label="Created from"
+                        data-testid="process-search-created-from"
                         [value]="createdFromInput()"
                         (input)="createdFromInput.set(($any($event.target)).value); onCustomDateChanged()" />
                     </mat-form-field>
@@ -323,6 +335,7 @@
                         matInput
                         type="datetime-local"
                         aria-label="Created to"
+                        data-testid="process-search-created-to"
                         [value]="createdToInput()"
                         (input)="createdToInput.set(($any($event.target)).value); onCustomDateChanged()" />
                     </mat-form-field>
@@ -349,10 +362,11 @@
                 </div>
 
                 @if (selectedBlueprintIds().length === 0) {
-                  <mat-chip-listbox aria-label="Process status" multiple class="process-search-dialog__status-chip-row">
+                  <mat-chip-listbox aria-label="Process status" multiple class="process-search-dialog__status-chip-row" data-testid="process-search-status-filter">
                     @for (status of processStatusOptions; track status) {
                       <mat-chip-option
                         [selected]="selectedProcessStatuses().includes(status)"
+                        [attr.data-testid]="'process-search-status-option-' + status"
                         [class.process-search-dialog__status-option--pending]="status === 'Pending'"
                         [class.process-search-dialog__status-option--running]="status === 'InProgress'"
                         [class.process-search-dialog__status-option--completed]="status === 'Completed'"
@@ -394,7 +408,8 @@
                 type="button"
                 class="process-search-dialog__add-button"
                 [disabled]="propertyCatalog().length === 0 || hasInvalidPropertyRows()"
-                (click)="addPropertyFilterRow()">
+                (click)="addPropertyFilterRow()"
+                data-testid="process-search-add-property">
                 <mat-icon>add</mat-icon>
                 Add property
               </button>
@@ -411,7 +426,7 @@
                 Add exact-match filters only when you need a tighter result set.
               </p>
             } @else {
-              <div class="process-search-dialog__property-table" role="table" aria-label="Property filters">
+              <div class="process-search-dialog__property-table" role="table" aria-label="Property filters" data-testid="process-search-property-table">
                 <div class="process-search-dialog__property-table-head" role="row">
                   <span role="columnheader">Property</span>
                   <span role="columnheader">Exact value</span>
@@ -422,6 +437,7 @@
                   @for (row of selectedPropertyRows(); track row.id) {
                     <div
                       class="process-search-dialog__property-row"
+                      data-testid="process-search-property-row"
                       role="row"
                       [class.is-incomplete]="row.option === null || row.value.trim().length === 0"
                       [attr.data-search-row-id]="'property-' + row.id">
@@ -432,6 +448,7 @@
                           type="search"
                           [value]="propertyInputDisplay(row)"
                           placeholder="Search properties"
+                          data-testid="process-search-property-input"
                           [matAutocomplete]="propertyAutocomplete"
                           (input)="updatePropertySearchQuery(row.id, ($any($event.target)).value)" />
                         <mat-icon matSuffix>manage_search</mat-icon>
@@ -458,7 +475,8 @@
                         @if (propertyUsesSelect(row.option?.propertyType ?? 'String')) {
                           <mat-select
                             [value]="row.value"
-                            (valueChange)="updatePropertyValue(row.id, $event)">
+                            (valueChange)="updatePropertyValue(row.id, $event)"
+                            data-testid="process-search-property-value-select">
                             <mat-option value="">Select</mat-option>
                             @for (option of propertySelectOptions(row.option); track option) {
                               <mat-option [value]="option">{{ option }}</mat-option>
@@ -470,6 +488,7 @@
                             [type]="propertyInputType(row.option?.propertyType ?? 'String')"
                             [value]="row.value"
                             [placeholder]="valuePlaceholder(row.option?.propertyType ?? 'String')"
+                            data-testid="process-search-property-value-input"
                             (input)="updatePropertyValue(row.id, ($any($event.target)).value)" />
                         }
                         @if (row.option) {
@@ -484,6 +503,7 @@
                         type="button"
                         class="process-search-dialog__property-remove-button"
                         aria-label="Remove property filter"
+                        data-testid="process-search-remove-property-filter"
                         (click)="removePropertyFilterRow(row.id)">
                         <mat-icon>delete_outline</mat-icon>
                       </button>
@@ -499,8 +519,8 @@
   </div>
 </div>
 
-<div mat-dialog-actions align="end" class="process-search-dialog__actions">
-  <button mat-button type="button" class="process-search-dialog__reset-button" (click)="resetAll()">Reset all</button>
+<div mat-dialog-actions align="end" class="process-search-dialog__actions" data-testid="process-search-actions">
+  <button mat-button type="button" class="process-search-dialog__reset-button" (click)="resetAll()" data-testid="process-search-reset">Reset all</button>
   <span class="process-search-dialog__actions-spacer"></span>
   @if (applyBlockReason(); as reason) {
     <span class="process-search-dialog__apply-blocker" aria-live="polite">
@@ -508,6 +528,6 @@
       {{ reason }}
     </span>
   }
-  <button mat-button type="button" (click)="cancel()">Cancel</button>
-  <button mat-flat-button type="button" color="primary" class="process-search-dialog__apply-button" [disabled]="!canApply()" (click)="apply()">Apply filters</button>
+  <button mat-button type="button" (click)="cancel()" data-testid="process-search-cancel">Cancel</button>
+  <button mat-flat-button type="button" color="primary" class="process-search-dialog__apply-button" [disabled]="!canApply()" (click)="apply()" data-testid="process-search-apply">Apply filters</button>
 </div>

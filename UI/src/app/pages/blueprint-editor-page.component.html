@@ -1,21 +1,19 @@
-<section class="app-page blueprint-editor-page">
-  <div class="blueprint-editor-page__workspace">
-    <div class="blueprint-editor-page__canvas-layer">
+<section class="app-page blueprint-editor-page" data-testid="blueprints-page">
+  <div class="blueprint-editor-page__workspace" data-testid="blueprints-workspace">
+    <div class="blueprint-editor-page__canvas-layer" data-testid="blueprints-canvas-layer">
       <app-blueprint-canvas
-        [nodes]="editorStore.nodes()"
-        [connections]="editorStore.connections()"
-        [graphRevision]="editorStore.graphRevision()"
-        [backgroundEffect]="canvasBackgroundEffect"
-        [validationFocus]="validationCanvasFocus()"
-        [validationIssueMarkers]="canvasIssueMarkers()"
-        [viewportInsets]="canvasViewportInsets()"
-        mode="edit"
-        (nodeSettingsRequested)="openNodeSettings($event)"
+        [canvasId]="'blueprints-canvas'"
+        [graph]="canvasGraph()"
+        [runtime]="canvasRuntime()"
+        [selection]="canvasSelection()"
+        [validation]="canvasValidation()"
+        (canvasEvent)="onCanvasEvent($event)"
       />
     </div>
 
     <div
       class="blueprint-editor-page__picker-surface"
+      data-testid="blueprints-picker-surface"
       [class.is-drawer-open]="!drawerCollapsed()"
     >
       <div class="blueprint-editor-page__picker-bar">
@@ -23,6 +21,7 @@
           matAutocompleteOrigin
           #blueprintPickerOrigin="matAutocompleteOrigin"
           class="blueprint-editor-page__picker-shell"
+          data-testid="blueprints-picker-shell"
           [class.is-search]="isPickerSearchMode()"
           [class.is-draft]="isDraftPickerMode()"
           [class.is-invalid]="!!blueprintNameError()"
@@ -39,6 +38,7 @@
               [matAutocomplete]="blueprintPickerAutocomplete"
               [matAutocompleteConnectedTo]="blueprintPickerOrigin"
               aria-label="Search blueprints"
+              data-testid="blueprints-search-input"
               placeholder="Search blueprints"
               (focus)="onPickerSearchFocus()"
               (click)="onPickerSearchFocus()"
@@ -53,6 +53,7 @@
                 class="blueprint-editor-page__picker-trigger blueprint-editor-page__picker-trigger--button"
                 (click)="beginPickerSearchFromTrigger(); $event.stopPropagation()"
                 aria-label="Select a different blueprint or version"
+                data-testid="blueprints-picker-trigger"
               >
                 <span class="blueprint-editor-page__picker-label">{{ pickerDisplayName() }}</span>
               </button>
@@ -65,6 +66,7 @@
                   [attr.maxlength]="blueprintNameMaxLength"
                   [value]="blueprintNameDraft()"
                   aria-label="Draft blueprint name"
+                  data-testid="blueprints-draft-name-input"
                   (input)="updateBlueprintNameDraft($any($event.target).value)"
                   (blur)="commitBlueprintNameEdit()"
                   (keydown)="onBlueprintNameKeydown($event)"
@@ -84,6 +86,7 @@
                 class="blueprint-editor-page__version-select blueprint-editor-page__version-display"
                 (click)="beginPickerSearchFromVersionDisplay($event)"
                 aria-label="Browse blueprint versions"
+                data-testid="blueprints-version-trigger"
               >
                 <span class="blueprint-editor-page__version-trigger">
                   <span class="blueprint-editor-page__version-trigger-label">
@@ -99,6 +102,7 @@
                 type="button"
                 class="blueprint-editor-page__picker-icon-button"
                 aria-label="Edit draft blueprint name"
+                data-testid="blueprints-edit-name"
                 (click)="beginBlueprintNameEdit(); $event.stopPropagation()"
               >
                 <mat-icon>edit</mat-icon>
@@ -110,6 +114,7 @@
               type="button"
               class="blueprint-editor-page__picker-icon-button"
               [attr.aria-label]="isDraftPickerMode() ? 'Browse existing blueprints' : 'Open blueprint suggestions'"
+              data-testid="blueprints-picker-open"
               (click)="beginPickerSearchFromDraftChevron($event)"
             >
               <mat-icon>keyboard_arrow_down</mat-icon>
@@ -119,7 +124,7 @@
       </div>
 
       @if (versionPinNotice()) {
-        <div class="blueprint-editor-page__version-pin-notice" role="status">
+        <div class="blueprint-editor-page__version-pin-notice" role="status" data-testid="blueprints-version-pin-notice">
           <mat-icon>info</mat-icon>
           <span>Phase series stay pinned until upgraded in Phases.</span>
         </div>
@@ -139,6 +144,7 @@
       } @else {
         @for (option of pickerOptions(); track option.value) {
           <mat-option
+            [attr.data-testid]="'blueprints-picker-option-' + option.value"
             [value]="option.value"
             [class.is-active]="option.kind === 'blueprint' && option.isActive"
             [class.is-version]="option.kind === 'version'"
@@ -183,7 +189,7 @@
       }
     </mat-autocomplete>
 
-    <div class="blueprint-editor-page__action-rail" [class.is-drawer-open]="!drawerCollapsed()">
+    <div class="blueprint-editor-page__action-rail" [class.is-drawer-open]="!drawerCollapsed()" data-testid="blueprints-action-rail">
       <mat-card appearance="outlined">
         <div class="blueprint-editor-page__action-group">
           <span
@@ -198,6 +204,7 @@
               mat-icon-button
               type="button"
               aria-label="Save blueprint"
+              data-testid="blueprints-save"
               [disabled]="saving()"
               (click)="save()"
             >
@@ -216,6 +223,7 @@
               [class.is-active]="isPluginLibraryDrawerOpen()"
               [class.is-inactive]="!isPluginLibraryDrawerOpen()"
               aria-label="Toggle plugin library"
+              data-testid="blueprints-toggle-plugin-library"
               [attr.aria-pressed]="isPluginLibraryDrawerOpen()"
               (click)="isPluginLibraryDrawerOpen() ? closeDrawer() : openDrawer()"
             >
@@ -230,6 +238,7 @@
               mat-icon-button
               type="button"
               aria-label="Undo"
+              data-testid="blueprints-undo"
               [disabled]="!canUndo()"
               (click)="undo()"
             >
@@ -242,6 +251,7 @@
               mat-icon-button
               type="button"
               aria-label="Redo"
+              data-testid="blueprints-redo"
               [disabled]="!canRedo()"
               (click)="redo()"
             >
@@ -254,6 +264,7 @@
               mat-icon-button
               type="button"
               aria-label="Copy selection"
+              data-testid="blueprints-copy"
               [disabled]="!canCopy()"
               (click)="copySelection()"
             >
@@ -266,6 +277,7 @@
               mat-icon-button
               type="button"
               aria-label="Paste selection"
+              data-testid="blueprints-paste"
               [disabled]="!canPaste()"
               (click)="pasteSelection()"
             >
@@ -278,6 +290,7 @@
               mat-icon-button
               type="button"
               aria-label="Delete selection"
+              data-testid="blueprints-delete"
               [disabled]="!canDelete()"
               (click)="deleteSelection()"
             >
@@ -292,6 +305,7 @@
               mat-icon-button
               type="button"
               aria-label="Zoom in"
+              data-testid="blueprints-zoom-in"
               (click)="zoomIn()"
             >
               <mat-icon>zoom_in</mat-icon>
@@ -306,6 +320,7 @@
               mat-icon-button
               type="button"
               aria-label="Reset view"
+              data-testid="blueprints-reset-view"
               (click)="resetView()"
             >
               <mat-icon>center_focus_strong</mat-icon>
@@ -317,6 +332,7 @@
               mat-icon-button
               type="button"
               aria-label="Zoom out"
+              data-testid="blueprints-zoom-out"
               (click)="zoomOut()"
             >
               <mat-icon>zoom_out</mat-icon>
@@ -328,8 +344,15 @@
 
     <div
       class="blueprint-editor-page__validation-cluster"
+      data-testid="blueprints-validation-cluster"
       [class.is-drawer-open]="!drawerCollapsed()"
     >
+      @if (saveErrorMessage(); as message) {
+        <div class="blueprint-editor-page__save-error" role="alert" data-testid="blueprints-save-error">
+          <mat-icon>warning</mat-icon>
+          <span>{{ message }}</span>
+        </div>
+      }
       <button
         type="button"
         class="blueprint-editor-page__validation-badge"
@@ -343,6 +366,7 @@
         [matTooltip]="validationStatusTooltip()"
         matTooltipPosition="above"
         [attr.aria-label]="validationBadgeAriaLabel()"
+        data-testid="blueprints-validation-badge"
       >
         <mat-icon>{{ validationBadgeIcon() }}</mat-icon>
         <span class="blueprint-editor-page__validation-label">{{ validationBadgeLabel() }}</span>
@@ -358,7 +382,7 @@
       xPosition="before"
       yPosition="above"
     >
-      <div class="blueprint-editor-page__validation-menu-panel" (click)="$event.stopPropagation()">
+      <div class="blueprint-editor-page__validation-menu-panel" (click)="$event.stopPropagation()" data-testid="blueprints-validation-menu">
         <div class="blueprint-editor-page__validation-menu-header">
           <span>Blueprint validation</span>
           <strong>
@@ -379,6 +403,8 @@
                 <button
                   type="button"
                   class="blueprint-editor-page__validation-issue is-error"
+                  data-testid="blueprints-validation-issue"
+                  [attr.data-issue-id]="issue.id"
                   [class.is-active]="focusedValidationIssueId() === issue.id"
                   [class.is-targetable]="isIssueCanvasTargetable(issue)"
                   [disabled]="!isIssueCanvasTargetable(issue)"
@@ -401,6 +427,8 @@
                 <button
                   type="button"
                   class="blueprint-editor-page__validation-issue is-warning"
+                  data-testid="blueprints-validation-issue"
+                  [attr.data-issue-id]="issue.id"
                   [class.is-active]="focusedValidationIssueId() === issue.id"
                   [class.is-targetable]="isIssueCanvasTargetable(issue)"
                   [disabled]="!isIssueCanvasTargetable(issue)"
@@ -427,6 +455,7 @@
       [class.is-drawer-open]="!drawerCollapsed()"
       (click)="newBlueprint()"
       aria-label="Create new blueprint"
+      data-testid="blueprints-create-new"
     >
       <mat-icon>add</mat-icon>
     </button>
@@ -435,6 +464,7 @@
       <button
         type="button"
         class="blueprint-editor-page__drawer-backdrop"
+        data-testid="blueprints-drawer-backdrop"
         (click)="closeDrawer()"
         aria-label="Close drawer"
       ></button>
@@ -442,11 +472,12 @@
 
     <aside
       class="blueprint-editor-page__drawer"
+      data-testid="blueprints-drawer"
       [class.is-open]="!drawerCollapsed()"
       [class.is-settings-open]="isNodeSettingsDrawerOpen()"
     >
       @if (isPluginLibraryDrawerOpen()) {
-        <div class="blueprint-editor-page__drawer-shell">
+        <div class="blueprint-editor-page__drawer-shell" data-testid="blueprints-plugin-library">
           <div class="blueprint-editor-page__drawer-header">
             <h3>Plugin Library</h3>
 
@@ -456,6 +487,7 @@
               class="blueprint-editor-page__rail-toggle"
               (click)="closeDrawer()"
               aria-label="Close plugin library"
+              data-testid="blueprints-close-plugin-library"
             >
               <mat-icon>close</mat-icon>
             </button>
@@ -469,6 +501,7 @@
                 type="search"
                 [formControl]="pluginLibrarySearch"
                 aria-label="Search tools"
+                data-testid="blueprints-plugin-search"
                 placeholder="Search tools..."
               />
             </div>
@@ -476,7 +509,7 @@
 
           <div class="blueprint-editor-page__drawer-body">
             @if (filteredTaskLibraryItems().length === 0) {
-              <div class="blueprint-editor-page__drawer-empty">
+              <div class="blueprint-editor-page__drawer-empty" data-testid="blueprints-plugin-empty">
                 <mat-icon>search_off</mat-icon>
                 <p>No tools match that search.</p>
               </div>
@@ -486,6 +519,9 @@
                   <button
                     type="button"
                     class="blueprint-editor-page__drawer-card"
+                    data-testid="blueprints-plugin-card"
+                    [attr.data-plugin-kind]="item.kind"
+                    [attr.data-task-id]="item.kind === 'plugin' ? item.task?.id : null"
                     (click)="addLibraryItemFromDrawer(item)"
                   >
                     <span
@@ -522,7 +558,7 @@
         </div>
       } @else if (isNodeSettingsDrawerOpen()) {
         @if (nodeSettingsNode(); as node) {
-          <div class="blueprint-editor-page__drawer-shell blueprint-editor-page__drawer-shell--settings">
+          <div class="blueprint-editor-page__drawer-shell blueprint-editor-page__drawer-shell--settings" data-testid="blueprints-node-settings" [attr.data-node-id]="node.id">
           <div class="blueprint-editor-page__drawer-header blueprint-editor-page__settings-header">
             <div>
               <p class="blueprint-editor-page__settings-eyebrow">Node settings</p>
@@ -535,6 +571,7 @@
               class="blueprint-editor-page__rail-toggle"
               (click)="closeDrawer()"
               aria-label="Close node settings"
+              data-testid="blueprints-close-node-settings"
             >
               <mat-icon>close</mat-icon>
             </button>
@@ -588,7 +625,9 @@
                         class="blueprint-editor-page__settings-issue-row"
                         [class.is-error]="issue.severity === 'error'"
                         [class.is-warning]="issue.severity === 'warning'"
-                        [disabled]="!isIssueCanvasTargetable(issue)"
+                      [disabled]="!isIssueCanvasTargetable(issue)"
+                      data-testid="blueprints-node-settings-issue"
+                      [attr.data-issue-id]="issue.id"
                         (click)="focusValidationIssue(issue)"
                       >
                         <mat-icon>{{ issue.severity === 'error' ? 'error' : 'warning' }}</mat-icon>
@@ -678,6 +717,7 @@
                       [matMenuTriggerFor]="staticOverridePropertyMenu"
                       [disabled]="availableStaticOverrideProperties().length === 0"
                       aria-label="Add static override"
+                      data-testid="blueprints-add-static-override"
                     >
                       <mat-icon>add</mat-icon>
                     </button>
@@ -699,7 +739,7 @@
                   } @else {
                     <div class="blueprint-editor-page__static-override-list" [formGroup]="staticOverrideForm">
                       @for (field of staticOverrideFields(); track field.key) {
-                        <div class="blueprint-editor-page__static-override-row">
+                        <div class="blueprint-editor-page__static-override-row" data-testid="blueprints-static-override-row" [attr.data-field-key]="field.key">
                           <div class="blueprint-editor-page__static-override-row-header">
                             <span>{{ field.label }}</span>
                             <span>{{ staticOverrideKindLabel(field) }}</span>
@@ -708,6 +748,7 @@
                               type="button"
                               (click)="removeStaticOverride(field.key)"
                               [attr.aria-label]="'Remove ' + field.label + ' override'"
+                              [attr.data-testid]="'blueprints-remove-static-override-' + field.key"
                             >
                               <mat-icon>close</mat-icon>
                             </button>
@@ -716,6 +757,7 @@
                           <app-dynamic-form-field
                             [group]="staticOverrideForm"
                             [field]="field"
+                            testIdPrefix="blueprints-static-override"
                           />
                         </div>
                       }

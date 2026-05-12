@@ -1,5 +1,6 @@
 <mat-sidenav-container
   class="app-shell"
+  data-testid="app-shell"
   [style.--app-shell-nav-width]="navDrawerWidth()"
   [style.--app-shell-content-offset]="contentOffset()"
 >
@@ -11,6 +12,7 @@
     [opened]="sidenavOpened()"
     [fixedInViewport]="compactViewport()"
     aria-label="Primary navigation"
+    data-testid="app-shell-nav"
   >
     <div class="app-shell__nav-header">
       <div class="app-shell__brand-mark">
@@ -32,6 +34,7 @@
         <a
           mat-list-item
           class="app-shell__nav-link"
+          [attr.data-testid]="'app-shell-nav-' + item.id"
           [class.is-active]="activeNavId() === item.id"
           [routerLink]="[item.route]"
           routerLinkActive="is-active"
@@ -47,7 +50,7 @@
   </mat-sidenav>
 
   <mat-sidenav-content class="app-shell__content">
-    <mat-toolbar class="app-shell__toolbar">
+    <mat-toolbar class="app-shell__toolbar" data-testid="app-shell-toolbar">
       <button
         mat-icon-button
         type="button"
@@ -55,23 +58,24 @@
         [attr.aria-expanded]="sidenavOpened()"
         aria-controls="app-primary-navigation"
         aria-label="Toggle navigation"
+        data-testid="app-shell-nav-toggle"
       >
         <mat-icon>{{ compactViewport() && mobileSidebarOpen() ? 'close' : 'menu' }}</mat-icon>
       </button>
 
       <div class="app-shell__toolbar-copy">
-        <h1>{{ shellState().title }}</h1>
+        <h1 data-testid="app-shell-title">{{ shellState().title }}</h1>
       </div>
 
       <span class="app-shell__toolbar-spacer"></span>
 
-      <button mat-icon-button type="button" aria-label="Search">
+      <button mat-icon-button type="button" aria-label="Search" data-testid="app-shell-search">
         <mat-icon>search</mat-icon>
       </button>
-      <button mat-icon-button type="button" aria-label="Notifications" matTooltip="Notifications">
+      <button mat-icon-button type="button" aria-label="Notifications" matTooltip="Notifications" data-testid="app-shell-notifications">
         <mat-icon>notifications_none</mat-icon>
       </button>
-      <button mat-icon-button type="button" aria-label="Help" matTooltip="Help">
+      <button mat-icon-button type="button" aria-label="Help" matTooltip="Help" data-testid="app-shell-help">
         <mat-icon>help_outline</mat-icon>
       </button>
       <button
@@ -79,12 +83,13 @@
         type="button"
         class="app-shell__profile-button"
         aria-label="Profile"
+        data-testid="app-shell-profile"
       >
         {{ profileInitial() }}
       </button>
     </mat-toolbar>
 
-    <section class="app-shell__content-body">
+    <section class="app-shell__content-body" data-testid="app-shell-content">
       <router-outlet />
     </section>
   </mat-sidenav-content>

@@ -7,7 +7,6 @@ import {
   ɵChangeDetectionScheduler as ChangeDetectionScheduler,
   ɵEffectScheduler as EffectScheduler,
 } from '@angular/core';
-import { readFileSync } from 'node:fs';
 import { Router } from '@angular/router';
 import { of } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -206,9 +205,8 @@ describe('PhasesPageComponent', () => {
   });
 
   it('uses ambient connection presentation for both phase canvases', () => {
-    const template = readFileSync(new URL('./phases-page.component.html', import.meta.url), 'utf8');
-
-    expect(template.match(/\[connectionPresentation\]="'ambient'"/g)).toHaveLength(2);
+    expect((component as any).sourceCanvasRuntime().connectionPresentation).toBe('ambient');
+    expect((component as any).destinationCanvasRuntime().connectionPresentation).toBe('ambient');
   });
 
   it('keeps setup open until the second phase is added and resets the add selection', async () => {
@@ -463,8 +461,12 @@ describe('PhasesPageComponent', () => {
       },
     });
     (component as any).sourceCanvas = () => ({
-      outputPropertyClientPoint: vi.fn(() => ({ clientX: 30, clientY: 260 })),
-      containsClientPoint: vi.fn(() => false),
+      bridge: {
+        outputPropertyClientPoint: vi.fn(() => ({ clientX: 30, clientY: 260 })),
+      },
+      viewport: {
+        containsClientPoint: vi.fn(() => false),
+      },
     });
 
     (component as any).refreshBridgeLines();

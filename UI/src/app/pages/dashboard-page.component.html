@@ -1,6 +1,6 @@
-<section class="app-page dashboard-page">
+<section class="app-page dashboard-page" data-testid="dashboard-page">
   <div class="dashboard-page__shell">
-    <mat-card class="dashboard-command-bar" appearance="outlined">
+    <mat-card class="dashboard-command-bar" appearance="outlined" data-testid="dashboard-command-bar">
       <div class="dashboard-command-bar__header">
         <div class="dashboard-command-bar__copy">
           <p class="app-hero-card__eyebrow">Dashboard</p>
@@ -10,12 +10,12 @@
           </p>
         </div>
 
-        <div class="dashboard-command-bar__actions" aria-label="Observability shortcuts">
-          <a mat-button [href]="grafanaLogsUrl()" target="_blank" rel="noreferrer">
+        <div class="dashboard-command-bar__actions" aria-label="Observability shortcuts" data-testid="dashboard-observability-shortcuts">
+          <a mat-button [href]="grafanaLogsUrl()" target="_blank" rel="noreferrer" data-testid="dashboard-logs-link">
             <mat-icon>travel_explore</mat-icon>
             Logs
           </a>
-          <a mat-button [href]="grafanaTraceUrl()" target="_blank" rel="noreferrer">
+          <a mat-button [href]="grafanaTraceUrl()" target="_blank" rel="noreferrer" data-testid="dashboard-trace-link">
             <mat-icon>timeline</mat-icon>
             Trace Explore
           </a>
@@ -34,6 +34,7 @@
               [value]="observabilityWindow()"
               aria-label="Observability window"
               (change)="selectWindow($event.value)"
+              data-testid="dashboard-window-toggle"
             >
               @for (window of windowPresets; track window) {
                 <mat-button-toggle [value]="window">{{ window }}</mat-button-toggle>
@@ -51,6 +52,7 @@
             <mat-form-field class="dashboard-blueprint-field" appearance="outline" subscriptSizing="dynamic">
               <mat-select
                 aria-label="Blueprint filter"
+                data-testid="dashboard-blueprint-filter"
                 [value]="selectedBlueprintId() ?? ''"
                 (selectionChange)="selectBlueprint($event.value)"
               >
@@ -62,19 +64,19 @@
             </mat-form-field>
 
             @if (selectedBlueprint()) {
-              <button class="dashboard-clear-filter" mat-button type="button" (click)="clearBlueprint()">Clear filter</button>
+              <button class="dashboard-clear-filter" mat-button type="button" (click)="clearBlueprint()" data-testid="dashboard-clear-filter">Clear filter</button>
             }
           </div>
         </div>
       </div>
 
       @if (observabilityLoading()) {
-        <mat-progress-bar mode="indeterminate" />
+        <mat-progress-bar mode="indeterminate" data-testid="dashboard-observability-loading" />
       }
     </mat-card>
 
     @if (loading()) {
-      <mat-card class="dashboard-loading-state" appearance="outlined" aria-busy="true">
+      <mat-card class="dashboard-loading-state" appearance="outlined" aria-busy="true" data-testid="dashboard-loading-state">
         <p class="sr-only">Loading dashboard...</p>
         <div class="dashboard-loading-state__header">
           <span class="dashboard-skeleton dashboard-skeleton--title"></span>
@@ -92,15 +94,15 @@
         </div>
       </mat-card>
     } @else if (errorMessage()) {
-      <mat-card class="app-state-card" appearance="outlined">
+      <mat-card class="app-state-card" appearance="outlined" data-testid="dashboard-error-state">
         <div class="app-state-card__content">
           <mat-icon>error</mat-icon>
           <p>{{ errorMessage() }}</p>
         </div>
       </mat-card>
     } @else {
-      <div class="dashboard-kpi-strip" aria-label="Process outcome summary">
-        <article class="dashboard-health-tile" [ngClass]="processHealthClass()">
+      <div class="dashboard-kpi-strip" aria-label="Process outcome summary" data-testid="dashboard-kpi-strip">
+        <article class="dashboard-health-tile" [ngClass]="processHealthClass()" data-testid="dashboard-health-tile">
           <div>
             <span>Current health</span>
             <strong>{{ processHealthLabel() }}</strong>
@@ -127,19 +129,19 @@
         </article>
 
         <div class="dashboard-kpi-cluster">
-          <article class="dashboard-kpi dashboard-kpi--success">
+          <article class="dashboard-kpi dashboard-kpi--success" data-testid="dashboard-kpi-succeeded">
             <mat-icon class="dashboard-kpi__icon" aria-hidden="true">check_circle</mat-icon>
             <span>Succeeded</span>
             <strong>{{ processSummary()?.successfulCount ?? 0 }}</strong>
           </article>
 
-          <article class="dashboard-kpi dashboard-kpi--failed">
+          <article class="dashboard-kpi dashboard-kpi--failed" data-testid="dashboard-kpi-failed">
             <mat-icon class="dashboard-kpi__icon" aria-hidden="true">error</mat-icon>
             <span>Failed</span>
             <strong>{{ processSummary()?.failedCount ?? 0 }}</strong>
           </article>
 
-          <article class="dashboard-kpi">
+          <article class="dashboard-kpi" data-testid="dashboard-kpi-total">
             <mat-icon class="dashboard-kpi__icon" aria-hidden="true">timeline</mat-icon>
             <span>Total</span>
             <strong>{{ processSummary()?.totalCount ?? 0 }}</strong>
@@ -148,7 +150,7 @@
       </div>
 
       <div class="dashboard-page__content-grid">
-        <mat-card class="dashboard-card dashboard-card--outcome" appearance="outlined">
+        <mat-card class="dashboard-card dashboard-card--outcome" appearance="outlined" data-testid="dashboard-outcome-card">
           <div class="app-section-heading">
             <div class="dashboard-section-heading__title">
               <mat-icon class="dashboard-section-heading__icon" aria-hidden="true">donut_large</mat-icon>
@@ -184,7 +186,7 @@
           </div>
         </mat-card>
 
-        <mat-card class="dashboard-card dashboard-card--runs" appearance="outlined">
+        <mat-card class="dashboard-card dashboard-card--runs" appearance="outlined" data-testid="dashboard-recent-processes-card">
           <div class="app-section-heading">
             <div class="dashboard-section-heading__title">
               <mat-icon class="dashboard-section-heading__icon" aria-hidden="true">history</mat-icon>
@@ -194,7 +196,7 @@
               </div>
             </div>
 
-            <a mat-button [routerLink]="['/processes']" [queryParams]="historyQueryParams()">
+            <a mat-button [routerLink]="['/processes']" [queryParams]="historyQueryParams()" data-testid="dashboard-view-history-link">
               View all history
             </a>
           </div>
@@ -202,7 +204,7 @@
           <mat-divider />
 
           @if (recentProcesses().length === 0) {
-            <div class="dashboard-card__empty">
+            <div class="dashboard-card__empty" data-testid="dashboard-recent-empty">
               <mat-icon>history</mat-icon>
               <p>No recent processes are available in the selected window yet.</p>
             </div>
@@ -211,6 +213,9 @@
               @for (process of recentProcesses(); track trackRecentProcess($index, process)) {
                 <a
                   class="dashboard-process-row"
+                  data-testid="dashboard-process-row"
+                  [attr.data-process-id]="process.processId"
+                  [attr.data-blueprint-id]="process.blueprintDefinitionId"
                   [class.dashboard-process-row--failed]="process.status === 'Failed'"
                   [routerLink]="['/processes']"
                   [queryParams]="{ blueprintId: process.blueprintDefinitionId, processId: process.processId }"
@@ -247,7 +252,7 @@
           }
         </mat-card>
 
-        <mat-card class="dashboard-card dashboard-card--steps" appearance="outlined">
+        <mat-card class="dashboard-card dashboard-card--steps" appearance="outlined" data-testid="dashboard-step-reliability-card">
           <div class="app-section-heading">
             <div class="dashboard-section-heading__title">
               <mat-icon class="dashboard-section-heading__icon" aria-hidden="true">schema</mat-icon>
@@ -269,12 +274,12 @@
           <mat-divider />
 
           @if (!selectedBlueprint()) {
-            <div class="dashboard-card__empty">
+            <div class="dashboard-card__empty" data-testid="dashboard-step-empty">
               <mat-icon>account_tree</mat-icon>
               <p>Select a blueprint above to view step-level success rates and recent reliability.</p>
             </div>
           } @else if (!nodeSummary() || nodeSummary()!.nodes.length === 0) {
-            <div class="dashboard-card__empty">
+            <div class="dashboard-card__empty" data-testid="dashboard-step-no-outcomes">
               <mat-icon>analytics</mat-icon>
               <p>No step outcomes are available for the selected blueprint and time window yet.</p>
             </div>
@@ -283,6 +288,8 @@
               @for (node of rankedStepNodes(); track node.blueprintNodeId) {
                 <article
                   class="dashboard-step-row"
+                  data-testid="dashboard-step-row"
+                  [attr.data-node-id]="node.blueprintNodeId"
                   [class.dashboard-step-row--attention]="node.failedCount > 0"
                   [class.dashboard-step-row--empty]="node.totalCount === 0"
                 >

@@ -4,6 +4,8 @@ UI/out-tsc/
 UI/tmp/
 UI/coverage/
 UI/e2e/test-output/
+UI/playwright-report/
+UI/test-results/
 UI/.angular/
 .angular/
 

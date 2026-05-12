@@ -10,7 +10,7 @@ const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DATETIME_LOCAL_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
 
 export function createTaskPropertyFieldDefinitions(
-  properties: ITaskPropertyDefinition[] | Record<string, TaskPropertyType> | null | undefined,
+  properties: readonly ITaskPropertyDefinition[] | Record<string, TaskPropertyType> | null | undefined,
   required = true,
 ): DynamicFieldDefinition[] {
   return normalizeTaskPropertyDefinitions(properties)
@@ -26,13 +26,13 @@ export function createTaskPropertyFieldDefinitions(
 }
 
 export function taskPropertyKindMap(
-  properties: ITaskPropertyDefinition[] | Record<string, TaskPropertyType> | null | undefined,
+  properties: readonly ITaskPropertyDefinition[] | Record<string, TaskPropertyType> | null | undefined,
 ): Record<string, TaskPropertyType> {
   return Object.fromEntries(normalizeTaskPropertyDefinitions(properties).map((property) => [property.name, property.kind]));
 }
 
 export function normalizeTaskPropertyDefinitions(
-  properties: ITaskPropertyDefinition[] | Record<string, TaskPropertyType> | null | undefined,
+  properties: readonly ITaskPropertyDefinition[] | Record<string, TaskPropertyType> | null | undefined,
 ): ITaskPropertyDefinition[] {
   if (!properties) {
     return [];

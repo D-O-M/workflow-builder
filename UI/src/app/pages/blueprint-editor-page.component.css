@@ -530,6 +530,30 @@
   right: calc(var(--blueprint-drawer-width) + var(--blueprint-overlay-gap) + 4.45rem);
 }
 
+.blueprint-editor-page__save-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  max-width: min(22rem, calc(100vw - 18rem));
+  min-height: 2.75rem;
+  padding: 0.55rem 0.78rem;
+  border: 1px solid color-mix(in oklch, var(--app-status-danger) 34%, transparent);
+  border-radius: var(--app-radius-large);
+  background: color-mix(in oklch, var(--app-status-danger-container) 88%, var(--app-surface));
+  color: var(--app-status-danger);
+  box-shadow:
+    0 10px 22px color-mix(in oklch, var(--app-text) 10%, transparent),
+    inset 0 1px 0 color-mix(in oklch, var(--app-surface-strong) 78%, transparent);
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.blueprint-editor-page__save-error mat-icon {
+  width: 1.2rem;
+  height: 1.2rem;
+  font-size: 1.2rem;
+}
+
 .blueprint-editor-page__validation-badge {
   display: inline-flex;
   align-items: center;

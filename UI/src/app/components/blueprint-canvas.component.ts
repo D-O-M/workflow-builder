@@ -13,156 +13,143 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
-import { buildConnectionMappingSelections, buildConnectionMappingsFromSelections, ConnectionModel } from '../domain/connection-model';
+import {
+  CanvasInputPropertyHit,
+  CanvasOutputPropertyDragEvent,
+  CanvasPropertyClientPoint,
+  createCanvasInputPropertyHit,
+  createCanvasOutputPropertyDragEvent,
+} from '../domain/canvas-bridge-adapter';
+import { canvasModeCapabilities, canStartCanvasConnectionFrom, isPassiveCanvasSummaryPort } from '../domain/canvas-mode-policy';
+import {
+  CanvasConnectionRouteHit,
+  CanvasHitTester,
+} from '../domain/canvas-hit-tester';
+import {
+  CanvasDragConnectionState,
+  CanvasDragNodeState,
+  CanvasInteractionController,
+  CanvasInteractionEffect,
+  CanvasPendingClickState,
+} from '../domain/canvas-interaction-controller';
+import { CanvasRenderFrameFactory } from '../domain/canvas-render-frame-factory';
+import { CanvasViewportController } from '../domain/canvas-viewport-controller';
 import { CanvasWrapper } from '../domain/canvas-wrapper';
-import type { CanvasNodeIssueSummary, CanvasPropertyIssueSummary } from '../domain/canvas-wrapper';
-import { NodeModel, NodePortDefinition, Point, Side, TaskPropertyType } from '../domain/node-model';
-import { CanvasBackgroundEffect } from '../domain/canvas-backdrop';
+import type { CanvasNodeIssueSummary } from '../domain/canvas-wrapper';
+import { NodeModel, Point, Side } from '../domain/node-model';
 import {
   buildCanvasRenderSnapshot,
   CanvasBounds,
-  CanvasConnectionPresentation,
   CanvasDetailTier,
   CanvasRenderSnapshot,
-  CanvasValidationSeverity,
   RenderedConnection,
   RenderedNode,
 } from '../domain/canvas-render-model';
+import {
+  CanvasResolvedValidationFocus,
+  CanvasValidationFocus,
+  CanvasValidationFocusResolver,
+  CanvasValidationIssueMarker,
+} from '../domain/canvas-validation-focus-resolver';
 import { BlueprintCanvasStateStore } from '../domain/blueprint-canvas-state.store';
+import {
+  BlueprintCanvasBridgePort,
+  BlueprintCanvasEvent,
+  BlueprintCanvasGraph,
+  BlueprintCanvasRuntime,
+  BlueprintCanvasSelection,
+  BlueprintCanvasValidation,
+  BlueprintCanvasValidationPort,
+  BlueprintCanvasViewportPort,
+  DEFAULT_BLUEPRINT_CANVAS_RUNTIME,
+  EMPTY_BLUEPRINT_CANVAS_SELECTION,
+  EMPTY_BLUEPRINT_CANVAS_VALIDATION,
+} from './blueprint-canvas-contract';
 
-export interface CanvasValidationFocus {
-  readonly issueId: string;
-  readonly severity: CanvasValidationSeverity;
-  readonly nodeId?: number | null;
-  readonly connectionId?: string | null;
-  readonly routeIndex?: number | null;
-  readonly propertyName?: string | null;
-  readonly channelName?: string | null;
-  readonly side?: Side | null;
-  readonly pulseKey: number;
+export type {
+  BlueprintCanvasMode,
+  CanvasInteractionEvent,
+  CanvasRenderContext,
+  CanvasRuntimeConfig,
+  CanvasViewportInsets,
+  CanvasViewportState,
+} from '../domain/canvas-runtime';
+
+export type {
+  CanvasInputPropertyHit,
+  CanvasOutputPropertyDragEvent,
+  CanvasPropertyClientPoint,
+} from '../domain/canvas-bridge-adapter';
+
+export type {
+  CanvasValidationFocus,
+  CanvasValidationIssueMarker,
+} from '../domain/canvas-validation-focus-resolver';
+
+export type {
+  BlueprintCanvasBridgePort,
+  BlueprintCanvasEvent,
+  BlueprintCanvasGraph,
+  BlueprintCanvasRuntime,
+  BlueprintCanvasSelection,
+  BlueprintCanvasValidation,
+  BlueprintCanvasValidationPort,
+  BlueprintCanvasViewportPort,
+  CanvasModifierState,
+} from './blueprint-canvas-contract';
+
+type ResolvedValidationFocus = CanvasResolvedValidationFocus;
+type PendingClickState = CanvasPendingClickState;
+type DragNodeState = CanvasDragNodeState;
+type DragConnectionState = CanvasDragConnectionState;
+type ConnectionRouteHit = CanvasConnectionRouteHit;
+
+interface BlueprintCanvasE2eSnapshot {
+  readonly id: string;
+  readonly mode: string;
+  readonly zoomPercent: number;
+  readonly canvasRect: {
+    readonly left: number;
+    readonly top: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  readonly viewport: ReturnType<CanvasViewportController['state']>;
+  readonly nodes: readonly {
+    readonly id: number;
+    readonly name: string;
+    readonly kind: NodeModel['nodeKind'];
+    readonly worldBounds: CanvasBounds;
+    readonly clientBounds: CanvasBounds | null;
+    readonly ports: readonly {
+      readonly key: string;
+      readonly kind: string;
+      readonly anchorIndex: number | null;
+      readonly channelName: string | null;
+      readonly propertyName: string | null;
+      readonly clientX: number;
+      readonly clientY: number;
+    }[];
+    readonly sections: readonly {
+      readonly key: string;
+      readonly name: string;
+      readonly label: string;
+      readonly side: 'left' | 'right';
+      readonly expanded: boolean;
+      readonly headerBounds: CanvasBounds | null;
+      readonly toggleBounds: CanvasBounds | null;
+    }[];
+  }[];
 }
 
-export interface CanvasValidationIssueMarker {
-  readonly issueId: string;
-  readonly severity: CanvasValidationSeverity;
-  readonly nodeId: number;
-  readonly message: string;
-  readonly propertyName?: string | null;
-  readonly channelName?: string | null;
-  readonly side?: Side | null;
+interface BlueprintCanvasE2eHandle {
+  readonly snapshot: () => BlueprintCanvasE2eSnapshot | null;
 }
 
-export interface CanvasViewportInsets {
-  readonly top: number;
-  readonly right: number;
-  readonly bottom: number;
-  readonly left: number;
+interface WorkflowBuilderE2eApi {
+  readonly canvases: Record<string, BlueprintCanvasE2eHandle>;
+  getCanvasSnapshot(id: string): BlueprintCanvasE2eSnapshot | null;
 }
-
-export type BlueprintCanvasMode = 'edit' | 'readonly' | 'bridge-map' | 'bridge-source' | 'bridge-target';
-
-export interface CanvasOutputPropertyDragEvent {
-  readonly nodeId: number;
-  readonly nodeInstanceId: string | null;
-  readonly nodeName: string;
-  readonly channelName: string | null;
-  readonly propertyName: string;
-  readonly propertyKind: TaskPropertyType;
-  readonly clientX: number;
-  readonly clientY: number;
-  readonly cancelled?: boolean;
-}
-
-export interface CanvasInputPropertyHit {
-  readonly nodeId: number;
-  readonly nodeInstanceId: string | null;
-  readonly nodeName: string;
-  readonly propertyName: string;
-  readonly propertyKind: TaskPropertyType;
-  readonly clientX: number;
-  readonly clientY: number;
-}
-
-export interface CanvasPropertyClientPoint {
-  readonly clientX: number;
-  readonly clientY: number;
-}
-
-interface ResolvedValidationFocus {
-  readonly issueId: string;
-  readonly severity: CanvasValidationSeverity;
-  readonly nodeId: number | null;
-  readonly connectionId: string | null;
-  readonly routeIndex: number | null;
-  readonly sectionKey: string | null;
-  readonly portKeys: ReadonlySet<string>;
-  readonly bounds: CanvasBounds | null;
-}
-
-interface PendingClickState {
-  pointerId: number;
-  startCanvas: Point;
-  startWorld: Point;
-  nodeId: number | null;
-  connectionId: string | null;
-  connectionBadgeId: string | null;
-  shift: boolean;
-  toggleSectionKey: string | null;
-}
-
-interface DragNodeState {
-  pointerId: number;
-  startWorld: Point;
-  nodeIds: number[];
-  initialPositions: Map<number, Point>;
-}
-
-interface DragConnectionState {
-  pointerId: number;
-  from: number;
-  anchor: number;
-  x: number;
-  y: number;
-  side?: Side;
-  portKey?: string | null;
-  sourceProperty?: string | null;
-}
-
-interface PanState {
-  pointerId: number;
-  startCanvas: Point;
-  initialOffset: Point;
-}
-
-interface MarqueeState {
-  pointerId: number;
-  startWorld: Point;
-  currentWorld: Point;
-}
-
-interface HoveredConnectionRouteState {
-  connectionId: string;
-  routeIndex: number;
-}
-
-interface CanvasHoverTooltip {
-  readonly label: string;
-  readonly point: Point;
-}
-
-interface ConnectionRouteHit {
-  connection: RenderedConnection;
-  routeIndex: number;
-  distance: number;
-}
-
-const EMPTY_VIEWPORT_INSETS: CanvasViewportInsets = {
-  top: 0,
-  right: 0,
-  bottom: 0,
-  left: 0,
-};
 
 @Component({
   selector: 'app-blueprint-canvas',
@@ -172,24 +159,13 @@ const EMPTY_VIEWPORT_INSETS: CanvasViewportInsets = {
   providers: [BlueprintCanvasStateStore],
 })
 export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
-  readonly nodes = input.required<NodeModel[]>();
-  readonly connections = input.required<ConnectionModel[]>();
-  readonly graphRevision = input(0);
-  readonly mode = input<BlueprintCanvasMode>('edit');
-  readonly backgroundEffect = input<CanvasBackgroundEffect>('plain');
-  readonly connectionPresentation = input<CanvasConnectionPresentation>('normal');
-  readonly readonlySelectedNodeId = input<number | null>(null);
-  readonly validationFocus = input<CanvasValidationFocus | null>(null);
-  readonly validationIssueMarkers = input<readonly CanvasValidationIssueMarker[]>([]);
-  readonly viewportInsets = input<CanvasViewportInsets>(EMPTY_VIEWPORT_INSETS);
-  readonly readonlyNodeActivated = output<number>();
-  readonly nodeSettingsRequested = output<number>();
-  readonly bridgeOutputPropertyDragStarted = output<CanvasOutputPropertyDragEvent>();
-  readonly bridgeOutputPropertyDragMoved = output<CanvasOutputPropertyDragEvent>();
-  readonly bridgeOutputPropertyDragEnded = output<CanvasOutputPropertyDragEvent>();
-  readonly viewportChanged = output<void>();
+  readonly canvasId = input('blueprint-canvas');
+  readonly graph = input.required<BlueprintCanvasGraph>();
+  readonly runtime = input<BlueprintCanvasRuntime>(DEFAULT_BLUEPRINT_CANVAS_RUNTIME);
+  readonly selection = input<BlueprintCanvasSelection>(EMPTY_BLUEPRINT_CANVAS_SELECTION);
+  readonly validationConfig = input<BlueprintCanvasValidation>(EMPTY_BLUEPRINT_CANVAS_VALIDATION, { alias: 'validation' });
+  readonly canvasEvent = output<BlueprintCanvasEvent>();
 
-  private readonly editorStore = inject(BlueprintEditorStore);
   private readonly canvasStateStore = inject(BlueprintCanvasStateStore);
   private readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
   private readonly gridSize = 20;
@@ -197,27 +173,72 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   private readonly wheelLineStep = 16;
   private readonly wheelDeltaModeLine = 1;
   private readonly wheelDeltaModePage = 2;
+  private readonly hitTester = new CanvasHitTester();
+  private readonly validationFocusResolver = new CanvasValidationFocusResolver();
+  private readonly renderFrameFactory = new CanvasRenderFrameFactory(this.hitTester, this.validationFocusResolver);
+  private readonly interactionController = new CanvasInteractionController(this.clickTolerance);
+  private readonly viewportController = new CanvasViewportController(
+    () => this.canvasRef()?.nativeElement ?? null,
+    () => this.canvasWrapper ?? null,
+    () => this.viewportInsets(),
+    () => this.notifyViewportChanged(),
+  );
+  private readonly nodes = computed(() => [...this.graph().nodes]);
+  private readonly connections = computed(() => [...this.graph().connections]);
+  private readonly graphRevision = computed(() => this.graph().revision);
+  protected readonly mode = computed(() => this.runtime().mode);
+  private readonly backgroundEffect = computed(() => this.runtime().backgroundEffect);
+  private readonly connectionPresentation = computed(() => this.runtime().connectionPresentation);
+  private readonly viewportInsets = computed(() => this.runtime().viewportInsets);
+  private readonly readonlySelectedNodeId = computed(() => this.selection().readonlySelectedNodeId);
+  private readonly selectedNodeIds = computed(() => new Set(this.selection().selectedNodeIds));
+  private readonly selectedConnectionIds = computed(() => new Set(this.selection().selectedConnectionIds));
+  private readonly validationFocus = computed(() => this.validationConfig().focus);
+  private readonly validationIssueMarkers = computed(() => this.validationConfig().issueMarkers);
 
   private canvasWrapper?: CanvasWrapper;
   private resizeObserver?: ResizeObserver;
   private pendingDrawFrameId: number | null = null;
   private detailTierTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
-  protected readonly hoveredNodeId = signal<number | null>(null);
-  protected readonly hoveredNodeIssueNodeId = signal<number | null>(null);
-  protected readonly hoveredPortKey = signal<string | null>(null);
-  protected readonly hoveredSectionKey = signal<string | null>(null);
-  protected readonly hoveredConnectionId = signal<string | null>(null);
-  protected readonly hoveredConnectionRoute = signal<HoveredConnectionRouteState | null>(null);
-  protected readonly backdropHoverCanvasPoint = signal<Point | null>(null);
+  protected readonly hoveredNodeId = this.interactionController.hoveredNodeId;
+  protected readonly hoveredNodeIssueNodeId = this.interactionController.hoveredNodeIssueNodeId;
+  protected readonly hoveredPortKey = this.interactionController.hoveredPortKey;
+  protected readonly hoveredSectionKey = this.interactionController.hoveredSectionKey;
+  protected readonly hoveredConnectionId = this.interactionController.hoveredConnectionId;
+  protected readonly hoveredConnectionRoute = this.interactionController.hoveredConnectionRoute;
+  protected readonly backdropHoverCanvasPoint = this.interactionController.backdropHoverCanvasPoint;
   protected readonly expandedNodeSections = this.canvasStateStore.expandedNodeSections;
-  protected readonly pendingClick = signal<PendingClickState | null>(null);
-  protected readonly dragNode = signal<DragNodeState | null>(null);
-  protected readonly dragConnection = signal<DragConnectionState | null>(null);
-  protected readonly panState = signal<PanState | null>(null);
-  protected readonly marqueeState = signal<MarqueeState | null>(null);
+  protected readonly pendingClick = this.interactionController.pendingClick;
+  protected readonly dragNode = this.interactionController.dragNode;
+  protected readonly dragConnection = this.interactionController.dragConnection;
+  protected readonly panState = this.interactionController.panState;
+  protected readonly marqueeState = this.interactionController.marqueeState;
   protected readonly transientSimplifiedDetail = signal(false);
   readonly zoomPercent = signal(100);
+  readonly viewport: BlueprintCanvasViewportPort = {
+    reset: () => this.resetViewport(),
+    zoomIn: () => this.zoomViewportIn(),
+    zoomOut: () => this.zoomViewportOut(),
+    focus: () => this.focusViewport(),
+    centerOnNode: (nodeId) => this.centerViewportOnNode(nodeId),
+    centerOnBounds: (bounds) => this.centerViewportOnBounds(bounds),
+    centerWorld: () => this.viewportCenterWorld(),
+    containsClientPoint: (point, tolerance = 0) => this.viewportContainsClientPoint(point, tolerance),
+  };
+  readonly validation: BlueprintCanvasValidationPort = {
+    reveal: (focus) => this.revealValidationFocus(focus),
+    routeErrors: () => this.validationRenderSnapshot().routeValidationErrors,
+  };
+  readonly bridge: BlueprintCanvasBridgePort = {
+    outputPropertyClientPoint: (nodeId, channelName, propertyName) =>
+      this.outputPropertyClientPoint(nodeId, channelName, propertyName),
+    inputPropertyClientPoint: (nodeId, propertyName) =>
+      this.inputPropertyClientPoint(nodeId, propertyName),
+    hitTestInputPropertyAtClientPoint: (clientX, clientY) =>
+      this.hitTestInputPropertyAtClientPoint(clientX, clientY),
+  };
+  private readonly modeCapabilities = computed(() => canvasModeCapabilities(this.mode()));
   private readonly expandedSectionMap = computed<ReadonlyMap<number, ReadonlySet<string>>>(() => {
     const existingNodeIds = new Set(this.nodes().map((node) => node.id));
     return new Map(
@@ -252,12 +273,14 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       this.snapshotPathfinderOptions(),
       this.isReadonly(),
     ));
-  readonly routeValidationErrors = computed(() => this.validationRenderSnapshot().routeValidationErrors);
   private readonly resolvedValidationFocus = computed<ResolvedValidationFocus | null>(() =>
-    this.resolveValidationFocus(this.renderSnapshot(), this.validationFocus()),
+    this.validationFocusResolver.resolveValidationFocus({
+      snapshot: this.renderSnapshot(),
+      focus: this.validationFocus(),
+    }),
   );
   private readonly nodeIssueSummaries = computed<ReadonlyMap<number, CanvasNodeIssueSummary>>(() =>
-    this.buildNodeIssueSummaries(this.validationIssueMarkers()),
+    this.validationFocusResolver.buildNodeIssueSummaries(this.validationIssueMarkers()),
   );
 
   constructor() {
@@ -272,6 +295,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       }
 
       this.mode();
+      this.modeCapabilities();
       this.backgroundEffect();
       this.graphRevision();
       this.renderSnapshot();
@@ -294,9 +318,9 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       this.marqueeState();
       this.transientSimplifiedDetail();
       this.readonlySelectedNodeId();
-      this.editorStore.selectedNodeIds();
-      this.editorStore.selectedConnectionIds();
-      this.editorStore.canvasFocused();
+      this.selection();
+      this.selectedNodeIds();
+      this.selectedConnectionIds();
       wrapper.fontReady();
       wrapper.viewportOffset();
       wrapper.zoomLevel();
@@ -315,6 +339,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     this.canvasWrapper = new CanvasWrapper(context, this.gridSize);
     this.syncCanvasBackingSize();
     this.scheduleDraw();
+    this.registerE2eCanvas();
 
     this.resizeObserver = new ResizeObserver(() => {
       this.syncCanvasBackingSize();
@@ -325,6 +350,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.unregisterE2eCanvas();
     this.resizeObserver?.disconnect();
     if (this.pendingDrawFrameId !== null) {
       cancelAnimationFrame(this.pendingDrawFrameId);
@@ -336,42 +362,21 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  resetView(): void {
-    const wrapper = this.canvasWrapper;
-    const canvas = this.canvasRef()?.nativeElement;
-    if (!wrapper || !canvas) {
-      return;
-    }
-
-    const bounds = this.graphContentBounds(this.renderSnapshot());
-    if (!bounds) {
-      wrapper.zoomLevel.set(1);
-      wrapper.viewportOffset.set({ x: 0, y: 0 });
-      this.notifyViewportChanged();
-      return;
-    }
-
-    const zoom = this.zoomLevelForBounds(bounds, canvas);
-    const focus = this.viewportFocusCanvasPoint(canvas);
-    const centerX = (bounds.left + bounds.right) / 2;
-    const centerY = (bounds.top + bounds.bottom) / 2;
-    wrapper.zoomLevel.set(zoom);
-    wrapper.viewportOffset.set({
-      x: focus.x - centerX * zoom,
-      y: focus.y - centerY * zoom,
-    });
-    this.notifyViewportChanged();
+  private resetViewport(): void {
+    this.viewportController.resetView(this.renderSnapshot());
   }
 
-  zoomIn(): void {
-    this.adjustZoom(0.1);
+  private zoomViewportIn(): void {
+    this.pulseSimplifiedDetailTier();
+    this.viewportController.zoomIn();
   }
 
-  zoomOut(): void {
-    this.adjustZoom(-0.1);
+  private zoomViewportOut(): void {
+    this.pulseSimplifiedDetailTier();
+    this.viewportController.zoomOut();
   }
 
-  focusCanvas(): void {
+  private focusViewport(): void {
     const canvas = this.canvasRef()?.nativeElement;
     if (!canvas) {
       return;
@@ -379,28 +384,23 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
 
     canvas.focus({ preventScroll: true });
     if (!this.isReadonly()) {
-      this.editorStore.setCanvasFocused(true);
+      this.emitCanvasEvent({ kind: 'focusChanged', focused: true });
     }
   }
 
-  centerOnNode(nodeId: number): void {
-    const wrapper = this.canvasWrapper;
-    const canvas = this.canvasRef()?.nativeElement;
+  private centerViewportOnNode(nodeId: number): void {
     const node = this.getNodeById(nodeId);
-    if (!wrapper || !canvas || !node) {
+    if (!node) {
       return;
     }
 
-    const zoom = wrapper.zoomLevel();
-    const focus = this.viewportFocusCanvasPoint(canvas);
-    wrapper.viewportOffset.set({
-      x: focus.x - (node.x + node.width / 2) * zoom,
-      y: focus.y - (node.y + node.height / 2) * zoom,
+    this.viewportController.centerOnWorldPoint({
+      x: node.x + node.width / 2,
+      y: node.y + node.height / 2,
     });
-    this.notifyViewportChanged();
   }
 
-  revealValidationFocus(focus: CanvasValidationFocus | null): void {
+  private revealValidationFocus(focus: CanvasValidationFocus | null): void {
     if (!focus) {
       return;
     }
@@ -408,50 +408,38 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     this.ensureValidationFocusSectionExpanded(focus);
     const resolvedFocus = this.resolveValidationFocus(this.renderSnapshot(), focus);
     if (resolvedFocus?.bounds) {
-      this.centerOnBounds(resolvedFocus.bounds);
+      this.centerViewportOnBounds(resolvedFocus.bounds);
     } else if (focus.nodeId !== null && focus.nodeId !== undefined) {
-      this.centerOnNode(focus.nodeId);
+      this.centerViewportOnNode(focus.nodeId);
     }
 
-    this.focusCanvas();
+    this.focusViewport();
     this.scheduleDraw();
   }
 
-  centerOnBounds(bounds: CanvasBounds): void {
-    const wrapper = this.canvasWrapper;
-    const canvas = this.canvasRef()?.nativeElement;
-    if (!wrapper || !canvas) {
-      return;
-    }
-
-    const zoom = wrapper.zoomLevel();
-    const focus = this.viewportFocusCanvasPoint(canvas);
-    const centerX = (bounds.left + bounds.right) / 2;
-    const centerY = (bounds.top + bounds.bottom) / 2;
-    wrapper.viewportOffset.set({
-      x: focus.x - centerX * zoom,
-      y: focus.y - centerY * zoom,
-    });
-    this.notifyViewportChanged();
+  private centerViewportOnBounds(bounds: CanvasBounds): void {
+    this.viewportController.centerOnBounds(bounds);
   }
 
-  viewportCenterWorld(): Point | null {
-    const wrapper = this.canvasWrapper;
-    const canvas = this.canvasRef()?.nativeElement;
-    if (!wrapper || !canvas) {
+  private viewportCenterWorld(): Point | null {
+    const state = this.viewportController.state();
+    if (!state) {
       return null;
     }
 
-    const offset = wrapper.viewportOffset();
-    const zoom = wrapper.zoomLevel();
-    const focus = this.viewportFocusCanvasPoint(canvas);
+    const availableWidth = Math.max(1, state.viewportSize.width - state.insets.left - state.insets.right);
+    const availableHeight = Math.max(1, state.viewportSize.height - state.insets.top - state.insets.bottom);
+    const focus = {
+      x: state.insets.left + availableWidth / 2,
+      y: state.insets.top + availableHeight / 2,
+    };
     return {
-      x: (focus.x - offset.x) / zoom,
-      y: (focus.y - offset.y) / zoom,
+      x: (focus.x - state.offset.x) / state.zoom,
+      y: (focus.y - state.offset.y) / state.zoom,
     };
   }
 
-  outputPropertyClientPoint(
+  private outputPropertyClientPoint(
     nodeId: number,
     channelName: string | null,
     propertyName: string,
@@ -464,27 +452,18 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     return port ? this.worldToClientPoint({ x: port.x, y: port.y }) : null;
   }
 
-  inputPropertyClientPoint(nodeId: number, propertyName: string): CanvasPropertyClientPoint | null {
+  private inputPropertyClientPoint(nodeId: number, propertyName: string): CanvasPropertyClientPoint | null {
     const renderedNode = this.getNodeById(nodeId);
     const port = renderedNode?.inputPropertyPort(propertyName) ?? null;
     return port ? this.worldToClientPoint({ x: port.x, y: port.y }) : null;
   }
 
-  containsClientPoint(point: { clientX: number; clientY: number }, tolerance = 0): boolean {
-    const canvas = this.canvasRef()?.nativeElement;
-    if (!canvas) {
-      return false;
-    }
-
-    const rect = canvas.getBoundingClientRect();
-    return point.clientX >= rect.left - tolerance &&
-      point.clientX <= rect.right + tolerance &&
-      point.clientY >= rect.top - tolerance &&
-      point.clientY <= rect.bottom + tolerance;
+  private viewportContainsClientPoint(point: { clientX: number; clientY: number }, tolerance = 0): boolean {
+    return this.viewportController.containsClientPoint(point, tolerance);
   }
 
-  hitTestInputPropertyAtClientPoint(clientX: number, clientY: number): CanvasInputPropertyHit | null {
-    if (!this.containsClientPoint({ clientX, clientY })) {
+  private hitTestInputPropertyAtClientPoint(clientX: number, clientY: number): CanvasInputPropertyHit | null {
+    if (!this.viewportContainsClientPoint({ clientX, clientY })) {
       return null;
     }
 
@@ -494,36 +473,22 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     }
 
     const target = this.getNodeByCoordinates(world);
-    const targetPort = target ? this.getInputPortAt(target, world) : null;
-    if (!target || targetPort?.kind !== 'input-property' || !targetPort.propertyName) {
+    if (!target) {
       return null;
     }
 
-    const propertyKind = target.base.inputProperties[targetPort.propertyName];
-    if (!propertyKind) {
-      return null;
-    }
-
-    return {
-      nodeId: target.id,
-      nodeInstanceId: target.base.instanceId,
-      nodeName: target.name,
-      propertyName: targetPort.propertyName,
-      propertyKind,
-      clientX,
-      clientY,
-    };
+    return createCanvasInputPropertyHit(target, this.getInputPortAt(target, world), clientX, clientY);
   }
 
   protected onFocus(): void {
     if (!this.isReadonly()) {
-      this.editorStore.setCanvasFocused(true);
+      this.emitCanvasEvent({ kind: 'focusChanged', focused: true });
     }
   }
 
   protected onBlur(): void {
     if (!this.isReadonly()) {
-      this.editorStore.setCanvasFocused(false);
+      this.emitCanvasEvent({ kind: 'focusChanged', focused: false });
     }
   }
 
@@ -533,11 +498,11 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    this.focusCanvas();
+    this.focusViewport();
     canvas.setPointerCapture(event.pointerId);
 
     const { canvas: canvasPoint, world } = this.getCoordinates(event);
-    const shift = this.canEditGraph() && this.editorStore.modifiers().shift;
+    const shift = this.canEditGraph() && this.selection().modifiers.shift;
     const node = this.getNodeByCoordinates(world);
     const connection = this.canEditGraph() && !node ? this.getConnectionByCoordinates(world) : undefined;
     const connectionBadge = this.canEditGraph() && connection
@@ -559,7 +524,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         };
         this.dragConnection.set(drag);
         if (this.mode() === 'bridge-source') {
-          this.emitBridgeSourceDrag(this.bridgeOutputPropertyDragStarted, drag, event);
+          this.emitBridgeSourceDrag('started', drag, event);
         }
         this.hoveredNodeId.set(node.id);
         this.hoveredNodeIssueNodeId.set(null);
@@ -620,7 +585,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     if (dragConnection?.pointerId === event.pointerId) {
       this.updateConnectionDrag(dragConnection, world);
       if (this.mode() === 'bridge-source') {
-        this.emitBridgeSourceDrag(this.bridgeOutputPropertyDragMoved, {
+        this.emitBridgeSourceDrag('moved', {
           ...dragConnection,
           x: world.x,
           y: world.y,
@@ -657,21 +622,14 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
 
     const pendingClick = this.pendingClick();
     if (pendingClick?.pointerId === event.pointerId) {
-      if (pendingClick.toggleSectionKey !== null) {
-        return;
-      }
-
-      if (!this.hasMovedBeyondThreshold(pendingClick.startCanvas, canvas)) {
-        return;
-      }
-
-      if (pendingClick.nodeId !== null && !pendingClick.shift && this.canEditGraph()) {
-        this.startNodeDrag(event.pointerId, pendingClick.nodeId, world);
+      const transition = this.interactionController.pendingClickTransition(pendingClick, canvas, this.canEditGraph());
+      if (transition === 'node-drag') {
+        this.startNodeDrag(event.pointerId, pendingClick.nodeId!, world);
         this.pendingClick.set(null);
         return;
       }
 
-      if (pendingClick.nodeId === null && pendingClick.connectionId === null) {
+      if (transition === 'pan') {
         this.panState.set({
           pointerId: event.pointerId,
           startCanvas: pendingClick.startCanvas,
@@ -712,24 +670,14 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   protected onPointerLeave(): void {
     this.backdropHoverCanvasPoint.set(null);
 
-    if (this.dragConnection() || this.dragNode() || this.panState() || this.marqueeState()) {
+    if (this.interactionController.activePointerLifecycle()) {
       return;
     }
 
-    this.hoveredNodeId.set(null);
-    this.hoveredNodeIssueNodeId.set(null);
-    this.hoveredPortKey.set(null);
-    this.hoveredSectionKey.set(null);
-    this.hoveredConnectionId.set(null);
-    this.hoveredConnectionRoute.set(null);
+    this.interactionController.clearHover();
   }
 
   protected onWheel(event: WheelEvent): void {
-    const wrapper = this.canvasWrapper;
-    if (!wrapper) {
-      return;
-    }
-
     event.preventDefault();
     this.pulseSimplifiedDetailTier();
     const delta = this.normalizeWheelDelta(event);
@@ -741,11 +689,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    wrapper.viewportOffset.update((currentOffset) => ({
-      x: currentOffset.x - delta.x,
-      y: currentOffset.y - delta.y,
-    }));
-    this.notifyViewportChanged();
+    this.viewportController.panBy(delta);
   }
 
   private completePointerInteraction(event: PointerEvent, cancelled: boolean): void {
@@ -753,7 +697,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     const dragConnection = this.dragConnection();
     if (dragConnection?.pointerId === event.pointerId) {
       if (this.mode() === 'bridge-source') {
-        this.emitBridgeSourceDrag(this.bridgeOutputPropertyDragEnded, dragConnection, event, cancelled);
+        this.emitBridgeSourceDrag('ended', dragConnection, event, cancelled);
       } else if (!cancelled) {
         this.finalizeConnectionDrag(dragConnection, world);
       }
@@ -780,14 +724,8 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     const marqueeState = this.marqueeState();
     if (marqueeState?.pointerId === event.pointerId) {
       if (!cancelled) {
-        const bounds = this.normalizeRect(marqueeState.startWorld, marqueeState.currentWorld);
-        this.editorStore.selectNodesWithinRect(
-          bounds.left,
-          bounds.top,
-          bounds.right,
-          bounds.bottom,
-          true,
-        );
+        const bounds = this.interactionController.normalizeRect(marqueeState.startWorld, marqueeState.currentWorld);
+        this.applyInteractionEffects([{ kind: 'selectNodesWithinRect', bounds, additive: true }]);
       }
 
       this.marqueeState.set(null);
@@ -798,7 +736,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     const pendingClick = this.pendingClick();
     if (pendingClick?.pointerId === event.pointerId) {
       this.pendingClick.set(null);
-      if (cancelled || this.hasMovedBeyondThreshold(pendingClick.startCanvas, canvas)) {
+      if (cancelled || this.interactionController.movedBeyondClickTolerance(pendingClick.startCanvas, canvas)) {
         this.updateHoverState(world);
         return;
       }
@@ -812,48 +750,51 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   private applyClickSelection(click: PendingClickState): void {
-    if (click.toggleSectionKey && click.nodeId !== null) {
-      this.toggleNodeSectionExpanded(click.nodeId, click.toggleSectionKey);
-      return;
-    }
+    this.applyInteractionEffects(this.interactionController.clickEffects(click, {
+      readOnly: this.isReadonly(),
+      canEditGraph: this.canEditGraph(),
+      nodeIsDataBridge: (nodeId) => this.getNodeById(nodeId)?.base.isDataBridge ?? false,
+    }));
+  }
 
-    if (this.isReadonly()) {
-      if (click.nodeId !== null) {
-        this.readonlyNodeActivated.emit(click.nodeId);
+  private applyInteractionEffects(effects: readonly CanvasInteractionEffect[]): void {
+    for (const effect of effects) {
+      switch (effect.kind) {
+        case 'toggleNodeSectionExpanded':
+          this.toggleNodeSectionExpanded(effect.nodeId, effect.sectionKey);
+          break;
+        case 'emitReadonlyNodeActivated':
+          this.emitCanvasEvent({ kind: 'readonlyNodeActivated', nodeId: effect.nodeId });
+          break;
+        case 'emitNodeSettingsRequested':
+          this.emitCanvasEvent({ kind: 'nodeSettingsRequested', nodeId: effect.nodeId });
+          break;
+        case 'selectOnlyNode':
+          this.emitCanvasEvent({ kind: 'selectOnlyNode', nodeId: effect.nodeId });
+          break;
+        case 'toggleNodeSelection':
+          this.emitCanvasEvent({ kind: 'toggleNodeSelection', nodeId: effect.nodeId });
+          break;
+        case 'selectOnlyConnection':
+          this.emitCanvasEvent({ kind: 'selectOnlyConnection', connectionId: effect.connectionId });
+          break;
+        case 'toggleConnectionSelection':
+          this.emitCanvasEvent({ kind: 'toggleConnectionSelection', connectionId: effect.connectionId });
+          break;
+        case 'selectNodesWithinRect':
+          this.emitCanvasEvent({ kind: 'selectNodesWithinRect', bounds: effect.bounds, additive: effect.additive });
+          break;
+        case 'updateNodePositions':
+          this.emitCanvasEvent({ kind: 'updateNodePositions', positions: effect.positions });
+          break;
+        case 'clearSelection':
+          this.emitCanvasEvent({ kind: 'clearSelection' });
+          break;
+        case 'emitBridgeSourceDrag':
+        case 'createConnection':
+          break;
       }
-      return;
     }
-
-    if (!this.canEditGraph()) {
-      this.editorStore.clearSelection();
-      return;
-    }
-
-    if (click.nodeId !== null) {
-      const node = this.editorStore.nodes().find((candidate) => candidate.id === click.nodeId);
-      if (node?.isDataBridge) {
-        return;
-      }
-
-      if (click.shift) {
-        this.editorStore.toggleNodeSelection(click.nodeId);
-      } else {
-        this.editorStore.selectOnlyNode(click.nodeId);
-        this.nodeSettingsRequested.emit(click.nodeId);
-      }
-      return;
-    }
-
-    if (click.connectionId !== null) {
-      if (click.shift) {
-        this.editorStore.toggleConnectionSelection(click.connectionId);
-      } else {
-        this.editorStore.selectOnlyConnection(click.connectionId);
-      }
-      return;
-    }
-
-    this.editorStore.clearSelection();
   }
 
   private startNodeDrag(pointerId: number, nodeId: number, world: Point): void {
@@ -866,13 +807,13 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    const selectedNodeIds = this.editorStore.selectedNodeIds();
-    const selectedConnectionIds = this.editorStore.selectedConnectionIds();
+    const selectedNodeIds = this.selection().selectedNodeIds;
+    const selectedConnectionIds = this.selection().selectedConnectionIds;
     const useCurrentSelection = selectedConnectionIds.length === 0 && selectedNodeIds.includes(nodeId);
     const nodeIds = useCurrentSelection ? selectedNodeIds : [nodeId];
 
     if (!useCurrentSelection) {
-      this.editorStore.selectOnlyNode(nodeId);
+      this.emitCanvasEvent({ kind: 'selectOnlyNode', nodeId });
     }
 
     const initialPositions = new Map<number, Point>();
@@ -889,7 +830,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    this.editorStore.captureHistory();
+    this.emitCanvasEvent({ kind: 'captureHistory' });
     this.dragNode.set({
       pointerId,
       startWorld: world,
@@ -904,8 +845,9 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   private updateNodeDrag(drag: DragNodeState, world: Point): void {
     const deltaX = world.x - drag.startWorld.x;
     const deltaY = world.y - drag.startWorld.y;
-    this.editorStore.updateNodePositions(
-      drag.nodeIds.map((nodeId) => {
+    this.emitCanvasEvent({
+      kind: 'updateNodePositions',
+      positions: drag.nodeIds.map((nodeId) => {
         const initial = drag.initialPositions.get(nodeId)!;
         return {
           nodeId,
@@ -915,7 +857,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
           },
         };
       }),
-    );
+    });
   }
 
   private updateConnectionDrag(drag: DragConnectionState, world: Point): void {
@@ -1016,26 +958,25 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         return;
       }
 
-      if (!this.editorStore.upsertDataBridgeInputProperty(target.id, drag.sourceProperty, propertyKind)) {
-        return;
-      }
-
-      const connection = this.editorStore.createConnection(
-        drag.from,
-        target.id,
-        drag.anchor,
-        'left',
-        snap.pos,
-      );
-
-      if (!connection) {
-        return;
-      }
-
-      this.editorStore.updateConnectionPropertyMappings(connection.id, [{
-        sourceProperty: drag.sourceProperty,
-        targetProperty: drag.sourceProperty,
-      }]);
+      this.emitCanvasEvent({
+        kind: 'createConnection',
+        request: {
+          from: drag.from,
+          to: target.id,
+          anchor: drag.anchor,
+          side: 'left',
+          position: snap.pos,
+          upsertDataBridgeInputProperty: {
+            nodeId: target.id,
+            propertyName: drag.sourceProperty,
+            propertyKind,
+          },
+          propertyMapping: {
+            sourceProperty: drag.sourceProperty,
+            targetProperty: drag.sourceProperty,
+          },
+        },
+      });
       return;
     }
 
@@ -1066,32 +1007,34 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    const connection = this.editorStore.createConnection(
-      drag.from,
-      target.id,
-      drag.anchor,
-      'left',
-      snap.pos,
-    );
-
-    if (!connection) {
-      return;
-    }
-
     if (drag.sourceProperty && targetPort.kind === 'input-property' && targetPort.propertyName) {
-      const nextSelections = buildConnectionMappingSelections(connection);
-      nextSelections[targetPort.propertyName] = drag.sourceProperty;
-      this.editorStore.updateConnectionPropertyMappings(
-        connection.id,
-        buildConnectionMappingsFromSelections(nextSelections),
-      );
+      this.emitCanvasEvent({
+        kind: 'createConnection',
+        request: {
+          from: drag.from,
+          to: target.id,
+          anchor: drag.anchor,
+          side: 'left',
+          position: snap.pos,
+          propertyMapping: {
+            sourceProperty: drag.sourceProperty,
+            targetProperty: targetPort.propertyName,
+          },
+        },
+      });
       return;
     }
 
-    if ((drag.sourceProperty && targetPort.kind === 'input-summary') ||
-      (!drag.sourceProperty && targetPort.kind === 'input-property')) {
-      this.editorStore.selectOnlyConnection(connection.id);
-    }
+    this.emitCanvasEvent({
+      kind: 'createConnection',
+      request: {
+        from: drag.from,
+        to: target.id,
+        anchor: drag.anchor,
+        side: 'left',
+        position: snap.pos,
+      },
+    });
   }
 
   private updateHoverState(world: Point): void {
@@ -1100,7 +1043,6 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       ? this.getConnectionRouteByCoordinates(world)
       : undefined;
 
-    this.hoveredNodeId.set(node?.id ?? null);
     const candidateHoveredPort = !node || !this.canMapConnections() ? null : this.getPortAt(node, world);
     const hoveredPort = candidateHoveredPort && this.isPassiveSummaryPort(candidateHoveredPort)
       ? null
@@ -1112,206 +1054,66 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
       !this.pointWithinRect(world, node.settingsRect())
       ? null
       : node.id;
-    this.hoveredNodeIssueNodeId.set(hoveredNodeIssueNodeId);
-    this.hoveredPortKey.set(hoveredPort?.key ?? null);
-    this.hoveredSectionKey.set(!node || this.isReadonly() || hoveredPort
-      ? null
-      : node.sectionToggleHit(world.x, world.y) ?? node.sectionHeaderHit(world.x, world.y) ?? null);
-    this.hoveredConnectionId.set(connectionHit?.connection.id ?? null);
-    this.hoveredConnectionRoute.set(connectionHit
-      ? { connectionId: connectionHit.connection.id, routeIndex: connectionHit.routeIndex }
-      : null);
+    this.interactionController.setHover({
+      nodeId: node?.id ?? null,
+      nodeIssueNodeId: hoveredNodeIssueNodeId,
+      portKey: hoveredPort?.key ?? null,
+      sectionKey: !node || this.isReadonly() || hoveredPort
+        ? null
+        : node.sectionToggleHit(world.x, world.y) ?? node.sectionHeaderHit(world.x, world.y) ?? null,
+      connectionId: connectionHit?.connection.id ?? null,
+      connectionRoute: connectionHit
+        ? { connectionId: connectionHit.connection.id, routeIndex: connectionHit.routeIndex }
+        : null,
+    });
   }
 
   private isReadonly(): boolean {
-    return this.mode() === 'readonly' || this.mode() === 'bridge-source' || this.mode() === 'bridge-target';
+    return this.modeCapabilities().readOnly;
   }
 
   private canEditGraph(): boolean {
-    return this.mode() === 'edit';
+    return this.modeCapabilities().graphEditable;
   }
 
   private canMapConnections(): boolean {
-    return this.mode() === 'edit' || this.mode() === 'bridge-map' || this.mode() === 'bridge-source';
+    return this.modeCapabilities().connectionMapping;
   }
 
   private usesPassiveSummaryPorts(): boolean {
-    return this.mode() === 'bridge-source' || this.mode() === 'bridge-target';
+    return this.modeCapabilities().passiveSummaryPorts;
   }
 
   private shouldDrawConnectionDragPreview(): boolean {
-    return this.mode() === 'edit' || this.mode() === 'bridge-map';
+    return this.modeCapabilities().dragConnectionPreview;
   }
 
   private isPassiveSummaryPort(port: { kind: string }): boolean {
-    return this.usesPassiveSummaryPorts() && (port.kind === 'input-summary' || port.kind === 'output-summary');
+    return isPassiveCanvasSummaryPort(this.mode(), port);
   }
 
   private canStartConnectionFrom(
     node: RenderedNode,
     port: { kind: string; anchorIndex: number | null; propertyName: string | null },
   ): boolean {
-    if (!this.canMapConnections() || port.anchorIndex === null) {
-      return false;
-    }
-
-    if (this.mode() === 'bridge-map') {
-      if (node.base.isDataBridge) {
-        return node.base.dataBridgeKind === 'input' && port.kind === 'output-property';
-      }
-
-      return port.kind === 'output-property';
-    }
-
-    if (this.mode() === 'bridge-source') {
-      return !node.base.isDataBridge && port.kind === 'output-property';
-    }
-
-    if (node.base.isDataBridge) {
-      return node.base.dataBridgeKind === 'input' &&
-        (port.kind === 'output-summary' || port.kind === 'output-property');
-    }
-
-    return port.kind === 'output-summary' || port.kind === 'output-property';
+    return canStartCanvasConnectionFrom(this.mode(), node, port);
   }
 
   private syncCanvasBackingSize(): void {
-    const canvas = this.canvasRef()?.nativeElement;
-    if (!canvas) {
-      return;
-    }
-
-    const dpr = window.devicePixelRatio || 1;
-    const cssWidth = Math.max(1, Math.floor(canvas.clientWidth));
-    const cssHeight = Math.max(1, Math.floor(canvas.clientHeight));
-    const width = Math.max(1, Math.floor(cssWidth * dpr));
-    const height = Math.max(1, Math.floor(cssHeight * dpr));
-
-    if (canvas.width !== width) {
-      canvas.width = width;
-    }
-
-    if (canvas.height !== height) {
-      canvas.height = height;
-    }
-
-    const context = this.canvasWrapper?.ctx;
-    if (context) {
-      context.setTransform(1, 0, 0, 1, 0, 0);
-      context.scale(dpr, dpr);
-    }
-  }
-
-  private graphContentBounds(snapshot: CanvasRenderSnapshot): CanvasBounds | null {
-    if (snapshot.nodes.length === 0) {
-      return null;
-    }
-
-    const padding = 80;
-    return snapshot.nodes.reduce<CanvasBounds | null>((bounds, node) => {
-      const nodeBounds = node.interactionBounds();
-      const paddedBounds = {
-        left: nodeBounds.left - padding,
-        top: nodeBounds.top - padding,
-        right: nodeBounds.right + padding,
-        bottom: nodeBounds.bottom + padding,
-      };
-      if (!bounds) {
-        return paddedBounds;
-      }
-
-      return {
-        left: Math.min(bounds.left, paddedBounds.left),
-        top: Math.min(bounds.top, paddedBounds.top),
-        right: Math.max(bounds.right, paddedBounds.right),
-        bottom: Math.max(bounds.bottom, paddedBounds.bottom),
-      };
-    }, null);
-  }
-
-  private zoomLevelForBounds(bounds: CanvasBounds, canvas: HTMLCanvasElement): number {
-    const insets = this.normalizedViewportInsets(canvas);
-    const availableWidth = Math.max(240, canvas.clientWidth - insets.left - insets.right - 56);
-    const availableHeight = Math.max(180, canvas.clientHeight - insets.top - insets.bottom - 56);
-    const boundsWidth = Math.max(1, bounds.right - bounds.left);
-    const boundsHeight = Math.max(1, bounds.bottom - bounds.top);
-    const fitZoom = Math.min(1, availableWidth / boundsWidth, availableHeight / boundsHeight);
-    return Number(Math.max(0.35, Math.min(1, fitZoom)).toFixed(2));
-  }
-
-  private viewportFocusCanvasPoint(canvas: HTMLCanvasElement): Point {
-    const insets = this.normalizedViewportInsets(canvas);
-    const availableWidth = Math.max(1, canvas.clientWidth - insets.left - insets.right);
-    const availableHeight = Math.max(1, canvas.clientHeight - insets.top - insets.bottom);
-    return {
-      x: insets.left + availableWidth / 2,
-      y: insets.top + availableHeight / 2,
-    };
-  }
-
-  private normalizedViewportInsets(canvas: HTMLCanvasElement): CanvasViewportInsets {
-    const rawInsets = this.viewportInsets();
-    const left = Math.max(0, rawInsets.left);
-    const right = Math.max(0, rawInsets.right);
-    const top = Math.max(0, rawInsets.top);
-    const bottom = Math.max(0, rawInsets.bottom);
-    const horizontalBudget = Math.max(0, canvas.clientWidth - 1);
-    const verticalBudget = Math.max(0, canvas.clientHeight - 1);
-    const horizontalScale = left + right > horizontalBudget && left + right > 0
-      ? horizontalBudget / (left + right)
-      : 1;
-    const verticalScale = top + bottom > verticalBudget && top + bottom > 0
-      ? verticalBudget / (top + bottom)
-      : 1;
-
-    return {
-      left: left * horizontalScale,
-      right: right * horizontalScale,
-      top: top * verticalScale,
-      bottom: bottom * verticalScale,
-    };
+    this.viewportController.syncBackingSize(this.canvasWrapper?.ctx);
   }
 
   private adjustZoom(delta: number, focalCanvasPoint?: Point): void {
-    const wrapper = this.canvasWrapper;
-    const canvas = this.canvasRef()?.nativeElement;
-    if (!wrapper) {
-      return;
-    }
-
     this.pulseSimplifiedDetailTier();
-
-    const currentZoom = wrapper.zoomLevel();
-    const nextZoom = Math.min(3, Math.max(0.2, currentZoom + delta));
-    if (Number(nextZoom.toFixed(2)) === currentZoom) {
-      return;
-    }
-
-    const offset = wrapper.viewportOffset();
-    const focus = focalCanvasPoint ?? (
-      canvas
-        ? this.viewportFocusCanvasPoint(canvas)
-        : { x: 0, y: 0 }
-    );
-    const worldFocus = {
-      x: (focus.x - offset.x) / currentZoom,
-      y: (focus.y - offset.y) / currentZoom,
-    };
-
-    wrapper.zoomLevel.set(Number(nextZoom.toFixed(2)));
-    wrapper.viewportOffset.set({
-      x: focus.x - worldFocus.x * nextZoom,
-      y: focus.y - worldFocus.y * nextZoom,
-    });
-    this.notifyViewportChanged();
+    this.viewportController.adjustZoom(delta, focalCanvasPoint);
   }
 
   private notifyViewportChanged(): void {
-    this.viewportChanged.emit();
+    this.emitCanvasEvent({ kind: 'viewportChanged' });
   }
 
   private shouldZoomFromWheel(event: WheelEvent): boolean {
-    return event.ctrlKey || this.editorStore.modifiers().space;
+    return event.ctrlKey || this.selection().modifiers.space;
   }
 
   private normalizeWheelDelta(event: WheelEvent): Point {
@@ -1338,29 +1140,13 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   private getCoordinates(event: MouseEvent | PointerEvent): { canvas: Point; world: Point } {
-    const canvas = this.canvasRef()?.nativeElement;
-    const wrapper = this.canvasWrapper;
-    if (!canvas || !wrapper) {
-      return {
-        canvas: { x: 0, y: 0 },
-        world: { x: 0, y: 0 },
-      };
-    }
+    return this.viewportController.coordinatesFromEvent(event);
+  }
 
-    const rect = canvas.getBoundingClientRect();
-    const position = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
-    const offset = wrapper.viewportOffset();
-    const zoom = wrapper.zoomLevel();
-
+  private hitTestContext() {
     return {
-      canvas: position,
-      world: {
-        x: (position.x - offset.x) / zoom,
-        y: (position.y - offset.y) / zoom,
-      },
+      snapshot: this.renderSnapshot(),
+      zoomLevel: this.canvasWrapper?.zoomLevel() ?? 1,
     };
   }
 
@@ -1369,40 +1155,19 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   private getNodeByCoordinates(coordinates: Point, ...except: RenderedNode[]): RenderedNode | undefined {
-    const exceptIds = new Set(except.map((node) => node.id));
-    return [...this.renderSnapshot().queryNodesAtPoint(coordinates.x, coordinates.y, exceptIds)]
-      .reverse()
-      .find((node) => node.containsInteractionPoint(coordinates.x, coordinates.y));
+    return this.hitTester.nodeAt(this.renderSnapshot(), coordinates, except);
   }
 
   private getConnectionByCoordinates(coordinates: Point): RenderedConnection | undefined {
-    return this.getConnectionRouteByCoordinates(coordinates)?.connection;
+    return this.hitTester.connectionAt(this.hitTestContext(), coordinates);
   }
 
   private getConnectionRouteByCoordinates(coordinates: Point): ConnectionRouteHit | undefined {
-    const tolerance = 10 / this.canvasWrapper!.zoomLevel();
-    let nearestHit: ConnectionRouteHit | undefined;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-    for (const connection of this.renderSnapshot().queryConnectionsAtPoint(coordinates.x, coordinates.y)) {
-      const routeHit = connection.nearestVisualRoute(coordinates.x, coordinates.y, tolerance);
-      if (routeHit && routeHit.distance <= tolerance && routeHit.distance < nearestDistance) {
-        nearestHit = {
-          connection,
-          routeIndex: routeHit.routeIndex,
-          distance: routeHit.distance,
-        };
-        nearestDistance = routeHit.distance;
-      }
-    }
-
-    return nearestHit;
+    return this.hitTester.connectionRouteAt(this.hitTestContext(), coordinates);
   }
 
   private getConnectionBadgeByCoordinates(connection: RenderedConnection, coordinates: Point): RenderedConnection | undefined {
-    const badgeRadius = 18 / this.canvasWrapper!.zoomLevel();
-    return connection.badgeHitTest(coordinates.x, coordinates.y, badgeRadius)
-      ? connection
-      : undefined;
+    return this.hitTester.connectionBadgeAt(connection, coordinates, this.canvasWrapper?.zoomLevel() ?? 1);
   }
 
   private getNodesConnectedTo(node: RenderedNode): RenderedNode[] {
@@ -1410,125 +1175,187 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   private getBlockedTargetNodeIds(snapshot: CanvasRenderSnapshot, drag: DragConnectionState): ReadonlySet<number> {
-    const blockedNodeIds = new Set([drag.from, ...snapshot.getConnectedNodeIds(drag.from)]);
-    const sourceNode = snapshot.nodeById.get(drag.from) ?? null;
-
-    for (const node of snapshot.nodes) {
-      if (node.base.nodeKind !== 'CollectionIterator' || blockedNodeIds.has(node.id)) {
-        continue;
-      }
-
-      if (!this.canDragBindToCollectionIterator(sourceNode, drag)) {
-        blockedNodeIds.add(node.id);
-      }
-    }
-
-    return blockedNodeIds;
+    return this.hitTester.blockedTargetNodeIds(snapshot, drag);
   }
 
   private getCollectionIteratorPreviewLabels(
     snapshot: CanvasRenderSnapshot,
     drag: DragConnectionState,
   ): ReadonlyMap<number, string> {
-    const sourceNode = snapshot.nodeById.get(drag.from) ?? null;
-    const collectionKind = this.draggedCollectionKind(sourceNode, drag);
-    if (!collectionKind) {
-      return new Map<number, string>();
-    }
-
-    const itemKind = collectionKind.slice(0, -2);
-    const blockedNodeIds = new Set([drag.from, ...snapshot.getConnectedNodeIds(drag.from)]);
-    const labels = new Map<number, string>();
-    for (const node of snapshot.nodes) {
-      if (node.base.nodeKind === 'CollectionIterator' && !blockedNodeIds.has(node.id)) {
-        labels.set(node.id, `${collectionKind} -> ${itemKind}`);
-      }
-    }
-
-    return labels;
+    return this.hitTester.collectionIteratorPreviewLabels(snapshot, drag);
   }
 
   private canDragBindToCollectionIterator(sourceNode: RenderedNode | null, drag: DragConnectionState): boolean {
-    return this.draggedCollectionKind(sourceNode, drag) !== null;
-  }
-
-  private draggedCollectionKind(sourceNode: RenderedNode | null, drag: DragConnectionState): string | null {
-    if (!sourceNode) {
-      return null;
-    }
-
-    const sourceProperties = sourceNode.outputPropertiesForAnchor(drag.anchor);
-    if (drag.sourceProperty) {
-      const sourceKind = sourceProperties[drag.sourceProperty];
-      return this.isCollectionKind(sourceKind) ? sourceKind : null;
-    }
-
-    return Object.entries(sourceProperties)
-      .filter(([, kind]) => this.isCollectionKind(kind))
-      .sort(([left], [right]) => left.localeCompare(right))[0]?.[1] ?? null;
-  }
-
-  private isCollectionKind(kind: string | null | undefined): kind is `${string}[]` {
-    return typeof kind === 'string' && kind.endsWith('[]');
+    return this.hitTester.canDragBindToCollectionIterator(sourceNode, drag);
   }
 
   private getPortAt(node: RenderedNode, coordinates: Point) {
-    const zoom = this.canvasWrapper?.zoomLevel() ?? 1;
-    const extraHitRadius = Math.max(4, 12 / zoom - 7);
-    return node.portHit(coordinates.x, coordinates.y, extraHitRadius);
+    return this.hitTester.portAt(node, coordinates, this.canvasWrapper?.zoomLevel() ?? 1);
   }
 
   private getInputPortAt(node: RenderedNode, coordinates: Point) {
-    const port = this.getPortAt(node, coordinates);
-    if (port && (port.kind === 'input-summary' || port.kind === 'input-property')) {
-      return port;
-    }
-
-    return node.inputSummaryPort();
+    return this.hitTester.inputPortAt(node, coordinates, this.canvasWrapper?.zoomLevel() ?? 1);
   }
 
   private clientToWorldPoint(clientX: number, clientY: number): Point | null {
-    const wrapper = this.canvasWrapper;
-    const canvas = this.canvasRef()?.nativeElement;
-    if (!wrapper || !canvas) {
-      return null;
-    }
-
-    const rect = canvas.getBoundingClientRect();
-    const offset = wrapper.viewportOffset();
-    const zoom = wrapper.zoomLevel();
-    return {
-      x: (clientX - rect.left - offset.x) / zoom,
-      y: (clientY - rect.top - offset.y) / zoom,
-    };
+    return this.viewportController.clientToWorldPoint(clientX, clientY);
   }
 
   private worldToClientPoint(point: Point): CanvasPropertyClientPoint | null {
-    const wrapper = this.canvasWrapper;
-    const canvas = this.canvasRef()?.nativeElement;
-    if (!wrapper || !canvas) {
-      return null;
+    return this.viewportController.worldToClientPoint(point);
+  }
+
+  private registerE2eCanvas(): void {
+    if (!this.e2eEnabled()) {
+      return;
     }
 
-    const rect = canvas.getBoundingClientRect();
-    const offset = wrapper.viewportOffset();
-    const zoom = wrapper.zoomLevel();
-    return {
-      clientX: rect.left + point.x * zoom + offset.x,
-      clientY: rect.top + point.y * zoom + offset.y,
+    const api = this.ensureE2eApi();
+    api.canvases[this.canvasId()] = {
+      snapshot: () => this.createE2eSnapshot(),
     };
   }
 
+  private unregisterE2eCanvas(): void {
+    if (!this.e2eEnabled() || typeof window === 'undefined') {
+      return;
+    }
+
+    const api = this.e2eApi();
+    if (api) {
+      delete api.canvases[this.canvasId()];
+    }
+  }
+
+  private createE2eSnapshot(): BlueprintCanvasE2eSnapshot | null {
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!canvas) {
+      return null;
+    }
+
+    const canvasRect = canvas.getBoundingClientRect();
+    return {
+      id: this.canvasId(),
+      mode: this.mode(),
+      zoomPercent: this.zoomPercent(),
+      canvasRect: {
+        left: canvasRect.left,
+        top: canvasRect.top,
+        width: canvasRect.width,
+        height: canvasRect.height,
+      },
+      viewport: this.viewportController.state(),
+      nodes: this.renderSnapshot().nodes.map((node) => {
+        const topLeft = this.worldToClientPoint({ x: node.x, y: node.y });
+        const bottomRight = this.worldToClientPoint({ x: node.x + node.width, y: node.y + node.height });
+        return {
+          id: node.id,
+          name: node.name,
+          kind: node.base.nodeKind,
+          worldBounds: {
+            left: node.x,
+            top: node.y,
+            right: node.x + node.width,
+            bottom: node.y + node.height,
+          },
+          clientBounds: topLeft && bottomRight
+            ? {
+                left: topLeft.clientX,
+                top: topLeft.clientY,
+                right: bottomRight.clientX,
+                bottom: bottomRight.clientY,
+              }
+            : null,
+          ports: node.visiblePorts().flatMap((port) => {
+            const point = this.worldToClientPoint({ x: port.x, y: port.y });
+            return point
+              ? [{
+                  key: port.key,
+                  kind: port.kind,
+                  anchorIndex: port.anchorIndex,
+                  channelName: port.channelName,
+                  propertyName: port.propertyName,
+                  clientX: point.clientX,
+                  clientY: point.clientY,
+                }]
+              : [];
+          }),
+          sections: [
+            ...(node.layout.inputSection ? [node.layout.inputSection] : []),
+            ...node.layout.outputSections,
+          ].map((section) => {
+            const headerTopLeft = this.worldToClientPoint({ x: node.x + 14, y: section.headerTop });
+            const headerBottomRight = this.worldToClientPoint({
+              x: node.x + node.width - 14,
+              y: section.headerTop + section.headerHeight,
+            });
+            const toggleTopLeft = this.worldToClientPoint({ x: section.toggleRect.x, y: section.toggleRect.y });
+            const toggleBottomRight = this.worldToClientPoint({
+              x: section.toggleRect.x + section.toggleRect.width,
+              y: section.toggleRect.y + section.toggleRect.height,
+            });
+            return {
+              key: section.key,
+              name: section.name,
+              label: section.label,
+              side: section.side,
+              expanded: section.expanded,
+              headerBounds: headerTopLeft && headerBottomRight
+                ? {
+                    left: headerTopLeft.clientX,
+                    top: headerTopLeft.clientY,
+                    right: headerBottomRight.clientX,
+                    bottom: headerBottomRight.clientY,
+                  }
+                : null,
+              toggleBounds: toggleTopLeft && toggleBottomRight
+                ? {
+                    left: toggleTopLeft.clientX,
+                    top: toggleTopLeft.clientY,
+                    right: toggleBottomRight.clientX,
+                    bottom: toggleBottomRight.clientY,
+                  }
+                : null,
+            };
+          }),
+        };
+      }),
+    };
+  }
+
+  private e2eEnabled(): boolean {
+    return typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('e2e') === '1';
+  }
+
+  private ensureE2eApi(): WorkflowBuilderE2eApi {
+    const target = window as typeof window & { __workflowBuilderE2e?: WorkflowBuilderE2eApi };
+    target.__workflowBuilderE2e ??= {
+      canvases: {},
+      getCanvasSnapshot(id: string): BlueprintCanvasE2eSnapshot | null {
+        return this.canvases[id]?.snapshot() ?? null;
+      },
+    };
+    return target.__workflowBuilderE2e;
+  }
+
+  private e2eApi(): WorkflowBuilderE2eApi | null {
+    return (window as typeof window & { __workflowBuilderE2e?: WorkflowBuilderE2eApi }).__workflowBuilderE2e ?? null;
+  }
+
   private emitBridgeSourceDrag(
-    outputRef: { emit(value: CanvasOutputPropertyDragEvent): void },
+    phase: 'started' | 'moved' | 'ended',
     drag: DragConnectionState,
     event: PointerEvent,
     cancelled = false,
   ): void {
     const payload = this.createBridgeSourceDragEvent(drag, event.clientX, event.clientY, cancelled);
     if (payload) {
-      outputRef.emit(payload);
+      this.emitCanvasEvent({ kind: 'bridgeOutputPropertyDrag', phase, drag: payload });
     }
+  }
+
+  private emitCanvasEvent(event: BlueprintCanvasEvent): void {
+    this.canvasEvent.emit(event);
   }
 
   private createBridgeSourceDragEvent(
@@ -1537,27 +1364,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     clientY: number,
     cancelled: boolean,
   ): CanvasOutputPropertyDragEvent | null {
-    const sourceNode = this.getNodeById(drag.from);
-    if (!sourceNode || !drag.sourceProperty) {
-      return null;
-    }
-
-    const propertyKind = sourceNode.base.outputPropertiesForAnchor(drag.anchor)[drag.sourceProperty];
-    if (!propertyKind) {
-      return null;
-    }
-
-    return {
-      nodeId: sourceNode.id,
-      nodeInstanceId: sourceNode.base.instanceId,
-      nodeName: sourceNode.name,
-      channelName: sourceNode.base.outputChannelNameForAnchor(drag.anchor),
-      propertyName: drag.sourceProperty,
-      propertyKind,
-      clientX,
-      clientY,
-      cancelled,
-    };
+    return createCanvasOutputPropertyDragEvent(this.getNodeById(drag.from), drag, clientX, clientY, cancelled);
   }
 
   private outputAnchorIndexByChannel(node: NodeModel, channelName: string | null): number | null {
@@ -1583,16 +1390,11 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   private hasMovedBeyondThreshold(start: Point, current: Point): boolean {
-    return Math.abs(current.x - start.x) > this.clickTolerance || Math.abs(current.y - start.y) > this.clickTolerance;
+    return this.interactionController.movedBeyondClickTolerance(start, current);
   }
 
   private normalizeRect(start: Point, end: Point): { left: number; top: number; right: number; bottom: number } {
-    return {
-      left: Math.min(start.x, end.x),
-      top: Math.min(start.y, end.y),
-      right: Math.max(start.x, end.x),
-      bottom: Math.max(start.y, end.y),
-    };
+    return this.interactionController.normalizeRect(start, end);
   }
 
   private scheduleDraw(): void {
@@ -1636,278 +1438,66 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     );
 
     const renderedGraph = this.renderSnapshot();
-    const nodes = renderedGraph.nodes;
-    const connections = renderedGraph.connections;
-    const selectedNodeIds = this.isReadonly()
-      ? new Set<number>(this.readonlySelectedNodeId() !== null ? [this.readonlySelectedNodeId()!] : [])
-      : this.editorStore.selectedNodeIdSet();
-    const selectedConnectionIds = this.isReadonly()
-      ? new Set<string>()
-      : this.editorStore.selectedConnectionIdSet();
-    const channelFocusedConnectionIds = this.channelFocusedConnectionIds(
-      renderedGraph,
-      this.hoveredNodeId(),
-      this.hoveredPortKey(),
-    );
-    const validationFocus = this.resolvedValidationFocus();
-    const focusedPortKeys = this.focusedEndpointPortKeys(
-      renderedGraph,
-      selectedConnectionIds,
-      this.hoveredConnectionRoute(),
-      this.hoveredConnectionId(),
-      channelFocusedConnectionIds,
-      validationFocus,
-    );
-    const activeDragConnection = this.dragConnection();
-
-    wrapper.drawConnections(connections, selectedConnectionIds, {
-      readOnly: this.isReadonly(),
-      detailTier: renderedGraph.detailTier,
+    const frame = this.renderFrameFactory.createFramePlan({
+      snapshot: renderedGraph,
+      capabilities: this.modeCapabilities(),
       connectionPresentation: this.connectionPresentation(),
-      hoveredConnectionId: this.hoveredConnectionId(),
-      hoveredConnectionRouteIndex: this.hoveredConnectionRoute()?.routeIndex ?? null,
-      channelFocusedConnectionIds,
-      validationConnectionFocus: validationFocus?.connectionId
-        ? {
-          connectionId: validationFocus.connectionId,
-          routeIndex: validationFocus.routeIndex,
-          severity: validationFocus.severity,
-        }
-        : null,
+      interaction: this.interactionController.state(),
+      readonlySelectedNodeId: this.readonlySelectedNodeId(),
+      selectedNodeIds: this.selectedNodeIds(),
+      selectedConnectionIds: this.selectedConnectionIds(),
+      validationFocus: this.resolvedValidationFocus(),
+      nodeIssueSummaries: this.nodeIssueSummaries(),
     });
+
+    wrapper.drawConnections(renderedGraph.connections, frame.connectionLayer.selectedConnectionIds, frame.connectionLayer.options);
     wrapper.drawNodes(
-      nodes,
+      renderedGraph.nodes,
       renderedGraph.portConnectivity,
-      activeDragConnection,
+      this.dragConnection(),
       this.hoveredNodeId(),
       this.hoveredPortKey(),
-      selectedNodeIds,
-      {
-        readOnly: this.isReadonly(),
-        detailTier: renderedGraph.detailTier,
-        blockedTargetNodeIds: activeDragConnection
-          ? this.getBlockedTargetNodeIds(renderedGraph, activeDragConnection)
-          : undefined,
-        collectionIteratorPreviewLabels: activeDragConnection
-          ? this.getCollectionIteratorPreviewLabels(renderedGraph, activeDragConnection)
-          : undefined,
-        focusedPortKeys,
-        nodeIssueSummaries: this.nodeIssueSummaries(),
-        passiveSummaryPorts: this.usesPassiveSummaryPorts(),
-        validationFocus: validationFocus
-          ? {
-            severity: validationFocus.severity,
-            nodeId: validationFocus.nodeId,
-            sectionKey: validationFocus.sectionKey,
-            portKeys: validationFocus.portKeys,
-          }
-          : null,
-      },
+      frame.nodeLayer.selectedNodeIds,
+      frame.nodeLayer.options,
     );
 
-    const drag = this.dragConnection();
-    if (drag && this.shouldDrawConnectionDragPreview()) {
-      const fromNode = this.getNodeById(drag.from);
-      if (fromNode && !fromNode.contains(drag.x, drag.y)) {
-        const startPort = drag.portKey ? fromNode.portDefinition(drag.portKey) : fromNode.outputSummaryPort(drag.anchor);
-        const hoveredNode = this.hoveredNodeId() && this.hoveredNodeId() !== drag.from
-          ? this.getNodeById(this.hoveredNodeId()!)
-          : undefined;
-        const obstacles = nodes.filter((node) => node.id !== fromNode.id && node.id !== hoveredNode?.id);
-
-        if (!startPort) {
-          context.restore();
-          return;
-        }
-
-        wrapper.drawOrthogonalLine(
-          startPort.x,
-          startPort.y,
-          drag.x,
-          drag.y,
-          obstacles,
-          drag.side ?? fromNode.anchorDefinition(drag.anchor)?.side,
-          hoveredNode,
-          fromNode.anchorDefinition(drag.anchor)?.side,
-          fromNode,
-        );
-      }
+    const preview = frame.connectionPreview;
+    if (preview) {
+      wrapper.drawOrthogonalLine(
+        preview.sx,
+        preview.sy,
+        preview.ex,
+        preview.ey,
+        [...preview.obstacles],
+        preview.side,
+        preview.destNode,
+        preview.startSide,
+        preview.startNode,
+      );
     }
 
-    const marquee = this.marqueeState();
-    if (marquee) {
-      const bounds = this.normalizeRect(marquee.startWorld, marquee.currentWorld);
-      wrapper.drawMarqueeRect(bounds.left, bounds.top, bounds.right, bounds.bottom);
+    if (frame.marqueeBounds) {
+      wrapper.drawMarqueeRect(
+        frame.marqueeBounds.left,
+        frame.marqueeBounds.top,
+        frame.marqueeBounds.right,
+        frame.marqueeBounds.bottom,
+      );
     }
 
-    const hoveredNode = this.hoveredNodeId() !== null
-      ? nodes.find((node) => node.id === this.hoveredNodeId())
-      : null;
-    if (hoveredNode?.renderStatus === 'Failed' && hoveredNode.failureMessage?.trim()) {
-      wrapper.drawFailureTooltip(hoveredNode, hoveredNode.failureMessage.trim());
+    if (frame.failureTooltip) {
+      wrapper.drawFailureTooltip(frame.failureTooltip.node, frame.failureTooltip.message);
     }
 
-    const hoverTooltip = this.hoverTooltip(renderedGraph);
-    if (hoverTooltip) {
-      wrapper.drawInteractionTooltip(hoverTooltip.label, hoverTooltip.point);
+    if (frame.hoverTooltip) {
+      wrapper.drawInteractionTooltip(frame.hoverTooltip.label, frame.hoverTooltip.point);
     }
 
     context.restore();
   }
 
-  private hoverTooltip(snapshot: CanvasRenderSnapshot): CanvasHoverTooltip | null {
-    if (this.isReadonly() || this.dragConnection()) {
-      return null;
-    }
-
-    const hoveredNodeId = this.hoveredNodeId();
-    if (hoveredNodeId === null) {
-      return null;
-    }
-
-    const node = snapshot.nodeById.get(hoveredNodeId);
-    if (!node) {
-      return null;
-    }
-
-    const hoveredNodeIssueNodeId = this.hoveredNodeIssueNodeId();
-    if (hoveredNodeIssueNodeId === hoveredNodeId) {
-      const issueSummary = this.nodeIssueSummaries().get(hoveredNodeIssueNodeId);
-      if (issueSummary) {
-        const rect = node.settingsRect();
-        return {
-          label: issueSummary.tooltip,
-          point: {
-            x: rect.x + rect.width / 2,
-            y: rect.y,
-          },
-        };
-      }
-    }
-
-    const hoveredPortKey = this.hoveredPortKey();
-    if (hoveredPortKey) {
-      const port = node.portDefinition(hoveredPortKey);
-      if (port) {
-        return {
-          label: this.portTooltipLabel(port),
-          point: {
-            x: port.x + (port.side === 'left' ? -10 : 10),
-            y: port.y - 4,
-          },
-        };
-      }
-    }
-
-    const hoveredSectionKey = this.hoveredSectionKey();
-    const section = hoveredSectionKey ? this.sectionByKey(node, hoveredSectionKey) : null;
-    if (!section) {
-      return null;
-    }
-
-    return {
-      label: `${section.expanded ? 'Collapse' : 'Expand'} ${section.label} properties`,
-      point: {
-        x: section.toggleRect.x + section.toggleRect.width / 2,
-        y: section.toggleRect.y,
-      },
-    };
-  }
-
-  private portTooltipLabel(port: NodePortDefinition): string {
-    const name = this.humanizePortLabel(port.propertyName ?? port.channelName ?? 'port');
-    return port.side === 'left'
-      ? `Accepts incoming ${name}`
-      : `Connect from ${name}`;
-  }
-
-  private sectionByKey(node: RenderedNode, sectionKey: string) {
-    const sections = node.layout.inputSection
-      ? [node.layout.inputSection, ...node.layout.outputSections]
-      : node.layout.outputSections;
-    return sections.find((section) => section.key === sectionKey) ?? null;
-  }
-
-  private humanizePortLabel(value: string): string {
-    return value
-      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-      .replace(/[_-]+/g, ' ')
-      .trim()
-      .toLowerCase() || 'port';
-  }
-
   private buildNodeIssueSummaries(markers: readonly CanvasValidationIssueMarker[]): ReadonlyMap<number, CanvasNodeIssueSummary> {
-    const grouped = new Map<number, {
-      errorCount: number;
-      warningCount: number;
-      messages: string[];
-      propertyIssues: Map<string, CanvasPropertyIssueSummary>;
-    }>();
-
-    for (const marker of markers) {
-      const message = marker.message.trim();
-      const group = grouped.get(marker.nodeId) ?? {
-        errorCount: 0,
-        warningCount: 0,
-        messages: [],
-        propertyIssues: new Map<string, CanvasPropertyIssueSummary>(),
-      };
-
-      if (marker.severity === 'error') {
-        group.errorCount += 1;
-      } else {
-        group.warningCount += 1;
-      }
-
-      if (message.length > 0) {
-        group.messages.push(message);
-      }
-
-      if (marker.propertyName && marker.channelName) {
-        const key = this.validationMarkerPropertyKey(marker);
-        const existingPropertyIssue = group.propertyIssues.get(key);
-        group.propertyIssues.set(key, {
-          severity: existingPropertyIssue?.severity === 'error' || marker.severity === 'error'
-            ? 'error'
-            : 'warning',
-          count: (existingPropertyIssue?.count ?? 0) + 1,
-        });
-      }
-
-      grouped.set(marker.nodeId, group);
-    }
-
-    return new Map([...grouped.entries()].map(([nodeId, group]) => {
-      const severity: CanvasValidationSeverity = group.errorCount > 0 ? 'error' : 'warning';
-      return [nodeId, {
-        severity,
-        errorCount: group.errorCount,
-        warningCount: group.warningCount,
-        tooltip: this.issueSummaryTooltip(group.errorCount, group.warningCount, group.messages),
-        propertyIssues: group.propertyIssues,
-      }] as const;
-    }));
-  }
-
-  private issueSummaryTooltip(errorCount: number, warningCount: number, messages: readonly string[]): string {
-    if (errorCount + warningCount === 1) {
-      return messages[0] ?? (errorCount === 1 ? '1 error' : '1 warning');
-    }
-
-    const parts: string[] = [];
-    if (errorCount > 0) {
-      parts.push(`${errorCount} ${errorCount === 1 ? 'error' : 'errors'}`);
-    }
-
-    if (warningCount > 0) {
-      parts.push(`${warningCount} ${warningCount === 1 ? 'warning' : 'warnings'}`);
-    }
-
-    return parts.join(' · ');
-  }
-
-  private validationMarkerPropertyKey(marker: CanvasValidationIssueMarker): string {
-    return `${marker.side ?? ''}:${marker.channelName ?? ''}:${marker.propertyName ?? ''}`;
+    return this.validationFocusResolver.buildNodeIssueSummaries(markers);
   }
 
   private snapshotPathfinderOptions() {
@@ -1924,7 +1514,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     }
 
     const node = this.renderSnapshot().nodeById.get(focus.nodeId);
-    const sectionKey = node ? this.sectionKeyForValidationFocus(node, focus) : null;
+    const sectionKey = node ? this.validationFocusResolver.sectionKeyForValidationFocus(node, focus) : null;
     if (!sectionKey) {
       return;
     }
@@ -1936,322 +1526,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
     snapshot: CanvasRenderSnapshot,
     focus: CanvasValidationFocus | null,
   ): ResolvedValidationFocus | null {
-    if (!focus) {
-      return null;
-    }
-
-    const portKeys = new Set<string>();
-    let bounds: CanvasBounds | null = null;
-    let nodeId = focus.nodeId ?? null;
-    let connectionId = focus.connectionId ?? null;
-    let routeIndex = focus.routeIndex ?? null;
-    let sectionKey: string | null = null;
-
-    if (connectionId) {
-      const connection = snapshot.connectionById.get(connectionId);
-      if (connection) {
-        const route = routeIndex !== null ? connection.routes[routeIndex] ?? null : null;
-        bounds = this.unionCanvasBounds(bounds, route?.bounds ?? connection.routeBounds);
-        if (route) {
-          portKeys.add(this.portFocusKey(connection.from, route.startPortKey));
-          portKeys.add(this.portFocusKey(connection.to, route.endPortKey));
-        } else {
-          const sourceSummaryPort = connection.from.outputSummaryPort(connection.anchor);
-          const targetSummaryPort = connection.to.inputSummaryPort();
-          if (sourceSummaryPort) {
-            portKeys.add(this.portFocusKey(connection.from, sourceSummaryPort.key));
-          }
-          if (targetSummaryPort) {
-            portKeys.add(this.portFocusKey(connection.to, targetSummaryPort.key));
-          }
-        }
-      } else {
-        connectionId = null;
-        routeIndex = null;
-      }
-    }
-
-    if (nodeId !== null) {
-      const node = snapshot.nodeById.get(nodeId);
-      if (node) {
-        const nodeTarget = this.resolveValidationNodeTarget(node, focus);
-        bounds = this.unionCanvasBounds(bounds, nodeTarget.bounds);
-        sectionKey = nodeTarget.sectionKey;
-        for (const portKey of nodeTarget.portKeys) {
-          portKeys.add(portKey);
-        }
-      } else {
-        nodeId = null;
-      }
-    }
-
-    if (nodeId === null && connectionId === null) {
-      return null;
-    }
-
-    return {
-      issueId: focus.issueId,
-      severity: focus.severity,
-      nodeId,
-      connectionId,
-      routeIndex,
-      sectionKey,
-      portKeys,
-      bounds,
-    };
-  }
-
-  private resolveValidationNodeTarget(
-    node: RenderedNode,
-    focus: CanvasValidationFocus,
-  ): { bounds: CanvasBounds | null; sectionKey: string | null; portKeys: ReadonlySet<string> } {
-    const portKeys = new Set<string>();
-    const section = this.sectionForValidationFocus(node, focus);
-    if (!section) {
-      return {
-        bounds: this.nodeBounds(node),
-        sectionKey: null,
-        portKeys,
-      };
-    }
-
-    let bounds: CanvasBounds | null = this.sectionBounds(node, section);
-    const targetRow = focus.propertyName
-      ? section.propertyRows.find((row) => row.name === focus.propertyName) ?? null
-      : null;
-
-    if (targetRow) {
-      bounds = this.unionCanvasBounds(bounds, this.propertyRowBounds(node, targetRow));
-      portKeys.add(this.portFocusKey(node, targetRow.port.key));
-    } else {
-      portKeys.add(this.portFocusKey(node, section.summaryPort.key));
-    }
-
-    return {
-      bounds,
-      sectionKey: section.key,
-      portKeys,
-    };
-  }
-
-  private sectionForValidationFocus(node: RenderedNode, focus: CanvasValidationFocus) {
-    const sectionKey = this.sectionKeyForValidationFocus(node, focus);
-    if (!sectionKey) {
-      return null;
-    }
-
-    if (node.layout.inputSection?.key === sectionKey) {
-      return node.layout.inputSection;
-    }
-
-    return node.layout.outputSections.find((section) => section.key === sectionKey) ?? null;
-  }
-
-  private sectionKeyForValidationFocus(node: RenderedNode, focus: CanvasValidationFocus): string | null {
-    if (!focus.channelName) {
-      return null;
-    }
-
-    if (focus.side === 'left' || (!focus.side && node.inputChannelName === focus.channelName)) {
-      return node.inputChannelName === focus.channelName ? `left:${focus.channelName}` : null;
-    }
-
-    if (focus.side === 'right' || !focus.side) {
-      return node.outputChannelNames.includes(focus.channelName) ? `right:${focus.channelName}` : null;
-    }
-
-    return null;
-  }
-
-  private nodeBounds(node: RenderedNode): CanvasBounds {
-    return {
-      left: node.x,
-      top: node.y,
-      right: node.x + node.width,
-      bottom: node.y + node.height,
-    };
-  }
-
-  private sectionBounds(node: RenderedNode, section: NonNullable<RenderedNode['layout']['inputSection']>): CanvasBounds {
-    const portBounds = this.portBounds(section.summaryPort);
-    return this.unionCanvasBounds(
-      {
-        left: node.x + 14,
-        top: section.headerTop,
-        right: node.x + node.width - 14,
-        bottom: section.bottom,
-      },
-      portBounds,
-    )!;
-  }
-
-  private propertyRowBounds(
-    node: RenderedNode,
-    row: NonNullable<RenderedNode['layout']['inputSection']>['propertyRows'][number],
-  ): CanvasBounds {
-    return this.unionCanvasBounds(
-      {
-        left: node.x + 18,
-        top: row.top,
-        right: node.x + node.width - 18,
-        bottom: row.top + row.height,
-      },
-      this.portBounds(row.port),
-    )!;
-  }
-
-  private portBounds(port: NonNullable<RenderedNode['layout']['inputSection']>['summaryPort']): CanvasBounds {
-    const rect = port.hitBounds ?? port.visualBounds;
-    if (rect) {
-      return {
-        left: rect.x,
-        top: rect.y,
-        right: rect.x + rect.width,
-        bottom: rect.y + rect.height,
-      };
-    }
-
-    return {
-      left: port.x - port.radius,
-      top: port.y - port.radius,
-      right: port.x + port.radius,
-      bottom: port.y + port.radius,
-    };
-  }
-
-  private unionCanvasBounds(left: CanvasBounds | null, right: CanvasBounds | null): CanvasBounds | null {
-    if (!left) {
-      return right;
-    }
-
-    if (!right) {
-      return left;
-    }
-
-    return {
-      left: Math.min(left.left, right.left),
-      top: Math.min(left.top, right.top),
-      right: Math.max(left.right, right.right),
-      bottom: Math.max(left.bottom, right.bottom),
-    };
-  }
-
-  private focusedEndpointPortKeys(
-    snapshot: CanvasRenderSnapshot,
-    selectedConnectionIds: ReadonlySet<string>,
-    hoveredConnectionRoute: HoveredConnectionRouteState | null,
-    hoveredConnectionId: string | null,
-    channelFocusedConnectionIds: ReadonlySet<string> = new Set<string>(),
-    validationFocus: ResolvedValidationFocus | null = null,
-  ): ReadonlySet<string> {
-    const focusedConnectionIds = new Set(
-      [...selectedConnectionIds].filter((connectionId) => connectionId !== hoveredConnectionRoute?.connectionId),
-    );
-    if (hoveredConnectionId && !hoveredConnectionRoute) {
-      focusedConnectionIds.add(hoveredConnectionId);
-    }
-    for (const connectionId of channelFocusedConnectionIds) {
-      focusedConnectionIds.add(connectionId);
-    }
-    if (validationFocus?.connectionId) {
-      focusedConnectionIds.add(validationFocus.connectionId);
-    }
-
-    if (focusedConnectionIds.size === 0 && !validationFocus) {
-      return new Set();
-    }
-
-    const portKeys = new Set(validationFocus?.portKeys ?? []);
-    if (hoveredConnectionRoute) {
-      this.addRouteEndpointPortKeys(snapshot, hoveredConnectionRoute, portKeys);
-    }
-
-    for (const connectionId of focusedConnectionIds) {
-      const connection = snapshot.connectionById.get(connectionId);
-      if (!connection) {
-        continue;
-      }
-
-      const sourceSummaryPort = connection.from.outputSummaryPort(connection.anchor);
-      if (sourceSummaryPort) {
-        portKeys.add(this.portFocusKey(connection.from, sourceSummaryPort.key));
-      }
-
-      const targetSummaryPort = connection.to.inputSummaryPort();
-      if (targetSummaryPort) {
-        portKeys.add(this.portFocusKey(connection.to, targetSummaryPort.key));
-      }
-
-      for (const mapping of connection.effectiveMappings) {
-        const sourcePropertyPort = connection.from.outputPropertyPort(connection.anchor, mapping.sourceProperty);
-        if (sourcePropertyPort) {
-          portKeys.add(this.portFocusKey(connection.from, sourcePropertyPort.key));
-        }
-
-        const targetPropertyPort = connection.to.inputPropertyPort(mapping.targetProperty);
-        if (targetPropertyPort) {
-          portKeys.add(this.portFocusKey(connection.to, targetPropertyPort.key));
-        }
-      }
-    }
-
-    return portKeys;
-  }
-
-  private addRouteEndpointPortKeys(
-    snapshot: CanvasRenderSnapshot,
-    hoveredConnectionRoute: HoveredConnectionRouteState,
-    portKeys: Set<string>,
-  ): void {
-    const connection = snapshot.connectionById.get(hoveredConnectionRoute.connectionId);
-    const route = connection?.routes[hoveredConnectionRoute.routeIndex];
-    if (!connection || !route) {
-      return;
-    }
-
-    portKeys.add(this.portFocusKey(connection.from, route.startPortKey));
-    portKeys.add(this.portFocusKey(connection.to, route.endPortKey));
-  }
-
-  private portFocusKey(node: RenderedNode, portKey: string): string {
-    return `${node.id}:${portKey}`;
-  }
-
-  private channelFocusedConnectionIds(
-    snapshot: CanvasRenderSnapshot,
-    hoveredNodeId: number | null,
-    hoveredPortKey: string | null,
-  ): ReadonlySet<string> {
-    if (hoveredNodeId === null || !hoveredPortKey) {
-      return new Set();
-    }
-
-    const node = snapshot.nodeById.get(hoveredNodeId);
-    const port = node?.portDefinition(hoveredPortKey);
-    if (!node || !port || (port.kind !== 'input-summary' && port.kind !== 'output-summary')) {
-      return new Set();
-    }
-
-    const section = node.sectionForPort(port);
-    if (!section?.expanded) {
-      return new Set();
-    }
-
-    const connectionIds = new Set<string>();
-    for (const connection of snapshot.connections) {
-      if (port.kind === 'output-summary' && port.anchorIndex !== null) {
-        if (connection.from.id === node.id && connection.anchor === port.anchorIndex) {
-          connectionIds.add(connection.id);
-        }
-        continue;
-      }
-
-      if (port.kind === 'input-summary' && connection.to.id === node.id) {
-        connectionIds.add(connection.id);
-      }
-    }
-
-    return connectionIds;
+    return this.validationFocusResolver.resolveValidationFocus({ snapshot, focus });
   }
 
   private pulseSimplifiedDetailTier(): void {

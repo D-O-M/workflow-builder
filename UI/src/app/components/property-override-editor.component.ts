@@ -44,17 +44,17 @@ export interface PropertyOverrideEditorState {
   ],
   providers: [provideNativeDateAdapter()],
   template: `
-    <div class="override-editor-shell">
+    <div class="override-editor-shell" [attr.data-testid]="testIdPrefix() + '-editor'" [attr.data-editor-id]="editorId()">
       @if (fields.length === 0) {
-        <p class="override-editor-shell__empty">{{ emptyMessage() }}</p>
+        <p class="override-editor-shell__empty" [attr.data-testid]="testIdPrefix() + '-empty'">{{ emptyMessage() }}</p>
       } @else {
-        <p class="override-editor-shell__support">
+        <p class="override-editor-shell__support" [attr.data-testid]="testIdPrefix() + '-support'">
           Leave a field blank to keep the blueprint value.
         </p>
 
         <div class="override-editor-shell__rows" [formGroup]="form">
           @for (field of fields; track field.key) {
-            <div class="override-editor-shell__row">
+            <div class="override-editor-shell__row" [attr.data-testid]="testIdPrefix() + '-row'" [attr.data-field-key]="field.key">
               <div class="override-editor-shell__row-header">
                 <label class="override-editor-shell__label" [attr.for]="inputId(field)">
                   {{ field.label }}
@@ -66,6 +66,7 @@ export interface PropertyOverrideEditorState {
                 <mat-form-field class="override-editor-shell__control" appearance="outline" subscriptSizing="dynamic">
                   <input
                     matInput
+                    [attr.data-testid]="testIdPrefix() + '-input-' + field.key"
                     [id]="inputId(field)"
                     [matDatepicker]="overrideDatePicker"
                     [formControlName]="field.key"
@@ -80,7 +81,7 @@ export interface PropertyOverrideEditorState {
                 </mat-form-field>
               } @else if (field.kind === 'boolean' || field.kind === 'enum') {
                 <mat-form-field class="override-editor-shell__control" appearance="outline" subscriptSizing="dynamic">
-                  <mat-select [id]="inputId(field)" [formControlName]="field.key">
+                  <mat-select [id]="inputId(field)" [formControlName]="field.key" [attr.data-testid]="testIdPrefix() + '-select-' + field.key">
                     <mat-option value="">Use blueprint value</mat-option>
                     @if (field.kind === 'boolean') {
                       <mat-option value="true">True</mat-option>
@@ -100,6 +101,7 @@ export interface PropertyOverrideEditorState {
                 <mat-form-field class="override-editor-shell__control" appearance="outline" subscriptSizing="dynamic">
                   <textarea
                     matInput
+                    [attr.data-testid]="testIdPrefix() + '-textarea-' + field.key"
                     [id]="inputId(field)"
                     [formControlName]="field.key"
                     autocomplete="off"
@@ -115,6 +117,7 @@ export interface PropertyOverrideEditorState {
                 <mat-form-field class="override-editor-shell__control" appearance="outline" subscriptSizing="dynamic">
                   <input
                     matInput
+                    [attr.data-testid]="testIdPrefix() + '-input-' + field.key"
                     [id]="inputId(field)"
                     [type]="inputType(field)"
                     [formControlName]="field.key"
@@ -231,6 +234,7 @@ export class PropertyOverrideEditorComponent {
   readonly initialOverrides = input<Record<string, unknown>>({});
   readonly resetKey = input('');
   readonly emptyMessage = input('No input properties are available for overrides.');
+  readonly testIdPrefix = input('property-override');
   readonly stateChange = output<PropertyOverrideEditorState>();
 
   protected readonly form = new FormGroup({});

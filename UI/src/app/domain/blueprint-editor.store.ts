@@ -1,71 +1,60 @@
 import { Injectable, computed, signal } from '@angular/core';
-import { ConnectionModel, ConnectionPropertyMappingModel } from './connection-model';
-import { NodeModel, Point, TaskPropertyBaseType, TaskPropertyType } from './node-model';
-import { ITaskDefinition, ITaskPropertyDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
-import { normalizeTaskPropertyDefinitions, taskPropertyKindMap } from './task-property-form-utils';
-import { getLatestTaskVersion, getTaskVersionLane } from './task-version-utils';
+import { ConnectionModel } from './connection-model';
+import { NodeModel } from './node-model';
+import { ITaskDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
+import { getLatestTaskVersion } from './task-version-utils';
+import { CanvasModifierState } from '../components/blueprint-canvas-contract';
+import {
+  BlueprintCollectionIteratorCreateRequest,
+  BlueprintConnectionCreateRequest,
+  BlueprintConnectionMappingUpdate,
+  BlueprintDataBridgeInputPropertyRequest,
+  BlueprintGraphDraft,
+  BlueprintMarqueeSelectionRequest,
+  BlueprintNodeDesignTimeOverridesUpdate,
+  BlueprintNodePositionUpdate,
+  BlueprintNodeVersionChangeRequest,
+  BlueprintTaskNodeCreateRequest,
+} from './blueprint-editor-store-contract';
+import {
+  canCreateBlueprintConnection,
+  collectionKindFromIncomingBlueprintMappings,
+  createBlueprintConnectionModel,
+  getDefaultBlueprintConnectionMappings,
+  isDuplicateBlueprintConnection,
+  outputAnchorIndexByBlueprintChannel,
+  rebindBlueprintConnections,
+  reconcileBlueprintConnectionForNodeVersion,
+  removedIncomingBlueprintMappingProperties,
+  removedOutgoingBlueprintMappingProperties,
+  toBlueprintScalarKind,
+} from './blueprint-editor-connection-policy';
+import {
+  cloneBlueprintPropertyDefinitions,
+  createBlueprintCollectionIteratorNodeModel,
+  createBlueprintPluginTaskNodeModel,
+  instantiateBlueprintNodeSnapshot,
+  moveBlueprintNodeModel,
+  updateBlueprintNodeDesignTimeOverridesModel,
+  upsertBlueprintDataBridgeInputPropertyModel,
+} from './blueprint-editor-node-factory';
+import {
+  BlueprintClipboardSnapshot,
+  BlueprintGraphSnapshot,
+  restoreBlueprintGraphSnapshot,
+  snapshotBlueprintClipboard,
+  snapshotBlueprintGraph,
+} from './blueprint-editor-graph-snapshot-utility';
+import {
+  emptyBlueprintSelection,
+  selectBlueprintNodesWithinRect,
+  selectOnlyBlueprintConnection,
+  selectOnlyBlueprintNode,
+  toggleBlueprintConnectionSelection,
+  toggleBlueprintNodeSelection,
+} from './blueprint-editor-selection-utility';
 
-interface GraphNodeSnapshot {
-  id: number;
-  nodeKind: NodeModel['nodeKind'];
-  collectionIteratorItemKind: TaskPropertyBaseType | null;
-  taskDefinitionId: number;
-  allowedMajor: number;
-  allowedMinor: number;
-  resolvedVersionId: number;
-  resolvedVersion: string | null;
-  name: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  inputChannelName: string | null;
-  outputChannelNames: string[];
-  hasUpgradeWarning: boolean;
-  renderStatus: NodeModel['renderStatus'];
-  failureMessage: string | null;
-  inputProperties: NodeModel['inputProperties'];
-  inputPropertyDefinitions: NodeModel['inputPropertyDefinitions'];
-  outputChannelProperties: NodeModel['outputChannelProperties'];
-  designTimeInputOverrides: NodeModel['designTimeInputOverrides'];
-  inputChannelDisplayName: string | null;
-  outputChannelDisplayNames: string[];
-  outputChannelPropertyDefinitions: Record<string, ITaskPropertyDefinition[]>;
-  instanceId: string | null;
-}
-
-interface GraphConnectionSnapshot {
-  id: string;
-  fromId: number;
-  toId: number;
-  anchor: number;
-  side: ConnectionModel['side'];
-  pos: number;
-  propertyMappings: ConnectionPropertyMappingModel[];
-}
-
-interface GraphSnapshot {
-  nodes: GraphNodeSnapshot[];
-  connections: GraphConnectionSnapshot[];
-  selectedNodeIds: number[];
-  selectedConnectionIds: string[];
-}
-
-interface ClipboardSnapshot {
-  nodes: GraphNodeSnapshot[];
-  connections: GraphConnectionSnapshot[];
-}
-
-export interface ModifierState {
-  shift: boolean;
-  ctrlOrMeta: boolean;
-  space: boolean;
-}
-
-export interface NodePositionUpdate {
-  nodeId: number;
-  coordinates: Point;
-}
+export type NodePositionUpdate = BlueprintNodePositionUpdate;
 
 export interface NodeVersionMappingImpact {
   readonly connectionId: string;
@@ -99,11 +88,11 @@ export class BlueprintEditorStore {
   private readonly _connections = signal<ConnectionModel[]>([]);
   private readonly _selectedNodeIds = signal<number[]>([]);
   private readonly _selectedConnectionIds = signal<string[]>([]);
-  private readonly _clipboard = signal<ClipboardSnapshot | null>(null);
-  private readonly _history = signal<GraphSnapshot[]>([]);
-  private readonly _future = signal<GraphSnapshot[]>([]);
+  private readonly _clipboard = signal<BlueprintClipboardSnapshot | null>(null);
+  private readonly _history = signal<BlueprintGraphSnapshot[]>([]);
+  private readonly _future = signal<BlueprintGraphSnapshot[]>([]);
   private readonly _canvasFocused = signal(false);
-  private readonly _modifiers = signal<ModifierState>({ shift: false, ctrlOrMeta: false, space: false });
+  private readonly _modifiers = signal<CanvasModifierState>({ shift: false, ctrlOrMeta: false, space: false });
   private readonly _graphRevision = signal(0);
 
   private nextNodeId = 1;
@@ -132,13 +121,14 @@ export class BlueprintEditorStore {
     this._canvasFocused.set(value);
   }
 
-  setModifierState(state: ModifierState): void {
+  setModifierState(state: CanvasModifierState): void {
     this._modifiers.set(state);
   }
 
-  loadGraph(nodes: NodeModel[], connections: ConnectionModel[]): void {
+  loadGraph(graph: BlueprintGraphDraft): void {
+    const nodes = [...graph.nodes];
     this._nodes.set(nodes);
-    this._connections.set(this.rebindConnections(connections, nodes));
+    this._connections.set(rebindBlueprintConnections(graph.connections, nodes));
     this.retuneCollectionIteratorNodes();
     this._selectedNodeIds.set([]);
     this._selectedConnectionIds.set([]);
@@ -165,26 +155,28 @@ export class BlueprintEditorStore {
     this.bumpGraphRevision();
   }
 
-  createNode(taskDefinition: ITaskDefinition, coordinates: Point): NodeModel {
-    const version = getLatestTaskVersion(taskDefinition.versions);
+  createNode(request: BlueprintTaskNodeCreateRequest): NodeModel {
+    const version = getLatestTaskVersion(request.taskDefinition.versions);
     if (!version) {
-      throw new Error(`Task definition ${taskDefinition.name} has no versions.`);
+      throw new Error(`Task definition ${request.taskDefinition.name} has no versions.`);
     }
 
     this.captureHistory();
 
-    const node = this.createNodeModelFromVersion(
-      this.allocateNodeId(),
-      taskDefinition.id,
-      this.taskDefinitionDisplayName(taskDefinition),
-      this.snap(coordinates.x),
-      this.snap(coordinates.y),
-      320,
-      null,
-      null,
+    const node = createBlueprintPluginTaskNodeModel({
+      nodeId: this.allocateNodeId(),
+      taskDefinitionId: request.taskDefinition.id,
+      taskName: this.taskDefinitionDisplayName(request.taskDefinition),
+      coordinates: {
+        x: this.snap(request.placement.coordinates.x),
+        y: this.snap(request.placement.coordinates.y),
+      },
+      width: 320,
+      renderStatus: null,
+      failureMessage: null,
       version,
-      {},
-    );
+      designTimeInputOverrides: {},
+    });
 
     this._nodes.update((nodes) => [...nodes, node]);
     this._selectedNodeIds.set([node.id]);
@@ -192,14 +184,16 @@ export class BlueprintEditorStore {
     return node;
   }
 
-  createCollectionIteratorNode(coordinates: Point): NodeModel {
+  createCollectionIteratorNode(request: BlueprintCollectionIteratorCreateRequest): NodeModel {
     this.captureHistory();
-    const node = this.createCollectionIteratorNodeModel(
-      this.allocateNodeId(),
-      this.snap(coordinates.x),
-      this.snap(coordinates.y),
-      null,
-    );
+    const node = createBlueprintCollectionIteratorNodeModel({
+      nodeId: this.allocateNodeId(),
+      coordinates: {
+        x: this.snap(request.placement.coordinates.x),
+        y: this.snap(request.placement.coordinates.y),
+      },
+      itemKind: request.itemKind ?? null,
+    });
 
     this._nodes.update((nodes) => [...nodes, node]);
     this._selectedNodeIds.set([node.id]);
@@ -219,72 +213,48 @@ export class BlueprintEditorStore {
         return node;
       }
 
-      return new NodeModel(
-        node.id,
-        node.taskDefinitionId,
-        node.allowedMajor,
-        node.allowedMinor,
-        node.resolvedVersionId,
-        node.resolvedVersion,
-        node.name,
-        this.snap(nextCoordinates.x),
-        this.snap(nextCoordinates.y),
-        node.width,
-        node.height,
-        node.inputChannelName,
-        node.outputChannelNames,
-        node.hasUpgradeWarning,
-        node.renderStatus,
-        node.failureMessage,
-        node.inputProperties,
-        node.outputChannelProperties,
-        node.designTimeInputOverrides,
-        this.clonePropertyDefinitions(node.inputPropertyDefinitions),
-        node.inputChannelDisplayName,
-        [...node.outputChannelDisplayNames],
-        this.cloneOutputChannelPropertyDefinitions(node.outputChannelPropertyDefinitions),
-        node.expanded,
-        node.nodeKind,
-        node.collectionIteratorItemKind,
-        node.instanceId,
-      );
+      return moveBlueprintNodeModel(node, {
+        x: this.snap(nextCoordinates.x),
+        y: this.snap(nextCoordinates.y),
+      });
     });
 
     this._nodes.set(nodes);
-    this._connections.set(this.rebindConnections(this._connections(), nodes));
+    this._connections.set(rebindBlueprintConnections(this._connections(), nodes));
   }
 
-  createConnection(
-    sourceNodeId: number,
-    destinationNodeId: number,
-    anchor: number,
-    side: ConnectionModel['side'],
-    position: number,
-  ): ConnectionModel | null {
-    const from = this.getNodeById(sourceNodeId);
-    const to = this.getNodeById(destinationNodeId);
-    if (!from || !to || sourceNodeId === destinationNodeId) {
+  createConnection(request: BlueprintConnectionCreateRequest): ConnectionModel | null {
+    const from = this.getNodeById(request.source.nodeId);
+    const to = this.getNodeById(request.destination.nodeId);
+    if (!from || !to || request.source.nodeId === request.destination.nodeId) {
       return null;
     }
 
-    if (!this.canCreateConnection(from, to)) {
+    if (!canCreateBlueprintConnection(from, to)) {
       return null;
     }
 
-    const duplicate = this._connections().some((connection) =>
-      connection.from.id === sourceNodeId &&
-      connection.to.id === destinationNodeId &&
-      connection.anchor === anchor &&
-      connection.side === side &&
-      connection.pos === this.snap(position),
-    );
-    if (duplicate) {
+    const resolvedRequest = {
+      source: {
+        node: from,
+        anchor: request.source.anchor,
+      },
+      destination: {
+        node: to,
+        side: request.destination.side,
+        position: this.snap(request.destination.position),
+      },
+    };
+    if (isDuplicateBlueprintConnection(this._connections(), resolvedRequest)) {
       return null;
     }
 
     this.captureHistory();
-    const defaultMappings = this.getDefaultConnectionMappings(from, to, anchor);
-    const connection = new ConnectionModel(from, to, anchor, side, this.snap(position), crypto.randomUUID(), defaultMappings);
+    const defaultMappings = getDefaultBlueprintConnectionMappings(from, to, request.source.anchor);
+    const connection = createBlueprintConnectionModel({
+      ...resolvedRequest,
+      propertyMappings: defaultMappings,
+    });
     this._connections.update((connections) => [...connections, connection]);
     this.retuneCollectionIteratorNodes();
     this._selectedNodeIds.set([]);
@@ -292,145 +262,73 @@ export class BlueprintEditorStore {
     return this._connections().find((candidate) => candidate.id === connection.id) ?? connection;
   }
 
-  upsertDataBridgeInputProperty(
-    nodeId: number,
-    propertyName: string,
-    propertyKind: TaskPropertyType,
-  ): boolean {
-    const normalizedPropertyName = propertyName.trim();
+  upsertDataBridgeInputProperty(request: BlueprintDataBridgeInputPropertyRequest): boolean {
+    const normalizedPropertyName = request.property.name.trim();
     if (!normalizedPropertyName) {
       return false;
     }
 
-    const bridge = this.getNodeById(nodeId);
+    const bridge = this.getNodeById(request.bridgeNodeId);
     if (!bridge?.isDataBridge || bridge.dataBridgeKind !== 'output' || !bridge.inputChannelName) {
       return false;
     }
 
     const existingKind = bridge.inputProperties[normalizedPropertyName];
-    if (existingKind && existingKind !== propertyKind) {
+    if (existingKind && existingKind !== request.property.kind) {
       return false;
     }
 
-    if (existingKind === propertyKind) {
+    if (existingKind === request.property.kind) {
       return true;
     }
 
     this.captureHistory();
     this._nodes.update((nodes) => nodes.map((node) => {
-      if (node.id !== nodeId) {
+      if (node.id !== request.bridgeNodeId) {
         return node;
       }
 
-      const inputProperties = {
-        ...node.inputProperties,
-        [normalizedPropertyName]: propertyKind,
-      };
-      const inputPropertyDefinitions = [
-        ...this.clonePropertyDefinitions(node.inputPropertyDefinitions),
-        {
-          name: normalizedPropertyName,
-          kind: propertyKind,
-          required: false,
-          enumValues: [],
-        },
-      ];
-
-      return new NodeModel(
-        node.id,
-        node.taskDefinitionId,
-        node.allowedMajor,
-        node.allowedMinor,
-        node.resolvedVersionId,
-        node.resolvedVersion,
-        node.name,
-        node.x,
-        node.y,
-        node.width,
-        node.height,
-        node.inputChannelName,
-        node.outputChannelNames,
-        node.hasUpgradeWarning,
-        node.renderStatus,
-        node.failureMessage,
-        inputProperties,
-        node.outputChannelProperties,
-        node.designTimeInputOverrides,
-        inputPropertyDefinitions,
-        node.inputChannelDisplayName,
-        [...node.outputChannelDisplayNames],
-        this.cloneOutputChannelPropertyDefinitions(node.outputChannelPropertyDefinitions),
-        node.expanded,
-        node.nodeKind,
-        node.collectionIteratorItemKind,
-        node.instanceId,
-      );
+      return upsertBlueprintDataBridgeInputPropertyModel(node, {
+        name: normalizedPropertyName,
+        kind: request.property.kind,
+      });
     }));
-    this._connections.set(this.rebindConnections(this._connections(), this._nodes()));
+    this._connections.set(rebindBlueprintConnections(this._connections(), this._nodes()));
     return true;
   }
 
-  updateNodeDesignTimeOverrides(nodeId: number, overrides: Record<string, unknown>): void {
-    const node = this.getNodeById(nodeId);
+  updateNodeDesignTimeOverrides(request: BlueprintNodeDesignTimeOverridesUpdate): void {
+    const node = this.getNodeById(request.nodeId);
     if (!node) {
       return;
     }
 
     this.captureHistory();
     this._nodes.update((nodes) => nodes.map((candidate) =>
-      candidate.id !== nodeId
+      candidate.id !== request.nodeId
         ? candidate
-        : new NodeModel(
-          candidate.id,
-          candidate.taskDefinitionId,
-          candidate.allowedMajor,
-          candidate.allowedMinor,
-          candidate.resolvedVersionId,
-          candidate.resolvedVersion,
-          candidate.name,
-          candidate.x,
-          candidate.y,
-          candidate.width,
-          candidate.height,
-          candidate.inputChannelName,
-          candidate.outputChannelNames,
-          candidate.hasUpgradeWarning,
-          candidate.renderStatus,
-          candidate.failureMessage,
-            candidate.inputProperties,
-            candidate.outputChannelProperties,
-            { ...overrides },
-            this.clonePropertyDefinitions(candidate.inputPropertyDefinitions),
-            candidate.inputChannelDisplayName,
-            [...candidate.outputChannelDisplayNames],
-            this.cloneOutputChannelPropertyDefinitions(candidate.outputChannelPropertyDefinitions),
-            candidate.expanded,
-            candidate.nodeKind,
-            candidate.collectionIteratorItemKind,
-            candidate.instanceId,
-          ),
+        : updateBlueprintNodeDesignTimeOverridesModel(candidate, request.overrides),
     ));
-    this._connections.set(this.rebindConnections(this._connections(), this._nodes()));
+    this._connections.set(rebindBlueprintConnections(this._connections(), this._nodes()));
   }
 
-  analyzeNodeVersionChange(nodeId: number, version: ITaskVersion): NodeVersionChangeImpact {
-    const node = this.getNodeById(nodeId);
+  analyzeNodeVersionChange(request: BlueprintNodeVersionChangeRequest): NodeVersionChangeImpact {
+    const node = this.getNodeById(request.nodeId);
     if (!node) {
       return this.emptyNodeVersionChangeImpact();
     }
 
-    const nextNode = this.createNodeModelFromVersion(
-      node.id,
-      node.taskDefinitionId,
-      node.name,
-      node.x,
-      node.y,
-      node.width,
-      node.renderStatus,
-      node.failureMessage,
-      version,
-      this.filterCompatibleOverrides(node, version),
-    );
+    const nextNode = createBlueprintPluginTaskNodeModel({
+      nodeId: node.id,
+      taskDefinitionId: node.taskDefinitionId,
+      taskName: node.name,
+      coordinates: { x: node.x, y: node.y },
+      width: node.width,
+      renderStatus: node.renderStatus,
+      failureMessage: node.failureMessage,
+      version: request.version,
+      designTimeInputOverrides: this.filterCompatibleOverrides(node, request.version),
+    });
     const removedOverrideProperties = Object.keys(node.designTimeInputOverrides)
       .filter((propertyName) => !Object.prototype.hasOwnProperty.call(nextNode.designTimeInputOverrides, propertyName))
       .sort((left, right) => left.localeCompare(right));
@@ -450,7 +348,7 @@ export class BlueprintEditorStore {
           continue;
         }
 
-        const removedProperties = this.removedIncomingMappingProperties(connection, nextNode);
+        const removedProperties = removedIncomingBlueprintMappingProperties(connection, nextNode);
         if (removedProperties.length > 0) {
           removedIncomingMappings.push({
             connectionId: connection.id,
@@ -463,7 +361,7 @@ export class BlueprintEditorStore {
 
       if (connection.from.id === node.id) {
         const oldChannelName = node.outputChannelNameForAnchor(connection.anchor);
-        const nextAnchor = oldChannelName ? this.outputAnchorIndexByChannel(nextNode, oldChannelName) : null;
+        const nextAnchor = oldChannelName ? outputAnchorIndexByBlueprintChannel(nextNode, oldChannelName) : null;
         if (nextAnchor === null) {
           removedConnections.push({
             connectionId: connection.id,
@@ -476,7 +374,7 @@ export class BlueprintEditorStore {
           continue;
         }
 
-        const removedProperties = this.removedOutgoingMappingProperties(connection, nextNode, nextAnchor);
+        const removedProperties = removedOutgoingBlueprintMappingProperties(connection, nextNode, nextAnchor);
         if (removedProperties.length > 0) {
           removedOutgoingMappings.push({
             connectionId: connection.id,
@@ -501,29 +399,33 @@ export class BlueprintEditorStore {
     };
   }
 
-  updateNodeTaskVersion(nodeId: number, version: ITaskVersion): void {
-    const node = this.getNodeById(nodeId);
-    if (!node || node.resolvedVersionId === version.id) {
+  updateNodeTaskVersion(request: BlueprintNodeVersionChangeRequest): void {
+    const node = this.getNodeById(request.nodeId);
+    if (!node || node.resolvedVersionId === request.version.id) {
       return;
     }
 
     this.captureHistory();
-    const nextNode = this.createNodeModelFromVersion(
-      node.id,
-      node.taskDefinitionId,
-      node.name,
-      node.x,
-      node.y,
-      node.width,
-      node.renderStatus,
-      node.failureMessage,
-      version,
-      this.filterCompatibleOverrides(node, version),
-    );
-    const nextNodes = this._nodes().map((candidate) => candidate.id === nodeId ? nextNode : candidate);
+    const nextNode = createBlueprintPluginTaskNodeModel({
+      nodeId: node.id,
+      taskDefinitionId: node.taskDefinitionId,
+      taskName: node.name,
+      coordinates: { x: node.x, y: node.y },
+      width: node.width,
+      renderStatus: node.renderStatus,
+      failureMessage: node.failureMessage,
+      version: request.version,
+      designTimeInputOverrides: this.filterCompatibleOverrides(node, request.version),
+    });
+    const nextNodes = this._nodes().map((candidate) => candidate.id === request.nodeId ? nextNode : candidate);
     const nodeMap = new Map(nextNodes.map((candidate) => [candidate.id, candidate] as const));
     const nextConnections = this._connections()
-      .map((connection) => this.reconcileConnectionForNodeVersion(connection, node, nextNode, nodeMap))
+      .map((connection) => reconcileBlueprintConnectionForNodeVersion({
+        connection,
+        previousNode: node,
+        nextNode,
+        nodeMap,
+      }))
       .filter((connection): connection is ConnectionModel => connection !== null);
 
     this._nodes.set(nextNodes);
@@ -534,96 +436,68 @@ export class BlueprintEditorStore {
     this.retuneCollectionIteratorNodes();
   }
 
-  updateConnectionPropertyMappings(connectionId: string, propertyMappings: ConnectionPropertyMappingModel[]): void {
-    const connection = this._connections().find((candidate) => candidate.id === connectionId);
+  updateConnectionPropertyMappings(request: BlueprintConnectionMappingUpdate): void {
+    const connection = this._connections().find((candidate) => candidate.id === request.connectionId);
     if (!connection) {
       return;
     }
 
     this.captureHistory();
     this._connections.update((connections) => connections.map((candidate) =>
-      candidate.id !== connectionId
+      candidate.id !== request.connectionId
         ? candidate
-        : new ConnectionModel(
-          candidate.from,
-          candidate.to,
-          candidate.anchor,
-          candidate.side,
-          candidate.pos,
-          candidate.id,
-          propertyMappings.map((mapping) => ({ ...mapping })),
-        ),
+        : createBlueprintConnectionModel({
+            source: {
+              node: candidate.from,
+              anchor: candidate.anchor,
+            },
+            destination: {
+              node: candidate.to,
+              side: candidate.side,
+              position: candidate.pos,
+            },
+            id: candidate.id,
+            propertyMappings: request.propertyMappings,
+          }),
     ));
     this.retuneCollectionIteratorNodes();
   }
 
   selectOnlyNode(nodeId: number | null): void {
-    if (nodeId === null) {
-      this.clearSelection();
-      return;
-    }
-
-    this._selectedNodeIds.set([nodeId]);
-    this._selectedConnectionIds.set([]);
+    this.applySelection(selectOnlyBlueprintNode(nodeId));
   }
 
   toggleNodeSelection(nodeId: number): void {
-    const nextNodeIds = new Set(this._selectedNodeIds());
-    if (nextNodeIds.has(nodeId)) {
-      nextNodeIds.delete(nodeId);
-    } else {
-      nextNodeIds.add(nodeId);
-    }
-
-    const selectedNodeIds = [...nextNodeIds];
-    this._selectedNodeIds.set(selectedNodeIds);
-    this._selectedConnectionIds.set(this.collectInternalConnectionIds(new Set(selectedNodeIds)));
+    this.applySelection(toggleBlueprintNodeSelection({
+      selectedNodeIds: this._selectedNodeIds(),
+      connections: this._connections(),
+      nodeId,
+    }));
   }
 
   selectOnlyConnection(connectionId: string | null): void {
-    if (connectionId === null) {
-      this.clearSelection();
-      return;
-    }
-
-    this._selectedNodeIds.set([]);
-    this._selectedConnectionIds.set([connectionId]);
+    this.applySelection(selectOnlyBlueprintConnection(connectionId));
   }
 
   toggleConnectionSelection(connectionId: string): void {
-    const nextConnectionIds = new Set(this._selectedConnectionIds());
-    if (nextConnectionIds.has(connectionId)) {
-      nextConnectionIds.delete(connectionId);
-    } else {
-      nextConnectionIds.add(connectionId);
-    }
-
-    this._selectedConnectionIds.set([...nextConnectionIds]);
+    this.applySelection(toggleBlueprintConnectionSelection({
+      selectedNodeIds: this._selectedNodeIds(),
+      selectedConnectionIds: this._selectedConnectionIds(),
+      connectionId,
+    }));
   }
 
-  selectNodesWithinRect(
-    left: number,
-    top: number,
-    right: number,
-    bottom: number,
-    additive: boolean,
-  ): void {
-    const enclosedNodeIds = this._nodes()
-      .filter((node) => node.isFullyWithin(left, top, right, bottom))
-      .map((node) => node.id);
-
-    const nextNodeIds = additive
-      ? [...new Set([...this._selectedNodeIds(), ...enclosedNodeIds])]
-      : enclosedNodeIds;
-
-    const nodeIdSet = new Set(nextNodeIds);
-    this._selectedNodeIds.set(nextNodeIds);
-    this._selectedConnectionIds.set(this.collectInternalConnectionIds(nodeIdSet));
+  selectNodesWithinRect(request: BlueprintMarqueeSelectionRequest): void {
+    this.applySelection(selectBlueprintNodesWithinRect({
+      ...request,
+      nodes: this._nodes(),
+      connections: this._connections(),
+      selectedNodeIds: this._selectedNodeIds(),
+    }));
   }
 
   clearSelection(): void {
-    this._selectedNodeIds.set([]);
-    this._selectedConnectionIds.set([]);
+    this.applySelection(emptyBlueprintSelection());
   }
 
   deleteSelection(): void {
@@ -644,7 +518,7 @@ export class BlueprintEditorStore {
     );
 
     this._nodes.set(remainingNodes);
-    this._connections.set(this.rebindConnections(remainingConnections, remainingNodes));
+    this._connections.set(rebindBlueprintConnections(remainingConnections, remainingNodes));
     this.retuneCollectionIteratorNodes();
     this.clearSelection();
   }
@@ -655,16 +529,11 @@ export class BlueprintEditorStore {
       return;
     }
 
-    const nodes = this._nodes()
-      .filter((node) => selectedNodeIds.has(node.id))
-      .map((node) => this.snapshotNode(node));
-    const connections = this._connections()
-      .filter((connection) =>
-        selectedNodeIds.has(connection.from.id) && selectedNodeIds.has(connection.to.id),
-      )
-      .map((connection) => this.snapshotConnection(connection));
-
-    this._clipboard.set({ nodes, connections });
+    this._clipboard.set(snapshotBlueprintClipboard({
+      nodes: this._nodes(),
+      connections: this._connections(),
+      selectedNodeIds,
+    }));
     this.pasteCount = 0;
   }
 
@@ -683,35 +552,13 @@ export class BlueprintEditorStore {
     for (const nodeSnapshot of clipboard.nodes) {
       const nextNodeId = this.allocateNodeId();
       nodeIdMap.set(nodeSnapshot.id, nextNodeId);
-      nextNodes.push(new NodeModel(
-        nextNodeId,
-        nodeSnapshot.taskDefinitionId,
-        nodeSnapshot.allowedMajor,
-        nodeSnapshot.allowedMinor,
-        nodeSnapshot.resolvedVersionId,
-        nodeSnapshot.resolvedVersion,
-        nodeSnapshot.name,
-        this.snap(nodeSnapshot.x + offset),
-        this.snap(nodeSnapshot.y + offset),
-        nodeSnapshot.width,
-        nodeSnapshot.height,
-        nodeSnapshot.inputChannelName,
-        nodeSnapshot.outputChannelNames,
-        nodeSnapshot.hasUpgradeWarning,
-        nodeSnapshot.renderStatus,
-        nodeSnapshot.failureMessage,
-        nodeSnapshot.inputProperties,
-        nodeSnapshot.outputChannelProperties,
-        nodeSnapshot.designTimeInputOverrides,
-        this.clonePropertyDefinitions(nodeSnapshot.inputPropertyDefinitions),
-        nodeSnapshot.inputChannelDisplayName,
-        [...nodeSnapshot.outputChannelDisplayNames],
-        this.cloneOutputChannelPropertyDefinitions(nodeSnapshot.outputChannelPropertyDefinitions),
-        false,
-        nodeSnapshot.nodeKind,
-        nodeSnapshot.collectionIteratorItemKind,
-        null,
-      ));
+      nextNodes.push(instantiateBlueprintNodeSnapshot({
+        ...nodeSnapshot,
+        id: nextNodeId,
+        x: this.snap(nodeSnapshot.x + offset),
+        y: this.snap(nodeSnapshot.y + offset),
+        instanceId: null,
+      }));
     }
 
     const nodes = [...this._nodes(), ...nextNodes];
@@ -724,15 +571,18 @@ export class BlueprintEditorStore {
           return null;
         }
 
-        return new ConnectionModel(
-          nodeMap.get(fromId)!,
-          nodeMap.get(toId)!,
-          connectionSnapshot.anchor,
-          connectionSnapshot.side,
-          connectionSnapshot.pos,
-          crypto.randomUUID(),
-          connectionSnapshot.propertyMappings,
-        );
+        return createBlueprintConnectionModel({
+          source: {
+            node: nodeMap.get(fromId)!,
+            anchor: connectionSnapshot.anchor,
+          },
+          destination: {
+            node: nodeMap.get(toId)!,
+            side: connectionSnapshot.side,
+            position: connectionSnapshot.pos,
+          },
+          propertyMappings: connectionSnapshot.propertyMappings,
+        });
       })
       .filter((connection): connection is ConnectionModel => connection !== null);
 
@@ -780,255 +630,23 @@ export class BlueprintEditorStore {
     this._future.set([]);
   }
 
-  private restoreSnapshot(snapshot: GraphSnapshot): void {
-    const nodes = snapshot.nodes.map((node) => this.instantiateNode(node));
-    const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
-    const connections = snapshot.connections
-      .map((connection) => {
-        const from = nodeMap.get(connection.fromId);
-        const to = nodeMap.get(connection.toId);
-        if (!from || !to) {
-          return null;
-        }
-
-        return new ConnectionModel(
-          from,
-          to,
-          connection.anchor,
-          connection.side,
-          connection.pos,
-          connection.id,
-          connection.propertyMappings,
-        );
-      })
-      .filter((connection): connection is ConnectionModel => connection !== null);
-
-    this._nodes.set(nodes);
-    this._connections.set(connections);
-    this._selectedNodeIds.set(snapshot.selectedNodeIds.filter((id) => nodeMap.has(id)));
-    this._selectedConnectionIds.set(snapshot.selectedConnectionIds.filter((id) =>
-      connections.some((connection) => connection.id === id),
-    ));
+  private restoreSnapshot(snapshot: BlueprintGraphSnapshot): void {
+    const restored = restoreBlueprintGraphSnapshot(snapshot);
+    this._nodes.set([...restored.nodes]);
+    this._connections.set([...restored.connections]);
+    this._selectedNodeIds.set([...restored.selectedNodeIds]);
+    this._selectedConnectionIds.set([...restored.selectedConnectionIds]);
+    const nodes = [...restored.nodes];
     this.nextNodeId = this.computeNextNodeId(nodes);
   }
 
-  private snapshotGraph(): GraphSnapshot {
-    return {
-      nodes: this._nodes().map((node) => this.snapshotNode(node)),
-      connections: this._connections().map((connection) => this.snapshotConnection(connection)),
+  private snapshotGraph(): BlueprintGraphSnapshot {
+    return snapshotBlueprintGraph({
+      nodes: this._nodes(),
+      connections: this._connections(),
       selectedNodeIds: [...this._selectedNodeIds()],
       selectedConnectionIds: [...this._selectedConnectionIds()],
-    };
-  }
-
-  private snapshotNode(node: NodeModel): GraphNodeSnapshot {
-    return {
-      id: node.id,
-      nodeKind: node.nodeKind,
-      collectionIteratorItemKind: node.collectionIteratorItemKind,
-      taskDefinitionId: node.taskDefinitionId,
-      allowedMajor: node.allowedMajor,
-      allowedMinor: node.allowedMinor,
-      resolvedVersionId: node.resolvedVersionId,
-      resolvedVersion: node.resolvedVersion,
-      name: node.name,
-      x: node.x,
-      y: node.y,
-      width: node.width,
-      height: node.height,
-      inputChannelName: node.inputChannelName,
-      outputChannelNames: [...node.outputChannelNames],
-      hasUpgradeWarning: node.hasUpgradeWarning,
-      renderStatus: node.renderStatus,
-      failureMessage: node.failureMessage,
-      inputProperties: { ...node.inputProperties },
-      inputPropertyDefinitions: this.clonePropertyDefinitions(node.inputPropertyDefinitions),
-      outputChannelProperties: Object.fromEntries(
-        Object.entries(node.outputChannelProperties).map(([key, value]) => [key, { ...value }]),
-      ),
-      designTimeInputOverrides: { ...node.designTimeInputOverrides },
-      inputChannelDisplayName: node.inputChannelDisplayName,
-      outputChannelDisplayNames: [...node.outputChannelDisplayNames],
-      outputChannelPropertyDefinitions: this.cloneOutputChannelPropertyDefinitions(node.outputChannelPropertyDefinitions),
-      instanceId: node.instanceId,
-    };
-  }
-
-  private snapshotConnection(connection: ConnectionModel): GraphConnectionSnapshot {
-    return {
-      id: connection.id,
-      fromId: connection.from.id,
-      toId: connection.to.id,
-      anchor: connection.anchor,
-      side: connection.side,
-      pos: connection.pos,
-      propertyMappings: connection.propertyMappings.map((mapping) => ({ ...mapping })),
-    };
-  }
-
-  private instantiateNode(node: GraphNodeSnapshot): NodeModel {
-    return new NodeModel(
-      node.id,
-      node.taskDefinitionId,
-      node.allowedMajor,
-      node.allowedMinor,
-      node.resolvedVersionId,
-      node.resolvedVersion,
-      node.name,
-      node.x,
-      node.y,
-      node.width,
-      node.height,
-      node.inputChannelName,
-      node.outputChannelNames,
-      node.hasUpgradeWarning,
-      node.renderStatus,
-      node.failureMessage,
-      node.inputProperties,
-      node.outputChannelProperties,
-      node.designTimeInputOverrides,
-      this.clonePropertyDefinitions(node.inputPropertyDefinitions),
-      node.inputChannelDisplayName,
-      [...node.outputChannelDisplayNames],
-      this.cloneOutputChannelPropertyDefinitions(node.outputChannelPropertyDefinitions),
-      false,
-      node.nodeKind,
-      node.collectionIteratorItemKind,
-      node.instanceId,
-    );
-  }
-
-  private clonePropertyDefinitions(properties: ITaskPropertyDefinition[] | Record<string, NodeModel['inputProperties'][string]>): ITaskPropertyDefinition[] {
-    return normalizeTaskPropertyDefinitions(properties);
-  }
-
-  private cloneOutputChannelPropertyDefinitions(
-    outputChannels: { name: string; properties: ITaskPropertyDefinition[] }[] | Record<string, ITaskPropertyDefinition[]>,
-  ): Record<string, ITaskPropertyDefinition[]> {
-    if (Array.isArray(outputChannels)) {
-      return Object.fromEntries(outputChannels.map((channel) => [
-        channel.name,
-        this.clonePropertyDefinitions(channel.properties),
-      ]));
-    }
-
-    return Object.fromEntries(
-      Object.entries(outputChannels).map(([channelName, properties]) => [
-        channelName,
-        this.clonePropertyDefinitions(properties),
-      ]),
-    );
-  }
-
-  private createNodeModelFromVersion(
-    nodeId: number,
-    taskDefinitionId: number,
-    taskName: string,
-    x: number,
-    y: number,
-    width: number,
-    renderStatus: NodeModel['renderStatus'],
-    failureMessage: string | null,
-    version: ITaskVersion,
-    designTimeInputOverrides: Record<string, unknown>,
-  ): NodeModel {
-    const [allowedMajor, allowedMinor] = getTaskVersionLane(version.version);
-    const inputPropertyDefinitions = this.clonePropertyDefinitions(version.inputChannel?.properties ?? []);
-    const outputChannelPropertyDefinitions = this.cloneOutputChannelPropertyDefinitions(version.outputChannels);
-
-    return new NodeModel(
-      nodeId,
-      taskDefinitionId,
-      allowedMajor,
-      allowedMinor,
-      version.id,
-      version.version,
-      taskName,
-      x,
-      y,
-      width,
-      Math.max(220, 168 + Math.max(version.outputChannels.length, 1) * 34),
-      version.inputChannel?.name ?? null,
-      version.outputChannels.map((channel) => channel.name),
-      false,
-      renderStatus,
-      failureMessage,
-      taskPropertyKindMap(inputPropertyDefinitions),
-      Object.fromEntries(version.outputChannels.map((channel) => [
-        channel.name,
-        taskPropertyKindMap(channel.properties),
-      ])),
-      { ...designTimeInputOverrides },
-      inputPropertyDefinitions,
-      version.inputChannel?.displayName ?? null,
-      version.outputChannels.map((channel) => channel.displayName?.trim() || channel.name),
-      outputChannelPropertyDefinitions,
-      false,
-      'PluginTask',
-      null,
-    );
-  }
-
-  private createCollectionIteratorNodeModel(
-    nodeId: number,
-    x: number,
-    y: number,
-    itemKind: TaskPropertyBaseType | null,
-    instanceId: string | null = null,
-  ): NodeModel {
-    const concreteItemKind = itemKind ?? 'String';
-    const inputProperties: Record<string, TaskPropertyType> = {
-      items: `${concreteItemKind}[]`,
-    };
-    const outputChannelProperties: Record<string, Record<string, TaskPropertyType>> = {
-      Item: {
-        item: concreteItemKind,
-      },
-    };
-    const inputPropertyDefinitions: ITaskPropertyDefinition[] = [{
-      name: 'items',
-      kind: `${concreteItemKind}[]`,
-      required: true,
-      enumValues: [],
-    }];
-    const outputChannelPropertyDefinitions: Record<string, ITaskPropertyDefinition[]> = {
-      Item: [{
-        name: 'item',
-        kind: concreteItemKind,
-        required: true,
-        enumValues: [],
-      }],
-    };
-
-    return new NodeModel(
-      nodeId,
-      0,
-      0,
-      0,
-      0,
-      'Native',
-      'Collection Iterator',
-      x,
-      y,
-      NodeModel.collectionIteratorOperatorWidth,
-      NodeModel.collectionIteratorOperatorHeight,
-      'Collection',
-      ['Item'],
-      false,
-      null,
-      null,
-      inputProperties,
-      outputChannelProperties,
-      {},
-      inputPropertyDefinitions,
-      'Collection',
-      ['Item'],
-      outputChannelPropertyDefinitions,
-      false,
-      'CollectionIterator',
-      itemKind,
-      instanceId,
-    );
+    });
   }
 
   private taskDefinitionDisplayName(taskDefinition: ITaskDefinition): string {
@@ -1040,7 +658,7 @@ export class BlueprintEditorStore {
 
   private filterCompatibleOverrides(node: NodeModel, version: ITaskVersion): Record<string, unknown> {
     const nextProperties = new Map(
-      this.clonePropertyDefinitions(version.inputChannel?.properties ?? []).map((property) =>
+      cloneBlueprintPropertyDefinitions(version.inputChannel?.properties ?? []).map((property) =>
         [property.name, property.kind] as const,
       ),
     );
@@ -1076,92 +694,6 @@ export class BlueprintEditorStore {
     };
   }
 
-  private removedIncomingMappingProperties(connection: ConnectionModel, nextTargetNode: NodeModel): string[] {
-    const sourceProperties = connection.from.outputPropertiesForAnchor(connection.anchor);
-    return connection.propertyMappings
-      .filter((mapping) =>
-        !Object.prototype.hasOwnProperty.call(nextTargetNode.inputProperties, mapping.targetProperty) ||
-        !Object.prototype.hasOwnProperty.call(sourceProperties, mapping.sourceProperty))
-      .map((mapping) => mapping.targetProperty)
-      .sort((left, right) => left.localeCompare(right));
-  }
-
-  private removedOutgoingMappingProperties(
-    connection: ConnectionModel,
-    nextSourceNode: NodeModel,
-    nextAnchor: number,
-  ): string[] {
-    const sourceProperties = nextSourceNode.outputPropertiesForAnchor(nextAnchor);
-    return connection.propertyMappings
-      .filter((mapping) =>
-        !Object.prototype.hasOwnProperty.call(sourceProperties, mapping.sourceProperty) ||
-        !Object.prototype.hasOwnProperty.call(connection.to.inputProperties, mapping.targetProperty))
-      .map((mapping) => mapping.sourceProperty)
-      .sort((left, right) => left.localeCompare(right));
-  }
-
-  private reconcileConnectionForNodeVersion(
-    connection: ConnectionModel,
-    previousNode: NodeModel,
-    nextNode: NodeModel,
-    nodeMap: ReadonlyMap<number, NodeModel>,
-  ): ConnectionModel | null {
-    const from = connection.from.id === previousNode.id ? nextNode : nodeMap.get(connection.from.id);
-    const to = connection.to.id === previousNode.id ? nextNode : nodeMap.get(connection.to.id);
-    if (!from || !to || from.id === to.id) {
-      return null;
-    }
-
-    if (connection.to.id === previousNode.id && !nextNode.inputChannelName) {
-      return null;
-    }
-
-    let anchor = connection.anchor;
-    if (connection.from.id === previousNode.id) {
-      const previousChannelName = previousNode.outputChannelNameForAnchor(connection.anchor);
-      const nextAnchor = previousChannelName ? this.outputAnchorIndexByChannel(nextNode, previousChannelName) : null;
-      if (nextAnchor === null) {
-        return null;
-      }
-
-      anchor = nextAnchor;
-    }
-
-    return new ConnectionModel(
-      from,
-      to,
-      anchor,
-      connection.side,
-      connection.to.id === previousNode.id ? to.inputAnchorSnap()?.pos ?? connection.pos : connection.pos,
-      connection.id,
-      this.filterCompatibleConnectionMappings(connection.propertyMappings, from, to, anchor),
-    );
-  }
-
-  private filterCompatibleConnectionMappings(
-    mappings: readonly ConnectionPropertyMappingModel[],
-    from: NodeModel,
-    to: NodeModel,
-    anchor: number,
-  ): ConnectionPropertyMappingModel[] {
-    const sourceProperties = from.outputPropertiesForAnchor(anchor);
-    return mappings
-      .filter((mapping) =>
-        Object.prototype.hasOwnProperty.call(sourceProperties, mapping.sourceProperty) &&
-        Object.prototype.hasOwnProperty.call(to.inputProperties, mapping.targetProperty) &&
-        sourceProperties[mapping.sourceProperty] === to.inputProperties[mapping.targetProperty])
-      .map((mapping) => ({ ...mapping }));
-  }
-
-  private outputAnchorIndexByChannel(node: NodeModel, channelName: string): number | null {
-    const outputIndex = node.outputChannelNames.indexOf(channelName);
-    if (outputIndex < 0) {
-      return null;
-    }
-
-    return outputIndex + (node.inputChannelName ? 1 : 0);
-  }
-
   private computeNextNodeId(nodes: NodeModel[]): number {
     const maxId = nodes.reduce((max, node) => Math.max(max, node.id), 0);
     return maxId + 1;
@@ -1173,82 +705,13 @@ export class BlueprintEditorStore {
     return nodeId;
   }
 
-  private collectInternalConnectionIds(selectedNodeIds: Set<number>): string[] {
-    return this._connections()
-      .filter((connection) =>
-        selectedNodeIds.has(connection.from.id) && selectedNodeIds.has(connection.to.id),
-      )
-      .map((connection) => connection.id);
-  }
-
   private getNodeById(nodeId: number): NodeModel | undefined {
     return this._nodes().find((node) => node.id === nodeId);
   }
 
-  private rebindConnections(connections: ConnectionModel[], nodes: NodeModel[]): ConnectionModel[] {
-    const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
-    return connections
-      .map((connection) => {
-        const from = nodeMap.get(connection.from.id);
-        const to = nodeMap.get(connection.to.id);
-        if (!from || !to || from.id === to.id) {
-          return null;
-        }
-
-        return new ConnectionModel(
-          from,
-          to,
-          connection.anchor,
-          connection.side,
-          connection.pos,
-          connection.id,
-          connection.propertyMappings,
-        );
-      })
-      .filter((connection): connection is ConnectionModel => connection !== null);
-  }
-
-  private getDefaultConnectionMappings(
-    from: NodeModel,
-    to: NodeModel,
-    anchor: number,
-  ): ConnectionPropertyMappingModel[] {
-    const sourceProperties = from.outputPropertiesForAnchor(anchor);
-    if (to.nodeKind === 'CollectionIterator') {
-      const collectionProperty = Object.entries(sourceProperties)
-        .filter(([, kind]) => this.isCollectionKind(kind))
-        .sort(([left], [right]) => left.localeCompare(right))[0];
-      return collectionProperty
-        ? [{
-          sourceProperty: collectionProperty[0],
-          targetProperty: 'items',
-        }]
-        : [];
-    }
-
-    return Object.keys(sourceProperties)
-      .filter((property) => property in to.inputProperties && sourceProperties[property] === to.inputProperties[property])
-      .sort((left, right) => left.localeCompare(right))
-      .map((property) => ({
-        sourceProperty: property,
-        targetProperty: property,
-      }));
-  }
-
-  private canCreateConnection(from: NodeModel, to: NodeModel): boolean {
-    if (from.isDataBridge && to.isDataBridge) {
-      return false;
-    }
-
-    if (to.isDataBridge) {
-      return !from.isDataBridge && to.dataBridgeKind === 'output';
-    }
-
-    if (from.isDataBridge) {
-      return from.dataBridgeKind === 'input' && !to.isDataBridge;
-    }
-
-    return true;
+  private applySelection(selection: { readonly selectedNodeIds: readonly number[]; readonly selectedConnectionIds: readonly string[] }): void {
+    this._selectedNodeIds.set([...selection.selectedNodeIds]);
+    this._selectedConnectionIds.set([...selection.selectedConnectionIds]);
   }
 
   private retuneCollectionIteratorNodes(): void {
@@ -1258,21 +721,21 @@ export class BlueprintEditorStore {
         return node;
       }
 
-      const incomingCollectionKind = this.collectionKindFromIncomingMappings(node.id);
+      const incomingCollectionKind = collectionKindFromIncomingBlueprintMappings(node.id, this._connections());
       const itemKind = incomingCollectionKind
-        ? this.toScalarKind(incomingCollectionKind)
+        ? toBlueprintScalarKind(incomingCollectionKind)
         : null;
       if (itemKind === node.collectionIteratorItemKind) {
         return node;
       }
 
-      return this.createCollectionIteratorNodeModel(
-        node.id,
-        node.x,
-        node.y,
+      return createBlueprintCollectionIteratorNodeModel({
+        nodeId: node.id,
+        coordinates: { x: node.x, y: node.y },
         itemKind,
-        node.instanceId,
-      ).withExpanded(node.expanded);
+        instanceId: node.instanceId,
+        expanded: node.expanded,
+      });
     });
 
     if (tunedNodes.every((node, index) => node === nodes[index])) {
@@ -1280,40 +743,7 @@ export class BlueprintEditorStore {
     }
 
     this._nodes.set(tunedNodes);
-    this._connections.set(this.rebindConnections(this._connections(), tunedNodes));
-  }
-
-  private collectionKindFromIncomingMappings(nodeId: number): TaskPropertyType | null {
-    const candidates: TaskPropertyType[] = [];
-    for (const connection of this._connections()) {
-      if (connection.to.id !== nodeId) {
-        continue;
-      }
-
-      const sourceProperties = connection.from.outputPropertiesForAnchor(connection.anchor);
-      for (const mapping of connection.propertyMappings) {
-        if (mapping.targetProperty !== 'items') {
-          continue;
-        }
-
-        const sourceKind = sourceProperties[mapping.sourceProperty];
-        if (sourceKind && this.isCollectionKind(sourceKind)) {
-          candidates.push(sourceKind);
-        }
-      }
-    }
-
-    return [...new Set(candidates)].length === 1 ? candidates[0] : null;
-  }
-
-  private isCollectionKind(kind: TaskPropertyType): kind is `${TaskPropertyBaseType}[]` {
-    return kind.endsWith('[]');
-  }
-
-  private toScalarKind(kind: TaskPropertyType): TaskPropertyBaseType {
-    return this.isCollectionKind(kind)
-      ? kind.slice(0, -2) as TaskPropertyBaseType
-      : kind;
+    this._connections.set(rebindBlueprintConnections(this._connections(), tunedNodes));
   }
 
   private snap(value: number): number {

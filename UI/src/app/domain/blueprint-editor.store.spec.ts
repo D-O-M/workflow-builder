@@ -1,8 +1,9 @@
 import '@angular/compiler';
 import { describe, expect, it } from 'vitest';
 import { BlueprintEditorStore } from './blueprint-editor.store';
-import { NodeModel } from './node-model';
-import { ITaskDefinition, ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
+import { ConnectionModel, ConnectionPropertyMappingModel } from './connection-model';
+import { NodeModel, Point } from './node-model';
+import { ITaskDefinition, ITaskPropertyDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
 
 function createTaskDefinition(
   id: number,
@@ -160,10 +161,83 @@ function createCollectionSourceTaskDefinition(collectionKind: ITaskPropertyDefin
   };
 }
 
+function loadStoreGraph(store: BlueprintEditorStore, nodes: readonly NodeModel[], connections: readonly ConnectionModel[]): void {
+  store.loadGraph({ nodes, connections });
+}
+
+function createStoreNode(store: BlueprintEditorStore, taskDefinition: ITaskDefinition, coordinates: Point): NodeModel {
+  return store.createNode({
+    taskDefinition,
+    placement: { coordinates },
+  });
+}
+
+function createStoreCollectionIteratorNode(store: BlueprintEditorStore, coordinates: Point): NodeModel {
+  return store.createCollectionIteratorNode({
+    placement: { coordinates },
+  });
+}
+
+function createStoreConnection(
+  store: BlueprintEditorStore,
+  sourceNodeId: number,
+  destinationNodeId: number,
+  anchor: number,
+  side: ConnectionModel['side'],
+  position: number,
+): ConnectionModel | null {
+  return store.createConnection({
+    source: { nodeId: sourceNodeId, anchor },
+    destination: { nodeId: destinationNodeId, side, position },
+  });
+}
+
+function updateStoreNodeTaskVersion(store: BlueprintEditorStore, nodeId: number, version: ITaskVersion): void {
+  store.updateNodeTaskVersion({ nodeId, version });
+}
+
+function analyzeStoreNodeVersionChange(
+  store: BlueprintEditorStore,
+  nodeId: number,
+  version: ITaskVersion,
+) {
+  return store.analyzeNodeVersionChange({ nodeId, version });
+}
+
+function updateStoreDesignTimeOverrides(
+  store: BlueprintEditorStore,
+  nodeId: number,
+  overrides: Record<string, unknown>,
+): void {
+  store.updateNodeDesignTimeOverrides({ nodeId, overrides });
+}
+
+function updateStoreConnectionMappings(
+  store: BlueprintEditorStore,
+  connectionId: string,
+  propertyMappings: readonly ConnectionPropertyMappingModel[],
+): void {
+  store.updateConnectionPropertyMappings({ connectionId, propertyMappings });
+}
+
+function selectStoreNodesWithinRect(
+  store: BlueprintEditorStore,
+  left: number,
+  top: number,
+  right: number,
+  bottom: number,
+  additive: boolean,
+): void {
+  store.selectNodesWithinRect({
+    bounds: { left, top, right, bottom },
+    additive,
+  });
+}
+
 describe('BlueprintEditorStore', () => {
   it('creates new nodes on the latest available semantic version', () => {
     const store = new BlueprintEditorStore();
-    const node = store.createNode(createVersionedTaskDefinition(), { x: 0, y: 0 });
+    const node = createStoreNode(store, createVersionedTaskDefinition(), { x: 0, y: 0 });
 
     expect(node.resolvedVersion).toBe('2.0.0');
     expect(node.allowedMajor).toBe(2);
@@ -172,7 +246,7 @@ describe('BlueprintEditorStore', () => {
 
   it('shows Collection Iterator ports as generic until a collection input is mapped', () => {
     const store = new BlueprintEditorStore();
-    const iterator = store.createCollectionIteratorNode({ x: 0, y: 0 });
+    const iterator = createStoreCollectionIteratorNode(store, { x: 0, y: 0 });
     const layout = iterator.layoutForExpandedSections(new Set(['left:Collection', 'right:Item']));
 
     expect(iterator.width).toBe(NodeModel.collectionIteratorOperatorWidth);
@@ -188,10 +262,10 @@ describe('BlueprintEditorStore', () => {
 
   it('retunes Collection Iterator ports from the mapped collection type', () => {
     const store = new BlueprintEditorStore();
-    const source = store.createNode(createCollectionSourceTaskDefinition('Guid[]'), { x: 0, y: 0 });
-    const iterator = store.createCollectionIteratorNode({ x: 420, y: 0 });
+    const source = createStoreNode(store, createCollectionSourceTaskDefinition('Guid[]'), { x: 0, y: 0 });
+    const iterator = createStoreCollectionIteratorNode(store, { x: 420, y: 0 });
 
-    const connection = store.createConnection(
+    const connection = createStoreConnection(store, 
       source.id,
       iterator.id,
       source.outputAnchors()[0]!.index,
@@ -235,10 +309,10 @@ describe('BlueprintEditorStore', () => {
 
     for (const collectionKind of collectionKinds) {
       const store = new BlueprintEditorStore();
-      const source = store.createNode(createCollectionSourceTaskDefinition(collectionKind), { x: 0, y: 0 });
-      const iterator = store.createCollectionIteratorNode({ x: 420, y: 0 });
+      const source = createStoreNode(store, createCollectionSourceTaskDefinition(collectionKind), { x: 0, y: 0 });
+      const iterator = createStoreCollectionIteratorNode(store, { x: 420, y: 0 });
 
-      store.createConnection(
+      createStoreConnection(store, 
         source.id,
         iterator.id,
         source.outputAnchors()[0]!.index,
@@ -255,16 +329,16 @@ describe('BlueprintEditorStore', () => {
   it('preserves compatible mappings and static overrides when changing patch versions', () => {
     const store = new BlueprintEditorStore();
     const versionedTask = createVersionedTaskDefinition();
-    const source = store.createNode(versionedTask, { x: 0, y: 0 });
-    store.updateNodeTaskVersion(source.id, versionedTask.versions[0]!);
-    store.updateNodeDesignTimeOverrides(source.id, { legacyInput: 'fixed' });
+    const source = createStoreNode(store, versionedTask, { x: 0, y: 0 });
+    updateStoreNodeTaskVersion(store, source.id, versionedTask.versions[0]!);
+    updateStoreDesignTimeOverrides(store, source.id, { legacyInput: 'fixed' });
     const oldSource = store.nodes().find((node) => node.id === source.id)!;
-    const target = store.createNode(createMappingTargetTaskDefinition(), { x: 420, y: 0 });
-    const connection = store.createConnection(oldSource.id, target.id, oldSource.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos)!;
-    store.updateConnectionPropertyMappings(connection.id, [{ sourceProperty: 'legacyOutput', targetProperty: 'legacyOutput' }]);
+    const target = createStoreNode(store, createMappingTargetTaskDefinition(), { x: 420, y: 0 });
+    const connection = createStoreConnection(store, oldSource.id, target.id, oldSource.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos)!;
+    updateStoreConnectionMappings(store, connection.id, [{ sourceProperty: 'legacyOutput', targetProperty: 'legacyOutput' }]);
 
-    const impact = store.analyzeNodeVersionChange(oldSource.id, versionedTask.versions[1]!);
-    store.updateNodeTaskVersion(oldSource.id, versionedTask.versions[1]!);
+    const impact = analyzeStoreNodeVersionChange(store, oldSource.id, versionedTask.versions[1]!);
+    updateStoreNodeTaskVersion(store, oldSource.id, versionedTask.versions[1]!);
 
     const updatedSource = store.nodes().find((node) => node.id === oldSource.id)!;
     expect(impact.hasDestructiveChanges).toBe(false);
@@ -279,15 +353,15 @@ describe('BlueprintEditorStore', () => {
   it('reports and prunes incompatible mappings and static overrides when changing versions', () => {
     const store = new BlueprintEditorStore();
     const versionedTask = createVersionedTaskDefinition();
-    const source = store.createNode(versionedTask, { x: 0, y: 0 });
-    store.updateNodeTaskVersion(source.id, versionedTask.versions[0]!);
-    store.updateNodeDesignTimeOverrides(source.id, { legacyInput: 'fixed' });
+    const source = createStoreNode(store, versionedTask, { x: 0, y: 0 });
+    updateStoreNodeTaskVersion(store, source.id, versionedTask.versions[0]!);
+    updateStoreDesignTimeOverrides(store, source.id, { legacyInput: 'fixed' });
     const oldSource = store.nodes().find((node) => node.id === source.id)!;
-    const target = store.createNode(createMappingTargetTaskDefinition(), { x: 420, y: 0 });
-    store.createConnection(oldSource.id, target.id, oldSource.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos);
+    const target = createStoreNode(store, createMappingTargetTaskDefinition(), { x: 420, y: 0 });
+    createStoreConnection(store, oldSource.id, target.id, oldSource.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos);
 
-    const impact = store.analyzeNodeVersionChange(oldSource.id, versionedTask.versions[2]!);
-    store.updateNodeTaskVersion(oldSource.id, versionedTask.versions[2]!);
+    const impact = analyzeStoreNodeVersionChange(store, oldSource.id, versionedTask.versions[2]!);
+    updateStoreNodeTaskVersion(store, oldSource.id, versionedTask.versions[2]!);
 
     const updatedSource = store.nodes().find((node) => node.id === oldSource.id)!;
     expect(impact.hasDestructiveChanges).toBe(true);
@@ -306,14 +380,14 @@ describe('BlueprintEditorStore', () => {
     });
     const outsideTask = createTaskDefinition(3, 'Notify', { inputChannelName: 'Input' });
 
-    const source = store.createNode(sourceTask, { x: 0, y: 0 });
-    const middle = store.createNode(middleTask, { x: 400, y: 0 });
-    const outside = store.createNode(outsideTask, { x: 920, y: 0 });
+    const source = createStoreNode(store, sourceTask, { x: 0, y: 0 });
+    const middle = createStoreNode(store, middleTask, { x: 400, y: 0 });
+    const outside = createStoreNode(store, outsideTask, { x: 920, y: 0 });
 
-    store.createConnection(source.id, middle.id, 0, 'left', middle.inputAnchorSnap()!.pos);
-    store.createConnection(middle.id, outside.id, 1, 'left', outside.inputAnchorSnap()!.pos);
+    createStoreConnection(store, source.id, middle.id, 0, 'left', middle.inputAnchorSnap()!.pos);
+    createStoreConnection(store, middle.id, outside.id, 1, 'left', outside.inputAnchorSnap()!.pos);
 
-    store.selectNodesWithinRect(-20, -20, 760, 280, false);
+    selectStoreNodesWithinRect(store, -20, -20, 760, 280, false);
 
     expect(store.selectedNodeIds()).toEqual([source.id, middle.id]);
     expect(store.selectedConnectionIds()).toHaveLength(1);
@@ -331,9 +405,9 @@ describe('BlueprintEditorStore', () => {
       outputChannelNames: ['Success'],
     });
 
-    const source = store.createNode(sourceTask, { x: 20, y: 40 });
-    const destination = store.createNode(destinationTask, { x: 440, y: 40 });
-    store.createConnection(source.id, destination.id, 0, 'left', destination.inputAnchorSnap()!.pos);
+    const source = createStoreNode(store, sourceTask, { x: 20, y: 40 });
+    const destination = createStoreNode(store, destinationTask, { x: 440, y: 40 });
+    createStoreConnection(store, source.id, destination.id, 0, 'left', destination.inputAnchorSnap()!.pos);
 
     store.selectOnlyNode(source.id);
     store.toggleNodeSelection(destination.id);
@@ -367,9 +441,9 @@ describe('BlueprintEditorStore', () => {
       outputChannelNames: ['Success'],
     });
 
-    const source = store.createNode(sourceTask, { x: 0, y: 0 });
-    const destination = store.createNode(destinationTask, { x: 400, y: 0 });
-    store.createConnection(source.id, destination.id, 0, 'left', destination.inputAnchorSnap()!.pos);
+    const source = createStoreNode(store, sourceTask, { x: 0, y: 0 });
+    const destination = createStoreNode(store, destinationTask, { x: 400, y: 0 });
+    createStoreConnection(store, source.id, destination.id, 0, 'left', destination.inputAnchorSnap()!.pos);
 
     store.selectOnlyNode(source.id);
     store.toggleNodeSelection(destination.id);
@@ -393,9 +467,9 @@ describe('BlueprintEditorStore', () => {
       outputChannelNames: ['Success'],
     });
 
-    const source = store.createNode(sourceTask, { x: 0, y: 0 });
-    const destination = store.createNode(destinationTask, { x: 400, y: 0 });
-    store.createConnection(source.id, destination.id, 0, 'left', destination.inputAnchorSnap()!.pos);
+    const source = createStoreNode(store, sourceTask, { x: 0, y: 0 });
+    const destination = createStoreNode(store, destinationTask, { x: 400, y: 0 });
+    createStoreConnection(store, source.id, destination.id, 0, 'left', destination.inputAnchorSnap()!.pos);
 
     store.selectOnlyNode(source.id);
     store.toggleNodeSelection(destination.id);
@@ -415,9 +489,9 @@ describe('BlueprintEditorStore', () => {
       inputChannelName: 'Input',
       outputChannelNames: ['Success'],
     });
-    const node = store.createNode(task, { x: 0, y: 0 });
+    const node = createStoreNode(store, task, { x: 0, y: 0 });
 
-    const connection = store.createConnection(
+    const connection = createStoreConnection(store, 
       node.id,
       node.id,
       node.outputAnchors()[0]!.index,
@@ -435,12 +509,12 @@ describe('BlueprintEditorStore', () => {
 
     expect(store.graphRevision()).toBe(0);
 
-    const node = store.createNode(task, { x: 0, y: 0 });
+    const node = createStoreNode(store, task, { x: 0, y: 0 });
     store.clearGraph();
 
     expect(store.graphRevision()).toBe(1);
 
-    store.loadGraph([node], []);
+    loadStoreGraph(store, [node], []);
 
     expect(store.graphRevision()).toBe(2);
   });

@@ -7,7 +7,12 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test --project=chromium --project=chromium-mobile --project=firefox-smoke --project=webkit-smoke",
+    "test:e2e:mocked": "playwright test --project=chromium --project=chromium-mobile --project=firefox-smoke --project=webkit-smoke",
+    "test:e2e:runtime": "playwright test --project=runtime-chromium",
+    "test:e2e:ui": "playwright test --project=chromium --ui",
+    "test:e2e:update-snapshots": "playwright test --project=chromium --project=chromium-mobile --project=firefox-smoke --project=webkit-smoke --update-snapshots"
   },
   "prettier": {
     "overrides": [
@@ -39,6 +44,8 @@
     "@angular/build": "^21.0.0",
     "@angular/cli": "^21.0.0",
     "@angular/compiler-cli": "^21.0.0",
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "^1.60.0",
     "@types/jasmine": "~5.1.0",
     "jasmine-core": "~5.8.0",
     "karma": "~6.4.0",

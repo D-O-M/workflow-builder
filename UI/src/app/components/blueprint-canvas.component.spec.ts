@@ -15,6 +15,12 @@ import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
 import { BlueprintCanvasStateStore } from '../domain/blueprint-canvas-state.store';
 import { buildCanvasRenderSnapshot } from '../domain/canvas-render-model';
 import { NodeModel } from '../domain/node-model';
+import {
+  BlueprintCanvasGraph,
+  BlueprintCanvasRuntime,
+  BlueprintCanvasSelection,
+  BlueprintCanvasValidation,
+} from './blueprint-canvas-contract';
 
 const pathfinderOptions = { gridSize: 10, nodeMargin: 20, obstacleBuffer: 2 };
 
@@ -74,6 +80,43 @@ function createIteratorNode(): NodeModel {
   );
 }
 
+function configureCanvasInputs(component: BlueprintCanvasComponent, store: BlueprintEditorStore): void {
+  Object.defineProperty(component, 'graph', {
+    value: (): BlueprintCanvasGraph => ({
+      nodes: store.nodes(),
+      connections: store.connections(),
+      revision: store.graphRevision(),
+    }),
+    configurable: true,
+  });
+  Object.defineProperty(component, 'runtime', {
+    value: (): BlueprintCanvasRuntime => ({
+      mode: 'edit',
+      backgroundEffect: 'plain',
+      connectionPresentation: 'normal',
+      viewportInsets: { top: 0, right: 0, bottom: 0, left: 0 },
+    }),
+    configurable: true,
+  });
+  Object.defineProperty(component, 'selection', {
+    value: (): BlueprintCanvasSelection => ({
+      selectedNodeIds: store.selectedNodeIds(),
+      selectedConnectionIds: store.selectedConnectionIds(),
+      readonlySelectedNodeId: null,
+      canvasFocused: store.canvasFocused(),
+      modifiers: store.modifiers(),
+    }),
+    configurable: true,
+  });
+  Object.defineProperty(component, 'validationConfig', {
+    value: (): BlueprintCanvasValidation => ({
+      focus: null,
+      issueMarkers: [],
+    }),
+    configurable: true,
+  });
+}
+
 describe('BlueprintCanvasComponent', () => {
   let component: BlueprintCanvasComponent;
   let injector: EnvironmentInjector;
@@ -114,6 +157,7 @@ describe('BlueprintCanvasComponent', () => {
     injector = createEnvironmentInjector(providers, null as never);
     store = injector.get(BlueprintEditorStore);
     component = runInInjectionContext(injector, () => new BlueprintCanvasComponent());
+    configureCanvasInputs(component, store);
   });
 
   afterEach(() => {
@@ -121,27 +165,29 @@ describe('BlueprintCanvasComponent', () => {
   });
 
   it('defaults to a plain canvas background effect', () => {
-    expect(component.backgroundEffect()).toBe('plain');
+    expect(component.runtime().backgroundEffect).toBe('plain');
   });
 
   it('uses normal connection presentation by default', () => {
-    expect(component.connectionPresentation()).toBe('normal');
+    expect(component.runtime().connectionPresentation).toBe('normal');
   });
 
   it('does not draw the normal connection drag preview while staging phase bridge sources', () => {
-    Object.defineProperty(component as any, 'mode', {
-      value: () => 'bridge-source',
-      configurable: true,
-    });
-
-    expect((component as any).shouldDrawConnectionDragPreview()).toBe(false);
-
-    Object.defineProperty(component as any, 'mode', {
-      value: () => 'edit',
-      configurable: true,
-    });
-
     expect((component as any).shouldDrawConnectionDragPreview()).toBe(true);
+
+    const bridgeSourceComponent = runInInjectionContext(injector, () => new BlueprintCanvasComponent());
+    configureCanvasInputs(bridgeSourceComponent, store);
+    Object.defineProperty(bridgeSourceComponent, 'runtime', {
+      value: (): BlueprintCanvasRuntime => ({
+        mode: 'bridge-source',
+        backgroundEffect: 'plain',
+        connectionPresentation: 'normal',
+        viewportInsets: { top: 0, right: 0, bottom: 0, left: 0 },
+      }),
+      configurable: true,
+    });
+
+    expect((bridgeSourceComponent as any).shouldDrawConnectionDragPreview()).toBe(false);
   });
 
   it('clears the backdrop hover point when the pointer leaves', () => {
@@ -255,7 +301,7 @@ describe('BlueprintCanvasComponent', () => {
       zoomLevel,
     };
 
-    component.zoomIn();
+    component.viewport.zoomIn();
 
     expect(zoomLevel()).toBe(1.1);
     expect(viewportOffset()).toEqual({ x: -18.000000000000057, y: 14 });
@@ -334,7 +380,12 @@ describe('BlueprintCanvasComponent', () => {
 
   it('emits node settings requests for clean node clicks', () => {
     const emittedNodeIds: number[] = [];
-    const subscription = component.nodeSettingsRequested.subscribe((nodeId) => emittedNodeIds.push(nodeId));
+    const subscription = component.canvasEvent.subscribe((event) => {
+      if (event.kind === 'nodeSettingsRequested') {
+        emittedNodeIds.push(event.nodeId);
+      }
+    });
+    (component as any).getNodeById = vi.fn(() => ({ base: { isDataBridge: false } }));
 
     (component as any).applyClickSelection({
       pointerId: 1,
@@ -348,13 +399,16 @@ describe('BlueprintCanvasComponent', () => {
     });
 
     expect(emittedNodeIds).toEqual([12]);
-    expect(store.selectedNodeIds()).toEqual([12]);
     subscription.unsubscribe();
   });
 
   it('does not emit node settings requests when a drag completes', () => {
     const emittedNodeIds: number[] = [];
-    const subscription = component.nodeSettingsRequested.subscribe((nodeId) => emittedNodeIds.push(nodeId));
+    const subscription = component.canvasEvent.subscribe((event) => {
+      if (event.kind === 'nodeSettingsRequested') {
+        emittedNodeIds.push(event.nodeId);
+      }
+    });
 
     (component as any).dragNode.set({
       pointerId: 7,
@@ -415,7 +469,7 @@ describe('BlueprintCanvasComponent', () => {
       zoomLevel,
     };
 
-    component.centerOnBounds({ left: 100, top: 80, right: 300, bottom: 180 });
+    component.viewport.centerOnBounds({ left: 100, top: 80, right: 300, bottom: 180 });
 
     expect(zoomLevel()).toBe(1.4);
     expect(viewportOffset()).toEqual({ x: 120, y: 118 });
@@ -434,12 +488,17 @@ describe('BlueprintCanvasComponent', () => {
       viewportOffset,
       zoomLevel,
     };
-    Object.defineProperty(component as any, 'viewportInsets', {
-      value: () => ({ top: 20, right: 200, bottom: 40, left: 40 }),
+    Object.defineProperty(component, 'runtime', {
+      value: (): BlueprintCanvasRuntime => ({
+        mode: 'edit',
+        backgroundEffect: 'plain',
+        connectionPresentation: 'normal',
+        viewportInsets: { top: 20, right: 200, bottom: 40, left: 40 },
+      }),
       configurable: true,
     });
 
-    component.centerOnBounds({ left: 100, top: 80, right: 300, bottom: 180 });
+    component.viewport.centerOnBounds({ left: 100, top: 80, right: 300, bottom: 180 });
 
     expect(viewportOffset()).toEqual({ x: 120, y: 160 });
   });

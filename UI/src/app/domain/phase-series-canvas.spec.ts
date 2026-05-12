@@ -132,7 +132,7 @@ function createModel(mappingOverrides?: Partial<DataBridgeMappingDraft>): PhaseS
   };
 }
 
-describe('phase-series canvas helpers', () => {
+describe('phase-series canvas utilities', () => {
   it('creates adjacent phase-pair options', () => {
     const model = createModel();
 

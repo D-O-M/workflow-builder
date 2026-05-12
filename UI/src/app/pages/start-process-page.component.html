@@ -1,19 +1,20 @@
-<section class="app-page start-process-page">
+<section class="app-page start-process-page" data-testid="start-process-page">
   <div class="app-page-grid">
     @if (loading()) {
-      <mat-card class="app-state-card" appearance="outlined">
+      <mat-card class="app-state-card" appearance="outlined" data-testid="start-process-loading-state">
         <div class="app-state-card__content">
           <mat-progress-spinner diameter="48" mode="indeterminate" />
           <p>Loading blueprints and task definitions...</p>
         </div>
       </mat-card>
     } @else {
-      <div class="start-process-page__picker-surface">
+      <div class="start-process-page__picker-surface" data-testid="start-process-picker-surface">
         <div class="start-process-page__picker-bar">
           <div
             matAutocompleteOrigin
             #blueprintPickerOrigin="matAutocompleteOrigin"
             class="start-process-page__picker-shell"
+            data-testid="start-process-picker-shell"
             [class.is-search]="pickerMode() === 'search'"
             [class.is-panel-open]="pickerPanelOpen()"
           >
@@ -27,6 +28,7 @@
                 [matAutocomplete]="blueprintPickerAutocomplete"
                 [matAutocompleteConnectedTo]="blueprintPickerOrigin"
                 aria-label="Search blueprints"
+                data-testid="start-process-search-input"
                 placeholder="Search blueprints"
                 (focus)="onBlueprintSearchFocus()"
                 (click)="onBlueprintSearchFocus()"
@@ -38,6 +40,7 @@
                 type="button"
                 class="start-process-page__picker-trigger"
                 aria-label="Select a different blueprint"
+                data-testid="start-process-picker-trigger"
                 (click)="beginBlueprintSearch()"
               >
                 <span class="start-process-page__picker-label">{{ pickerDisplayName() }}</span>
@@ -48,6 +51,7 @@
                 type="button"
                 class="start-process-page__picker-icon-button"
                 aria-label="Open blueprint suggestions"
+                data-testid="start-process-picker-open"
                 (click)="beginBlueprintSearch()"
               >
                 <mat-icon>keyboard_arrow_down</mat-icon>
@@ -69,7 +73,7 @@
           <mat-option disabled>No blueprints found</mat-option>
         } @else {
           @for (suggestion of pickerSuggestions(); track suggestion.blueprint.id) {
-            <mat-option [value]="suggestion.blueprint.id" [class.is-active]="suggestion.isActive">
+            <mat-option [value]="suggestion.blueprint.id" [class.is-active]="suggestion.isActive" [attr.data-testid]="'start-process-blueprint-option-' + suggestion.blueprint.id">
               <span class="start-process-page__picker-option">
                 <span class="start-process-page__picker-option-copy">
                   <span class="start-process-page__picker-option-title">{{ suggestion.blueprint.name }}</span>
@@ -85,21 +89,21 @@
         }
       </mat-autocomplete>
 
-      <form id="trigger-form" class="start-process-form" [formGroup]="form" (ngSubmit)="execute()">
-        <mat-card appearance="outlined" class="start-process-form__wizard-shell">
+      <form id="trigger-form" class="start-process-form" [formGroup]="form" (ngSubmit)="execute()" data-testid="start-process-form">
+        <mat-card appearance="outlined" class="start-process-form__wizard-shell" data-testid="start-process-wizard">
           <mat-card-content class="start-process-form__wizard-card-content">
-            <div class="start-process-form__progress-strip" aria-label="Process launch steps">
-              <div class="start-process-form__progress-step" [class.is-active]="wizardStepIndex() === 0" [class.is-complete]="wizardStepIndex() > 0">
+            <div class="start-process-form__progress-strip" aria-label="Process launch steps" data-testid="start-process-progress">
+              <div class="start-process-form__progress-step" [class.is-active]="wizardStepIndex() === 0" [class.is-complete]="wizardStepIndex() > 0" data-testid="start-process-progress-initialization">
                 <span class="start-process-form__progress-indicator">1</span>
                 <span class="start-process-form__progress-label">Initialization</span>
               </div>
               <span class="start-process-form__progress-line" [class.is-complete]="wizardStepIndex() > 0"></span>
-              <div class="start-process-form__progress-step" [class.is-active]="wizardStepIndex() === 1" [class.is-complete]="wizardStepIndex() > 1">
+              <div class="start-process-form__progress-step" [class.is-active]="wizardStepIndex() === 1" [class.is-complete]="wizardStepIndex() > 1" data-testid="start-process-progress-global-state">
                 <span class="start-process-form__progress-indicator">2</span>
                 <span class="start-process-form__progress-label">Global State</span>
               </div>
               <span class="start-process-form__progress-line" [class.is-complete]="wizardStepIndex() > 1"></span>
-              <div class="start-process-form__progress-step" [class.is-active]="wizardStepIndex() === 2">
+              <div class="start-process-form__progress-step" [class.is-active]="wizardStepIndex() === 2" data-testid="start-process-progress-runtime-overrides">
                 <span class="start-process-form__progress-indicator">3</span>
                 <span class="start-process-form__progress-label">Runtime Overrides</span>
               </div>
@@ -107,12 +111,13 @@
 
             <mat-stepper
               class="start-process-form__stepper"
+              data-testid="start-process-stepper"
               [linear]="true"
               [selectedIndex]="wizardStepIndex()"
               (selectedIndexChange)="onWizardStepIndexChanged($event)"
             >
               <mat-step [completed]="canAdvanceFromInitialisation()" label="Initialization">
-                <section class="start-process-form__step-surface">
+                <section class="start-process-form__step-surface" data-testid="start-process-step-initialization">
                   <div class="start-process-form__step-banner">
                     <div class="start-process-form__step-copy">
                       <h3 class="start-process-form__step-heading">Shape the starting step</h3>
@@ -138,7 +143,7 @@
                     } @else {
                       <div class="start-process-form__field-grid" [formGroup]="form.controls.initialTaskInput">
                         @for (field of firstTaskFields(); track field.key) {
-                          <app-dynamic-form-field [group]="form.controls.initialTaskInput" [field]="field" />
+                          <app-dynamic-form-field [group]="form.controls.initialTaskInput" [field]="field" testIdPrefix="start-process-initial" />
                         }
                       </div>
                     }
@@ -165,7 +170,7 @@
                     </div>
 
                     <div class="start-process-form__step-actions">
-                      <button mat-button type="button" class="start-process-form__secondary-action" (click)="resetConfiguration()">
+                      <button mat-button type="button" class="start-process-form__secondary-action" (click)="resetConfiguration()" data-testid="start-process-reset">
                         Reset Flow
                       </button>
                       <button
@@ -175,6 +180,7 @@
                         class="start-process-form__primary-action"
                         [disabled]="!canAdvanceFromInitialisation()"
                         (click)="goToNextWizardStep()"
+                        data-testid="start-process-continue-global-state"
                       >
                         Continue to Global State
                         <mat-icon>arrow_forward</mat-icon>
@@ -185,7 +191,7 @@
               </mat-step>
 
               <mat-step [completed]="canAdvanceFromGlobalState()" label="Global State">
-                <section class="start-process-form__step-surface">
+                <section class="start-process-form__step-surface" data-testid="start-process-step-global-state">
                   <div class="start-process-form__step-banner">
                     <div class="start-process-form__step-copy">
                       <h3 class="start-process-form__step-heading">Prepare shared runtime context</h3>
@@ -211,7 +217,7 @@
                     } @else {
                       <div class="start-process-form__field-grid" [formGroup]="form.controls.globalState">
                         @for (field of globalStateFields(); track field.key) {
-                          <app-dynamic-form-field [group]="form.controls.globalState" [field]="field" />
+                          <app-dynamic-form-field [group]="form.controls.globalState" [field]="field" testIdPrefix="start-process-global" />
                         }
                       </div>
                     }
@@ -238,7 +244,7 @@
                     </div>
 
                     <div class="start-process-form__step-actions">
-                      <button mat-button type="button" class="start-process-form__secondary-action" (click)="goToPreviousWizardStep()">
+                      <button mat-button type="button" class="start-process-form__secondary-action" (click)="goToPreviousWizardStep()" data-testid="start-process-back-to-initialization">
                         <mat-icon>arrow_back</mat-icon>
                         Back
                       </button>
@@ -249,6 +255,7 @@
                         class="start-process-form__primary-action"
                         [disabled]="!canAdvanceFromGlobalState()"
                         (click)="goToNextWizardStep()"
+                        data-testid="start-process-continue-runtime-overrides"
                       >
                         Continue to Runtime Overrides
                         <mat-icon>arrow_forward</mat-icon>
@@ -259,7 +266,7 @@
               </mat-step>
 
               <mat-step optional label="Runtime Overrides">
-                <section class="start-process-form__step-surface">
+                <section class="start-process-form__step-surface" data-testid="start-process-step-runtime-overrides">
                   <div class="start-process-form__step-banner">
                     <div class="start-process-form__step-copy">
                       <h3 class="start-process-form__step-heading">Tune optional downstream input</h3>
@@ -287,7 +294,7 @@
                     } @else {
                       <mat-accordion class="start-process-form__override-accordion" multi>
                         @for (node of runtimeOverrideNodes(); track node.instanceId) {
-                          <mat-expansion-panel class="start-process-form__override-panel" hideToggle>
+                          <mat-expansion-panel class="start-process-form__override-panel" hideToggle data-testid="start-process-override-panel" [attr.data-node-id]="node.instanceId">
                             <mat-expansion-panel-header class="start-process-form__override-panel-header">
                               <div class="start-process-form__override-panel-copy">
                                 <mat-panel-title>{{ node.name }}</mat-panel-title>
@@ -312,6 +319,7 @@
                               [initialOverrides]="runtimeOverrideInitialOverrides(node.instanceId)"
                               [resetKey]="runtimeOverrideResetKey(node)"
                               emptyMessage="This node has no overrideable input properties."
+                              testIdPrefix="start-process-runtime-override"
                               (stateChange)="onRuntimeOverrideStateChanged($event)"
                             />
                           </mat-expansion-panel>
@@ -343,14 +351,14 @@
                     <div class="start-process-form__launch-footer">
                       <div class="start-process-form__feedback">
                         @if (errorMessage()) {
-                          <mat-chip class="start-process-form__feedback-chip start-process-form__feedback-chip--error">
+                          <mat-chip class="start-process-form__feedback-chip start-process-form__feedback-chip--error" data-testid="start-process-error-message">
                             <mat-icon>error</mat-icon>
                             {{ errorMessage() }}
                           </mat-chip>
                         }
 
                         @if (successMessage()) {
-                          <mat-chip class="start-process-form__feedback-chip start-process-form__feedback-chip--success">
+                          <mat-chip class="start-process-form__feedback-chip start-process-form__feedback-chip--success" data-testid="start-process-success-message">
                             <mat-icon>check_circle</mat-icon>
                             {{ successMessage() }}
                           </mat-chip>
@@ -358,11 +366,11 @@
                       </div>
 
                       <div class="start-process-form__actions">
-                        <button mat-button type="button" class="start-process-form__secondary-action" (click)="goToPreviousWizardStep()">
+                        <button mat-button type="button" class="start-process-form__secondary-action" (click)="goToPreviousWizardStep()" data-testid="start-process-back-to-global-state">
                           <mat-icon>arrow_back</mat-icon>
                           Back
                         </button>
-                        <button mat-button type="button" class="start-process-form__secondary-action" (click)="resetConfiguration()">
+                        <button mat-button type="button" class="start-process-form__secondary-action" (click)="resetConfiguration()" data-testid="start-process-reset-final">
                           Reset Flow
                         </button>
                         <button
@@ -371,6 +379,7 @@
                           type="submit"
                           class="start-process-form__primary-action"
                           [disabled]="!canStartProcess()"
+                          data-testid="start-process-submit"
                         >
                           <mat-icon>rocket_launch</mat-icon>
                           {{ executing() ? 'Starting...' : 'Start Process' }}

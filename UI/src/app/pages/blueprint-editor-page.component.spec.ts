@@ -20,6 +20,8 @@ import {
 } from '../domain/blueprint-editor.service';
 import { BlueprintEditorStore } from '../domain/blueprint-editor.store';
 import { BuilderInputService } from '../domain/builder-input.service';
+import { ConnectionModel, ConnectionPropertyMappingModel } from '../domain/connection-model';
+import { NodeModel, Point } from '../domain/node-model';
 import { TaskDefinitionsService } from '../domain/task-definitions.service';
 import { ITaskDefinition, ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 
@@ -167,6 +169,41 @@ function createBlueprint(
   };
 }
 
+function createStoreNode(store: BlueprintEditorStore, taskDefinition: ITaskDefinition, coordinates: Point): NodeModel {
+  return store.createNode({
+    taskDefinition,
+    placement: { coordinates },
+  });
+}
+
+function createStoreCollectionIteratorNode(store: BlueprintEditorStore, coordinates: Point): NodeModel {
+  return store.createCollectionIteratorNode({
+    placement: { coordinates },
+  });
+}
+
+function createStoreConnection(
+  store: BlueprintEditorStore,
+  sourceNodeId: number,
+  destinationNodeId: number,
+  anchor: number,
+  side: ConnectionModel['side'],
+  position: number,
+): ConnectionModel | null {
+  return store.createConnection({
+    source: { nodeId: sourceNodeId, anchor },
+    destination: { nodeId: destinationNodeId, side, position },
+  });
+}
+
+function updateStoreConnectionMappings(
+  store: BlueprintEditorStore,
+  connectionId: string,
+  propertyMappings: readonly ConnectionPropertyMappingModel[],
+): void {
+  store.updateConnectionPropertyMappings({ connectionId, propertyMappings });
+}
+
 describe('BlueprintEditorPageComponent', () => {
   let component: BlueprintEditorPageComponent;
   let store: BlueprintEditorStore;
@@ -309,7 +346,7 @@ describe('BlueprintEditorPageComponent', () => {
 
   it('blocks save when the name is only whitespace', async () => {
     (component as any).newBlueprint();
-    store.createNode(taskDefinitions[0], { x: 120, y: 80 });
+    createStoreNode(store, taskDefinitions[0], { x: 120, y: 80 });
 
     (component as any).beginBlueprintNameEdit();
     (component as any).updateBlueprintNameDraft('   ');
@@ -339,7 +376,7 @@ describe('BlueprintEditorPageComponent', () => {
 
   it('creates a blueprint definition for the first save', async () => {
     (component as any).newBlueprint();
-    store.createNode(taskDefinitions[0], { x: 120, y: 80 });
+    createStoreNode(store, taskDefinitions[0], { x: 120, y: 80 });
 
     (component as any).beginBlueprintNameEdit();
     (component as any).updateBlueprintNameDraft('Draft Blueprint');
@@ -367,9 +404,9 @@ describe('BlueprintEditorPageComponent', () => {
     (component as any).beginBlueprintNameEdit();
     (component as any).updateBlueprintNameDraft('Invalid Blueprint');
     (component as any).commitBlueprintNameEdit();
-    const source = store.createNode(sourceTask, { x: 120, y: 80 });
-    const target = store.createNode(targetTask, { x: 540, y: 80 });
-    store.createConnection(source.id, target.id, source.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos);
+    const source = createStoreNode(store, sourceTask, { x: 120, y: 80 });
+    const target = createStoreNode(store, targetTask, { x: 540, y: 80 });
+    createStoreConnection(store, source.id, target.id, source.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos);
 
     await (component as any).save();
     await Promise.resolve();
@@ -394,16 +431,19 @@ describe('BlueprintEditorPageComponent', () => {
     (component as any).beginBlueprintNameEdit();
     (component as any).updateBlueprintNameDraft('Invalid Blueprint');
     (component as any).commitBlueprintNameEdit();
-    const source = store.createNode(sourceTask, { x: 120, y: 80 });
-    const target = store.createNode(targetTask, { x: 540, y: 80 });
-    store.createConnection(source.id, target.id, source.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos);
+    const source = createStoreNode(store, sourceTask, { x: 120, y: 80 });
+    const target = createStoreNode(store, targetTask, { x: 540, y: 80 });
+    createStoreConnection(store, source.id, target.id, source.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos);
     const issue = (component as any).validationErrors().find((candidate: { code: string }) =>
       candidate.code === 'node.input.requiredMissing');
     const revealValidationFocus = vi.fn();
     const focusCanvas = vi.fn();
     const closeMenu = vi.fn();
     Object.defineProperty(component as any, 'canvasViewport', {
-      value: () => ({ revealValidationFocus, focusCanvas }),
+      value: () => ({
+        validation: { reveal: revealValidationFocus },
+        viewport: { focus: focusCanvas },
+      }),
       configurable: true,
     });
     Object.defineProperty(component as any, 'validationMenuTriggers', {
@@ -441,10 +481,10 @@ describe('BlueprintEditorPageComponent', () => {
     (component as any).beginBlueprintNameEdit();
     (component as any).updateBlueprintNameDraft('Warning Blueprint');
     (component as any).commitBlueprintNameEdit();
-    const source = store.createNode(sourceTask, { x: 120, y: 80 });
-    const target = store.createNode(targetTask, { x: 540, y: 80 });
-    const connection = store.createConnection(source.id, target.id, source.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos)!;
-    store.updateConnectionPropertyMappings(connection.id, [{ sourceProperty: 'town', targetProperty: 'town' }]);
+    const source = createStoreNode(store, sourceTask, { x: 120, y: 80 });
+    const target = createStoreNode(store, targetTask, { x: 540, y: 80 });
+    const connection = createStoreConnection(store, source.id, target.id, source.outputAnchors()[0]!.index, 'left', target.inputAnchorSnap()!.pos)!;
+    updateStoreConnectionMappings(store, connection.id, [{ sourceProperty: 'town', targetProperty: 'town' }]);
 
     expect((component as any).validationSummary().errorCount).toBe(0);
     expect((component as any).validationSummary().warningCount).toBeGreaterThan(0);
@@ -462,7 +502,7 @@ describe('BlueprintEditorPageComponent', () => {
     (component as any).committedBlueprintName.set('Saved Blueprint');
     (component as any).blueprintNameDraft.set('Saved Blueprint');
     (component as any).pickerMode.set('selected');
-    store.createNode(taskDefinitions[0], { x: 120, y: 80 });
+    createStoreNode(store, taskDefinitions[0], { x: 120, y: 80 });
 
     await (component as any).save();
 
@@ -511,7 +551,7 @@ describe('BlueprintEditorPageComponent', () => {
     (component as any).committedBlueprintName.set('Saved Blueprint');
     (component as any).blueprintNameDraft.set('Saved Blueprint');
     (component as any).pickerMode.set('selected');
-    store.createNode(taskDefinitions[0], { x: 120, y: 80 });
+    createStoreNode(store, taskDefinitions[0], { x: 120, y: 80 });
 
     await (component as any).save();
 
@@ -675,14 +715,14 @@ describe('BlueprintEditorPageComponent', () => {
       },
     });
     taskDefinitions = [sourceTask];
-    const source = store.createNode(sourceTask, { x: 120, y: 80 });
-    const iterator = store.createCollectionIteratorNode({ x: 540, y: 80 });
+    const source = createStoreNode(store, sourceTask, { x: 120, y: 80 });
+    const iterator = createStoreCollectionIteratorNode(store, { x: 540, y: 80 });
 
     expect((component as any).iteratorBindingStatus(iterator)).toBe('Unbound');
     expect((component as any).iteratorBindingEquation(iterator)).toBe('T[] -> T');
     expect((component as any).iteratorSourceCollectionLabel(iterator)).toBe('Unbound');
 
-    store.createConnection(
+    createStoreConnection(store, 
       source.id,
       iterator.id,
       source.outputAnchors()[0]!.index,
@@ -709,7 +749,7 @@ describe('BlueprintEditorPageComponent', () => {
   });
 
   it('opens node settings in the shared drawer', () => {
-    const node = store.createNode(createTargetTaskDefinition(), { x: 120, y: 80 });
+    const node = createStoreNode(store, createTargetTaskDefinition(), { x: 120, y: 80 });
 
     (component as any).openNodeSettings(node.id);
 
@@ -719,7 +759,7 @@ describe('BlueprintEditorPageComponent', () => {
   });
 
   it('adds and removes static override fields from node settings', async () => {
-    const node = store.createNode(createTargetTaskDefinition(), { x: 120, y: 80 });
+    const node = createStoreNode(store, createTargetTaskDefinition(), { x: 120, y: 80 });
     (component as any).openNodeSettings(node.id);
 
     (component as any).addStaticOverride('holiday');
@@ -776,7 +816,7 @@ describe('BlueprintEditorPageComponent', () => {
       ],
     };
     taskDefinitions.splice(0, taskDefinitions.length, task);
-    const node = store.createNode(task, { x: 120, y: 80 });
+    const node = createStoreNode(store, task, { x: 120, y: 80 });
 
     (component as any).openNodeSettings(node.id);
 

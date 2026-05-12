@@ -1,0 +1,44 @@
+name: UI Playwright
+
+on:
+  pull_request:
+    paths:
+      - 'UI/**'
+      - '.github/workflows/ui-playwright.yml'
+  workflow_dispatch:
+
+jobs:
+  mocked-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check Out Repository
+        uses: actions/checkout@v4
+
+      - name: Set Up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: UI/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: UI
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        working-directory: UI
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Run Mocked Playwright Suite
+        working-directory: UI
+        run: npm run test:e2e:mocked
+
+      - name: Upload Playwright Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-playwright-report
+          path: UI/playwright-report
+          if-no-files-found: ignore

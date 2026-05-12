@@ -55,6 +55,12 @@ import {
 import { NodeModel } from '../domain/node-model';
 import { ConnectionModel } from '../domain/connection-model';
 import { BlueprintCanvasComponent } from '../components/blueprint-canvas.component';
+import type {
+  BlueprintCanvasEvent,
+  BlueprintCanvasGraph,
+  BlueprintCanvasRuntime,
+  BlueprintCanvasSelection,
+} from '../components/blueprint-canvas.component';
 import {
   ProcessStepLogBatchViewModel,
   NodeLogEntryViewModel,
@@ -591,6 +597,24 @@ export class ProcessExplorerPageComponent {
       };
   });
   protected readonly zoomPercent = computed(() => this.canvasViewport()?.zoomPercent() ?? 100);
+  protected readonly processCanvasGraph = computed<BlueprintCanvasGraph>(() => ({
+    nodes: this.processNodes(),
+    connections: this.processConnections(),
+    revision: this.refreshVersion(),
+  }));
+  protected readonly processCanvasRuntime = computed<BlueprintCanvasRuntime>(() => ({
+    mode: 'readonly',
+    backgroundEffect: 'stitch',
+    connectionPresentation: 'normal',
+    viewportInsets: { top: 0, right: 0, bottom: 0, left: 0 },
+  }));
+  protected readonly processCanvasSelection = computed<BlueprintCanvasSelection>(() => ({
+    selectedNodeIds: [],
+    selectedConnectionIds: [],
+    readonlySelectedNodeId: this.selectedProcessCanvasNodeId(),
+    canvasFocused: false,
+    modifiers: { shift: false, ctrlOrMeta: false, space: false },
+  }));
   protected readonly selectedProcessGrafanaLogsUrl = computed(() => {
     const process = this.selectedProcess();
     if (!process) {
@@ -1102,6 +1126,12 @@ export class ProcessExplorerPageComponent {
     this.selectedStepInstanceId.set(selectedNode.instanceId);
   }
 
+  protected onCanvasEvent(event: BlueprintCanvasEvent): void {
+    if (event.kind === 'readonlyNodeActivated') {
+      this.onReadonlyNodeActivated(event.nodeId);
+    }
+  }
+
   protected closeStepDrawer(): void {
     this.selectedStepInstanceId.set(null);
     this.stepInspectorTab.set('inputs');
@@ -1219,15 +1249,15 @@ export class ProcessExplorerPageComponent {
   }
 
   protected resetView(): void {
-    this.canvasViewport()?.resetView();
+    this.canvasViewport()?.viewport.reset();
   }
 
   protected zoomIn(): void {
-    this.canvasViewport()?.zoomIn();
+    this.canvasViewport()?.viewport.zoomIn();
   }
 
   protected zoomOut(): void {
-    this.canvasViewport()?.zoomOut();
+    this.canvasViewport()?.viewport.zoomOut();
   }
 
   protected statusLabel(status: string): string {
@@ -1493,7 +1523,7 @@ export class ProcessExplorerPageComponent {
       return;
     }
 
-    queueMicrotask(() => this.canvasViewport()?.centerOnNode(nodeIndex + 1));
+    queueMicrotask(() => this.canvasViewport()?.viewport.centerOnNode(nodeIndex + 1));
   }
 
   private appendStepLogEntries(entries: NodeLogEntryViewModel[]): void {
