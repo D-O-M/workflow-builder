@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 3,
+  "definitionKey": "dcc-user-gateway-request-response",
+  "displayName": "DCC User Gateway Request/Response",
+  "startingTaskKey": "dcc00000-0000-0000-0000-000000000101",
+  "tasks": [
+    {
+      "taskKey": "dcc00000-0000-0000-0000-000000000101",
+      "taskDefinitionName": "Dcc.DuisServiceRequestWriter",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": { "x": 120, "y": 140 },
+      "designTimeInputOverrides": {
+        "RequestId": "00-00-00-00-00-00-00-01:00-00-00-00-00-00-00-02:10001",
+        "FirstInSequence": false,
+        "PrecedingServiceRequestId": "",
+        "CommandVariant": "1",
+        "ServiceReference": "4.8",
+        "ServiceReferenceVariant": "4.8.1",
+        "XmlSchemaVersion": "5.4",
+        "BodyElementName": "ReadInventory",
+        "DeviceId": "01-02-03-04-05-06-07-08",
+        "Mpxn": "",
+        "Uprn": "",
+        "PostCode": "",
+        "AddressIdentifier": "",
+        "GbcsPayloadBase64": "",
+        "BodyXmlFragment": "",
+        "XmlContainerName": "",
+        "XmlBlobName": "",
+        "XsdPathList": ""
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Result",
+          "connectedTaskKey": "dcc00000-0000-0000-0000-000000000102",
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
+          "propertyMappings": [
+            { "sourceProperty": "RequestId", "targetProperty": "RequestId" },
+            { "sourceProperty": "ServiceReference", "targetProperty": "ServiceReference" },
+            { "sourceProperty": "ServiceReferenceVariant", "targetProperty": "ServiceReferenceVariant" },
+            { "sourceProperty": "CommandVariant", "targetProperty": "CommandVariant" },
+            { "sourceProperty": "XmlContainerName", "targetProperty": "XmlContainerName" },
+            { "sourceProperty": "XmlBlobName", "targetProperty": "XmlBlobName" }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "dcc00000-0000-0000-0000-000000000102",
+      "taskDefinitionName": "Dcc.GatewaySubmit",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": { "x": 560, "y": 140 },
+      "designTimeInputOverrides": {
+        "ResponseXmlBlobName": "",
+        "EndpointUrl": "",
+        "HttpMethod": "POST",
+        "TimeoutSeconds": 60,
+        "MockResponseXml": ""
+      },
+      "outgoingConnections": [
+        {
+          "channelName": "Result",
+          "connectedTaskKey": "dcc00000-0000-0000-0000-000000000103",
+          "anchor": 1,
+          "side": "left",
+          "position": 62,
+          "propertyMappings": [
+            { "sourceProperty": "RequestId", "targetProperty": "ExpectedRequestId" },
+            { "sourceProperty": "ServiceReference", "targetProperty": "ExpectedServiceReference" },
+            { "sourceProperty": "ServiceReferenceVariant", "targetProperty": "ExpectedServiceReferenceVariant" },
+            { "sourceProperty": "CommandVariant", "targetProperty": "ExpectedCommandVariant" },
+            { "sourceProperty": "XmlContainerName", "targetProperty": "XmlContainerName" },
+            { "sourceProperty": "ResponseXmlBlobName", "targetProperty": "XmlBlobName" }
+          ]
+        }
+      ]
+    },
+    {
+      "taskKey": "dcc00000-0000-0000-0000-000000000103",
+      "taskDefinitionName": "Dcc.DuisResponseReader",
+      "allowedMajor": 0,
+      "allowedMinor": 1,
+      "position": { "x": 1000, "y": 140 },
+      "designTimeInputOverrides": {
+        "XsdPathList": ""
+      },
+      "outgoingConnections": []
+    }
+  ]
+}

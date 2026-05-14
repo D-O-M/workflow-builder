@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Backend.Plugins\Dcc.Common\Dcc.Common.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\Dcc.DccAlertReader\Dcc.DccAlertReader.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\Dcc.DeviceAlertReader\Dcc.DeviceAlertReader.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\Dcc.DuisResponseReader\Dcc.DuisResponseReader.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\Dcc.DuisServiceRequestWriter\Dcc.DuisServiceRequestWriter.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\Dcc.GatewaySubmit\Dcc.GatewaySubmit.csproj" />
+    <ProjectReference Include="..\Backend.Plugins\Dcc.ParseRequestWriter\Dcc.ParseRequestWriter.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+</Project>

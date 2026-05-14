@@ -71,6 +71,8 @@ builder.Services.AddSingleton(_ =>
 
 builder.Services.AddSingleton<IAgentManager, AgentManager>();
 builder.Services.AddSingleton<IChildProcessTracker, ChildProcessTracker>();
+builder.Services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();
+builder.Services.AddSingleton<IPluginRuntimeConfigurationService, PluginRuntimeConfigurationService>();
 builder.Services.AddSingleton<PluginRuntimeOrchestrator>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
 builder.Services.AddSingleton<IAsyncDelay, DefaultAsyncDelay>();

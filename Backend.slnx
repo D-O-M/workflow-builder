@@ -13,7 +13,9 @@
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="Backend.API.Tests/Backend.API.Tests.csproj" />
+    <Project Path="Backend.Dcc.Tests/Backend.Dcc.Tests.csproj" />
     <Project Path="Backend.Engine.Tests/Backend.Engine.Tests.csproj" />
+    <Project Path="Backend.PluginLoader.Tests/Backend.PluginLoader.Tests.csproj" />
     <Project Path="Backend.Plugins.Harness.Tests/Backend.Plugins.Harness.Tests.csproj" />
     <Project Path="Backend.ShowcaseTown.Tests/Backend.ShowcaseTown.Tests.csproj" />
   </Folder>
@@ -31,6 +33,9 @@
   <Project Path="Backend.PluginSeeder/Backend.PluginSeeder.csproj" />
   <Project Path="Backend.ProcessState.Contracts/Backend.ProcessState.Contracts.csproj" />
   <Project Path="Backend.Plugins.Communication/Backend.Plugins.Communication.csproj" />
+  <Project Path="Backend.Plugins.Configuration/Abstractions/Backend.Plugins.Configuration.Abstractions.csproj" />
+  <Project Path="Backend.Plugins.Configuration/CiCd/Backend.Plugins.Configuration.CiCd.csproj" />
+  <Project Path="Backend.Plugins.Configuration/Dcc/Backend.Plugins.Configuration.Dcc.csproj" />
   <Project Path="Backend.Plugins.Harness/Backend.Plugins.Harness.csproj" />
   <Project Path="Backend.Repositories/Backend.Repositories.csproj" />
   <Project Path="Backend.ServiceDefaults/Backend.ServiceDefaults.csproj" />

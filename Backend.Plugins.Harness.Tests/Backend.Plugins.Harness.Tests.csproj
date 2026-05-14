@@ -14,6 +14,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Backend.Plugins.Configuration\Abstractions\Backend.Plugins.Configuration.Abstractions.csproj" />
+    <ProjectReference Include="..\Backend.Plugins.Configuration\Dcc\Backend.Plugins.Configuration.Dcc.csproj" />
     <ProjectReference Include="..\Backend.Plugins.Harness\Backend.Plugins.Harness.csproj" />
   </ItemGroup>
 </Project>

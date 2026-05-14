@@ -81,6 +81,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                 _logger.LogWarning("Manifest not found for plugin {Plugin} ({Version}). Processing aborted.", pluginInfo.PluginName, pluginInfo.Version);
                 return;
             }
+            ValidateConfigurationRequirements(pluginInfo, manifest);
 
             var schemas = await _schemaAggregator.LoadAsync(workspaceDirectory, cancellationToken);
             LogProcessingSummary(pluginInfo, manifest, schemas);
@@ -156,6 +157,74 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             schemas.DefinitionCount,
             pluginInfo.PluginName,
             pluginInfo.Version);
+    }
+
+    private static void ValidateConfigurationRequirements(PluginBlobInfo pluginInfo, ManifestFile manifest)
+    {
+        var byKey = new Dictionary<string, ManifestFileConfigurationRequirementInfo>(StringComparer.Ordinal);
+        var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var requirement in manifest.Configuration.Requirements)
+        {
+            if (string.IsNullOrWhiteSpace(requirement.DomainId) ||
+                string.IsNullOrWhiteSpace(requirement.OptionsName) ||
+                string.IsNullOrWhiteSpace(requirement.PropertyPath) ||
+                string.IsNullOrWhiteSpace(requirement.Key) ||
+                string.IsNullOrWhiteSpace(requirement.OptionsType))
+            {
+                throw new InvalidDataException(
+                    $"Plugin {pluginInfo.PluginName} ({pluginInfo.Version}) has an incomplete configuration requirement.");
+            }
+
+            var expectedPrefix = $"{requirement.DomainId}:{requirement.OptionsName}:";
+            if (!requirement.Key.StartsWith(expectedPrefix, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Plugin {pluginInfo.PluginName} ({pluginInfo.Version}) configuration key '{requirement.Key}' must start with '{expectedPrefix}'.");
+            }
+
+            var expectedOptionsTypePrefix = $"Backend.Plugins.Configuration.{requirement.DomainId}.";
+            if (!requirement.OptionsType.Replace("global::", string.Empty).StartsWith(expectedOptionsTypePrefix, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Plugin {pluginInfo.PluginName} ({pluginInfo.Version}) configuration type '{requirement.OptionsType}' is outside the approved domain '{expectedOptionsTypePrefix}'.");
+            }
+
+            if (byKey.TryGetValue(requirement.Key, out var existing))
+            {
+                if (!string.Equals(existing.ClrType, requirement.ClrType, StringComparison.Ordinal) ||
+                    !string.Equals(existing.Kind, requirement.Kind, StringComparison.Ordinal) ||
+                    !string.Equals(existing.OptionsType, requirement.OptionsType, StringComparison.Ordinal) ||
+                    !string.Equals(existing.OptionsName, requirement.OptionsName, StringComparison.Ordinal) ||
+                    !string.Equals(existing.PropertyPath, requirement.PropertyPath, StringComparison.Ordinal) ||
+                    !string.Equals(existing.Description ?? "", requirement.Description ?? "", StringComparison.Ordinal) ||
+                    existing.Secret != requirement.Secret ||
+                    existing.Required != requirement.Required)
+                {
+                    throw new InvalidDataException(
+                        $"Plugin {pluginInfo.PluginName} ({pluginInfo.Version}) declares conflicting metadata for configuration key '{requirement.Key}'.");
+                }
+            }
+            else
+            {
+                byKey[requirement.Key] = requirement;
+            }
+
+            var alias = requirement.PropertyPath.Split(':', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+            if (string.IsNullOrWhiteSpace(alias))
+            {
+                continue;
+            }
+
+            if (aliases.TryGetValue(alias, out var existingKey) &&
+                !string.Equals(existingKey, requirement.Key, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Plugin {pluginInfo.PluginName} ({pluginInfo.Version}) declares short configuration alias '{alias}' for both '{existingKey}' and '{requirement.Key}'.");
+            }
+
+            aliases[alias] = requirement.Key;
+        }
     }
 
     private ChannelDefinitionDomainModel? GetInputChannelDefinition(

@@ -38,7 +38,8 @@ public sealed class PluginManifestParsingUtility : IPluginManifestParsingUtility
                 ?? throw new JsonException("Manifest displayName is missing."),
             InputChannel = ReadChannel(manifestObject["inputChannel"]),
             OutputChannels = ReadChannels(manifestObject["outputChannels"]),
-            GlobalState = ReadGlobalState(manifestObject["globalState"])
+            GlobalState = ReadGlobalState(manifestObject["globalState"]),
+            Configuration = ReadConfiguration(manifestObject["configuration"])
         };
     }
 
@@ -110,6 +111,59 @@ public sealed class PluginManifestParsingUtility : IPluginManifestParsingUtility
                     ?? throw new JsonException("Manifest property kind is missing."),
                 Required = propertyObject["required"]?.GetValue<bool>() ?? false,
                 EnumValues = propertyObject["enumValues"] is JsonArray enumArray
+                    ? enumArray
+                        .Select(value => value?.GetValue<string>())
+                        .Where(value => !string.IsNullOrWhiteSpace(value))
+                        .Cast<string>()
+                        .ToList()
+                    : []
+            })
+            .ToList();
+    }
+
+    private static ManifestFileConfigurationInfo ReadConfiguration(JsonNode? node)
+    {
+        if (node is not JsonObject configurationObject)
+        {
+            return new ManifestFileConfigurationInfo();
+        }
+
+        return new ManifestFileConfigurationInfo
+        {
+            Requirements = ReadConfigurationRequirements(configurationObject["requirements"])
+        };
+    }
+
+    private static List<ManifestFileConfigurationRequirementInfo> ReadConfigurationRequirements(JsonNode? node)
+    {
+        if (node is not JsonArray array)
+        {
+            return [];
+        }
+
+        return array
+            .OfType<JsonObject>()
+            .Select(requirementObject => new ManifestFileConfigurationRequirementInfo
+            {
+                DomainId = requirementObject["domainId"]?.GetValue<string>()
+                    ?? throw new JsonException("Manifest configuration requirement domainId is missing."),
+                OptionsType = requirementObject["optionsType"]?.GetValue<string>()
+                    ?? throw new JsonException("Manifest configuration requirement optionsType is missing."),
+                OptionsName = requirementObject["optionsName"]?.GetValue<string>()
+                    ?? throw new JsonException("Manifest configuration requirement optionsName is missing."),
+                Key = requirementObject["key"]?.GetValue<string>()
+                    ?? throw new JsonException("Manifest configuration requirement key is missing."),
+                PropertyPath = requirementObject["propertyPath"]?.GetValue<string>()
+                    ?? throw new JsonException("Manifest configuration requirement propertyPath is missing."),
+                ClrType = requirementObject["clrType"]?.GetValue<string>()
+                    ?? throw new JsonException("Manifest configuration requirement clrType is missing."),
+                Kind = requirementObject["kind"]?.GetValue<string>()
+                    ?? throw new JsonException("Manifest configuration requirement kind is missing."),
+                Required = requirementObject["required"]?.GetValue<bool>() ?? false,
+                Secret = requirementObject["secret"]?.GetValue<bool>() ?? false,
+                Description = requirementObject["description"]?.GetValue<string>(),
+                IsCollection = requirementObject["isCollection"]?.GetValue<bool>() ?? false,
+                EnumValues = requirementObject["enumValues"] is JsonArray enumArray
                     ? enumArray
                         .Select(value => value?.GetValue<string>())
                         .Where(value => !string.IsNullOrWhiteSpace(value))

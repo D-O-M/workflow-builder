@@ -2,12 +2,14 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
 using Backend.Database.State.Objects;
+using Backend.Plugins.Configuration;
 using Backend.Plugins.Communication;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using OpenTelemetry;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
@@ -25,6 +27,7 @@ public class PluginBuilder<TPlugin>
     private Func<TPlugin, object?>? _globalStateGetter;
     private readonly Dictionary<string, PluginChannel> _inputChannels = new();
     private readonly Dictionary<string, PluginChannel> _outputChannels = new();
+    private readonly HashSet<Type> _configurationTypes = [];
     private readonly HostApplicationBuilder _hostAppBuilder;
     private IHost? host = null;
 
@@ -34,6 +37,7 @@ public class PluginBuilder<TPlugin>
     {
         _hostAppBuilder = Host.CreateApplicationBuilder(Environment.GetCommandLineArgs());
         _hostAppBuilder.Configuration.AddEnvironmentVariables();
+        AddConfigFiles(_hostAppBuilder.Configuration, Environment.GetCommandLineArgs());
 
         // Register the event loop
         _hostAppBuilder.Services.AddHostedService<EventHandler<TPlugin>>();
@@ -102,6 +106,30 @@ public class PluginBuilder<TPlugin>
                 hydrator,
                 setter);
         });
+
+        return this;
+    }
+
+    public PluginBuilder<TPlugin> RequireConfiguration<TOptions>()
+        where TOptions : class
+    {
+        var optionsType = typeof(TOptions);
+        if (!PluginConfigurationKey.IsDomainOptionsType(optionsType))
+        {
+            throw new InvalidOperationException(
+                $"Plugin configuration type '{optionsType.FullName}' must live under '{PluginConfigurationKey.DomainNamespacePrefix}<Domain>'.");
+        }
+
+        if (!_configurationTypes.Add(optionsType))
+        {
+            return this;
+        }
+
+        _hostAppBuilder.Services.AddSingleton(sp =>
+            PluginConfigurationBinder.Bind<TOptions>(
+                sp.GetRequiredService<IConfiguration>()));
+        _hostAppBuilder.Services.AddSingleton<IOptions<TOptions>>(sp =>
+            Options.Create(sp.GetRequiredService<TOptions>()));
 
         return this;
     }
@@ -180,6 +208,12 @@ public class PluginBuilder<TPlugin>
 
     internal async Task RunAsync()
     {
+        if (PluginConfigurationHelpWriter.ShouldShowHelp(Environment.GetCommandLineArgs()))
+        {
+            await PluginConfigurationHelpWriter.WriteAsync(Console.Out, _displayName, _configurationTypes);
+            return;
+        }
+
         host ??= _hostAppBuilder.Build();
 
         await host.RunAsync();
@@ -348,6 +382,14 @@ public class PluginBuilder<TPlugin>
         Uri Endpoint,
         string AccountKey,
         bool DisableServerCertificateValidation);
+
+    private static void AddConfigFiles(IConfigurationBuilder configuration, IReadOnlyList<string> args)
+    {
+        foreach (var configPath in PluginConfigurationArgumentParser.GetConfigPaths(args))
+        {
+            configuration.AddJsonFile(configPath, optional: false, reloadOnChange: false);
+        }
+    }
 
     /// <summary>
      /// Global state hydration step that always runs.

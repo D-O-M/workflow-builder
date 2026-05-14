@@ -170,7 +170,7 @@
       "allowedMinor": 1,
       "position": { "x": 2920, "y": 140 },
       "designTimeInputOverrides": {
-        "TestProjectList": "Backend.API.Tests/Backend.API.Tests.csproj;Backend.Engine.Tests/Backend.Engine.Tests.csproj;Backend.Plugins.Harness.Tests/Backend.Plugins.Harness.Tests.csproj;Backend.ShowcaseTown.Tests/Backend.ShowcaseTown.Tests.csproj",
+        "TestProjectList": "Backend.API.Tests/Backend.API.Tests.csproj;Backend.Dcc.Tests/Backend.Dcc.Tests.csproj;Backend.Engine.Tests/Backend.Engine.Tests.csproj;Backend.Plugins.Harness.Tests/Backend.Plugins.Harness.Tests.csproj;Backend.ShowcaseTown.Tests/Backend.ShowcaseTown.Tests.csproj",
         "Configuration": "Release",
         "NoBuild": true
       },

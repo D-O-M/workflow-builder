@@ -16,6 +16,7 @@
     <Content Include="schemas\**\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\Backend.Plugins.Configuration\CiCd\Backend.Plugins.Configuration.CiCd.csproj" />
     <ProjectReference Include="..\..\Backend.Plugins.Harness\Backend.Plugins.Harness.csproj" />
     <ProjectReference Include="..\CiCd.Common\CiCd.Common.csproj" />
   </ItemGroup>

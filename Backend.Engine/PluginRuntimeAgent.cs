@@ -4,6 +4,7 @@ using System.Text;
 using Backend.Engine.Debugging;
 using Backend.Plugins.Communication;
 using CliWrap;
+using CliWrap.Builders;
 using CliWrap.EventStream;
 using Microsoft.Extensions.Hosting;
 
@@ -19,6 +20,7 @@ public class PluginRuntimeAgent
     private readonly PluginResultFinalizationQueue _resultFinalizationQueue;
     private readonly IChildProcessTracker _childProcessTracker;
     private readonly IOperatingSystemInformation _operatingSystemInformation;
+    private readonly IPluginRuntimeConfigurationService _pluginRuntimeConfigurationService;
     private Process? _process;
     private CancellationTokenSource? _processCancellation;
     private Pipe _commsStream = new();
@@ -38,7 +40,8 @@ public class PluginRuntimeAgent
         ILogger<PluginRuntimeAgent> logger,
         PluginResultFinalizationQueue resultFinalizationQueue,
         IChildProcessTracker childProcessTracker,
-        IOperatingSystemInformation operatingSystemInformation)
+        IOperatingSystemInformation operatingSystemInformation,
+        IPluginRuntimeConfigurationService pluginRuntimeConfigurationService)
     {
         _configuration = configuration;
         _hostEnvironment = hostEnvironment;
@@ -46,6 +49,7 @@ public class PluginRuntimeAgent
         _resultFinalizationQueue = resultFinalizationQueue;
         _childProcessTracker = childProcessTracker;
         _operatingSystemInformation = operatingSystemInformation;
+        _pluginRuntimeConfigurationService = pluginRuntimeConfigurationService;
     }
 
     public async Task InitialiseAsync(
@@ -178,7 +182,12 @@ public class PluginRuntimeAgent
                     GetConnectionStringSegment(cosmosConnectionString, "AccountEndpoint") ?? "<unknown>");
             }
 
-            var cmd = CreateCommand(fileInfo)
+            var configFiles = await _pluginRuntimeConfigurationService.PrepareConfigurationFilesAsync(
+                fileInfo,
+                Name,
+                cancellationToken);
+
+            var cmd = CreateCommand(fileInfo, configFiles)
                 .WithEnvironmentVariables(environmentVariables)
                 .WithWorkingDirectory(fileInfo.Directory!.FullName)
                 .WithValidation(CommandResultValidation.None)
@@ -241,20 +250,36 @@ public class PluginRuntimeAgent
         }
     }
 
-    private Command CreateCommand(FileInfo fileInfo)
+    private Command CreateCommand(FileInfo fileInfo, IReadOnlyList<FileInfo> configFiles)
     {
         if (_operatingSystemInformation.IsLinux())
         {
             return Cli.Wrap("/bin/bash")
-                .WithArguments(args => args
-                    .Add("-c")
-                    .Add(LinuxProcessWrapperScript)
-                    .Add("bash")
-                    .Add(Environment.ProcessId.ToString())
-                    .Add(fileInfo.FullName));
+                .WithArguments(args =>
+                {
+                    args
+                        .Add("-c")
+                        .Add(LinuxProcessWrapperScript)
+                        .Add("bash")
+                        .Add(Environment.ProcessId.ToString())
+                        .Add(fileInfo.FullName);
+
+                    AddConfigArguments(args, configFiles);
+                });
         }
 
-        return Cli.Wrap(fileInfo.FullName);
+        return Cli.Wrap(fileInfo.FullName)
+            .WithArguments(args => AddConfigArguments(args, configFiles));
+    }
+
+    private static void AddConfigArguments(ArgumentsBuilder args, IEnumerable<FileInfo> configFiles)
+    {
+        foreach (var configFile in configFiles)
+        {
+            args
+                .Add("--config")
+                .Add(configFile.FullName);
+        }
     }
 
     private async Task OnOutput(string output)
