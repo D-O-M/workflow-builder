@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
+using Backend.Engine.Capabilities;
 using Backend.Database.State.Objects;
 using Backend.Plugins.Configuration;
 using Backend.Plugins.Communication;
@@ -27,6 +28,7 @@ public class PluginBuilder<TPlugin>
     private Func<TPlugin, object?>? _globalStateGetter;
     private readonly Dictionary<string, PluginChannel> _inputChannels = new();
     private readonly Dictionary<string, PluginChannel> _outputChannels = new();
+    private readonly HashSet<Type> _capabilityTypes = [];
     private readonly HashSet<Type> _configurationTypes = [];
     private readonly HostApplicationBuilder _hostAppBuilder;
     private IHost? host = null;
@@ -110,26 +112,26 @@ public class PluginBuilder<TPlugin>
         return this;
     }
 
-    public PluginBuilder<TPlugin> RequireConfiguration<TOptions>()
-        where TOptions : class
+    public PluginBuilder<TPlugin> RequireCapability<TCapability>()
+        where TCapability : class
     {
-        var optionsType = typeof(TOptions);
-        if (!PluginConfigurationKey.IsDomainOptionsType(optionsType))
+        var capabilityType = typeof(TCapability);
+        if (!CapabilityDescriptorReader.IsApprovedCapabilityType(capabilityType))
         {
             throw new InvalidOperationException(
-                $"Plugin configuration type '{optionsType.FullName}' must live under '{PluginConfigurationKey.DomainNamespacePrefix}<Domain>'.");
+                $"Plugin capability type '{capabilityType.FullName}' must live under '{CapabilityDescriptorReader.CapabilityNamespacePrefix}'.");
         }
 
-        if (!_configurationTypes.Add(optionsType))
+        if (!_capabilityTypes.Add(capabilityType))
         {
             return this;
         }
 
-        _hostAppBuilder.Services.AddSingleton(sp =>
-            PluginConfigurationBinder.Bind<TOptions>(
-                sp.GetRequiredService<IConfiguration>()));
-        _hostAppBuilder.Services.AddSingleton<IOptions<TOptions>>(sp =>
-            Options.Create(sp.GetRequiredService<TOptions>()));
+        _ = CapabilityDescriptorReader.Describe(capabilityType);
+        foreach (var optionsType in CapabilityDescriptorReader.GetConfigurationTypes(capabilityType))
+        {
+            RegisterConfigurationType(optionsType);
+        }
 
         return this;
     }
@@ -210,7 +212,7 @@ public class PluginBuilder<TPlugin>
     {
         if (PluginConfigurationHelpWriter.ShouldShowHelp(Environment.GetCommandLineArgs()))
         {
-            await PluginConfigurationHelpWriter.WriteAsync(Console.Out, _displayName, _configurationTypes);
+            await PluginConfigurationHelpWriter.WriteAsync(Console.Out, _displayName, _capabilityTypes);
             return;
         }
 
@@ -225,6 +227,31 @@ public class PluginBuilder<TPlugin>
         if (expr.Body is not MemberExpression m || m.Member is not PropertyInfo pi)
             throw new ArgumentException("Selector must be p => p.Property");
         return pi;
+    }
+
+    private void RegisterConfigurationType(Type optionsType)
+    {
+        if (!PluginConfigurationKey.IsDomainOptionsType(optionsType))
+        {
+            throw new InvalidOperationException(
+                $"Plugin configuration type '{optionsType.FullName}' must live under '{PluginConfigurationKey.DomainNamespacePrefix}<Domain>'.");
+        }
+
+        if (!_configurationTypes.Add(optionsType))
+        {
+            return;
+        }
+
+        _hostAppBuilder.Services.AddSingleton(optionsType, sp =>
+            PluginConfigurationBinder.Bind(
+                optionsType,
+                sp.GetRequiredService<IConfiguration>()));
+
+        var optionsWrapperType = typeof(IOptions<>).MakeGenericType(optionsType);
+        _hostAppBuilder.Services.AddSingleton(optionsWrapperType, sp =>
+            PluginConfigurationBinder.CreateOptions(
+                optionsType,
+                sp.GetRequiredService(optionsType)));
     }
 
     private bool UseFileStateStore() =>

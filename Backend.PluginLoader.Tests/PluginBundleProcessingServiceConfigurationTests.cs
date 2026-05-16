@@ -19,6 +19,47 @@ namespace Backend.PluginLoader.Tests;
 public sealed class PluginBundleProcessingServiceConfigurationTests
 {
     [Test]
+    public async Task ProcessAsync_Rejects_configuration_without_capability_owner()
+    {
+        var manifest = ManifestWithRequirements([ValidRequirement()]);
+        manifest.Capabilities.Requirements.Clear();
+
+        var ex = await Should.ThrowAsync<InvalidDataException>(
+            () => ProcessManifestAsync(manifest));
+
+        ex.Message.ShouldContain("must be owned by a declared capability");
+    }
+
+    [Test]
+    public async Task ProcessAsync_Rejects_capability_type_outside_approved_namespace()
+    {
+        var manifest = ManifestWithRequirements([ValidRequirement()]);
+        manifest.Capabilities.Requirements[0].CapabilityType = "Local.GatewayCapability";
+
+        var ex = await Should.ThrowAsync<InvalidDataException>(
+            () => ProcessManifestAsync(manifest));
+
+        ex.Message.ShouldContain("outside the approved Backend.Engine.Capabilities namespace");
+    }
+
+    [Test]
+    public async Task ProcessAsync_Rejects_configuration_source_capability_type_mismatch()
+    {
+        var manifest = ManifestWithRequirements(
+        [
+            ValidRequirement() with
+            {
+                SourceCapabilityType = "Backend.Engine.Capabilities.OtherGatewayCapability"
+            }
+        ]);
+
+        var ex = await Should.ThrowAsync<InvalidDataException>(
+            () => ProcessManifestAsync(manifest));
+
+        ex.Message.ShouldContain("declares source capability type");
+    }
+
+    [Test]
     public async Task ProcessAsync_Rejects_configuration_type_outside_approved_domain()
     {
         var manifest = ManifestWithRequirements(
@@ -146,15 +187,39 @@ public sealed class PluginBundleProcessingServiceConfigurationTests
         {
             DisplayName = "Config plugin",
             OutputChannels = [],
+            Capabilities = new ManifestFileCapabilitiesInfo
+            {
+                Requirements =
+                [
+                    ValidCapability()
+                ]
+            },
             Configuration = new ManifestFileConfigurationInfo
             {
                 Requirements = requirements
             }
         };
 
+    private static ManifestFileCapabilityRequirementInfo ValidCapability() =>
+        new()
+        {
+            Id = "network:dcc:gateway",
+            Kind = "Network",
+            CapabilityType = "Backend.Engine.Capabilities.DccGatewayCapability",
+            DisplayName = "DCC gateway access",
+            Required = true,
+            ConfigurationKeys =
+            [
+                "Dcc:Gateway:EndpointUrl",
+                "Dcc:MockGateway:EndpointUrl"
+            ]
+        };
+
     private static ManifestFileConfigurationRequirementInfo ValidRequirement() =>
         new()
         {
+            SourceCapabilityId = "network:dcc:gateway",
+            SourceCapabilityType = "Backend.Engine.Capabilities.DccGatewayCapability",
             DomainId = "Dcc",
             OptionsType = "Backend.Plugins.Configuration.Dcc.GatewayOptions",
             OptionsName = "Gateway",

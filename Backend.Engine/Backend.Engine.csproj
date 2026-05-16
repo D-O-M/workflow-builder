@@ -24,6 +24,7 @@
     <ProjectReference Include="..\Backend.ServiceDefaults\Backend.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Backend.Services\Backend.Services.csproj" />
     <ProjectReference Include="..\Backend.Utilities\Backend.Utilities.csproj" />
+    <ProjectReference Include="..\Backend.Engine.Capabilities\Backend.Engine.Capabilities.csproj" />
     <ProjectReference Include="..\Backend.Plugins.Communication\Backend.Plugins.Communication.csproj" />
   </ItemGroup>
 

@@ -2,6 +2,7 @@ using System.Collections;
 using System.ComponentModel;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Backend.Engine.Capabilities;
 using Backend.Plugins.Configuration;
 
 namespace Backend.Plugins.Harness;
@@ -19,14 +20,42 @@ internal static class PluginConfigurationHelpWriter
     public static async Task WriteAsync(
         TextWriter writer,
         string displayName,
-        IReadOnlyCollection<Type> configurationTypes)
+        IReadOnlyCollection<Type> capabilityTypes)
     {
         await writer.WriteLineAsync(displayName);
         await writer.WriteLineAsync();
         await writer.WriteLineAsync("Usage:");
         await writer.WriteLineAsync("  plugin --config <domain-config-file> [--config <domain-config-file>]");
 
-        if (configurationTypes.Count == 0)
+        if (capabilityTypes.Count == 0)
+        {
+            await writer.WriteLineAsync();
+            await writer.WriteLineAsync("Capabilities:");
+            await writer.WriteLineAsync("  No plugin-specific capabilities.");
+        }
+        else
+        {
+            await writer.WriteLineAsync();
+            await writer.WriteLineAsync("Capabilities:");
+            foreach (var capability in capabilityTypes
+                         .Select(CapabilityDescriptorReader.Describe)
+                         .OrderBy(requirement => requirement.Id, StringComparer.Ordinal))
+            {
+                await writer.WriteLineAsync(
+                    $"  {capability.Id} ({capability.Kind}, {(capability.Required ? "required" : "optional")})");
+                if (!string.IsNullOrWhiteSpace(capability.Description))
+                {
+                    await writer.WriteLineAsync($"    {capability.Description}");
+                }
+            }
+        }
+
+        var configurationTypes = capabilityTypes
+            .SelectMany(CapabilityDescriptorReader.GetConfigurationTypes)
+            .Distinct()
+            .ToArray();
+
+        if (configurationTypes.Length == 0)
         {
             await writer.WriteLineAsync();
             await writer.WriteLineAsync("Configuration:");

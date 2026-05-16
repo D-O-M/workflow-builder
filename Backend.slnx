@@ -26,6 +26,7 @@
   <Project Path="Backend.Database.Relational/Backend.Database.Relational.csproj" />
   <Project Path="Backend.Constants/Backend.Constants.csproj" />
   <Project Path="Backend.DTOs/Backend.Models.csproj" />
+  <Project Path="Backend.Engine.Capabilities/Backend.Engine.Capabilities.csproj" />
   <Project Path="Backend.Engine/Backend.Engine.csproj" />
   <Project Path="Backend.Functions.ProgressBroadcaster/Backend.Functions.ProgressBroadcaster.csproj" />
   <Project Path="Backend.Functions.PluginDetector/Backend.Functions.PluginDetector.csproj" />

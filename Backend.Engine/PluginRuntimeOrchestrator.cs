@@ -1,4 +1,5 @@
 using Backend.Database.Relational.Entities;
+using Backend.Engine.Capabilities;
 using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
 using Backend.Models;
@@ -13,6 +14,7 @@ public class PluginRuntimeOrchestrator : BackgroundService
         int Minor);
 
     private readonly IAgentManager _agentManager;
+    private readonly IPluginRuntimeCapabilityService _capabilityService;
     private readonly ILogger _logger;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly Lock _sync = new();
@@ -24,10 +26,12 @@ public class PluginRuntimeOrchestrator : BackgroundService
 
     public PluginRuntimeOrchestrator(
         IAgentManager agentManager,
+        IPluginRuntimeCapabilityService capabilityService,
         ILogger<PluginRuntimeOrchestrator> logger,
         IServiceScopeFactory serviceScopeFactory)
     {
         _agentManager = agentManager;
+        _capabilityService = capabilityService;
         _logger = logger;
         _serviceScopeFactory = serviceScopeFactory;
     }
@@ -231,6 +235,21 @@ public class PluginRuntimeOrchestrator : BackgroundService
                 taskInfo.Path,
                 scope,
                 cancellationToken);
+
+            var capabilityReport = await _capabilityService.ValidateWorkspaceAsync(
+                entryPoint,
+                $"{taskInfo.Name} (Version: {taskInfo.Version})",
+                cancellationToken);
+            if (!capabilityReport.Succeeded)
+            {
+                _logger.LogWarning(
+                    "Task version {TaskVersionId} ({TaskName} {Version}) is not runnable because {FailureCount} required capability check(s) failed.",
+                    taskInfo.Id,
+                    taskInfo.Name,
+                    taskInfo.Version,
+                    capabilityReport.Results.Count(result => result.Status != CapabilityValidationStatus.Satisfied));
+                return false;
+            }
 
             var agent = scope.ServiceProvider.GetRequiredService<PluginRuntimeAgent>();
             await agent.InitialiseAsync(

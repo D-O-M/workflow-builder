@@ -2,6 +2,7 @@ using Azure.Messaging.ServiceBus;
 using Azure.Storage.Blobs;
 using Backend.Engine;
 using Backend.Engine.Debugging;
+using Backend.Engine.Capabilities;
 using Backend.Database.Relational;
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Utilities;
@@ -70,8 +71,12 @@ builder.Services.AddSingleton(_ =>
 });
 
 builder.Services.AddSingleton<IAgentManager, AgentManager>();
+builder.Services.AddSingleton<ICommandCapabilityProbe, ProcessCommandCapabilityProbe>();
+builder.Services.AddSingleton<IEndpointCapabilityProbe, HttpEndpointCapabilityProbe>();
+builder.Services.AddSingleton<ICapabilityValidationService, CapabilityValidationService>();
 builder.Services.AddSingleton<IChildProcessTracker, ChildProcessTracker>();
 builder.Services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();
+builder.Services.AddSingleton<IPluginRuntimeCapabilityService, PluginRuntimeCapabilityService>();
 builder.Services.AddSingleton<IPluginRuntimeConfigurationService, PluginRuntimeConfigurationService>();
 builder.Services.AddSingleton<PluginRuntimeOrchestrator>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());

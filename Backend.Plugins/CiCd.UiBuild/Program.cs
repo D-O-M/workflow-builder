@@ -1,7 +1,10 @@
+using Backend.Engine.Capabilities;
 using Backend.Plugins.Harness;
 using CiCd.UiBuild;
 
 var plugin = Plugin.CreateBuilder<UiBuildPlugin>("UI build")
+    .RequireCapability<NodeJsRuntimeCapability>()
+    .RequireCapability<NpmCliCapability>()
     .ConfigureInputChannel(p => p.Input)
     .ConfigureOutputChannel(p => p.Result)
     .Build();

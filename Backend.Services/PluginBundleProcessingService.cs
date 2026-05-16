@@ -81,6 +81,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                 _logger.LogWarning("Manifest not found for plugin {Plugin} ({Version}). Processing aborted.", pluginInfo.PluginName, pluginInfo.Version);
                 return;
             }
+            ValidateCapabilityRequirements(pluginInfo, manifest);
             ValidateConfigurationRequirements(pluginInfo, manifest);
 
             var schemas = await _schemaAggregator.LoadAsync(workspaceDirectory, cancellationToken);
@@ -163,6 +164,12 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
     {
         var byKey = new Dictionary<string, ManifestFileConfigurationRequirementInfo>(StringComparer.Ordinal);
         var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var capabilitiesById = manifest.Capabilities.Requirements
+            .GroupBy(requirement => requirement.Id, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        var capabilityConfigurationKeys = manifest.Capabilities.Requirements
+            .SelectMany(requirement => requirement.ConfigurationKeys.Select(key => (requirement.Id, Key: key)))
+            .ToHashSet();
 
         foreach (var requirement in manifest.Configuration.Requirements)
         {
@@ -174,6 +181,26 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             {
                 throw new InvalidDataException(
                     $"Plugin {pluginInfo.PluginName} ({pluginInfo.Version}) has an incomplete configuration requirement.");
+            }
+
+            if (string.IsNullOrWhiteSpace(requirement.SourceCapabilityId) ||
+                !capabilitiesById.TryGetValue(requirement.SourceCapabilityId, out var sourceCapability))
+            {
+                throw new InvalidDataException(
+                    $"Plugin {pluginInfo.PluginName} ({pluginInfo.Version}) configuration key '{requirement.Key}' must be owned by a declared capability.");
+            }
+
+            if (string.IsNullOrWhiteSpace(requirement.SourceCapabilityType) ||
+                !string.Equals(requirement.SourceCapabilityType, sourceCapability.CapabilityType, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Plugin {pluginInfo.PluginName} ({pluginInfo.Version}) configuration key '{requirement.Key}' declares source capability type '{requirement.SourceCapabilityType}', but capability '{requirement.SourceCapabilityId}' uses '{sourceCapability.CapabilityType}'.");
+            }
+
+            if (!capabilityConfigurationKeys.Contains((requirement.SourceCapabilityId, requirement.Key)))
+            {
+                throw new InvalidDataException(
+                    $"Plugin {pluginInfo.PluginName} ({pluginInfo.Version}) capability '{requirement.SourceCapabilityId}' does not list owned configuration key '{requirement.Key}'.");
             }
 
             var expectedPrefix = $"{requirement.DomainId}:{requirement.OptionsName}:";
@@ -198,6 +225,8 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                     !string.Equals(existing.OptionsName, requirement.OptionsName, StringComparison.Ordinal) ||
                     !string.Equals(existing.PropertyPath, requirement.PropertyPath, StringComparison.Ordinal) ||
                     !string.Equals(existing.Description ?? "", requirement.Description ?? "", StringComparison.Ordinal) ||
+                    !string.Equals(existing.SourceCapabilityId, requirement.SourceCapabilityId, StringComparison.Ordinal) ||
+                    !string.Equals(existing.SourceCapabilityType, requirement.SourceCapabilityType, StringComparison.Ordinal) ||
                     existing.Secret != requirement.Secret ||
                     existing.Required != requirement.Required)
                 {
@@ -226,6 +255,63 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             aliases[alias] = requirement.Key;
         }
     }
+
+    private static void ValidateCapabilityRequirements(PluginBlobInfo pluginInfo, ManifestFile manifest)
+    {
+        var byId = new Dictionary<string, ManifestFileCapabilityRequirementInfo>(StringComparer.Ordinal);
+        foreach (var requirement in manifest.Capabilities.Requirements)
+        {
+            if (string.IsNullOrWhiteSpace(requirement.Id) ||
+                string.IsNullOrWhiteSpace(requirement.Kind) ||
+                string.IsNullOrWhiteSpace(requirement.CapabilityType) ||
+                string.IsNullOrWhiteSpace(requirement.DisplayName))
+            {
+                throw new InvalidDataException(
+                    $"Plugin {pluginInfo.PluginName} ({pluginInfo.Version}) has an incomplete capability requirement.");
+            }
+
+            var normalizedCapabilityType = requirement.CapabilityType.Replace("global::", string.Empty);
+            if (!normalizedCapabilityType.StartsWith("Backend.Engine.Capabilities.", StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Plugin {pluginInfo.PluginName} ({pluginInfo.Version}) capability type '{requirement.CapabilityType}' is outside the approved Backend.Engine.Capabilities namespace.");
+            }
+
+            if (byId.TryGetValue(requirement.Id, out var existing))
+            {
+                if (!string.Equals(existing.Kind, requirement.Kind, StringComparison.Ordinal) ||
+                    !string.Equals(existing.CapabilityType, requirement.CapabilityType, StringComparison.Ordinal) ||
+                    !string.Equals(existing.DisplayName, requirement.DisplayName, StringComparison.Ordinal) ||
+                    !string.Equals(existing.Description ?? "", requirement.Description ?? "", StringComparison.Ordinal) ||
+                    !string.Equals(existing.Remediation ?? "", requirement.Remediation ?? "", StringComparison.Ordinal) ||
+                    !string.Equals(existing.Command ?? "", requirement.Command ?? "", StringComparison.Ordinal) ||
+                    !string.Equals(existing.Arguments ?? "", requirement.Arguments ?? "", StringComparison.Ordinal) ||
+                    !string.Equals(existing.MinimumVersion ?? "", requirement.MinimumVersion ?? "", StringComparison.Ordinal) ||
+                    !string.Equals(existing.EndpointConfigKey ?? "", requirement.EndpointConfigKey ?? "", StringComparison.Ordinal) ||
+                    existing.TimeoutSeconds != requirement.TimeoutSeconds ||
+                    !StringListEquals(existing.ConfigurationKeys, requirement.ConfigurationKeys) ||
+                    !StringListEquals(existing.EngineConfigurationKeys, requirement.EngineConfigurationKeys) ||
+                    existing.Required != requirement.Required ||
+                    existing.Installable != requirement.Installable)
+                {
+                    throw new InvalidDataException(
+                        $"Plugin {pluginInfo.PluginName} ({pluginInfo.Version}) declares conflicting metadata for capability '{requirement.Id}'.");
+                }
+            }
+            else
+            {
+                byId[requirement.Id] = requirement;
+            }
+        }
+    }
+
+    private static bool StringListEquals(
+        IReadOnlyCollection<string> left,
+        IReadOnlyCollection<string> right) =>
+        left.OrderBy(value => value, StringComparer.Ordinal)
+            .SequenceEqual(
+                right.OrderBy(value => value, StringComparer.Ordinal),
+                StringComparer.Ordinal);
 
     private ChannelDefinitionDomainModel? GetInputChannelDefinition(
         PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult schemas)

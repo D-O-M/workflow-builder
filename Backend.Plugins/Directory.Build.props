@@ -7,6 +7,7 @@
     <ProjectReference Include="$(MSBuildThisFileDirectory)..\Backend.Plugins.Harness.Generator\Backend.Plugins.Harness.Generator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\Backend.Engine.Capabilities\Backend.Engine.Capabilities.csproj" />
     <Content Remove="manifest.json" />
     <Content Remove="schemas\**\*.json" />
     <None Remove="manifest.json" />

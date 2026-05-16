@@ -9,6 +9,12 @@ namespace Backend.Plugins.Harness.Generator;
 public sealed class PluginContractGenerator : IIncrementalGenerator
 {
     private const string ContractProviderMetadataKey = "WorkflowBuilder.PluginContractProvider";
+    private const string CapabilityNamespacePrefix = "Backend.Engine.Capabilities";
+    private const string EngineCapabilityAttributeMetadataName = "EngineCapabilityAttribute";
+    private const string CommandCapabilityAttributeMetadataName = "CommandCapabilityAttribute";
+    private const string HttpEndpointCapabilityAttributeMetadataName = "HttpEndpointCapabilityAttribute";
+    private const string RequiresConfigurationAttributeMetadataName = "RequiresConfigurationAttribute";
+    private const string EngineConfigurationKeyAttributeMetadataName = "EngineConfigurationKeyAttribute";
     private const string ConfigurationDomainNamespacePrefix = "Backend.Plugins.Configuration.";
     private const string SecretTypeNamespace = "Backend.Plugins.Configuration";
     private const string SecretTypeMetadataName = "Secret`1";
@@ -130,7 +136,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
     {
         var inputChannels = new List<PluginChannelContract>();
         var outputChannels = new List<PluginChannelContract>();
-        var configurationTypes = new List<PluginConfigurationTypeContract>();
+        var capabilityTypes = new List<PluginCapabilityTypeContract>();
         PluginChannelContract? globalState = null;
         string? displayName = null;
         string? pluginTypeName = null;
@@ -218,7 +224,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                 continue;
             }
 
-            if (memberName == "RequireConfiguration")
+            if (memberName == "RequireCapability")
             {
                 if (currentInvocation.ArgumentList.Arguments.Count != 0)
                 {
@@ -226,31 +232,31 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                         Diagnostic.Create(
                             UnsupportedBuilderShapeRule,
                             currentInvocation.GetLocation(),
-                            "'RequireConfiguration<TOptions>()' must not be called with arguments."));
+                            "'RequireCapability<TCapability>()' must not be called with arguments."));
                 }
 
-                if (memberAccess.Name is not GenericNameSyntax configurationGenericName ||
-                    configurationGenericName.TypeArgumentList.Arguments.Count != 1)
+                if (memberAccess.Name is not GenericNameSyntax capabilityGenericName ||
+                    capabilityGenericName.TypeArgumentList.Arguments.Count != 1)
                 {
                     return ParsedBuilderChain.FromDiagnostic(
                         Diagnostic.Create(
                             UnsupportedBuilderShapeRule,
                             currentInvocation.GetLocation(),
-                            "'RequireConfiguration<TOptions>()' must specify exactly one domain options type argument."));
+                            "'RequireCapability<TCapability>()' must specify exactly one capability type argument."));
                 }
 
-                if (semanticModel.GetTypeInfo(configurationGenericName.TypeArgumentList.Arguments[0]).Type is not INamedTypeSymbol configurationTypeSymbol)
+                if (semanticModel.GetTypeInfo(capabilityGenericName.TypeArgumentList.Arguments[0]).Type is not INamedTypeSymbol capabilityTypeSymbol)
                 {
                     return ParsedBuilderChain.FromDiagnostic(
                         Diagnostic.Create(
                             UnsupportedBuilderShapeRule,
                             currentInvocation.GetLocation(),
-                            "Unable to resolve the options type supplied to RequireConfiguration<TOptions>()."));
+                            "Unable to resolve the capability type supplied to RequireCapability<TCapability>()."));
                 }
 
-                configurationTypes.Add(new PluginConfigurationTypeContract(
-                    ToDisplayName(configurationTypeSymbol),
-                    configurationTypeSymbol,
+                capabilityTypes.Add(new PluginCapabilityTypeContract(
+                    ToDisplayName(capabilityTypeSymbol),
+                    capabilityTypeSymbol,
                     currentInvocation.GetLocation()));
 
                 if (memberAccess.Expression is not InvocationExpressionSyntax nextInvocation)
@@ -259,7 +265,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                         Diagnostic.Create(
                             UnsupportedBuilderShapeRule,
                             currentInvocation.GetLocation(),
-                            "'RequireConfiguration<TOptions>()' must be chained directly from the plugin builder."));
+                            "'RequireCapability<TCapability>()' must be chained directly from the plugin builder."));
                 }
 
                 currentInvocation = nextInvocation;
@@ -315,7 +321,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                 Diagnostic.Create(
                     UnsupportedBuilderShapeRule,
                     currentInvocation.GetLocation(),
-                    $"Unsupported call '{memberName}' in plugin builder chain. Only ConfigureInputChannel, ConfigureOutputChannel, WithGlobalState, RequireConfiguration, and Build are supported."));
+                    $"Unsupported call '{memberName}' in plugin builder chain. Only ConfigureInputChannel, ConfigureOutputChannel, WithGlobalState, RequireCapability, and Build are supported."));
         }
 
         if (displayName is null || pluginTypeName is null)
@@ -342,7 +348,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                 pluginTypeName,
                 inputChannels.SingleOrDefault(),
                 outputChannels,
-                configurationTypes,
+                capabilityTypes,
                 globalState,
                 buildInvocation.GetLocation()));
     }
@@ -364,9 +370,31 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
         var globalState = invocation.GlobalState is null
             ? null
             : BuildChannelContract(invocation.GlobalState, isGlobalState: true, diagnostics);
-        var configurationRequirements = invocation.ConfigurationTypes
-            .SelectMany(configurationType => BuildConfigurationRequirements(configurationType, diagnostics))
+        var capabilityRequirements = invocation.CapabilityTypes
+            .Select(capabilityType => BuildCapabilityRequirement(capabilityType, diagnostics))
+            .Where(capability => capability is not null)
+            .Cast<GeneratedCapabilityRequirementContract>()
+            .OrderBy(capability => capability.Id, StringComparer.Ordinal)
+            .ToList();
+        var rawConfigurationRequirements = capabilityRequirements
+            .SelectMany(capability => capability.ConfigurationTypes.SelectMany(configurationType =>
+                BuildConfigurationRequirements(configurationType, capability, diagnostics)))
+            .ToList();
+        var configurationRequirements = rawConfigurationRequirements
+            .GroupBy(requirement => requirement.Key, StringComparer.Ordinal)
+            .Select(group => group.First())
             .OrderBy(requirement => requirement.Key, StringComparer.Ordinal)
+            .ToList();
+
+        capabilityRequirements = capabilityRequirements
+            .Select(capability => capability with
+            {
+                ConfigurationKeys = rawConfigurationRequirements
+                    .Where(requirement => string.Equals(requirement.SourceCapabilityId, capability.Id, StringComparison.Ordinal))
+                    .Select(requirement => requirement.Key)
+                    .OrderBy(key => key, StringComparer.Ordinal)
+                    .ToArray()
+            })
             .ToList();
 
         if (inputChannel is null && invocation.InputChannel is not null)
@@ -393,12 +421,135 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
             inputChannel,
             outputChannels,
             globalState,
+            capabilityRequirements,
             configurationRequirements,
             schemaDictionary);
     }
 
+    private static GeneratedCapabilityRequirementContract? BuildCapabilityRequirement(
+        PluginCapabilityTypeContract capabilityType,
+        ImmutableArray<Diagnostic>.Builder diagnostics)
+    {
+        if (capabilityType.TypeSymbol is null)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                UnsupportedBuilderShapeRule,
+                capabilityType.Location,
+                $"Unable to resolve the CLR type for capability '{capabilityType.TypeName}'."));
+            return null;
+        }
+
+        var namespaceName = capabilityType.TypeSymbol.ContainingNamespace?.ToDisplayString();
+        if (namespaceName is null ||
+            !namespaceName.StartsWith(CapabilityNamespacePrefix, StringComparison.Ordinal))
+        {
+            diagnostics.Add(Diagnostic.Create(
+                UnsupportedBuilderShapeRule,
+                capabilityType.Location,
+                $"Capability type '{capabilityType.TypeName}' must live under '{CapabilityNamespacePrefix}'."));
+            return null;
+        }
+
+        var capabilityAttribute = GetAttribute(capabilityType.TypeSymbol, EngineCapabilityAttributeMetadataName);
+        if (capabilityAttribute is null)
+        {
+            diagnostics.Add(Diagnostic.Create(
+                UnsupportedBuilderShapeRule,
+                capabilityType.Location,
+                $"Capability type '{capabilityType.TypeName}' must declare EngineCapabilityAttribute."));
+            return null;
+        }
+
+        var id = GetConstructorString(capabilityAttribute, 0);
+        var kind = GetConstructorString(capabilityAttribute, 1);
+        var displayName = GetConstructorString(capabilityAttribute, 2);
+        if (string.IsNullOrWhiteSpace(id) ||
+            string.IsNullOrWhiteSpace(kind) ||
+            string.IsNullOrWhiteSpace(displayName))
+        {
+            diagnostics.Add(Diagnostic.Create(
+                UnsupportedBuilderShapeRule,
+                capabilityType.Location,
+                $"Capability type '{capabilityType.TypeName}' has an incomplete EngineCapabilityAttribute."));
+            return null;
+        }
+
+        var commandAttribute = GetAttribute(capabilityType.TypeSymbol, CommandCapabilityAttributeMetadataName);
+        var endpointAttribute = GetAttribute(capabilityType.TypeSymbol, HttpEndpointCapabilityAttributeMetadataName);
+        var configurationTypes = capabilityType.TypeSymbol
+            .GetAttributes()
+            .Where(attribute => HasAttributeMetadataName(attribute, RequiresConfigurationAttributeMetadataName))
+            .Select(attribute => attribute.ConstructorArguments.FirstOrDefault().Value as INamedTypeSymbol)
+            .Where(symbol => symbol is not null)
+            .Select(symbol => new PluginConfigurationTypeContract(
+                ToDisplayName(symbol!),
+                symbol,
+                capabilityType.Location))
+            .ToArray();
+
+        var engineConfigurationKeys = capabilityType.TypeSymbol
+            .GetAttributes()
+            .Where(attribute => HasAttributeMetadataName(attribute, EngineConfigurationKeyAttributeMetadataName))
+            .Select(attribute => GetConstructorString(attribute, 0))
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Cast<string>()
+            .OrderBy(value => value, StringComparer.Ordinal)
+            .ToArray();
+
+        return new GeneratedCapabilityRequirementContract(
+            Id: id!,
+            Kind: kind!,
+            CapabilityType: capabilityType.TypeName,
+            DisplayName: displayName!,
+            Description: GetNamedString(capabilityAttribute, "Description"),
+            Required: GetNamedBool(capabilityAttribute, "Required", defaultValue: true),
+            Installable: GetNamedBool(capabilityAttribute, "Installable", defaultValue: false),
+            Remediation: GetNamedString(capabilityAttribute, "Remediation"),
+            Command: commandAttribute is null ? null : GetConstructorString(commandAttribute, 0),
+            Arguments: commandAttribute is null ? null : GetNamedString(commandAttribute, "Arguments") ?? "--version",
+            MinimumVersion: commandAttribute is null ? null : GetNamedString(commandAttribute, "MinimumVersion"),
+            EndpointConfigKey: endpointAttribute is null ? null : GetConstructorString(endpointAttribute, 0),
+            TimeoutSeconds: endpointAttribute is null ? null : GetNamedInt(endpointAttribute, "TimeoutSeconds"),
+            ConfigurationKeys: [],
+            EngineConfigurationKeys: engineConfigurationKeys,
+            ConfigurationTypes: configurationTypes);
+    }
+
+    private static AttributeData? GetAttribute(INamedTypeSymbol type, string metadataName) =>
+        type.GetAttributes().FirstOrDefault(attribute => HasAttributeMetadataName(attribute, metadataName));
+
+    private static bool HasAttributeMetadataName(AttributeData attribute, string metadataName) =>
+        attribute.AttributeClass?.MetadataName.Equals(metadataName, StringComparison.Ordinal) == true &&
+        attribute.AttributeClass.ContainingNamespace.ToDisplayString().StartsWith(CapabilityNamespacePrefix, StringComparison.Ordinal);
+
+    private static string? GetConstructorString(AttributeData attribute, int index)
+    {
+        if (attribute.ConstructorArguments.Length <= index)
+        {
+            return null;
+        }
+
+        return attribute.ConstructorArguments[index].Value as string;
+    }
+
+    private static string? GetNamedString(AttributeData attribute, string name) =>
+        attribute.NamedArguments.FirstOrDefault(argument => argument.Key == name).Value.Value as string;
+
+    private static bool GetNamedBool(AttributeData attribute, string name, bool defaultValue)
+    {
+        var value = attribute.NamedArguments.FirstOrDefault(argument => argument.Key == name).Value.Value;
+        return value is bool boolValue ? boolValue : defaultValue;
+    }
+
+    private static int? GetNamedInt(AttributeData attribute, string name)
+    {
+        var value = attribute.NamedArguments.FirstOrDefault(argument => argument.Key == name).Value.Value;
+        return value is int intValue ? intValue : null;
+    }
+
     private static IReadOnlyList<GeneratedConfigurationRequirementContract> BuildConfigurationRequirements(
         PluginConfigurationTypeContract configurationType,
+        GeneratedCapabilityRequirementContract sourceCapability,
         ImmutableArray<Diagnostic>.Builder diagnostics)
     {
         if (configurationType.TypeSymbol is null)
@@ -426,6 +577,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
         var optionsName = GetConfigurationOptionsName(configurationType.TypeSymbol.Name);
         var requirements = new List<GeneratedConfigurationRequirementContract>();
         CollectConfigurationRequirements(
+            sourceCapability,
             configurationType.TypeSymbol,
             configurationType.TypeSymbol,
             domainId,
@@ -437,6 +589,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
     }
 
     private static void CollectConfigurationRequirements(
+        GeneratedCapabilityRequirementContract sourceCapability,
         INamedTypeSymbol rootOptionsType,
         INamedTypeSymbol currentType,
         string domainId,
@@ -466,6 +619,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
             if (IsConfigurationNestedObject(propertyType, isCollection, isSecret))
             {
                 CollectConfigurationRequirements(
+                    sourceCapability,
                     rootOptionsType,
                     (INamedTypeSymbol)propertyType,
                     domainId,
@@ -487,6 +641,8 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
 
             var key = $"{domainId}:{optionsName}:{string.Join(":", nextPath)}";
             requirements.Add(new GeneratedConfigurationRequirementContract(
+                SourceCapabilityId: sourceCapability.Id,
+                SourceCapabilityType: sourceCapability.CapabilityType,
                 DomainId: domainId,
                 OptionsType: ToDisplayName(rootOptionsType),
                 OptionsName: optionsName,
@@ -874,6 +1030,10 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                 InputChannel = contract.InputChannel is null ? null : MapChannel(contract.InputChannel),
                 OutputChannels = contract.OutputChannels.Select(MapChannel).ToList(),
                 GlobalState = contract.GlobalState is null ? null : MapChannel(contract.GlobalState),
+                Capabilities = new ManifestFileCapabilitiesInfo
+                {
+                    Requirements = contract.CapabilityRequirements.Select(MapCapabilityRequirement).ToList()
+                },
                 Configuration = new ManifestFileConfigurationInfo
                 {
                     Requirements = contract.ConfigurationRequirements.Select(MapConfigurationRequirement).ToList()
@@ -949,6 +1109,8 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         GeneratedConfigurationRequirementContract requirement) =>
         new()
         {
+            SourceCapabilityId = requirement.SourceCapabilityId,
+            SourceCapabilityType = requirement.SourceCapabilityType,
             DomainId = requirement.DomainId,
             OptionsType = requirement.OptionsType,
             OptionsName = requirement.OptionsName,
@@ -961,6 +1123,27 @@ internal static class {{GetProviderClassName(providerTypeName)}}
             Description = requirement.Description,
             EnumValues = requirement.EnumValues.ToArray(),
             IsCollection = requirement.IsCollection
+        };
+
+    private static ManifestFileCapabilityRequirementInfo MapCapabilityRequirement(
+        GeneratedCapabilityRequirementContract requirement) =>
+        new()
+        {
+            Id = requirement.Id,
+            Kind = requirement.Kind,
+            CapabilityType = requirement.CapabilityType,
+            DisplayName = requirement.DisplayName,
+            Description = requirement.Description,
+            Required = requirement.Required,
+            Installable = requirement.Installable,
+            Remediation = requirement.Remediation,
+            Command = requirement.Command,
+            Arguments = requirement.Arguments,
+            MinimumVersion = requirement.MinimumVersion,
+            EndpointConfigKey = requirement.EndpointConfigKey,
+            TimeoutSeconds = requirement.TimeoutSeconds,
+            ConfigurationKeys = requirement.ConfigurationKeys.ToArray(),
+            EngineConfigurationKeys = requirement.EngineConfigurationKeys.ToArray()
         };
 
     private static string[] GetJsonSchemaTypes(WorkflowScalarKind kind, bool required, bool isCollection)
@@ -1155,6 +1338,61 @@ internal static class {{GetProviderClassName(providerTypeName)}}
             WriteChannel(builder, manifest.GlobalState);
         }
 
+        builder.PropertyName("capabilities");
+        builder.StartObject();
+        builder.PropertyName("requirements");
+        builder.StartArray();
+        foreach (var requirement in manifest.Capabilities.Requirements.OrderBy(requirement => requirement.Id, StringComparer.Ordinal))
+        {
+            builder.StartObject();
+            builder.Property("id", requirement.Id);
+            builder.Property("kind", requirement.Kind);
+            builder.Property("capabilityType", requirement.CapabilityType);
+            builder.Property("displayName", requirement.DisplayName);
+            builder.Property("required", requirement.Required);
+            builder.Property("installable", requirement.Installable);
+            if (!string.IsNullOrWhiteSpace(requirement.Description))
+            {
+                builder.Property("description", requirement.Description!);
+            }
+
+            if (!string.IsNullOrWhiteSpace(requirement.Remediation))
+            {
+                builder.Property("remediation", requirement.Remediation!);
+            }
+
+            if (!string.IsNullOrWhiteSpace(requirement.Command))
+            {
+                builder.Property("command", requirement.Command!);
+            }
+
+            if (!string.IsNullOrWhiteSpace(requirement.Arguments))
+            {
+                builder.Property("arguments", requirement.Arguments!);
+            }
+
+            if (!string.IsNullOrWhiteSpace(requirement.MinimumVersion))
+            {
+                builder.Property("minimumVersion", requirement.MinimumVersion!);
+            }
+
+            if (!string.IsNullOrWhiteSpace(requirement.EndpointConfigKey))
+            {
+                builder.Property("endpointConfigKey", requirement.EndpointConfigKey!);
+            }
+
+            if (requirement.TimeoutSeconds is not null)
+            {
+                builder.Property("timeoutSeconds", requirement.TimeoutSeconds.Value);
+            }
+
+            builder.Property("configurationKeys", requirement.ConfigurationKeys);
+            builder.Property("engineConfigurationKeys", requirement.EngineConfigurationKeys);
+            builder.EndObject();
+        }
+        builder.EndArray();
+        builder.EndObject();
+
         builder.PropertyName("configuration");
         builder.StartObject();
         builder.PropertyName("requirements");
@@ -1162,6 +1400,8 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         foreach (var requirement in manifest.Configuration.Requirements.OrderBy(requirement => requirement.Key, StringComparer.Ordinal))
         {
             builder.StartObject();
+            builder.Property("sourceCapabilityId", requirement.SourceCapabilityId);
+            builder.Property("sourceCapabilityType", requirement.SourceCapabilityType);
             builder.Property("domainId", requirement.DomainId);
             builder.Property("optionsType", requirement.OptionsType);
             builder.Property("optionsName", requirement.OptionsName);
@@ -1294,7 +1534,7 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         string PluginTypeName,
         PluginChannelContract? InputChannel,
         IReadOnlyList<PluginChannelContract> OutputChannels,
-        IReadOnlyList<PluginConfigurationTypeContract> ConfigurationTypes,
+        IReadOnlyList<PluginCapabilityTypeContract> CapabilityTypes,
         PluginChannelContract? GlobalState,
         Location Location);
 
@@ -1309,12 +1549,18 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         INamedTypeSymbol? TypeSymbol,
         Location Location);
 
+    private sealed record PluginCapabilityTypeContract(
+        string TypeName,
+        INamedTypeSymbol? TypeSymbol,
+        Location Location);
+
     private sealed record GeneratedPluginContract(
         string DisplayName,
         string PluginTypeName,
         GeneratedChannelContract? InputChannel,
         IReadOnlyList<GeneratedChannelContract> OutputChannels,
         GeneratedChannelContract? GlobalState,
+        IReadOnlyList<GeneratedCapabilityRequirementContract> CapabilityRequirements,
         IReadOnlyList<GeneratedConfigurationRequirementContract> ConfigurationRequirements,
         IReadOnlyDictionary<string, GeneratedSchemaContract> Schemas);
 
@@ -1334,6 +1580,8 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         IReadOnlyList<GeneratedPropertyContract> Properties);
 
     private sealed record GeneratedConfigurationRequirementContract(
+        string SourceCapabilityId,
+        string SourceCapabilityType,
         string DomainId,
         string OptionsType,
         string OptionsName,
@@ -1346,6 +1594,24 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         string? Description,
         IReadOnlyList<string> EnumValues,
         bool IsCollection);
+
+    private sealed record GeneratedCapabilityRequirementContract(
+        string Id,
+        string Kind,
+        string CapabilityType,
+        string DisplayName,
+        string? Description,
+        bool Required,
+        bool Installable,
+        string? Remediation,
+        string? Command,
+        string? Arguments,
+        string? MinimumVersion,
+        string? EndpointConfigKey,
+        int? TimeoutSeconds,
+        IReadOnlyList<string> ConfigurationKeys,
+        IReadOnlyList<string> EngineConfigurationKeys,
+        IReadOnlyList<PluginConfigurationTypeContract> ConfigurationTypes);
 
     private enum WorkflowScalarKind
     {
@@ -1365,6 +1631,7 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         public ManifestFileChannelInfo? InputChannel { get; init; }
         public List<ManifestFileChannelInfo> OutputChannels { get; init; } = [];
         public ManifestFileChannelInfo? GlobalState { get; init; }
+        public ManifestFileCapabilitiesInfo Capabilities { get; init; } = new();
         public ManifestFileConfigurationInfo Configuration { get; init; } = new();
     }
 
@@ -1390,6 +1657,8 @@ internal static class {{GetProviderClassName(providerTypeName)}}
 
     private sealed class ManifestFileConfigurationRequirementInfo
     {
+        public string SourceCapabilityId { get; init; } = string.Empty;
+        public string SourceCapabilityType { get; init; } = string.Empty;
         public string DomainId { get; init; } = string.Empty;
         public string OptionsType { get; init; } = string.Empty;
         public string OptionsName { get; init; } = string.Empty;
@@ -1402,6 +1671,30 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         public string? Description { get; init; }
         public string[] EnumValues { get; init; } = [];
         public bool IsCollection { get; init; }
+    }
+
+    private sealed class ManifestFileCapabilitiesInfo
+    {
+        public List<ManifestFileCapabilityRequirementInfo> Requirements { get; init; } = [];
+    }
+
+    private sealed class ManifestFileCapabilityRequirementInfo
+    {
+        public string Id { get; init; } = string.Empty;
+        public string Kind { get; init; } = string.Empty;
+        public string CapabilityType { get; init; } = string.Empty;
+        public string DisplayName { get; init; } = string.Empty;
+        public string? Description { get; init; }
+        public bool Required { get; init; }
+        public bool Installable { get; init; }
+        public string? Remediation { get; init; }
+        public string? Command { get; init; }
+        public string? Arguments { get; init; }
+        public string? MinimumVersion { get; init; }
+        public string? EndpointConfigKey { get; init; }
+        public int? TimeoutSeconds { get; init; }
+        public string[] ConfigurationKeys { get; init; } = [];
+        public string[] EngineConfigurationKeys { get; init; } = [];
     }
 
     private sealed class GeneratedSchemasFile
@@ -1474,6 +1767,12 @@ internal static class {{GetProviderClassName(providerTypeName)}}
             BooleanValue(value);
         }
 
+        public void Property(string name, int value)
+        {
+            PropertyName(name);
+            NumberValue(value);
+        }
+
         public void Property(string name, IEnumerable<string> values)
         {
             PropertyName(name);
@@ -1514,6 +1813,13 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         {
             WriteValuePrefix();
             _builder.Append(value ? "true" : "false");
+            MarkValueWritten();
+        }
+
+        public void NumberValue(int value)
+        {
+            WriteValuePrefix();
+            _builder.Append(value);
             MarkValueWritten();
         }
 

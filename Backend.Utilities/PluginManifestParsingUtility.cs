@@ -39,7 +39,8 @@ public sealed class PluginManifestParsingUtility : IPluginManifestParsingUtility
             InputChannel = ReadChannel(manifestObject["inputChannel"]),
             OutputChannels = ReadChannels(manifestObject["outputChannels"]),
             GlobalState = ReadGlobalState(manifestObject["globalState"]),
-            Configuration = ReadConfiguration(manifestObject["configuration"])
+            Configuration = ReadConfiguration(manifestObject["configuration"]),
+            Capabilities = ReadCapabilities(manifestObject["capabilities"])
         };
     }
 
@@ -147,6 +148,8 @@ public sealed class PluginManifestParsingUtility : IPluginManifestParsingUtility
             {
                 DomainId = requirementObject["domainId"]?.GetValue<string>()
                     ?? throw new JsonException("Manifest configuration requirement domainId is missing."),
+                SourceCapabilityId = requirementObject["sourceCapabilityId"]?.GetValue<string>() ?? "",
+                SourceCapabilityType = requirementObject["sourceCapabilityType"]?.GetValue<string>() ?? "",
                 OptionsType = requirementObject["optionsType"]?.GetValue<string>()
                     ?? throw new JsonException("Manifest configuration requirement optionsType is missing."),
                 OptionsName = requirementObject["optionsName"]?.GetValue<string>()
@@ -171,6 +174,67 @@ public sealed class PluginManifestParsingUtility : IPluginManifestParsingUtility
                         .ToList()
                     : []
             })
+            .ToList();
+    }
+
+    private static ManifestFileCapabilitiesInfo ReadCapabilities(JsonNode? node)
+    {
+        if (node is not JsonObject capabilitiesObject)
+        {
+            return new ManifestFileCapabilitiesInfo();
+        }
+
+        return new ManifestFileCapabilitiesInfo
+        {
+            Requirements = ReadCapabilityRequirements(capabilitiesObject["requirements"])
+        };
+    }
+
+    private static List<ManifestFileCapabilityRequirementInfo> ReadCapabilityRequirements(JsonNode? node)
+    {
+        if (node is not JsonArray array)
+        {
+            return [];
+        }
+
+        return array
+            .OfType<JsonObject>()
+            .Select(requirementObject => new ManifestFileCapabilityRequirementInfo
+            {
+                Id = requirementObject["id"]?.GetValue<string>()
+                    ?? throw new JsonException("Manifest capability requirement id is missing."),
+                Kind = requirementObject["kind"]?.GetValue<string>()
+                    ?? throw new JsonException("Manifest capability requirement kind is missing."),
+                CapabilityType = requirementObject["capabilityType"]?.GetValue<string>()
+                    ?? throw new JsonException("Manifest capability requirement capabilityType is missing."),
+                DisplayName = requirementObject["displayName"]?.GetValue<string>()
+                    ?? throw new JsonException("Manifest capability requirement displayName is missing."),
+                Description = requirementObject["description"]?.GetValue<string>(),
+                Required = requirementObject["required"]?.GetValue<bool>() ?? true,
+                Installable = requirementObject["installable"]?.GetValue<bool>() ?? false,
+                Remediation = requirementObject["remediation"]?.GetValue<string>(),
+                Command = requirementObject["command"]?.GetValue<string>(),
+                Arguments = requirementObject["arguments"]?.GetValue<string>(),
+                MinimumVersion = requirementObject["minimumVersion"]?.GetValue<string>(),
+                EndpointConfigKey = requirementObject["endpointConfigKey"]?.GetValue<string>(),
+                TimeoutSeconds = requirementObject["timeoutSeconds"]?.GetValue<int>(),
+                ConfigurationKeys = ReadStringArray(requirementObject["configurationKeys"]),
+                EngineConfigurationKeys = ReadStringArray(requirementObject["engineConfigurationKeys"])
+            })
+            .ToList();
+    }
+
+    private static List<string> ReadStringArray(JsonNode? node)
+    {
+        if (node is not JsonArray array)
+        {
+            return [];
+        }
+
+        return array
+            .Select(value => value?.GetValue<string>())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Cast<string>()
             .ToList();
     }
 }

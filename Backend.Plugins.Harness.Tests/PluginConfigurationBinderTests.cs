@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
+using Backend.Engine.Capabilities;
 using Backend.Plugins.Configuration;
 using Backend.Plugins.Configuration.Dcc;
 using Backend.Plugins.Configuration.Tests;
@@ -111,14 +113,27 @@ public sealed class PluginConfigurationBinderTests
         await PluginConfigurationHelpWriter.WriteAsync(
             writer,
             "DCC gateway submit",
-            [typeof(GatewayOptions)]);
+            [typeof(DccGatewayCapability)]);
 
         var help = writer.ToString();
         help.ShouldContain("plugin --config <domain-config-file> [--config <domain-config-file>]");
+        help.ShouldContain("network:dcc:gateway");
         help.ShouldContain("Dcc:Gateway:EndpointUrl");
         help.ShouldContain("Dcc:Gateway:ApiKey");
         help.ShouldContain("optional, secret");
         help.ShouldContain("DCC gateway endpoint");
+    }
+
+    [Test]
+    public void PluginBuilder_Does_not_expose_direct_configuration_declarations()
+    {
+        var methods = typeof(PluginBuilder<>)
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Select(method => method.Name)
+            .ToArray();
+
+        methods.ShouldNotContain("RequireConfiguration");
+        methods.ShouldContain("RequireCapability");
     }
 
     private static string CreateTempDirectory()

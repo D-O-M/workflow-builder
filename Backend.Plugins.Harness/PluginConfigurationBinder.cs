@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using Backend.Plugins.Configuration;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace Backend.Plugins.Harness;
 
@@ -20,6 +21,26 @@ internal static class PluginConfigurationBinder
         var section = configuration.GetSection(sectionPath);
 
         return (TOptions)BindObject(optionsType, section, sectionPath)!;
+    }
+
+    public static object Bind(Type optionsType, IConfiguration configuration)
+    {
+        var sectionPath = PluginConfigurationKey.GetSectionPath(optionsType);
+        var section = configuration.GetSection(sectionPath);
+        return BindObject(optionsType, section, sectionPath)!;
+    }
+
+    public static object CreateOptions(Type optionsType, object options)
+    {
+        var createMethod = typeof(Options)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Single(method => method.Name == nameof(Options.Create) &&
+                              method.IsGenericMethodDefinition &&
+                              method.GetParameters().Length == 1);
+
+        return createMethod
+            .MakeGenericMethod(optionsType)
+            .Invoke(null, [options])!;
     }
 
     private static object? BindObject(Type objectType, IConfigurationSection section, string path)
