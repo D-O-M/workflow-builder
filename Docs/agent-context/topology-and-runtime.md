@@ -25,7 +25,7 @@ The API currently exposes a fixed external HTTP endpoint on port `5180` in the A
 | Service | Owns |
 |---|---|
 | `Backend.API` | Blueprint/process HTTP API, process queries, client-config |
-| `Backend.Engine` | Consumes process-step messages, executes plugins, and runs native Collection Iterator steps |
+| `Backend.Engine` | Consumes process-step messages, validates plugin capabilities/configuration, executes plugins, and runs native Collection Iterator steps |
 | `Backend.SignalR` | Hosts `/hubs/processes` subscriptions |
 | `PluginDetector` | Reacts to plugin bundle uploads and registers task versions |
 | `ProgressBroadcaster` | Watches Cosmos process-step changes and publishes SignalR updates |
@@ -68,13 +68,34 @@ flowchart LR
 2. The API resolves the selected blueprint version and creates initial process state.
 3. The API persists process and step state, then enqueues the next process-step message.
 4. `Backend.Engine` consumes the process-step queue.
-5. The engine loads the executable blueprint, resolves the matching task version, and starts a job.
-6. The plugin runtime launches the plugin executable through the harness.
-7. The plugin hydrates its required input/global state from Cosmos using the invocation envelope identifiers.
-8. The plugin emits result data; the engine updates process-step state and queues downstream work as needed.
-9. Cosmos changes in `processsteps` are observed by `ProgressBroadcaster`.
-10. `ProgressBroadcaster` builds realtime batches and publishes them to SignalR subscribers.
-11. The UI receives `processSummaryUpdated` and `processStepsUpdated` events and refreshes the process explorer state.
+5. The engine loads the executable blueprint and resolves the newest runnable task version.
+6. Before launching a plugin runtime agent, the engine validates the plugin manifest capability requirements.
+7. Capability validation includes required software probes, engine-side endpoint checks where configured, and required domain config/secret presence.
+8. After capability validation succeeds, runtime config files are generated and passed to the plugin with repeated `--config` arguments.
+9. The plugin runtime launches the plugin executable through the harness.
+10. The plugin hydrates its required input/global state from Cosmos using the invocation envelope identifiers.
+11. The plugin emits result data; the engine updates process-step state and queues downstream work as needed.
+12. Cosmos changes in `processsteps` are observed by `ProgressBroadcaster`.
+13. `ProgressBroadcaster` builds realtime batches and publishes them to SignalR subscribers.
+14. The UI receives `processSummaryUpdated` and `processStepsUpdated` events and refreshes the process explorer state.
+
+## Engine Capabilities
+
+Plugin prerequisites are capability-owned:
+
+- plugins declare `.RequireCapability<TCapability>()`, not direct configuration requirements
+- capability types live under `Backend.Engine.Capabilities`
+- capabilities may own typed domain config contracts from `Backend.Plugins.Configuration.*`
+- generated manifests contain `capabilities.requirements[]` plus flattened `configuration.requirements[]` derived from those capabilities
+- missing required capabilities make a plugin version unrunnable; if multiple versions exist, routing chooses the newest runnable version
+- optional capability failures remain visible in validation reports but do not block routing
+
+The engine exposes:
+
+- `GET /api/engine-capabilities`
+- `POST /api/engine-capabilities/validate`
+
+V1 exposes remediation metadata and validation results, but does not install missing software automatically.
 
 ## Collection Iterator Lifecycle
 
@@ -85,6 +106,8 @@ Collection Iterator is a native engine operator, not a packaged plugin.
 3. Ports stay generic until a collection source mapping determines the item kind.
 4. `Backend.Engine/CollectionIteratorExecutionService.cs` expands collection items for downstream work.
 5. Process projections and step details preserve iterator identity and item flow for inspection.
+
+Collection Iterator should stay distinct from Phase Series. A phase is a coarse blueprint-to-blueprint handoff boundary with Data Bridge and optional trigger/correlation behavior; an iterator is dynamic in-process fan-out with item-scoped downstream steps.
 
 When changing collection typing, update backend validation/projection, frontend node modeling, and canvas rendering together.
 
@@ -109,7 +132,7 @@ Phase handoff mappings are design-time SQL data. Runtime phase correlation and f
 ## Plugin Ingestion Path
 
 1. Canonical bundle ZIPs are uploaded to the plugin blob container.
-2. `PluginDetector` extracts the bundle, reads `manifest.json` and schemas, and registers or updates task versions in SQL.
+2. `PluginDetector` extracts the bundle, reads `manifest.json` and schemas, validates capability/configuration metadata, and registers or updates task versions in SQL.
 3. The detector emits a plugin reload request so the engine refreshes its in-memory runtime catalog.
 
 ## Important Runtime Invariants
@@ -121,3 +144,5 @@ Phase handoff mappings are design-time SQL data. Runtime phase correlation and f
 - Realtime is part of the normal product flow, not optional observability garnish.
 - Phased blueprint process startup and finalization must keep phase correlation state, process state, and projected process detail in agreement.
 - Collection Iterator behavior is engine-native; do not model it as a plugin bundle.
+- Plugin configuration is capability-owned; do not reintroduce direct plugin `.RequireConfiguration<TOptions>()` declarations.
+- Capability contracts live under `Backend.Engine.Capabilities`; shared config contracts live under `Backend.Plugins.Configuration.*`.

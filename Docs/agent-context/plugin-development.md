@@ -10,6 +10,7 @@ At runtime:
 - blob storage stores the uploaded bundle ZIP
 - the engine resolves the task version and launches the plugin through the harness
 - the plugin hydrates runtime state via identifiers in the invocation envelope
+- plugin prerequisites are declared as engine capabilities in the generated manifest
 
 Collection Iterator is not a plugin. It is a native engine operator and should be handled through the engine/frontend node model rather than plugin bundle registration.
 
@@ -20,6 +21,37 @@ Collection Iterator is not a plugin. It is a native engine operator and should b
 - harness/runtime support:
   - `Backend.Plugins.Harness`
   - `Backend.Plugins.Communication`
+- capability contracts: `Backend.Engine.Capabilities`
+- shared domain config contracts: `Backend.Plugins.Configuration/*`
+
+## Capabilities and Configuration
+
+Plugins declare prerequisites with `.RequireCapability<TCapability>()`.
+
+Important rules:
+
+- do not add or reintroduce `.RequireConfiguration<TOptions>()`
+- plugin-specific config models should not be defined inside plugin projects
+- capability types must live under `Backend.Engine.Capabilities`
+- capability-owned config contracts must live under `Backend.Plugins.Configuration.<Domain>`
+- shared config keys use the canonical `{Domain}:{OptionsWithoutOptionsSuffix}:{PropertyPath}` shape
+
+Capabilities may own config by using `[RequiresConfiguration(typeof(SomeOptions))]`. The generator writes both:
+
+- `capabilities.requirements[]`: primary prerequisite declarations
+- `configuration.requirements[]`: flattened config metadata derived from the declared capabilities
+
+The harness registers capability-owned config types in DI and supports constructor injection as `TOptions` or `IOptions<TOptions>`. Plugin runtime processes still receive repeated `--config <file>` arguments; the harness loads those files into normal .NET configuration.
+
+Engine behavior:
+
+- validates capabilities before starting a plugin runtime agent
+- checks required software, configured endpoint reachability, and required config/secret presence
+- marks versions with missing required capabilities as unrunnable
+- routes a task lane to the newest runnable version
+- exposes remediation metadata but does not install missing software in v1
+
+Secrets must stay out of logs, argv, API responses, and manifest examples.
 
 ## Harness and Communication Contracts
 
@@ -71,7 +103,7 @@ It delegates to the canonical bundle script but targets the integration-test plu
 2. `PluginDetector` extracts the bundle and parses:
    - `manifest.json`
    - schema files
-3. `PluginBundleProcessingService` registers the task version metadata in SQL.
+3. `PluginBundleProcessingService` validates capability-owned configuration metadata and registers the task version metadata in SQL.
 4. Registration failures are surfaced by the processing service instead of being silently swallowed.
 5. A plugin reload message is emitted so the engine refreshes its runtime catalog.
 
@@ -82,6 +114,8 @@ Rebuild bundles when any of these change:
 - plugin project code
 - manifest or schema generation behavior
 - harness/runtime bootstrapping
+- capability declarations or validators
+- typed domain configuration contracts
 - communication contracts such as `InvocationEnvelope`
 - container names or hydration assumptions used by the harness
 
@@ -91,4 +125,6 @@ If a process is failing inside the first plugin step after a runtime contract ch
 
 - Invocation envelopes carry hydration identifiers and process-step telemetry context.
 - Plugin logs, spans, and standard HTTP/runtime metrics flow to the same OTLP collector as the engine through inherited AppHost configuration.
+- Capability-owned configuration is the supported plugin prerequisite pattern.
+- Plugins that need software, network access, or config must declare capabilities; capabilities own any shared config requirements.
 - Bundle version refreshes for the showcase/runtime plugin set should still be done through the canonical bundle script, not by editing project versions or ZIP contents by hand.

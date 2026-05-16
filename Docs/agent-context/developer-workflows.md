@@ -24,6 +24,12 @@ Engine:
 dotnet build Backend.Engine/Backend.Engine.csproj
 ```
 
+Engine capabilities:
+
+```powershell
+dotnet build Backend.Engine.Capabilities/Backend.Engine.Capabilities.csproj
+```
+
 SignalR:
 
 ```powershell
@@ -124,6 +130,17 @@ Integration helper:
 pwsh -File IntegrationTests/scripts/build-integration-plugin-bundles.ps1
 ```
 
+## Capability and Plugin Config Checks
+
+Use these when changing plugin capabilities, config contracts, harness binding, manifest generation, or runtime capability gating:
+
+```powershell
+dotnet test Backend.Plugins.Harness.Tests/Backend.Plugins.Harness.Tests.csproj
+dotnet test Backend.PluginLoader.Tests/Backend.PluginLoader.Tests.csproj
+dotnet test Backend.Engine.Tests/Backend.Engine.Tests.csproj
+dotnet build Backend.slnx
+```
+
 ## Integration and Smoke Entry Points
 
 Main integration suite:
@@ -145,6 +162,7 @@ Performance probe assets and scripts live under `PerformanceTests/`. Use them fo
 - AppHost is the source of truth for distributed wiring.
 - Use targeted builds when iterating on one subsystem, but use AppHost when validating end-to-end behavior.
 - Rebuild plugin bundles after harness or communication-contract changes.
+- Rebuild plugin manifests/bundles after capability, configuration-contract, or manifest-generator changes.
 - Treat realtime regressions as runtime correctness issues, not just observability issues.
 - For UI work, run `npm run test:unit`, `npm run build`, and the relevant Playwright lane before committing.
 - For Phases/canvas work, include mocked Playwright Phases coverage when behavior or performance can be user-visible.
@@ -163,6 +181,7 @@ These are intentionally not committed:
 ## Common Gotchas
 
 - stale plugin bundles can break execution even when plugin source code is unchanged
+- missing required capabilities make plugin versions unrunnable; check engine capability validation before debugging plugin launch
 - the progress broadcaster can fail independently of process execution
 - AppHost/client-config mismatches can make SignalR look broken from the UI side
 - `_bundles` output is disposable and is meant to be reseeded, not treated as source

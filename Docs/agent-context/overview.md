@@ -24,11 +24,13 @@ At a high level, the product is a visual orchestration system backed by a distri
 - `Blueprint`: the authored graph definition stored in SQL
 - `BlueprintVersion`: a versioned snapshot of a blueprint
 - `BlueprintNode`: a placed task inside a blueprint graph
-- `TaskDefinition`: a reusable capability definition discovered from plugin bundles
+- `TaskDefinition`: a reusable task capability definition discovered from plugin bundles
 - `TaskVersion`: a concrete executable version of a task definition
 - `Process`: a runtime instance of a blueprint version
 - `ProcessStep`: the runtime record for one executed blueprint node
 - `Plugin`: the packaged executable and metadata that backs a task version
+- `Plugin Capability`: an engine prerequisite declared by a plugin, such as software, network, or configuration
+- `Domain Plugin Configuration`: typed shared config contracts under `Backend.Plugins.Configuration`
 - `PhaseSeries`: an ordered, versioned composition of blueprint versions
 - `Data Bridge`: the phase handoff mapping between a source phase output property and destination phase input property
 - `Collection Iterator`: a native operator node that fans collection items through downstream blueprint work
@@ -40,6 +42,7 @@ Avoid reintroducing old `workflow`, `execution`, or `run` wording for new domain
 - `Backend.AppHost`: Aspire source of truth for topology and local orchestration
 - `Backend.API`: main HTTP API for blueprints, processes, and client config
 - `Backend.Engine`: process-step queue consumer and plugin runtime execution
+- `Backend.Engine.Capabilities`: plugin capability contracts and engine-side validators
 - `Backend.Engine/CollectionIteratorExecutionService.cs`: native Collection Iterator execution
 - `Backend.Functions.PluginDetector`: bundle ingestion and task-definition registration
 - `Backend.Functions.ProgressBroadcaster`: Cosmos-triggered realtime publisher
@@ -48,6 +51,7 @@ Avoid reintroducing old `workflow`, `execution`, or `run` wording for new domain
 - `Backend.Database.Relational/Entities/PhasedBlueprint*`: phase-series definitions, versions, phases, transitions, and mappings
 - `Backend.State.DAL`: Cosmos-backed process and process-step state models
 - `Backend.Plugins`: real plugin projects plus canonical `_bundles` output
+- `Backend.Plugins.Configuration`: typed domain configuration contracts shared by capabilities
 - `UI`: Angular frontend
 - `IntegrationTests`: distributed integration harness and smoke scripts
 
@@ -65,6 +69,7 @@ Avoid reintroducing old `workflow`, `execution`, or `run` wording for new domain
 - Blob Storage owns uploaded and seeded plugin bundles
 - Service Bus moves process-step work and plugin-reload messages
 - SignalR owns live subscriptions and pushes
+- Plugin manifests own capability declarations; capabilities own derived configuration requirements
 
 ## Start Here by Task Type
 
@@ -74,7 +79,7 @@ Avoid reintroducing old `workflow`, `execution`, or `run` wording for new domain
   - read [frontend-map.md](frontend-map.md)
 - Phases, Data Bridge mapping, canvas modes, or canvas performance:
   - read [frontend-map.md](frontend-map.md)
-- plugin packaging, bundle rebuilds, harness, or seeding:
+- plugin packaging, bundle rebuilds, harness, capabilities, configuration, or seeding:
   - read [plugin-development.md](plugin-development.md)
 - live updates, broadcaster, SignalR, or runtime logs:
   - read [realtime-and-observability.md](realtime-and-observability.md)
