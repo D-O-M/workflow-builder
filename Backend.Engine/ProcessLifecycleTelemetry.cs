@@ -38,7 +38,7 @@ public sealed class ProcessLifecycleTelemetry
         _logger = logger;
     }
 
-    public Activity? StartStepActivity(JobContext context)
+    public Activity? StartStepActivity(StepExecutionContext context)
     {
         var activity = ActivitySource.StartActivity(
             "process.step",
@@ -66,7 +66,7 @@ public sealed class ProcessLifecycleTelemetry
     }
 
     public void StopStepActivity(
-        JobContext context,
+        StepExecutionContext context,
         PluginExecutionResult? result,
         Exception? exception)
     {
@@ -100,7 +100,7 @@ public sealed class ProcessLifecycleTelemetry
         context.ExecutionActivity = null;
     }
 
-    public void LogProcessStarted(JobContext context, DateTimeOffset timestamp) =>
+    public void LogProcessStarted(StepExecutionContext context, DateTimeOffset timestamp) =>
         WriteProcessLifecycle(
             context,
             new ProcessLifecycleLogEntry
@@ -118,7 +118,7 @@ public sealed class ProcessLifecycleTelemetry
                 FailureMessage = null,
             });
 
-    public void LogProcessCompleted(JobContext context, DateTimeOffset timestamp) =>
+    public void LogProcessCompleted(StepExecutionContext context, DateTimeOffset timestamp) =>
         WriteProcessLifecycle(
             context,
             new ProcessLifecycleLogEntry
@@ -136,7 +136,7 @@ public sealed class ProcessLifecycleTelemetry
                 FailureMessage = null,
             });
 
-    public void LogProcessFailed(JobContext context, DateTimeOffset timestamp, string? failureMessage) =>
+    public void LogProcessFailed(StepExecutionContext context, DateTimeOffset timestamp, string? failureMessage) =>
         WriteProcessLifecycle(
             context,
             new ProcessLifecycleLogEntry
@@ -154,7 +154,7 @@ public sealed class ProcessLifecycleTelemetry
                 FailureMessage = failureMessage,
             });
 
-    public void LogStepStarted(JobContext context, DateTimeOffset timestamp)
+    public void LogStepStarted(StepExecutionContext context, DateTimeOffset timestamp)
     {
         ProcessStepsStarted.Add(1, BuildStepMetricTags(context, outcome: "started"));
         WriteStepLifecycle(
@@ -183,39 +183,39 @@ public sealed class ProcessLifecycleTelemetry
             });
     }
 
-    public void RecordQueueWait(JobContext context, DateTimeOffset enqueuedAt, DateTimeOffset receivedAt)
+    public void RecordQueueWait(StepExecutionContext context, DateTimeOffset enqueuedAt, DateTimeOffset receivedAt)
     {
         var elapsed = receivedAt - enqueuedAt;
         ProcessStepQueueWaitMs.Record(Math.Max(0, elapsed.TotalMilliseconds), BuildStepMetricTags(context, outcome: "received"));
     }
 
-    public void RecordStepClaim(JobContext context, TimeSpan elapsed, bool claimed)
+    public void RecordStepClaim(StepExecutionContext context, TimeSpan elapsed, bool claimed)
     {
         var tags = BuildStepMetricTags(context, claimed ? "claimed" : "claim_skipped");
         ProcessStepClaimMs.Record(Math.Max(0, elapsed.TotalMilliseconds), tags);
     }
 
-    public void RecordAgentEnqueue(JobContext context, TimeSpan elapsed, bool queued)
+    public void RecordAgentEnqueue(StepExecutionContext context, TimeSpan elapsed, bool queued)
     {
         var tags = BuildStepMetricTags(context, queued ? "queued" : "queue_rejected");
         ProcessStepAgentEnqueueMs.Record(Math.Max(0, elapsed.TotalMilliseconds), tags);
     }
 
-    public void RecordPluginStartDelay(JobContext context, TimeSpan elapsed)
+    public void RecordPluginStartDelay(StepExecutionContext context, TimeSpan elapsed)
     {
         ProcessStepPluginStartDelayMs.Record(
             Math.Max(0, elapsed.TotalMilliseconds),
             BuildStepMetricTags(context, outcome: "started"));
     }
 
-    public void RecordFinalization(JobContext context, TimeSpan elapsed, bool succeeded)
+    public void RecordFinalization(StepExecutionContext context, TimeSpan elapsed, bool succeeded)
     {
         ProcessStepFinalizeMs.Record(
             Math.Max(0, elapsed.TotalMilliseconds),
             BuildStepMetricTags(context, succeeded ? "succeeded" : "failed"));
     }
 
-    public void RecordRecordedStepDuration(JobContext context, DateTimeOffset completedAt)
+    public void RecordRecordedStepDuration(StepExecutionContext context, DateTimeOffset completedAt)
     {
         if (context.ClaimedAt is not DateTimeOffset claimedAt)
         {
@@ -227,7 +227,7 @@ public sealed class ProcessLifecycleTelemetry
             BuildStepMetricTags(context, outcome: "completed"));
     }
 
-    public void RecordPluginPhaseTimings(JobContext context, IReadOnlyDictionary<string, double>? timingsMs)
+    public void RecordPluginPhaseTimings(StepExecutionContext context, IReadOnlyDictionary<string, double>? timingsMs)
     {
         if (timingsMs is null)
         {
@@ -247,7 +247,7 @@ public sealed class ProcessLifecycleTelemetry
     }
 
     public void RecordCollectionIteratorFanOut(
-        JobContext context,
+        StepExecutionContext context,
         int itemCount,
         int queuedStepCount,
         int batchSize,
@@ -263,11 +263,11 @@ public sealed class ProcessLifecycleTelemetry
         CollectionIteratorEnqueueMs.Record(Math.Max(0, enqueueElapsed.TotalMilliseconds), tags);
     }
 
-    public void RecordCollectionIteratorSkippedEmpty(JobContext context) =>
+    public void RecordCollectionIteratorSkippedEmpty(StepExecutionContext context) =>
         CollectionIteratorSkippedEmpty.Add(1, BuildStepMetricTags(context, outcome: "collection_iterator_empty"));
 
     public void RecordCollectionIteratorLimitFailure(
-        JobContext context,
+        StepExecutionContext context,
         int itemCount,
         int maxItems)
     {
@@ -277,7 +277,7 @@ public sealed class ProcessLifecycleTelemetry
         CollectionIteratorLimitFailures.Add(1, tags);
     }
 
-    public void LogStepCompleted(JobContext context, PluginExecutionResult result)
+    public void LogStepCompleted(StepExecutionContext context, PluginExecutionResult result)
     {
         var duration = (result.CompletedAt - result.StartedAt).TotalMilliseconds;
         var tags = BuildStepMetricTags(context, outcome: "succeeded");
@@ -310,7 +310,7 @@ public sealed class ProcessLifecycleTelemetry
             });
     }
 
-    public void LogStepFailed(JobContext context, PluginExecutionResult result)
+    public void LogStepFailed(StepExecutionContext context, PluginExecutionResult result)
     {
         var duration = (result.CompletedAt - result.StartedAt).TotalMilliseconds;
         var tags = BuildStepMetricTags(context, outcome: "failed");
@@ -343,20 +343,20 @@ public sealed class ProcessLifecycleTelemetry
             });
     }
 
-    private void WriteProcessLifecycle(JobContext context, ProcessLifecycleLogEntry entry)
+    private void WriteProcessLifecycle(StepExecutionContext context, ProcessLifecycleLogEntry entry)
     {
         using var scope = _logger.BeginScope(BuildScope(context, entry.EventName, entry.ProcessOutcome));
         _logger.LogInformation("{LifecycleEvent}", JsonSerializer.Serialize(entry, JsonOptions));
     }
 
-    private void WriteStepLifecycle(JobContext context, ProcessStepLifecycleLogEntry entry)
+    private void WriteStepLifecycle(StepExecutionContext context, ProcessStepLifecycleLogEntry entry)
     {
         using var scope = _logger.BeginScope(BuildScope(context, entry.EventName, entry.ProcessOutcome));
         _logger.LogInformation("{LifecycleEvent}", JsonSerializer.Serialize(entry, JsonOptions));
     }
 
     private static Dictionary<string, object?> BuildScope(
-        JobContext context,
+        StepExecutionContext context,
         string eventName,
         string? processOutcome) =>
         new(StringComparer.Ordinal)
@@ -374,7 +374,7 @@ public sealed class ProcessLifecycleTelemetry
             ["process.outcome"] = processOutcome
         };
 
-    private static TagList BuildStepMetricTags(JobContext context, string outcome)
+    private static TagList BuildStepMetricTags(StepExecutionContext context, string outcome)
     {
         var tags = new TagList
         {

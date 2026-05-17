@@ -15,9 +15,41 @@ public sealed record CollectionIteratorFinalizationResult(
     int QueuedStepCount,
     TimeSpan DownstreamActivationElapsed);
 
-public class JobFinalizationService
+public interface IStepFinalizationService
+{
+    Task FinalizeSucceededStepAsync(
+        StepExecutionContext context,
+        PluginExecutionResult executionResult,
+        CancellationToken cancellationToken);
+
+    Task FinalizeFailedStepAsync(
+        StepExecutionContext context,
+        PluginExecutionResult executionResult,
+        CancellationToken cancellationToken);
+
+    Task<CollectionIteratorFinalizationResult> FinalizeSucceededCollectionIteratorStepAsync(
+        StepExecutionContext context,
+        PluginExecutionResult executionResult,
+        int repeatedBlueprintNodeCount,
+        int itemCount,
+        int batchSize,
+        CancellationToken cancellationToken);
+
+    Task FinalizeFailedCollectionIteratorStepAsync(
+        StepExecutionContext context,
+        PluginExecutionResult executionResult,
+        CancellationToken cancellationToken);
+
+    Task<CollectionIteratorFinalizationResult> ResumeStepFinalizationAsync(
+        StepExecutionContext context,
+        ProcessStepFinalizationRecord record,
+        CancellationToken cancellationToken);
+}
+
+public class StepFinalizationService : IStepFinalizationService
 {
     private const int MaxFinalizationUpdateAttempts = 10;
+    private const int MaxProcessStateUpdateAttempts = 10;
     private const string CollectionIteratorOutputChannelName = "Item";
     private const string CollectionInputPropertyName = "items";
 
@@ -28,28 +60,37 @@ public class JobFinalizationService
         WriteIndented = false
     };
 
-    private readonly NodeActivationService _nodeActivationService;
+    private readonly ActivationPersistenceService _activationPersistenceService;
     private readonly PhasedProcessFinalizationService _phasedProcessFinalizationService;
     private readonly IProcessStepFinalizationRepository _finalizationRepository;
+    private readonly IProcessStepRepository _processStepRepository;
+    private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly StepClaimService _stepClaimService;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
-    private readonly ILogger<JobFinalizationService> _logger;
+    private readonly ILogger<StepFinalizationService> _logger;
 
-    public JobFinalizationService(
-        NodeActivationService nodeActivationService,
+    public StepFinalizationService(
+        ActivationPersistenceService activationPersistenceService,
         PhasedProcessFinalizationService phasedProcessFinalizationService,
         IProcessStepFinalizationRepository finalizationRepository,
+        IProcessStepRepository processStepRepository,
+        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        StepClaimService stepClaimService,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
-        ILogger<JobFinalizationService> logger)
+        ILogger<StepFinalizationService> logger)
     {
-        _nodeActivationService = nodeActivationService;
+        _activationPersistenceService = activationPersistenceService;
         _phasedProcessFinalizationService = phasedProcessFinalizationService;
         _finalizationRepository = finalizationRepository;
+        _processStepRepository = processStepRepository;
+        _processInstanceRepository = processInstanceRepository;
+        _stepClaimService = stepClaimService;
         _processLifecycleTelemetry = processLifecycleTelemetry;
         _logger = logger;
     }
 
-    public async Task FinalizeSuccess(
-        JobContext context,
+    public async Task FinalizeSucceededStepAsync(
+        StepExecutionContext context,
         PluginExecutionResult executionResult,
         CancellationToken cancellationToken)
     {
@@ -68,8 +109,8 @@ public class JobFinalizationService
             cancellationToken);
     }
 
-    public async Task FinalizeFailureAsync(
-        JobContext context,
+    public async Task FinalizeFailedStepAsync(
+        StepExecutionContext context,
         PluginExecutionResult executionResult,
         CancellationToken cancellationToken)
     {
@@ -88,8 +129,8 @@ public class JobFinalizationService
             cancellationToken);
     }
 
-    public async Task<CollectionIteratorFinalizationResult> FinalizeCollectionIteratorSuccessAsync(
-        JobContext context,
+    public async Task<CollectionIteratorFinalizationResult> FinalizeSucceededCollectionIteratorStepAsync(
+        StepExecutionContext context,
         PluginExecutionResult executionResult,
         int repeatedBlueprintNodeCount,
         int itemCount,
@@ -111,8 +152,8 @@ public class JobFinalizationService
             cancellationToken);
     }
 
-    public async Task FinalizeCollectionIteratorFailureAsync(
-        JobContext context,
+    public async Task FinalizeFailedCollectionIteratorStepAsync(
+        StepExecutionContext context,
         PluginExecutionResult executionResult,
         CancellationToken cancellationToken)
     {
@@ -131,12 +172,12 @@ public class JobFinalizationService
             cancellationToken);
     }
 
-    public async Task<CollectionIteratorFinalizationResult> ResumeFinalizationAsync(
-        JobContext context,
+    public async Task<CollectionIteratorFinalizationResult> ResumeStepFinalizationAsync(
+        StepExecutionContext context,
         ProcessStepFinalizationRecord record,
         CancellationToken cancellationToken)
     {
-        await context.HydrateForFinalizationAsync(cancellationToken);
+        await _stepClaimService.HydrateStepForFinalizationAsync(context, cancellationToken);
 
         if (record.Stage is ProcessStepFinalizationStage.QueueMessageCompleted)
         {
@@ -163,7 +204,7 @@ public class JobFinalizationService
     }
 
     private async Task<CollectionIteratorFinalizationResult> ContinueSuccessFinalizationAsync(
-        JobContext context,
+        StepExecutionContext context,
         ProcessStepFinalizationRecord initialRecord,
         CancellationToken cancellationToken)
     {
@@ -199,7 +240,7 @@ public class JobFinalizationService
             }
             else
             {
-                await _nodeActivationService.EnqueueReadyDownstreamStepsAsync(
+                await _activationPersistenceService.PersistReadyActivationsAsync(
                     context,
                     activationResult,
                     cancellationToken);
@@ -216,7 +257,7 @@ public class JobFinalizationService
 
         if (!HasReached(record, ProcessStepFinalizationStage.ProcessFinalizationCompleted))
         {
-            if (await context.IsProcessCompletedAsync(cancellationToken))
+            if (await IsProcessCompletedAsync(context, cancellationToken))
             {
                 if (context.PhaseMetadata is not null)
                 {
@@ -245,7 +286,7 @@ public class JobFinalizationService
     }
 
     private async Task<CollectionIteratorFinalizationResult> ContinueFailureFinalizationAsync(
-        JobContext context,
+        StepExecutionContext context,
         ProcessStepFinalizationRecord initialRecord,
         CancellationToken cancellationToken)
     {
@@ -256,7 +297,8 @@ public class JobFinalizationService
 
         if (!HasReached(record, ProcessStepFinalizationStage.FailurePersisted))
         {
-            await context.PersistFailureAsync(
+            await PersistFailedStepAsync(
+                context,
                 record.EffectiveInputData,
                 record.GlobalState,
                 record.ErrorMessage,
@@ -316,7 +358,7 @@ public class JobFinalizationService
     }
 
     private async Task PersistSuccessOutputsAsync(
-        JobContext context,
+        StepExecutionContext context,
         ProcessStepFinalizationRecord record,
         CancellationToken cancellationToken)
     {
@@ -324,7 +366,8 @@ public class JobFinalizationService
             ?? throw new InvalidOperationException(
                 $"Finalization record {record.Id} has no output data to persist.");
 
-        await context.PersistSuccessAsync(
+        await PersistSucceededStepAsync(
+            context,
             record.EffectiveInputData,
             outputData,
             record.GlobalState,
@@ -333,7 +376,8 @@ public class JobFinalizationService
 
         if (record.Source is ProcessStepFinalizationSource.CollectionIterator)
         {
-            await context.ApplyCollectionIteratorExpansionAsync(
+            await ApplyCollectionIteratorExpansionAsync(
+                context,
                 record.CollectionIteratorRepeatedBlueprintNodeCount ?? 0,
                 record.CollectionIteratorItemCount ?? 0,
                 record.CompletedAt,
@@ -342,13 +386,13 @@ public class JobFinalizationService
     }
 
     private async Task<CollectionIteratorFinalizationResult> EnqueueCollectionIteratorDownstreamStepsAsync(
-        JobContext context,
+        StepExecutionContext context,
         ProcessStepFinalizationRecord record,
         CancellationToken cancellationToken)
     {
         var items = await ResolveCollectionIteratorItemsAsync(context, record, cancellationToken);
         var stopwatch = Stopwatch.StartNew();
-        var queuedStepCount = await _nodeActivationService.EnqueueCollectionIteratorItemStepsAsync(
+        var result = await _activationPersistenceService.PersistCollectionIteratorItemActivationsAsync(
             context,
             items,
             Math.Max(1, record.CollectionIteratorBatchSize ?? 1),
@@ -359,19 +403,19 @@ public class JobFinalizationService
         context.OutputChannelsPopulated = items.Count > 0 ? [CollectionIteratorOutputChannelName] : [];
         return new CollectionIteratorFinalizationResult(
             items.Count,
-            queuedStepCount,
+            result.ScheduledStepCount,
             stopwatch.Elapsed);
     }
 
     private async Task<IReadOnlyList<JsonElement>> ResolveCollectionIteratorItemsAsync(
-        JobContext context,
+        StepExecutionContext context,
         ProcessStepFinalizationRecord record,
         CancellationToken cancellationToken)
     {
         var effectiveInputData = record.EffectiveInputData;
         if (effectiveInputData is null)
         {
-            var step = await context.GetPersistedStepAsync(cancellationToken);
+            var step = await _stepClaimService.GetPersistedStepAsync(context, cancellationToken);
             effectiveInputData = step.InputData;
         }
 
@@ -391,14 +435,14 @@ public class JobFinalizationService
     }
 
     private async Task<PluginExecutionResult> BuildSuccessResultAsync(
-        JobContext context,
+        StepExecutionContext context,
         ProcessStepFinalizationRecord record,
         CancellationToken cancellationToken)
     {
         var outputData = record.OutputData;
         if (outputData is null)
         {
-            var step = await context.GetPersistedStepAsync(cancellationToken);
+            var step = await _stepClaimService.GetPersistedStepAsync(context, cancellationToken);
             outputData = step.OutputData;
         }
 
@@ -421,7 +465,7 @@ public class JobFinalizationService
     }
 
     private static PluginExecutionResult BuildFailureResult(
-        JobContext context,
+        StepExecutionContext context,
         ProcessStepFinalizationRecord record) =>
         new(
             context.ProcessStepId,
@@ -434,8 +478,195 @@ public class JobFinalizationService
             TimingsMs: record.TimingsMs,
             ErrorMessage: record.ErrorMessage);
 
+    private async Task<bool> PersistSucceededStepAsync(
+        StepExecutionContext context,
+        Dictionary<string, JsonElement>? effectiveInputData,
+        Dictionary<string, JsonElement> outputData,
+        Dictionary<string, JsonElement>? globalState,
+        DateTimeOffset completedAt,
+        CancellationToken cancellationToken)
+    {
+        await _processStepRepository.CompleteProcessStepAsync(
+            context.ProcessStepId,
+            context.ProcessId,
+            effectiveInputData is null ? null : NormalizeJsonMap(effectiveInputData),
+            NormalizeJsonMap(outputData)!,
+            completedAt,
+            cancellationToken);
+
+        return await UpdateProcessStateAfterSuccessAsync(
+            context,
+            globalState,
+            completedAt,
+            cancellationToken);
+    }
+
+    private async Task PersistFailedStepAsync(
+        StepExecutionContext context,
+        Dictionary<string, JsonElement>? effectiveInputData,
+        Dictionary<string, JsonElement>? globalState,
+        string? errorMessage,
+        DateTimeOffset failedAt,
+        CancellationToken cancellationToken)
+    {
+        await _processStepRepository.FailProcessStepAsync(
+            context.ProcessStepId,
+            context.ProcessId,
+            effectiveInputData is null ? null : NormalizeJsonMap(effectiveInputData),
+            errorMessage,
+            failedAt,
+            cancellationToken);
+
+        await UpdateProcessStateAfterFailureAsync(
+            context,
+            globalState,
+            failedAt,
+            cancellationToken);
+    }
+
+    private async Task<bool> IsProcessCompletedAsync(
+        StepExecutionContext context,
+        CancellationToken cancellationToken)
+    {
+        var process = await _processInstanceRepository.GetProcessStateById(
+            context.ProcessId,
+            context.ExecutableBlueprintId,
+            cancellationToken);
+        StepClaimService.EnsureExecutionProgress(context, process);
+        context.ApplyProcess(process);
+        return process.Status is ProcessStatus.Completed;
+    }
+
+    private async Task<bool> UpdateProcessStateAfterSuccessAsync(
+        StepExecutionContext context,
+        Dictionary<string, JsonElement>? globalState,
+        DateTimeOffset completedAt,
+        CancellationToken cancellationToken)
+    {
+        var normalizedGlobalState = globalState is null ? null : NormalizeJsonMap(globalState);
+        for (var attempt = 0; attempt < MaxProcessStateUpdateAttempts; attempt++)
+        {
+            var process = await _processInstanceRepository.GetProcessStateById(
+                context.ProcessId,
+                context.ExecutableBlueprintId,
+                cancellationToken);
+
+            StepClaimService.EnsureExecutionProgress(context, process);
+            if (normalizedGlobalState is not null)
+            {
+                process.GlobalState = normalizedGlobalState;
+            }
+
+            var wasCompleted = process.Status is ProcessStatus.Completed;
+            process.ExecutionProgress.CompletedNodeIds.Add(context.BlueprintNodeId.ToString());
+            process.ExecutionProgress.CompletedStepIds.Add(context.ProcessStepId.ToString());
+            process.UpdatedAt = completedAt;
+            if (process.Status is not ProcessStatus.Failed)
+            {
+                process.Status =
+                    process.ExecutionProgress.TotalStepCount > 0 &&
+                    process.ExecutionProgress.CompletedStepIds.Count >= process.ExecutionProgress.TotalStepCount
+                        ? ProcessStatus.Completed
+                        : ProcessStatus.InProgress;
+            }
+
+            if (await _processInstanceRepository.TryUpdateProcessState(process, cancellationToken))
+            {
+                context.ApplyProcess(process);
+                return !wasCompleted && process.Status is ProcessStatus.Completed;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Could not update process progress for process {context.ProcessId} after {MaxProcessStateUpdateAttempts} attempts.");
+    }
+
+    private async Task UpdateProcessStateAfterFailureAsync(
+        StepExecutionContext context,
+        Dictionary<string, JsonElement>? globalState,
+        DateTimeOffset failedAt,
+        CancellationToken cancellationToken)
+    {
+        var normalizedGlobalState = globalState is null ? null : NormalizeJsonMap(globalState);
+        for (var attempt = 0; attempt < MaxProcessStateUpdateAttempts; attempt++)
+        {
+            var process = await _processInstanceRepository.GetProcessStateById(
+                context.ProcessId,
+                context.ExecutableBlueprintId,
+                cancellationToken);
+
+            StepClaimService.EnsureExecutionProgress(context, process);
+            if (normalizedGlobalState is not null)
+            {
+                process.GlobalState = normalizedGlobalState;
+            }
+
+            process.ExecutionProgress.FailedNodeIds.Add(context.BlueprintNodeId.ToString());
+            process.ExecutionProgress.FailedStepIds.Add(context.ProcessStepId.ToString());
+            process.Status = ProcessStatus.Failed;
+            process.UpdatedAt = failedAt;
+
+            if (await _processInstanceRepository.TryUpdateProcessState(process, cancellationToken))
+            {
+                context.ApplyProcess(process);
+                return;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Could not update failed process progress for process {context.ProcessId} after {MaxProcessStateUpdateAttempts} attempts.");
+    }
+
+    private async Task<bool> ApplyCollectionIteratorExpansionAsync(
+        StepExecutionContext context,
+        int repeatedBlueprintNodeCount,
+        int itemCount,
+        DateTimeOffset timestamp,
+        CancellationToken cancellationToken)
+    {
+        var expansionKey = context.ProcessStepId.ToString();
+        for (var attempt = 0; attempt < MaxProcessStateUpdateAttempts; attempt++)
+        {
+            var process = await _processInstanceRepository.GetProcessStateById(
+                context.ProcessId,
+                context.ExecutableBlueprintId,
+                cancellationToken);
+
+            StepClaimService.EnsureExecutionProgress(context, process);
+            if (!process.ExecutionProgress.ExpandedCollectionIteratorStepIds.Add(expansionKey))
+            {
+                context.ApplyProcess(process);
+                return process.Status is ProcessStatus.Completed;
+            }
+
+            var repeatedStepDelta = repeatedBlueprintNodeCount * itemCount - repeatedBlueprintNodeCount;
+            process.ExecutionProgress.TotalStepCount = Math.Max(
+                process.ExecutionProgress.CompletedStepIds.Count,
+                process.ExecutionProgress.TotalStepCount + repeatedStepDelta);
+            process.ExecutionProgress.TotalNodeCount = process.ExecutionProgress.TotalStepCount;
+            process.UpdatedAt = timestamp;
+            if (process.Status is not ProcessStatus.Failed)
+            {
+                process.Status =
+                    process.ExecutionProgress.TotalStepCount > 0 &&
+                    process.ExecutionProgress.CompletedStepIds.Count >= process.ExecutionProgress.TotalStepCount
+                        ? ProcessStatus.Completed
+                        : ProcessStatus.InProgress;
+            }
+
+            if (await _processInstanceRepository.TryUpdateProcessState(process, cancellationToken))
+            {
+                context.ApplyProcess(process);
+                return process.Status is ProcessStatus.Completed;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Could not update Collection Iterator expansion for process {context.ProcessId} after {MaxProcessStateUpdateAttempts} attempts.");
+    }
+
     private async Task CompleteDurableFinalizationAndMessageAsync(
-        JobContext context,
+        StepExecutionContext context,
         ProcessStepFinalizationRecord record,
         CancellationToken cancellationToken)
     {
@@ -448,7 +679,7 @@ public class JobFinalizationService
     }
 
     private async Task<ProcessStepFinalizationRecord> CreateOrGetFinalizationRecordAsync(
-        JobContext context,
+        StepExecutionContext context,
         PluginExecutionResult result,
         ProcessStepFinalizationSource source,
         int? collectionIteratorItemCount,

@@ -10,279 +10,266 @@ using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Models;
 using Backend.Plugins.Communication;
+using Backend.Repositories;
 using Backend.Services.ProcessStepQueue;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using Shouldly;
 
 namespace Backend.Engine.Tests;
 
-public sealed class NodeActivationServiceTests
+public sealed class StepFinalizationServiceTests
 {
     [Test]
-    public async Task Single_inbound_downstream_step_is_created_with_source_reference_hydration_plan()
+    public async Task Success_finalization_persists_dispatch_intent_when_enqueue_fails_and_worker_later_sends()
     {
         var processId = Guid.NewGuid();
         var sourceNodeId = Guid.NewGuid();
         var destinationNodeId = Guid.NewGuid();
-        var bindingId = "source-to-destination";
-        var blueprint = CreateSingleInboundBlueprint(sourceNodeId, destinationNodeId, bindingId);
+        var blueprint = CreateSingleInboundBlueprint(sourceNodeId, destinationNodeId);
         var stepRepository = new InMemoryProcessStepRepository();
-        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(
-            processId,
-            blueprint,
-            new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal)
-            {
-                [destinationNodeId.ToString()] = new(StringComparer.Ordinal)
-                {
-                    ["Mode"] = Json("runtime")
-                }
-            }));
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy { ThrowOnEnqueueAttempts = 1 };
+        var dispatchService = CreateDispatchService(stepRepository, queueWriter);
+        var service = CreateService(stepRepository, processRepository, finalizationRepository, dispatchService);
+        var context = await CreateContextAsync(processId, sourceNodeId, blueprint, stepRepository, processRepository);
+        var result = CreateSuccessResult(context, "Out");
+
+        await service.FinalizeSucceededStepAsync(context, result, CancellationToken.None);
+
+        var record = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
+        record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
+        record.LastErrorKind.ShouldBeNull();
+        stepRepository.States[context.ProcessStepId].Status.ShouldBe(ProcessStepStatus.Completed);
+        stepRepository.CreatedSteps.Count.ShouldBe(1);
+        var downstreamStep = stepRepository.CreatedSteps.Single();
+        downstreamStep.Dispatch.ShouldNotBeNull();
+        downstreamStep.Dispatch.Status.ShouldBe(ProcessStepDispatchStatus.RetryableDispatchError);
+        queueWriter.Messages.Count.ShouldBe(0);
+        context.QueueMessage.CompleteCount.ShouldBe(1);
+
+        queueWriter.ThrowOnEnqueueAttempts = 0;
+        downstreamStep.Dispatch.NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        await dispatchService.DrainDueDispatchesAsync(10, CancellationToken.None);
+
+        var completedRecord = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
+        completedRecord.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
+        stepRepository.CreatedSteps.Count.ShouldBe(1);
+        queueWriter.Messages.Count.ShouldBe(1);
+        queueWriter.Messages[0].BlueprintNodeId.ShouldBe(destinationNodeId);
+        downstreamStep.Dispatch.Status.ShouldBe(ProcessStepDispatchStatus.Dispatched);
+    }
+
+    [Test]
+    public async Task Duplicate_redelivery_after_completed_finalization_does_not_duplicate_downstream_steps()
+    {
+        var processId = Guid.NewGuid();
+        var sourceNodeId = Guid.NewGuid();
+        var destinationNodeId = Guid.NewGuid();
+        var blueprint = CreateSingleInboundBlueprint(sourceNodeId, destinationNodeId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
         var queueWriter = new ProcessStepQueueWriterSpy();
-        var context = await CreateClaimedContextAsync(
+        var dispatchService = CreateDispatchService(stepRepository, queueWriter);
+        var service = CreateService(stepRepository, processRepository, finalizationRepository, dispatchService);
+        var context = await CreateContextAsync(processId, sourceNodeId, blueprint, stepRepository, processRepository);
+
+        await service.FinalizeSucceededStepAsync(context, CreateSuccessResult(context, "Out"), CancellationToken.None);
+
+        stepRepository.CreatedSteps.Count.ShouldBe(1);
+        queueWriter.Messages.Count.ShouldBe(1);
+        var record = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
+        record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
+
+        var duplicateContext = await CreateContextAsync(
             processId,
             sourceNodeId,
             blueprint,
             stepRepository,
-            processRepository);
-        var service = new NodeActivationService(
-            new InMemoryNodeJoinStateRepository(),
-            CreateDispatchService(stepRepository, queueWriter),
-            stepRepository,
-            NullLogger<NodeActivationService>.Instance);
+            processRepository,
+            claim: false);
 
-        await service.EnqueueReadyDownstreamStepsAsync(
-            context,
-            CreateResult(context, "Out"),
-            CancellationToken.None);
+        await service.ResumeStepFinalizationAsync(duplicateContext, record, CancellationToken.None);
 
         stepRepository.CreatedSteps.Count.ShouldBe(1);
-        var createdStep = stepRepository.CreatedSteps[0];
-        createdStep.BlueprintNodeId.ShouldBe(destinationNodeId.ToString());
-        createdStep.InputData.ShouldBeNull();
-        createdStep.InputHydrationPlan.ShouldNotBeNull();
-        createdStep.InputHydrationPlan.InputChannelName.ShouldBe("DestinationInput");
-        createdStep.InputHydrationPlan.InitialInput.Count.ShouldBe(0);
-        createdStep.InputHydrationPlan.Sources.Count.ShouldBe(1);
-        createdStep.InputHydrationPlan.Sources[0].BindingId.ShouldBe(bindingId);
-        createdStep.InputHydrationPlan.Sources[0].SourceProcessStepId.ShouldBe(context.ProcessStepId.ToString());
-        createdStep.InputHydrationPlan.Sources[0].SourceOutputChannelName.ShouldBe("Out");
-        createdStep.InputHydrationPlan.Sources[0].PropertyMappings.Single().SourceProperty.ShouldBe("Message");
-        createdStep.InputHydrationPlan.Sources[0].PropertyMappings.Single().TargetProperty.ShouldBe("Text");
-        createdStep.InputHydrationPlan.DesignTimeInputOverrides["Mode"].GetString().ShouldBe("design");
-        createdStep.InputHydrationPlan.RuntimeInputOverrides["Mode"].GetString().ShouldBe("runtime");
-
         queueWriter.Messages.Count.ShouldBe(1);
-        queueWriter.Messages[0].ProcessStepId.ShouldBe(ProcessStepIdentity.Create(processId, destinationNodeId));
-        stepRepository.ProcessStepListFetchCount.ShouldBe(0);
+        duplicateContext.QueueMessage.CompleteCount.ShouldBe(1);
     }
 
     [Test]
-    public async Task Multi_inbound_join_waits_for_all_bindings_then_enqueues_once_with_source_references()
-    {
-        var processId = Guid.NewGuid();
-        var leftNodeId = Guid.NewGuid();
-        var rightNodeId = Guid.NewGuid();
-        var joinNodeId = Guid.NewGuid();
-        var blueprint = CreateJoinBlueprint(leftNodeId, rightNodeId, joinNodeId);
-        var stepRepository = new InMemoryProcessStepRepository();
-        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(
-            processId,
-            blueprint,
-            new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal)));
-        var queueWriter = new ProcessStepQueueWriterSpy();
-        var joinRepository = new InMemoryNodeJoinStateRepository();
-        var service = new NodeActivationService(
-            joinRepository,
-            CreateDispatchService(stepRepository, queueWriter),
-            stepRepository,
-            NullLogger<NodeActivationService>.Instance);
-
-        var leftContext = await CreateClaimedContextAsync(
-            processId,
-            leftNodeId,
-            blueprint,
-            stepRepository,
-            processRepository);
-
-        await service.EnqueueReadyDownstreamStepsAsync(
-            leftContext,
-            CreateResult(leftContext, "LeftOut"),
-            CancellationToken.None);
-
-        stepRepository.CreatedSteps.Count.ShouldBe(0);
-        queueWriter.Messages.Count.ShouldBe(0);
-
-        var rightContext = await CreateClaimedContextAsync(
-            processId,
-            rightNodeId,
-            blueprint,
-            stepRepository,
-            processRepository);
-
-        await service.EnqueueReadyDownstreamStepsAsync(
-            rightContext,
-            CreateResult(rightContext, "RightOut"),
-            CancellationToken.None);
-
-        stepRepository.CreatedSteps.Count.ShouldBe(1);
-        queueWriter.Messages.Count.ShouldBe(1);
-        var createdStep = stepRepository.CreatedSteps[0];
-        createdStep.BlueprintNodeId.ShouldBe(joinNodeId.ToString());
-        createdStep.InputHydrationPlan.ShouldNotBeNull();
-        createdStep.InputHydrationPlan.Sources.Count.ShouldBe(2);
-        createdStep.InputHydrationPlan.Sources.Select(source => source.BindingId).ShouldBe([
-            "left-to-join",
-            "right-to-join"
-        ]);
-        createdStep.InputHydrationPlan.Sources[0].SourceProcessStepId.ShouldBe(leftContext.ProcessStepId.ToString());
-        createdStep.InputHydrationPlan.Sources[1].SourceProcessStepId.ShouldBe(rightContext.ProcessStepId.ToString());
-        joinRepository.States[(processId, joinNodeId)].StepEnqueued.ShouldBeTrue();
-        joinRepository.States[(processId, joinNodeId)].EnqueuedProcessStepId.ShouldBe(createdStep.Id);
-        stepRepository.ProcessStepListFetchCount.ShouldBe(0);
-
-        await service.EnqueueReadyDownstreamStepsAsync(
-            rightContext,
-            CreateResult(rightContext, "RightOut"),
-            CancellationToken.None);
-
-        stepRepository.CreatedSteps.Count.ShouldBe(1);
-        queueWriter.Messages.Count.ShouldBe(1);
-    }
-
-    [Test]
-    public async Task PersistSuccessAsync_marks_process_complete_without_fetching_all_steps()
+    public async Task Failure_finalization_can_retry_without_rewriting_failed_step()
     {
         var processId = Guid.NewGuid();
         var nodeId = Guid.NewGuid();
         var blueprint = CreateTerminalBlueprint(nodeId);
         var stepRepository = new InMemoryProcessStepRepository();
-        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(
-            processId,
-            blueprint,
-            new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal)));
-        var context = await CreateClaimedContextAsync(
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint))
+        {
+            ThrowOnTryUpdateAttempts = 1
+        };
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var service = CreateService(
+            stepRepository,
+            processRepository,
+            finalizationRepository,
+            CreateDispatchService(stepRepository, queueWriter));
+        var context = await CreateContextAsync(processId, nodeId, blueprint, stepRepository, processRepository);
+        var failedAt = DateTimeOffset.UtcNow;
+        var result = new PluginExecutionResult(
+            context.ProcessStepId,
+            Succeeded: false,
+            EffectiveInputData: null,
+            OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
+            GlobalState: null,
+            StartedAt: failedAt.AddSeconds(-1),
+            CompletedAt: failedAt,
+            TimingsMs: null,
+            ErrorMessage: "boom");
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            service.FinalizeFailedStepAsync(context, result, CancellationToken.None));
+
+        stepRepository.FailMutationCount.ShouldBe(1);
+        stepRepository.States[context.ProcessStepId].Status.ShouldBe(ProcessStepStatus.Failed);
+        var record = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
+        record.Stage.ShouldBe(ProcessStepFinalizationStage.ResultReceived);
+        record.LastErrorKind.ShouldBe(ProcessStepFinalizationErrorKind.RetryableFinalizationError);
+
+        processRepository.ThrowOnTryUpdateAttempts = 0;
+        var retryContext = await CreateContextAsync(
             processId,
             nodeId,
             blueprint,
             stepRepository,
-            processRepository);
+            processRepository,
+            claim: false);
 
-        var completed = await context.PersistSuccessAsync(
-            effectiveInputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal)
-            {
-                ["Input"] = Json(new
-                {
-                    Town = "audit"
-                })
-            },
-            outputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-            globalState: null,
-            completedAt: DateTimeOffset.UtcNow,
-            cancellationToken: CancellationToken.None);
+        await service.ResumeStepFinalizationAsync(retryContext, record, CancellationToken.None);
 
-        completed.ShouldBeTrue();
-        processRepository.State.Status.ShouldBe(ProcessStatus.Completed);
-        processRepository.State.ExecutionProgress.CompletedNodeIds.ShouldContain(nodeId.ToString());
-        var persistedInput = stepRepository.States[context.ProcessStepId].InputData;
-        persistedInput.ShouldNotBeNull();
-        persistedInput["Input"].GetProperty("town").GetString().ShouldBe("audit");
-        stepRepository.ProcessStepListFetchCount.ShouldBe(0);
+        stepRepository.FailMutationCount.ShouldBe(1);
+        retryContext.QueueMessage.CompleteCount.ShouldBe(1);
+        (await finalizationRepository.GetRequiredAsync(context.ProcessStepId)).Stage
+            .ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
     }
 
     [Test]
-    public async Task Collection_iterator_fan_out_creates_item_scoped_steps_with_inline_inputs()
+    public async Task Queue_message_is_completed_only_after_terminal_finalization_stage_is_durable()
+    {
+        var processId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+        var blueprint = CreateTerminalBlueprint(nodeId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var service = CreateService(
+            stepRepository,
+            processRepository,
+            finalizationRepository,
+            CreateDispatchService(stepRepository, queueWriter));
+        var context = await CreateContextAsync(processId, nodeId, blueprint, stepRepository, processRepository);
+        context.QueueMessage.OnComplete = () =>
+        {
+            var record = finalizationRepository.Records[context.ProcessStepId];
+            record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
+        };
+
+        await service.FinalizeSucceededStepAsync(
+            context,
+            CreateSuccessResult(context, outputChannelName: null),
+            CancellationToken.None);
+
+        context.QueueMessage.CompleteCount.ShouldBe(1);
+    }
+
+    [Test]
+    public async Task Collection_iterator_finalization_resumes_fan_out_without_duplicate_steps()
     {
         var processId = Guid.NewGuid();
         var iteratorNodeId = Guid.NewGuid();
         var destinationNodeId = Guid.NewGuid();
-        var bindingId = "iterator-to-destination";
-        var blueprint = CreateCollectionIteratorBlueprint(iteratorNodeId, destinationNodeId, bindingId);
+        var blueprint = CreateCollectionIteratorBlueprint(iteratorNodeId, destinationNodeId);
         var stepRepository = new InMemoryProcessStepRepository();
-        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(
-            processId,
-            blueprint,
-            new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal)));
-        var queueWriter = new ProcessStepQueueWriterSpy();
-        var context = await CreateClaimedContextAsync(
-            processId,
-            iteratorNodeId,
-            blueprint,
-            stepRepository,
-            processRepository);
-        var service = new NodeActivationService(
-            new InMemoryNodeJoinStateRepository(),
-            CreateDispatchService(stepRepository, queueWriter),
-            stepRepository,
-            NullLogger<NodeActivationService>.Instance);
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy { ThrowOnEnqueueAttempts = 2 };
+        var dispatchService = CreateDispatchService(stepRepository, queueWriter);
+        var service = CreateService(stepRepository, processRepository, finalizationRepository, dispatchService);
+        var context = await CreateContextAsync(processId, iteratorNodeId, blueprint, stepRepository, processRepository);
+        var items = new[] { "alpha", "bravo" };
+        var result = CreateCollectionIteratorResult(context, items);
 
-        var itemCount = await service.EnqueueCollectionIteratorItemStepsAsync(
+        await service.FinalizeSucceededCollectionIteratorStepAsync(
             context,
-            [Json("alpha"), Json("bravo")],
+            result,
+            repeatedBlueprintNodeCount: 1,
+            itemCount: items.Length,
             batchSize: 100,
-            DateTimeOffset.UtcNow,
             CancellationToken.None);
 
-        itemCount.ShouldBe(2);
+        var record = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
+        record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
+        stepRepository.CreatedSteps.Count.ShouldBe(2);
+        stepRepository.CreatedSteps
+            .All(step => step.Dispatch?.Status == ProcessStepDispatchStatus.RetryableDispatchError)
+            .ShouldBeTrue();
+        queueWriter.Messages.Count.ShouldBe(0);
+        context.QueueMessage.CompleteCount.ShouldBe(1);
+
+        queueWriter.ThrowOnEnqueueAttempts = 0;
+        foreach (var step in stepRepository.CreatedSteps)
+        {
+            step.Dispatch!.NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        }
+
+        await dispatchService.DrainDueDispatchesAsync(10, CancellationToken.None);
+
         stepRepository.CreatedSteps.Count.ShouldBe(2);
         queueWriter.Messages.Count.ShouldBe(2);
-        for (var index = 0; index < 2; index++)
-        {
-            var itemKey = $"{context.ProcessStepId:N}:{index:D8}";
-            var expectedStepId = ProcessStepIdentity.Create(processId, destinationNodeId, itemKey);
-            var createdStep = stepRepository.CreatedSteps[index];
-            createdStep.Id.ShouldBe(expectedStepId.ToString());
-            createdStep.IterationContext.ShouldNotBeNull();
-            createdStep.IterationContext.ItemIndex.ShouldBe(index);
-            createdStep.IterationContext.ItemKey.ShouldBe(itemKey);
-            createdStep.InputHydrationPlan.ShouldNotBeNull();
-            createdStep.InputHydrationPlan.Sources.Single().InlineInput.ShouldNotBeNull();
-            createdStep.InputHydrationPlan.Sources.Single().InlineInput!["Text"].GetString()
-                .ShouldBe(index == 0 ? "alpha" : "bravo");
-            queueWriter.Messages[index].ProcessStepId.ShouldBe(expectedStepId);
-        }
+        queueWriter.Messages.Select(message => message.BlueprintNodeId).ShouldAllBe(id => id == destinationNodeId);
+        stepRepository.CreatedSteps
+            .All(step => step.Dispatch?.Status == ProcessStepDispatchStatus.Dispatched)
+            .ShouldBeTrue();
+        (await finalizationRepository.GetRequiredAsync(context.ProcessStepId)).Stage
+            .ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
     }
 
-    private static async Task<JobContext> CreateClaimedContextAsync(
-        Guid processId,
-        Guid nodeId,
-        ExecutableBlueprint blueprint,
+    private static StepFinalizationService CreateService(
         InMemoryProcessStepRepository stepRepository,
-        InMemoryProcessInstanceRepository processRepository)
+        InMemoryProcessInstanceRepository processRepository,
+        InMemoryProcessStepFinalizationRepository finalizationRepository,
+        ProcessStepDispatchService dispatchService)
     {
-        var processStepId = ProcessStepIdentity.Create(processId, nodeId);
-        var node = blueprint.NodesById[nodeId];
-        stepRepository.States[processStepId] = new ProcessStepRecord
-        {
-            Id = processStepId.ToString(),
-            ProcessId = processId.ToString(),
-            BlueprintId = blueprint.Id.ToString(),
-            BlueprintNodeId = nodeId.ToString(),
-            Status = ProcessStepStatus.Pending,
-            InputHydrationPlan = new InputHydrationPlan
-            {
-                InputChannelName = node.InputChannel.Name
-            }
-        };
-
-        var message = new ProcessStepInitialisationMessage
-        {
-            ProcessId = processId,
-            ProcessStepId = processStepId,
-            ExecutableBlueprintId = blueprint.Id,
-            BlueprintNodeId = nodeId
-        };
-
-        var context = new JobContext(
-            message,
-            NullLogger<JobContext>.Instance,
-            new ProcessStepQueueMessageStub(message),
+        var telemetry = new ProcessLifecycleTelemetry(NullLogger<ProcessLifecycleTelemetry>.Instance);
+        var stepClaimService = new StepClaimService(
             stepRepository,
             processRepository,
-            blueprint);
-
-        var (claimed, _) = await context.TryMarkInProgressAsync(CancellationToken.None);
-        claimed.ShouldBeTrue();
-        return context;
+            telemetry);
+        var activationPersistenceService = new ActivationPersistenceService(
+            new ActivationPlanner(),
+            new InMemoryNodeJoinStateRepository(),
+            dispatchService,
+            stepRepository,
+            NullLogger<ActivationPersistenceService>.Instance);
+        var phasedProcessFinalizationService = new PhasedProcessFinalizationService(
+            Mock.Of<IPhasedBlueprintRepository>(),
+            Mock.Of<IPhasedProcessRepository>(),
+            Mock.Of<IPhaseCorrelationRepository>(),
+            processRepository,
+            stepRepository,
+            NullLogger<PhasedProcessFinalizationService>.Instance);
+        return new StepFinalizationService(
+            activationPersistenceService,
+            phasedProcessFinalizationService,
+            finalizationRepository,
+            stepRepository,
+            processRepository,
+            stepClaimService,
+            telemetry,
+            NullLogger<StepFinalizationService>.Instance);
     }
 
     private static ProcessStepDispatchService CreateDispatchService(
@@ -299,33 +286,110 @@ public sealed class NodeActivationServiceTests
             new ProcessStepDispatchTelemetry(),
             NullLogger<ProcessStepDispatchService>.Instance);
 
-    private static PluginExecutionResult CreateResult(JobContext context, string outputChannelName) =>
+    private static async Task<TestStepExecutionContext> CreateContextAsync(
+        Guid processId,
+        Guid nodeId,
+        ExecutableBlueprint blueprint,
+        InMemoryProcessStepRepository stepRepository,
+        InMemoryProcessInstanceRepository processRepository,
+        bool claim = true)
+    {
+        var processStepId = ProcessStepIdentity.Create(processId, nodeId);
+        var node = blueprint.NodesById[nodeId];
+        if (!stepRepository.States.ContainsKey(processStepId))
+        {
+            stepRepository.States[processStepId] = new ProcessStepRecord
+            {
+                Id = processStepId.ToString(),
+                ProcessId = processId.ToString(),
+                BlueprintId = blueprint.Id.ToString(),
+                BlueprintNodeId = nodeId.ToString(),
+                Status = ProcessStepStatus.Pending,
+                InputHydrationPlan = new InputHydrationPlan
+                {
+                    InputChannelName = node.InputChannel.Name
+                }
+            };
+        }
+
+        var message = new ProcessStepInitialisationMessage
+        {
+            ProcessId = processId,
+            ProcessStepId = processStepId,
+            ExecutableBlueprintId = blueprint.Id,
+            BlueprintNodeId = nodeId
+        };
+        var queueMessage = new ProcessStepQueueMessageSpy(message);
+        var context = new TestStepExecutionContext(
+            message,
+            queueMessage,
+            blueprint);
+
+        if (claim)
+        {
+            var claimResult = await new StepClaimService(
+                    stepRepository,
+                    processRepository,
+                    new ProcessLifecycleTelemetry(NullLogger<ProcessLifecycleTelemetry>.Instance))
+                .TryClaimStepAsync(context, CancellationToken.None);
+            claimResult.StepClaimed.ShouldBeTrue();
+        }
+
+        return context;
+    }
+
+    private static PluginExecutionResult CreateSuccessResult(
+        StepExecutionContext context,
+        string? outputChannelName) =>
         new(
             context.ProcessStepId,
             Succeeded: true,
             EffectiveInputData: null,
-            OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal)
-            {
-                [outputChannelName] = Json(new
+            OutputData: outputChannelName is null
+                ? new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+                : new Dictionary<string, JsonElement>(StringComparer.Ordinal)
                 {
-                    Message = "hello",
-                    Score = 7
-                })
-            },
+                    [outputChannelName] = Json(new
+                    {
+                        Message = "hello"
+                    })
+                },
             GlobalState: null,
             StartedAt: DateTimeOffset.UtcNow.AddSeconds(-1),
             CompletedAt: DateTimeOffset.UtcNow,
             TimingsMs: null,
             ErrorMessage: null);
 
+    private static PluginExecutionResult CreateCollectionIteratorResult(
+        StepExecutionContext context,
+        IReadOnlyCollection<string> items)
+    {
+        var materializedInput = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+        {
+            ["items"] = Json(items)
+        };
+
+        return new PluginExecutionResult(
+            context.ProcessStepId,
+            Succeeded: true,
+            EffectiveInputData: BlueprintInputMaterializer.BuildChannelPayload(
+                context.InputChannelName,
+                materializedInput),
+            OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
+            GlobalState: null,
+            StartedAt: DateTimeOffset.UtcNow.AddSeconds(-1),
+            CompletedAt: DateTimeOffset.UtcNow,
+            TimingsMs: null,
+            ErrorMessage: null);
+    }
+
     private static ExecutableBlueprint CreateSingleInboundBlueprint(
         Guid sourceNodeId,
-        Guid destinationNodeId,
-        string bindingId)
+        Guid destinationNodeId)
     {
         var binding = new ExecutableBlueprintBinding
         {
-            Id = bindingId,
+            Id = "source-to-destination",
             SourceBlueprintNodeId = sourceNodeId,
             SourceChannelName = "Out",
             DestinationBlueprintNodeId = destinationNodeId,
@@ -338,55 +402,9 @@ public sealed class NodeActivationServiceTests
                 }
             ]
         };
-
         var source = CreateNode(sourceNodeId, "SourceInput", "Out", [binding]);
         var destination = CreateNode(destinationNodeId, "DestinationInput", null, [], [binding]);
-        destination.DesignTimeInputOverrides["Mode"] = Json("design");
-
         return CreateBlueprint(source, [source, destination]);
-    }
-
-    private static ExecutableBlueprint CreateJoinBlueprint(
-        Guid leftNodeId,
-        Guid rightNodeId,
-        Guid joinNodeId)
-    {
-        var leftBinding = new ExecutableBlueprintBinding
-        {
-            Id = "left-to-join",
-            SourceBlueprintNodeId = leftNodeId,
-            SourceChannelName = "LeftOut",
-            DestinationBlueprintNodeId = joinNodeId,
-            PropertyMappings =
-            [
-                new ExecutableBlueprintPropertyMapping
-                {
-                    SourceProperty = "Message",
-                    TargetProperty = "LeftText"
-                }
-            ]
-        };
-        var rightBinding = new ExecutableBlueprintBinding
-        {
-            Id = "right-to-join",
-            SourceBlueprintNodeId = rightNodeId,
-            SourceChannelName = "RightOut",
-            DestinationBlueprintNodeId = joinNodeId,
-            PropertyMappings =
-            [
-                new ExecutableBlueprintPropertyMapping
-                {
-                    SourceProperty = "Score",
-                    TargetProperty = "Score"
-                }
-            ]
-        };
-
-        var left = CreateNode(leftNodeId, "LeftInput", "LeftOut", [leftBinding]);
-        var right = CreateNode(rightNodeId, "RightInput", "RightOut", [rightBinding]);
-        var join = CreateNode(joinNodeId, "JoinInput", null, [], [leftBinding, rightBinding]);
-
-        return CreateBlueprint(left, [left, right, join]);
     }
 
     private static ExecutableBlueprint CreateTerminalBlueprint(Guid nodeId)
@@ -397,12 +415,11 @@ public sealed class NodeActivationServiceTests
 
     private static ExecutableBlueprint CreateCollectionIteratorBlueprint(
         Guid iteratorNodeId,
-        Guid destinationNodeId,
-        string bindingId)
+        Guid destinationNodeId)
     {
         var binding = new ExecutableBlueprintBinding
         {
-            Id = bindingId,
+            Id = "iterator-to-destination",
             SourceBlueprintNodeId = iteratorNodeId,
             SourceChannelName = "Item",
             DestinationBlueprintNodeId = destinationNodeId,
@@ -428,7 +445,7 @@ public sealed class NodeActivationServiceTests
             ResolvedTaskVersionId = 0,
             InputChannel = new ExecutableBlueprintChannel
             {
-                Id = 0,
+                Id = 1,
                 Name = "Collection",
                 Properties = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
@@ -440,7 +457,7 @@ public sealed class NodeActivationServiceTests
             {
                 ["Item"] = new()
                 {
-                    Id = 0,
+                    Id = 1,
                     Name = "Item",
                     Properties = new Dictionary<string, string>(StringComparer.Ordinal)
                     {
@@ -453,7 +470,6 @@ public sealed class NodeActivationServiceTests
             DesignTimeInputOverrides = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
         };
         var destination = CreateNode(destinationNodeId, "DestinationInput", null, [], [binding]);
-
         return CreateBlueprint(iterator, [iterator, destination]);
     }
 
@@ -469,12 +485,11 @@ public sealed class NodeActivationServiceTests
         {
             outputChannels[outputChannelName] = new ExecutableBlueprintChannel
             {
-                Id = outputChannels.Count + 1,
+                Id = 1,
                 Name = outputChannelName,
                 Properties = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
-                    ["Message"] = "String",
-                    ["Score"] = "Integer"
+                    ["Message"] = "String"
                 },
                 OutboundBindings = outboundBindings
             };
@@ -496,10 +511,7 @@ public sealed class NodeActivationServiceTests
                 Name = inputChannelName,
                 Properties = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
-                    ["Text"] = "String",
-                    ["Mode"] = "String",
-                    ["LeftText"] = "String",
-                    ["Score"] = "Integer"
+                    ["Text"] = "String"
                 },
                 OutboundBindings = []
             },
@@ -517,36 +529,55 @@ public sealed class NodeActivationServiceTests
             Id = 101,
             DefinitionId = 10,
             VersionNumber = 1,
-            Name = "Activation Blueprint",
+            Name = "Finalization Blueprint",
             InitialNode = initialNode,
             AllNodes = nodes
         };
 
     private static ProcessInstanceRecord<Dictionary<string, JsonElement>> CreateProcessState(
         Guid processId,
-        ExecutableBlueprint blueprint,
-        Dictionary<string, Dictionary<string, JsonElement>> nodeOverrides) =>
+        ExecutableBlueprint blueprint) =>
         new()
         {
             id = processId.ToString(),
             BlueprintId = blueprint.Id.ToString(),
             Status = ProcessStatus.InProgress,
             GlobalState = new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-            NodeOverrides = nodeOverrides,
+            NodeOverrides = new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal),
             ExecutionProgress = new ProcessExecutionProgress
             {
-                TotalNodeCount = blueprint.AllNodes.Count
+                TotalNodeCount = blueprint.AllNodes.Count,
+                TotalStepCount = blueprint.AllNodes.Count
             }
         };
 
     private static JsonElement Json<T>(T value) =>
         JsonSerializer.SerializeToElement(value, JsonSerializerOptions.Web);
 
+    private sealed class TestStepExecutionContext : StepExecutionContext
+    {
+        public TestStepExecutionContext(
+            ProcessStepInitialisationMessage message,
+            ProcessStepQueueMessageSpy queueMessage,
+            ExecutableBlueprint executableBlueprint)
+            : base(
+                message,
+                NullLogger<StepExecutionContext>.Instance,
+                queueMessage,
+                executableBlueprint)
+        {
+            QueueMessage = queueMessage;
+        }
+
+        public ProcessStepQueueMessageSpy QueueMessage { get; }
+    }
+
     private sealed class InMemoryProcessStepRepository : IProcessStepRepository
     {
         public Dictionary<Guid, ProcessStepRecord> States { get; } = new();
         public List<ProcessStepRecord> CreatedSteps { get; } = [];
-        public int ProcessStepListFetchCount { get; private set; }
+        public int CompleteMutationCount { get; private set; }
+        public int FailMutationCount { get; private set; }
 
         public Task<ProcessStepRecord> CreateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken)
         {
@@ -570,6 +601,19 @@ public sealed class NodeActivationServiceTests
             return Task.FromResult((true, state));
         }
 
+        public async Task<IReadOnlyList<(bool Created, ProcessStepRecord State)>> CreateProcessStepsIfNotExists(
+            IReadOnlyCollection<ProcessStepRecord> states,
+            CancellationToken cancellationToken)
+        {
+            var results = new List<(bool Created, ProcessStepRecord State)>(states.Count);
+            foreach (var state in states)
+            {
+                results.Add(await CreateProcessStepIfNotExists(state, cancellationToken));
+            }
+
+            return results;
+        }
+
         public Task<ProcessStepRecord> GetProcessStepById(
             Guid taskInstanceId,
             Guid processId,
@@ -578,13 +622,10 @@ public sealed class NodeActivationServiceTests
 
         public Task<List<ProcessStepRecord>> GetProcessStepsForProcess(
             Guid processId,
-            CancellationToken cancellationToken)
-        {
-            ProcessStepListFetchCount++;
-            return Task.FromResult(States.Values
+            CancellationToken cancellationToken) =>
+            Task.FromResult(States.Values
                 .Where(state => string.Equals(state.ProcessId, processId.ToString(), StringComparison.Ordinal))
                 .ToList());
-        }
 
         public Task<IReadOnlyList<ProcessStepRecord>> GetDueStepDispatchesAsync(
             DateTimeOffset now,
@@ -604,11 +645,12 @@ public sealed class NodeActivationServiceTests
                 .Where(state => state.Status is ProcessStepStatus.Pending &&
                     (state.Dispatch is null ||
                      state.Dispatch.Status is ProcessStepDispatchStatus.Pending or ProcessStepDispatchStatus.Dispatching or ProcessStepDispatchStatus.RetryableDispatchError))
+                .OrderBy(state => state.CreatedAt)
                 .ToList();
+            var oldest = pending.FirstOrDefault();
             return Task.FromResult(new ProcessStepDispatchBacklogSnapshot(
                 pending.Count,
-                pending.OrderBy(state => state.CreatedAt).FirstOrDefault()?.Dispatch?.CreatedAt ??
-                    pending.OrderBy(state => state.CreatedAt).FirstOrDefault()?.CreatedAt));
+                oldest?.Dispatch?.CreatedAt ?? oldest?.CreatedAt));
         }
 
         public Task<(bool Claimed, ProcessStepRecord? State)> TryClaimStepDispatchAsync(
@@ -728,7 +770,7 @@ public sealed class NodeActivationServiceTests
             int allowedMajor,
             int allowedMinor,
             int resolvedTaskVersionId,
-            string resolvedVersion,
+            string resolvedTaskVersion,
             DateTimeOffset startedAt,
             CancellationToken cancellationToken)
         {
@@ -743,7 +785,7 @@ public sealed class NodeActivationServiceTests
             state.AllowedMajor = allowedMajor;
             state.AllowedMinor = allowedMinor;
             state.ResolvedTaskVersionId = resolvedTaskVersionId;
-            state.ResolvedTaskVersion = resolvedVersion;
+            state.ResolvedTaskVersion = resolvedTaskVersion;
             state.StartedAt = startedAt;
             state.UpdatedAt = startedAt;
             return Task.FromResult<(bool, ProcessStepRecord?)>((true, state));
@@ -758,6 +800,12 @@ public sealed class NodeActivationServiceTests
             CancellationToken cancellationToken)
         {
             var state = States[taskInstanceId];
+            if (state.Status is ProcessStepStatus.Completed or ProcessStepStatus.Failed)
+            {
+                return Task.CompletedTask;
+            }
+
+            CompleteMutationCount++;
             state.Status = ProcessStepStatus.Completed;
             state.InputData = effectiveInputData;
             state.OutputData = outputData;
@@ -777,8 +825,15 @@ public sealed class NodeActivationServiceTests
             CancellationToken cancellationToken)
         {
             var state = States[taskInstanceId];
+            if (state.Status is ProcessStepStatus.Completed or ProcessStepStatus.Failed)
+            {
+                return Task.CompletedTask;
+            }
+
+            FailMutationCount++;
             state.Status = ProcessStepStatus.Failed;
             state.InputData = effectiveInputData;
+            state.OutputData = null;
             state.ErrorMessage = errorMessage;
             state.FailedAt = failedAt;
             state.UpdatedAt = failedAt;
@@ -823,6 +878,7 @@ public sealed class NodeActivationServiceTests
         }
 
         public ProcessInstanceRecord<Dictionary<string, JsonElement>> State { get; private set; }
+        public int ThrowOnTryUpdateAttempts { get; set; }
 
         public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> CreateProcessState(
             ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
@@ -875,75 +931,125 @@ public sealed class NodeActivationServiceTests
             CancellationToken cancellationToken)
         {
             State = state;
+            if (ThrowOnTryUpdateAttempts > 0)
+            {
+                ThrowOnTryUpdateAttempts--;
+                throw new InvalidOperationException("Process state update failed.");
+            }
+
+            return Task.FromResult(true);
+        }
+    }
+
+    private sealed class InMemoryProcessStepFinalizationRepository : IProcessStepFinalizationRepository
+    {
+        public Dictionary<Guid, ProcessStepFinalizationRecord> Records { get; } = new();
+
+        public Task<ProcessStepFinalizationRecord?> GetAsync(
+            Guid processStepId,
+            CancellationToken cancellationToken)
+        {
+            Records.TryGetValue(processStepId, out var record);
+            return Task.FromResult(record);
+        }
+
+        public Task<ProcessStepFinalizationRecord> GetRequiredAsync(Guid processStepId) =>
+            Task.FromResult(Records[processStepId]);
+
+        public Task<(bool Created, ProcessStepFinalizationRecord Record)> CreateIfNotExistsAsync(
+            ProcessStepFinalizationRecord record,
+            CancellationToken cancellationToken)
+        {
+            var processStepId = Guid.Parse(record.Id);
+            if (Records.TryGetValue(processStepId, out var existing))
+            {
+                return Task.FromResult((false, existing));
+            }
+
+            Records[processStepId] = record;
+            return Task.FromResult((true, record));
+        }
+
+        public Task<bool> TryUpdateAsync(
+            ProcessStepFinalizationRecord record,
+            CancellationToken cancellationToken)
+        {
+            Records[Guid.Parse(record.Id)] = record;
             return Task.FromResult(true);
         }
     }
 
     private sealed class InMemoryNodeJoinStateRepository : INodeJoinStateRepository
     {
-        public Dictionary<(Guid ProcessId, Guid NodeId), NodeJoinStateRecord> States { get; } = new();
-
         public Task<NodeJoinStateRecord?> GetJoinStateAsync(
             Guid processId,
             Guid blueprintNodeId,
-            CancellationToken cancellationToken)
-        {
-            States.TryGetValue((processId, blueprintNodeId), out var state);
-            return Task.FromResult(state);
-        }
+            CancellationToken cancellationToken) =>
+            Task.FromResult<NodeJoinStateRecord?>(null);
 
         public Task<(bool Created, NodeJoinStateRecord State)> CreateJoinStateIfNotExistsAsync(
             NodeJoinStateRecord state,
-            CancellationToken cancellationToken)
-        {
-            var key = (Guid.Parse(state.ProcessId), Guid.Parse(state.BlueprintNodeId));
-            if (States.TryGetValue(key, out var existing))
-            {
-                return Task.FromResult((false, existing));
-            }
-
-            States[key] = state;
-            return Task.FromResult((true, state));
-        }
+            CancellationToken cancellationToken) =>
+            Task.FromResult((true, state));
 
         public Task<bool> TryUpdateJoinStateAsync(
             NodeJoinStateRecord state,
-            CancellationToken cancellationToken)
-        {
-            States[(Guid.Parse(state.ProcessId), Guid.Parse(state.BlueprintNodeId))] = state;
-            return Task.FromResult(true);
-        }
+            CancellationToken cancellationToken) =>
+            Task.FromResult(true);
     }
 
     private sealed class ProcessStepQueueWriterSpy : IProcessStepQueueWriter
     {
         public List<ProcessStepInitialisationMessage> Messages { get; } = [];
+        public int ThrowOnEnqueueAttempts { get; set; }
 
         public Task EnqueueAsync(
             ProcessStepInitialisationMessage message,
             CancellationToken cancellationToken)
         {
+            if (ThrowOnEnqueueAttempts > 0)
+            {
+                ThrowOnEnqueueAttempts--;
+                throw new InvalidOperationException("Queue enqueue failed.");
+            }
+
             Messages.Add(message);
             return Task.CompletedTask;
         }
     }
 
-    private sealed class ProcessStepQueueMessageStub : IProcessStepQueueMessage
+    private sealed class ProcessStepQueueMessageSpy : IProcessStepQueueMessage
     {
-        public ProcessStepQueueMessageStub(ProcessStepInitialisationMessage payload)
+        public ProcessStepQueueMessageSpy(ProcessStepInitialisationMessage payload)
         {
             Payload = payload;
         }
 
         public string MessageId { get; } = Guid.NewGuid().ToString();
         public DateTimeOffset EnqueuedAt { get; } = DateTimeOffset.UtcNow;
-        public DateTimeOffset LockedUntil { get; } = DateTimeOffset.UtcNow.AddMinutes(1);
+        public DateTimeOffset LockedUntil { get; private set; } = DateTimeOffset.UtcNow.AddMinutes(1);
         public ProcessStepInitialisationMessage Payload { get; }
+        public int CompleteCount { get; private set; }
+        public int AbandonCount { get; private set; }
+        public Action? OnComplete { get; set; }
 
-        public Task CompleteAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task CompleteAsync(CancellationToken cancellationToken)
+        {
+            OnComplete?.Invoke();
+            CompleteCount++;
+            return Task.CompletedTask;
+        }
 
-        public Task AbandonAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task AbandonAsync(CancellationToken cancellationToken)
+        {
+            AbandonCount++;
+            return Task.CompletedTask;
+        }
 
-        public Task RenewLockAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task RenewLockAsync(CancellationToken cancellationToken)
+        {
+            LockedUntil = DateTimeOffset.UtcNow.AddMinutes(1);
+            return Task.CompletedTask;
+        }
     }
 }

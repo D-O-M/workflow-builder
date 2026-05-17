@@ -85,7 +85,9 @@ builder.Services.AddSingleton<IChildProcessTracker, ChildProcessTracker>();
 builder.Services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();
 builder.Services.AddSingleton<IPluginRuntimeCapabilityService, PluginRuntimeCapabilityService>();
 builder.Services.AddSingleton<IPluginRuntimeConfigurationService, PluginRuntimeConfigurationService>();
+builder.Services.AddSingleton<PluginRuntimeCatalog>();
 builder.Services.AddSingleton<PluginRuntimeOrchestrator>();
+builder.Services.AddSingleton<IPluginRuntimeReloader>(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
 builder.Services.AddHostedService(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
 builder.Services.AddSingleton<IAsyncDelay, DefaultAsyncDelay>();
 builder.Services.AddSingleton<IDebuggerAttachmentGuard, DebuggerAttachmentGuard>();
@@ -159,13 +161,19 @@ builder.Services.AddSingleton<IPluginReloadQueueReader>(provider =>
     return new ServiceBusPluginReloadQueueReader(binding.Client.CreateReceiver(binding.QueueName));
 });
 
-builder.Services.AddTransient<JobFinalizationService>();
-builder.Services.AddTransient<NodeActivationService>();
+builder.Services.AddTransient<StepFinalizationService>();
+builder.Services.AddTransient<IStepFinalizationService>(provider => provider.GetRequiredService<StepFinalizationService>());
+builder.Services.AddSingleton<StepClaimService>();
+builder.Services.AddSingleton<ActivationPlanner>();
+builder.Services.AddTransient<ActivationPersistenceService>();
 builder.Services.AddTransient<CollectionIteratorExecutionService>();
+builder.Services.AddTransient<ICollectionIteratorExecutionService>(provider => provider.GetRequiredService<CollectionIteratorExecutionService>());
 builder.Services.AddSingleton<ProcessLifecycleTelemetry>();
 builder.Services.AddSingleton<ProcessStepDispatchTelemetry>();
 builder.Services.AddSingleton<ProcessStepDispatchService>();
-builder.Services.AddSingleton<JobManager>();
+builder.Services.AddSingleton<StepExecutionService>();
+builder.Services.AddSingleton<IStepExecutionService>(provider => provider.GetRequiredService<StepExecutionService>());
+builder.Services.AddSingleton<StepMessageHandler>();
 builder.Services.AddSingleton<PluginResultFinalizationQueue>();
 
 builder.Services.AddHostedService<QueueConsumer>();

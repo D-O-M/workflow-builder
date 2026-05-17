@@ -3,18 +3,18 @@ namespace Backend.Engine;
 public sealed class PluginResultFinalizationWorker : BackgroundService
 {
     private readonly IConfiguration _configuration;
-    private readonly JobManager _jobManager;
+    private readonly IStepExecutionService _stepExecutionService;
     private readonly ILogger<PluginResultFinalizationWorker> _logger;
     private readonly PluginResultFinalizationQueue _queue;
 
     public PluginResultFinalizationWorker(
         IConfiguration configuration,
-        JobManager jobManager,
+        IStepExecutionService stepExecutionService,
         ILogger<PluginResultFinalizationWorker> logger,
         PluginResultFinalizationQueue queue)
     {
         _configuration = configuration;
-        _jobManager = jobManager;
+        _stepExecutionService = stepExecutionService;
         _logger = logger;
         _queue = queue;
     }
@@ -45,7 +45,7 @@ public sealed class PluginResultFinalizationWorker : BackgroundService
         {
             try
             {
-                await _jobManager.CompleteJob(result, stoppingToken);
+                await _stepExecutionService.HandlePluginResultAsync(result, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -53,7 +53,7 @@ public sealed class PluginResultFinalizationWorker : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unhandled plugin result finalization failure for job {JobId}.", result.JobId);
+                _logger.LogError(ex, "Unhandled plugin result finalization failure for process step {ProcessStepId}.", result.JobId);
             }
         }
     }

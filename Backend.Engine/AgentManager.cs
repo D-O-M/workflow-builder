@@ -6,15 +6,15 @@ public interface IAgentManager
     void RegisterAgent(int agentId, PluginRuntimeAgent agent);
     void UnregisterAgent(int agentId);
     PluginRuntimeAgent GetAgent(int agentId);
-    bool TryAcquireJobSlot(int agentId);
-    void ReleaseJobSlot(int agentId);
-    int GetActiveJobCount(int agentId);
+    bool TryAcquireStepSlot(int agentId);
+    void ReleaseStepSlot(int agentId);
+    int GetActiveStepCount(int agentId);
 }
 
 public class AgentManager : IAgentManager
 {
     private readonly Dictionary<int, PluginRuntimeAgent> _agents = new();
-    private readonly Dictionary<int, int> _activeJobCounts = new();
+    private readonly Dictionary<int, int> _activeStepCounts = new();
     private readonly Lock _sync = new();
 
     public void RegisterAgent(int agentId, PluginRuntimeAgent agent)
@@ -27,7 +27,7 @@ public class AgentManager : IAgentManager
             }
 
             _agents[agentId] = agent;
-            _activeJobCounts.TryAdd(agentId, 0);
+            _activeStepCounts.TryAdd(agentId, 0);
         }
     }
 
@@ -57,11 +57,11 @@ public class AgentManager : IAgentManager
         lock (_sync)
         {
             _agents.Remove(agentId);
-            _activeJobCounts.Remove(agentId);
+            _activeStepCounts.Remove(agentId);
         }
     }
 
-    public bool TryAcquireJobSlot(int agentId)
+    public bool TryAcquireStepSlot(int agentId)
     {
         lock (_sync)
         {
@@ -70,30 +70,30 @@ public class AgentManager : IAgentManager
                 return false;
             }
 
-            _activeJobCounts.TryGetValue(agentId, out var activeJobs);
-            _activeJobCounts[agentId] = activeJobs + 1;
+            _activeStepCounts.TryGetValue(agentId, out var activeSteps);
+            _activeStepCounts[agentId] = activeSteps + 1;
             return true;
         }
     }
 
-    public void ReleaseJobSlot(int agentId)
+    public void ReleaseStepSlot(int agentId)
     {
         lock (_sync)
         {
-            if (!_activeJobCounts.TryGetValue(agentId, out var activeJobs))
+            if (!_activeStepCounts.TryGetValue(agentId, out var activeSteps))
             {
                 return;
             }
 
-            _activeJobCounts[agentId] = Math.Max(activeJobs - 1, 0);
+            _activeStepCounts[agentId] = Math.Max(activeSteps - 1, 0);
         }
     }
 
-    public int GetActiveJobCount(int agentId)
+    public int GetActiveStepCount(int agentId)
     {
         lock (_sync)
         {
-            return _activeJobCounts.TryGetValue(agentId, out var activeJobs) ? activeJobs : 0;
+            return _activeStepCounts.TryGetValue(agentId, out var activeSteps) ? activeSteps : 0;
         }
     }
 

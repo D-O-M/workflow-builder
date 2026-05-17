@@ -8,24 +8,24 @@ using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Models;
 using Backend.Plugins.Communication;
+using Backend.Repositories;
+using Backend.Services.ProcessStepQueue;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Shouldly;
 
 namespace Backend.Engine.Tests;
 
-public class JobContextGlobalStateTests
+public class StepFinalizationGlobalStateTests
 {
     [Test]
-    public async Task PersistSuccessAsync_Preserves_existing_global_state_when_plugin_returns_no_global_state_update()
+    public async Task FinalizeSucceededStepAsync_preserves_existing_global_state_when_plugin_returns_no_global_state_update()
     {
-        var (context, processState, _) = CreateContext();
+        var (context, service, processState, _) = CreateContext();
 
-        await context.PersistSuccessAsync(
-            effectiveInputData: null,
-            new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-            globalState: null,
-            DateTimeOffset.UtcNow,
+        await service.FinalizeSucceededStepAsync(
+            context,
+            CreateResult(context, succeeded: true, globalState: null),
             CancellationToken.None);
 
         processState.GlobalState.Keys.ShouldBe(["Existing"]);
@@ -33,15 +33,13 @@ public class JobContextGlobalStateTests
     }
 
     [Test]
-    public async Task PersistFailureAsync_Preserves_existing_global_state_when_plugin_returns_no_global_state_update()
+    public async Task FinalizeFailedStepAsync_preserves_existing_global_state_when_plugin_returns_no_global_state_update()
     {
-        var (context, processState, _) = CreateContext();
+        var (context, service, processState, _) = CreateContext();
 
-        await context.PersistFailureAsync(
-            effectiveInputData: null,
-            globalState: null,
-            errorMessage: "boom",
-            DateTimeOffset.UtcNow,
+        await service.FinalizeFailedStepAsync(
+            context,
+            CreateResult(context, succeeded: false, globalState: null),
             CancellationToken.None);
 
         processState.GlobalState.Keys.ShouldBe(["Existing"]);
@@ -49,18 +47,17 @@ public class JobContextGlobalStateTests
     }
 
     [Test]
-    public async Task PersistSuccessAsync_Replaces_global_state_when_stateful_plugin_returns_global_state()
+    public async Task FinalizeSucceededStepAsync_replaces_global_state_when_stateful_plugin_returns_global_state()
     {
-        var (context, processState, _) = CreateContext();
-
-        await context.PersistSuccessAsync(
-            effectiveInputData: null,
-            new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-            new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+        var (context, service, processState, _) = CreateContext();
+        var globalState = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
             {
                 ["Updated"] = JsonString("next")
-            },
-            DateTimeOffset.UtcNow,
+            };
+
+        await service.FinalizeSucceededStepAsync(
+            context,
+            CreateResult(context, succeeded: true, globalState),
             CancellationToken.None);
 
         processState.GlobalState.Keys.ShouldBe(["Updated"]);
@@ -68,7 +65,8 @@ public class JobContextGlobalStateTests
     }
 
     private static (
-        JobContext Context,
+        StepExecutionContext Context,
+        StepFinalizationService Service,
         ProcessInstanceRecord<Dictionary<string, JsonElement>> ProcessState,
         ProcessStepRecord StepState) CreateContext()
     {
@@ -159,6 +157,9 @@ public class JobContextGlobalStateTests
         var queueMessage = new Mock<IProcessStepQueueMessage>();
         queueMessage.SetupGet(message => message.MessageId).Returns("message-1");
         queueMessage.SetupGet(message => message.LockedUntil).Returns(DateTimeOffset.UtcNow.AddMinutes(1));
+        queueMessage
+            .Setup(message => message.CompleteAsync(It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
 
         var blueprintNode = new ExecutableBlueprintNode
         {
@@ -191,7 +192,7 @@ public class JobContextGlobalStateTests
             AllNodes = [blueprintNode]
         };
 
-        var context = new JobContext(
+        var context = new StepExecutionContext(
             new ProcessStepInitialisationMessage
             {
                 ProcessId = processId,
@@ -199,18 +200,98 @@ public class JobContextGlobalStateTests
                 ExecutableBlueprintId = executableBlueprintId,
                 BlueprintNodeId = blueprintNodeId
             },
-            NullLogger<JobContext>.Instance,
+            NullLogger<StepExecutionContext>.Instance,
             queueMessage.Object,
-            stepRepository.Object,
-            processRepository.Object,
             executableBlueprint);
 
-        return (context, processState, stepState);
+        var telemetry = new ProcessLifecycleTelemetry(NullLogger<ProcessLifecycleTelemetry>.Instance);
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var dispatchService = new ProcessStepDispatchService(
+            stepRepository.Object,
+            Mock.Of<IProcessStepQueueWriter>(),
+            new ProcessStepDispatchOptions(),
+            new ProcessStepDispatchTelemetry(),
+            NullLogger<ProcessStepDispatchService>.Instance);
+        var activationPersistenceService = new ActivationPersistenceService(
+            new ActivationPlanner(),
+            Mock.Of<INodeJoinStateRepository>(),
+            dispatchService,
+            stepRepository.Object,
+            NullLogger<ActivationPersistenceService>.Instance);
+        var phasedProcessFinalizationService = new PhasedProcessFinalizationService(
+            Mock.Of<IPhasedBlueprintRepository>(),
+            Mock.Of<IPhasedProcessRepository>(),
+            Mock.Of<IPhaseCorrelationRepository>(),
+            processRepository.Object,
+            stepRepository.Object,
+            NullLogger<PhasedProcessFinalizationService>.Instance);
+        var stepClaimService = new StepClaimService(
+            stepRepository.Object,
+            processRepository.Object,
+            telemetry);
+        var service = new StepFinalizationService(
+            activationPersistenceService,
+            phasedProcessFinalizationService,
+            finalizationRepository,
+            stepRepository.Object,
+            processRepository.Object,
+            stepClaimService,
+            telemetry,
+            NullLogger<StepFinalizationService>.Instance);
+
+        return (context, service, processState, stepState);
     }
+
+    private static PluginExecutionResult CreateResult(
+        StepExecutionContext context,
+        bool succeeded,
+        Dictionary<string, JsonElement>? globalState) =>
+        new(
+            context.ProcessStepId,
+            succeeded,
+            EffectiveInputData: null,
+            OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
+            GlobalState: globalState,
+            StartedAt: DateTimeOffset.UtcNow.AddSeconds(-1),
+            CompletedAt: DateTimeOffset.UtcNow,
+            TimingsMs: null,
+            ErrorMessage: succeeded ? null : "boom");
 
     private static JsonElement JsonString(string value)
     {
         using var document = JsonDocument.Parse($"\"{value}\"");
         return document.RootElement.Clone();
+    }
+
+    private sealed class InMemoryProcessStepFinalizationRepository : IProcessStepFinalizationRepository
+    {
+        private readonly Dictionary<Guid, ProcessStepFinalizationRecord> _records = new();
+
+        public Task<ProcessStepFinalizationRecord?> GetAsync(
+            Guid processStepId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(_records.GetValueOrDefault(processStepId));
+
+        public Task<(bool Created, ProcessStepFinalizationRecord Record)> CreateIfNotExistsAsync(
+            ProcessStepFinalizationRecord record,
+            CancellationToken cancellationToken)
+        {
+            var id = Guid.Parse(record.Id);
+            if (_records.TryGetValue(id, out var existing))
+            {
+                return Task.FromResult((false, existing));
+            }
+
+            _records[id] = record;
+            return Task.FromResult((true, record));
+        }
+
+        public Task<bool> TryUpdateAsync(
+            ProcessStepFinalizationRecord record,
+            CancellationToken cancellationToken)
+        {
+            _records[Guid.Parse(record.Id)] = record;
+            return Task.FromResult(true);
+        }
     }
 }

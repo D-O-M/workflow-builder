@@ -10,24 +10,34 @@ using Microsoft.Extensions.Options;
 
 namespace Backend.Engine;
 
-public sealed class CollectionIteratorExecutionService
+public interface ICollectionIteratorExecutionService
+{
+    Task ExecuteAsync(
+        StepExecutionContext context,
+        CancellationToken cancellationToken);
+}
+
+public sealed class CollectionIteratorExecutionService : ICollectionIteratorExecutionService
 {
     private const string CollectionInputPropertyName = "items";
 
-    private readonly JobFinalizationService _jobFinalizationService;
+    private readonly IStepFinalizationService _stepFinalizationService;
+    private readonly StepClaimService _stepClaimService;
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IOptions<CollectionIteratorOptions> _options;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
     private readonly ILogger<CollectionIteratorExecutionService> _logger;
 
     public CollectionIteratorExecutionService(
-        JobFinalizationService jobFinalizationService,
+        IStepFinalizationService stepFinalizationService,
+        StepClaimService stepClaimService,
         IProcessStepRepository processStepRepository,
         IOptions<CollectionIteratorOptions> options,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
         ILogger<CollectionIteratorExecutionService> logger)
     {
-        _jobFinalizationService = jobFinalizationService;
+        _stepFinalizationService = stepFinalizationService;
+        _stepClaimService = stepClaimService;
         _processStepRepository = processStepRepository;
         _options = options;
         _processLifecycleTelemetry = processLifecycleTelemetry;
@@ -35,14 +45,11 @@ public sealed class CollectionIteratorExecutionService
     }
 
     public async Task ExecuteAsync(
-        JobContext context,
+        StepExecutionContext context,
         CancellationToken cancellationToken)
     {
-        var claimStopwatch = Stopwatch.StartNew();
-        var (stepClaimed, processStarted) = await context.TryMarkInProgressAsync(cancellationToken);
-        claimStopwatch.Stop();
-        _processLifecycleTelemetry.RecordStepClaim(context, claimStopwatch.Elapsed, stepClaimed);
-        if (!stepClaimed)
+        var claim = await _stepClaimService.TryClaimStepAsync(context, cancellationToken);
+        if (!claim.StepClaimed)
         {
             await context.CompleteMessageAsync(cancellationToken);
             return;
@@ -57,7 +64,7 @@ public sealed class CollectionIteratorExecutionService
         try
         {
             _processLifecycleTelemetry.LogStepStarted(context, startedAt);
-            if (processStarted)
+            if (claim.ProcessStarted)
             {
                 _processLifecycleTelemetry.LogProcessStarted(context, startedAt);
             }
@@ -95,7 +102,7 @@ public sealed class CollectionIteratorExecutionService
             _processLifecycleTelemetry.RecordRecordedStepDuration(context, result.CompletedAt);
             _processLifecycleTelemetry.RecordPluginPhaseTimings(context, result.TimingsMs);
 
-            var finalizationResult = await _jobFinalizationService.FinalizeCollectionIteratorSuccessAsync(
+            var finalizationResult = await _stepFinalizationService.FinalizeSucceededCollectionIteratorStepAsync(
                 context,
                 result,
                 repeatedNodeCount,
@@ -141,7 +148,7 @@ public sealed class CollectionIteratorExecutionService
 
             try
             {
-                await _jobFinalizationService.FinalizeCollectionIteratorFailureAsync(
+                await _stepFinalizationService.FinalizeFailedCollectionIteratorStepAsync(
                     context,
                     result,
                     cancellationToken);
@@ -167,7 +174,7 @@ public sealed class CollectionIteratorExecutionService
     }
 
     private async Task<Dictionary<string, JsonElement>> HydrateInputAsync(
-        JobContext context,
+        StepExecutionContext context,
         CancellationToken cancellationToken)
     {
         var plan = context.InputHydrationPlan
@@ -219,7 +226,7 @@ public sealed class CollectionIteratorExecutionService
     }
 
     private IReadOnlyList<JsonElement> GetCollectionItems(
-        JobContext context,
+        StepExecutionContext context,
         IReadOnlyDictionary<string, JsonElement> materializedInput)
     {
         if (!materializedInput.TryGetValue(CollectionInputPropertyName, out var collectionValue))
@@ -245,7 +252,7 @@ public sealed class CollectionIteratorExecutionService
         return items;
     }
 
-    private void ValidateItemLimit(JobContext context, int itemCount)
+    private void ValidateItemLimit(StepExecutionContext context, int itemCount)
     {
         var maxItems = Math.Max(0, _options.Value.MaxItems);
         if (itemCount <= maxItems)
@@ -258,7 +265,7 @@ public sealed class CollectionIteratorExecutionService
             $"Item count {itemCount} exceeds the configured maximum of {maxItems}.");
     }
 
-    private static void ValidateItemValues(JobContext context, IReadOnlyList<JsonElement> items)
+    private static void ValidateItemValues(StepExecutionContext context, IReadOnlyList<JsonElement> items)
     {
         var itemKindName = context.BlueprintNode.CollectionIteratorItemKind ?? WorkflowPropertyKind.String.ToString();
         var itemKind = WorkflowPropertyTypeName.ParseScalar(itemKindName);

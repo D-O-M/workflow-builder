@@ -6,32 +6,33 @@ using Backend.Models;
 
 namespace Backend.Engine;
 
-public class PluginRuntimeOrchestrator : BackgroundService
+public interface IPluginRuntimeReloader
 {
-    private readonly record struct PluginLane(
-        int TaskDefinitionId,
-        int Major,
-        int Minor);
+    Task ReloadAsync(CancellationToken cancellationToken);
+}
 
+public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReloader
+{
     private readonly IAgentManager _agentManager;
     private readonly IPluginRuntimeCapabilityService _capabilityService;
+    private readonly PluginRuntimeCatalog _pluginRuntimeCatalog;
     private readonly ILogger _logger;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly Lock _sync = new();
 
     private readonly Dictionary<int, PluginRuntimeAgent> _agents = [];
-    private readonly Dictionary<int, TaskDefinitionInfo> _knownVersions = [];
-    private readonly Dictionary<PluginLane, int> _laneRoutes = [];
     private readonly SemaphoreSlim _reloadGate = new(1, 1);
 
     public PluginRuntimeOrchestrator(
         IAgentManager agentManager,
         IPluginRuntimeCapabilityService capabilityService,
+        PluginRuntimeCatalog pluginRuntimeCatalog,
         ILogger<PluginRuntimeOrchestrator> logger,
         IServiceScopeFactory serviceScopeFactory)
     {
         _agentManager = agentManager;
         _capabilityService = capabilityService;
+        _pluginRuntimeCatalog = pluginRuntimeCatalog;
         _logger = logger;
         _serviceScopeFactory = serviceScopeFactory;
     }
@@ -72,55 +73,23 @@ public class PluginRuntimeOrchestrator : BackgroundService
         await base.StopAsync(cancellationToken);
     }
 
-    public bool TryResolveTaskVersion(
-        int taskDefinitionId,
-        int allowedMajor,
-        int allowedMinor,
-        out TaskDefinitionInfo taskVersion)
-    {
-        lock (_sync)
-        {
-            if (_laneRoutes.TryGetValue(
-                    new PluginLane(taskDefinitionId, allowedMajor, allowedMinor),
-                    out var taskVersionId) &&
-                _knownVersions.TryGetValue(taskVersionId, out var resolvedTaskVersion) &&
-                _agents.ContainsKey(taskVersionId))
-            {
-                taskVersion = resolvedTaskVersion;
-                return true;
-            }
-        }
-
-        taskVersion = null!;
-        return false;
-    }
-
     private async Task ReloadCoreAsync(CancellationToken cancellationToken)
     {
         await using var scope = _serviceScopeFactory.CreateAsyncScope();
         var taskDefinitionRepository = scope.ServiceProvider.GetRequiredService<ITaskDefinitionRepository>();
 
         var allVersions = await taskDefinitionRepository.GetAll(cancellationToken);
-        lock (_sync)
-        {
-            _knownVersions.Clear();
-            foreach (var version in allVersions)
-            {
-                _knownVersions[version.Id] = version;
-            }
-        }
 
         var desiredVersionIds = new HashSet<int>();
-        var encounteredLanes = new HashSet<PluginLane>();
+        var desiredRoutes = new Dictionary<PluginRuntimeLane, TaskDefinitionInfo>();
 
         foreach (var lane in allVersions
                      .GroupBy(version => (version.TaskDefinitionId, version.Version.Major, version.Version.Minor)))
         {
-            var laneKey = new PluginLane(
+            var laneKey = new PluginRuntimeLane(
                 lane.Key.TaskDefinitionId,
                 lane.Key.Major,
                 lane.Key.Minor);
-            encounteredLanes.Add(laneKey);
 
             var ordered = lane
                 .OrderByDescending(version => version.Version)
@@ -138,11 +107,6 @@ public class PluginRuntimeOrchestrator : BackgroundService
 
             if (routedVersion is null)
             {
-                lock (_sync)
-                {
-                    _laneRoutes.Remove(laneKey);
-                }
-
                 _logger.LogWarning(
                     "No runnable plugin version is currently available for lane {TaskDefinitionId} {Major}.{Minor}.",
                     laneKey.TaskDefinitionId,
@@ -152,19 +116,16 @@ public class PluginRuntimeOrchestrator : BackgroundService
             }
 
             desiredVersionIds.Add(routedVersion.Id);
+            desiredRoutes[laneKey] = routedVersion;
 
-            int? previousVersionId = null;
-            lock (_sync)
-            {
-                if (_laneRoutes.TryGetValue(laneKey, out var existingVersionId))
-                {
-                    previousVersionId = existingVersionId;
-                }
+            var routedChanged = !_pluginRuntimeCatalog.TryResolvePluginRuntime(
+                    laneKey.TaskDefinitionId,
+                    laneKey.Major,
+                    laneKey.Minor,
+                    out var previousRoute) ||
+                previousRoute.TaskVersionId != routedVersion.Id;
 
-                _laneRoutes[laneKey] = routedVersion.Id;
-            }
-
-            if (previousVersionId != routedVersion.Id)
+            if (routedChanged)
             {
                 _logger.LogInformation(
                     "Routing lane {TaskDefinitionId} {Major}.{Minor} to task version {TaskVersionId} ({TaskName} {Version}).",
@@ -182,15 +143,7 @@ public class PluginRuntimeOrchestrator : BackgroundService
             }
         }
 
-        List<PluginLane> obsoleteLanes;
-        lock (_sync)
-        {
-            obsoleteLanes = [.. _laneRoutes.Keys.Where(lane => !encounteredLanes.Contains(lane))];
-            foreach (var obsoleteLane in obsoleteLanes)
-            {
-                _laneRoutes.Remove(obsoleteLane);
-            }
-        }
+        _pluginRuntimeCatalog.ReplaceRoutes(allVersions, desiredRoutes);
 
         List<int> staleAgentIds;
         lock (_sync)
@@ -323,7 +276,7 @@ public class PluginRuntimeOrchestrator : BackgroundService
 
     private async Task StopAgentIfIdleAsync(int taskVersionId, CancellationToken cancellationToken)
     {
-        if (!_agentManager.AgentExists(taskVersionId) || _agentManager.GetActiveJobCount(taskVersionId) > 0)
+        if (!_agentManager.AgentExists(taskVersionId) || _agentManager.GetActiveStepCount(taskVersionId) > 0)
         {
             return;
         }
@@ -353,6 +306,8 @@ public class PluginRuntimeOrchestrator : BackgroundService
             agentsToStop = [.. _agents];
             _agents.Clear();
         }
+
+        _pluginRuntimeCatalog.Clear();
 
         foreach (var (taskVersionId, agent) in agentsToStop)
         {
