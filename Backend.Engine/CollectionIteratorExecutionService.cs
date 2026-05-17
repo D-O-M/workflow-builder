@@ -13,25 +13,21 @@ namespace Backend.Engine;
 public sealed class CollectionIteratorExecutionService
 {
     private const string CollectionInputPropertyName = "items";
-    private const string ItemOutputChannelName = "Item";
 
-    private readonly NodeActivationService _nodeActivationService;
-    private readonly PhasedProcessFinalizationService _phasedProcessFinalizationService;
+    private readonly JobFinalizationService _jobFinalizationService;
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IOptions<CollectionIteratorOptions> _options;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
     private readonly ILogger<CollectionIteratorExecutionService> _logger;
 
     public CollectionIteratorExecutionService(
-        NodeActivationService nodeActivationService,
-        PhasedProcessFinalizationService phasedProcessFinalizationService,
+        JobFinalizationService jobFinalizationService,
         IProcessStepRepository processStepRepository,
         IOptions<CollectionIteratorOptions> options,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
         ILogger<CollectionIteratorExecutionService> logger)
     {
-        _nodeActivationService = nodeActivationService;
-        _phasedProcessFinalizationService = phasedProcessFinalizationService;
+        _jobFinalizationService = jobFinalizationService;
         _processStepRepository = processStepRepository;
         _options = options;
         _processLifecycleTelemetry = processLifecycleTelemetry;
@@ -95,69 +91,37 @@ public sealed class CollectionIteratorExecutionService
                 ErrorMessage: null);
             activityResult = result;
 
-            var completedAfterSuccess = await context.PersistSuccessAsync(
-                result.EffectiveInputData,
-                result.OutputData,
-                result.GlobalState,
-                result.CompletedAt,
-                cancellationToken);
-
             var repeatedNodeCount = CountRepeatedBlueprintNodes(context.BlueprintNode, context.ExecutableBlueprint);
-            var completedAfterExpansion = await context.ApplyCollectionIteratorExpansionAsync(
+            _processLifecycleTelemetry.RecordRecordedStepDuration(context, result.CompletedAt);
+            _processLifecycleTelemetry.RecordPluginPhaseTimings(context, result.TimingsMs);
+
+            var finalizationResult = await _jobFinalizationService.FinalizeCollectionIteratorSuccessAsync(
+                context,
+                result,
                 repeatedNodeCount,
                 items.Count,
-                completedAt,
-                cancellationToken);
-
-            var enqueueStopwatch = Stopwatch.StartNew();
-            var queuedStepCount = await _nodeActivationService.EnqueueCollectionIteratorItemStepsAsync(
-                context,
-                items,
                 _options.Value.BatchSize,
-                completedAt,
                 cancellationToken);
-            enqueueStopwatch.Stop();
 
-            context.OutputChannelsPopulated = items.Count > 0 ? [ItemOutputChannelName] : [];
             _processLifecycleTelemetry.RecordCollectionIteratorFanOut(
                 context,
-                items.Count,
-                queuedStepCount,
+                finalizationResult.ItemCount,
+                finalizationResult.QueuedStepCount,
                 _options.Value.BatchSize,
-                enqueueStopwatch.Elapsed);
-            if (items.Count == 0)
+                finalizationResult.DownstreamActivationElapsed);
+            if (finalizationResult.ItemCount == 0)
             {
                 _processLifecycleTelemetry.RecordCollectionIteratorSkippedEmpty(context);
             }
 
-            _processLifecycleTelemetry.RecordRecordedStepDuration(context, result.CompletedAt);
-            _processLifecycleTelemetry.RecordPluginPhaseTimings(context, result.TimingsMs);
-            _processLifecycleTelemetry.LogStepCompleted(context, result);
-
-            if (completedAfterSuccess || completedAfterExpansion)
-            {
-                if (context.PhaseMetadata is not null)
-                {
-                    await _phasedProcessFinalizationService.FinalizeCompletedPhaseAsync(
-                        context.PhaseMetadata,
-                        context.ExecutableBlueprintId,
-                        context.ProcessId,
-                        completedAt,
-                        cancellationToken);
-                }
-
-                _processLifecycleTelemetry.LogProcessCompleted(context, completedAt);
-            }
-
             _logger.LogInformation(
                 "Collection Iterator expanded {ItemCount} item(s) for process {ProcessId}, blueprint node {BlueprintNodeId}, collection property {CollectionProperty}.",
-                items.Count,
+                finalizationResult.ItemCount,
                 context.ProcessId,
                 context.BlueprintNodeId,
                 CollectionInputPropertyName);
-            await context.CompleteMessageAsync(cancellationToken);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (activityResult is null)
         {
             var failedAt = DateTimeOffset.UtcNow;
             var errorMessage =
@@ -175,32 +139,25 @@ public sealed class CollectionIteratorExecutionService
             activityResult = result;
             activityException = ex;
 
-            await context.PersistFailureAsync(
-                effectiveInputData: null,
-                globalState: null,
-                errorMessage,
-                failedAt,
-                cancellationToken);
-            if (context.PhaseMetadata is not null)
+            try
             {
-                await _phasedProcessFinalizationService.MarkPhaseFailedAsync(
-                    context.PhaseMetadata,
-                    context.ExecutableBlueprintId,
-                    context.ProcessId,
-                    errorMessage,
-                    failedAt,
+                await _jobFinalizationService.FinalizeCollectionIteratorFailureAsync(
+                    context,
+                    result,
                     cancellationToken);
             }
+            catch (Exception finalizationEx)
+            {
+                activityException = finalizationEx;
+                throw;
+            }
 
-            _processLifecycleTelemetry.LogStepFailed(context, result);
-            _processLifecycleTelemetry.LogProcessFailed(context, failedAt, errorMessage);
             _logger.LogError(
                 ex,
                 "Collection Iterator failed for process {ProcessId}, blueprint node {BlueprintNodeId}, collection property {CollectionProperty}.",
                 context.ProcessId,
                 context.BlueprintNodeId,
                 CollectionInputPropertyName);
-            await context.CompleteMessageAsync(cancellationToken);
         }
         finally
         {

@@ -4,6 +4,7 @@ using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Models;
 using Backend.Plugins.Communication;
+using Backend.Services.ProcessStepQueue;
 
 namespace Backend.Engine;
 
@@ -12,18 +13,18 @@ public sealed class NodeActivationService
     private const int MaxJoinStateUpdateAttempts = 10;
 
     private readonly INodeJoinStateRepository _nodeJoinStateRepository;
-    private readonly IProcessStepQueueWriter _processStepQueueWriter;
+    private readonly ProcessStepDispatchService _processStepDispatchService;
     private readonly IProcessStepRepository _processStepRepository;
     private readonly ILogger<NodeActivationService> _logger;
 
     public NodeActivationService(
         INodeJoinStateRepository nodeJoinStateRepository,
-        IProcessStepQueueWriter processStepQueueWriter,
+        ProcessStepDispatchService processStepDispatchService,
         IProcessStepRepository processStepRepository,
         ILogger<NodeActivationService> logger)
     {
         _nodeJoinStateRepository = nodeJoinStateRepository;
-        _processStepQueueWriter = processStepQueueWriter;
+        _processStepDispatchService = processStepDispatchService;
         _processStepRepository = processStepRepository;
         _logger = logger;
     }
@@ -323,7 +324,6 @@ public sealed class NodeActivationService
         }
 
         var processStepRecords = new List<ProcessStepRecord>(pendingActivations.Count);
-        var messagesByStepId = new Dictionary<Guid, ProcessStepInitialisationMessage>(pendingActivations.Count);
         var joinStateIdsByStepId = new Dictionary<Guid, Guid>(pendingActivations.Count);
         foreach (var activation in pendingActivations)
         {
@@ -347,6 +347,7 @@ public sealed class NodeActivationService
                 CreatedAt = timestamp,
                 UpdatedAt = timestamp,
                 Status = ProcessStepStatus.Pending,
+                Dispatch = ProcessStepDispatchService.CreatePendingDispatchState(timestamp),
                 InputHydrationPlan = new InputHydrationPlan
                 {
                     InputChannelName = activation.DestinationNode.InputChannel.Name,
@@ -357,14 +358,6 @@ public sealed class NodeActivationService
                 IterationContext = activation.IterationContext
             });
 
-            messagesByStepId[processStepId] = new ProcessStepInitialisationMessage
-            {
-                ProcessId = context.ProcessId,
-                ExecutableBlueprintId = context.ExecutableBlueprintId,
-                ProcessStepId = processStepId,
-                BlueprintNodeId = activation.DestinationNode.Id
-            };
-
             if (activation.JoinStateId is Guid joinStateId)
             {
                 joinStateIdsByStepId[processStepId] = joinStateId;
@@ -374,21 +367,19 @@ public sealed class NodeActivationService
         var createdSteps = await _processStepRepository.CreateProcessStepsIfNotExists(
             processStepRecords,
             cancellationToken);
-        var queueMessages = createdSteps
+        var scheduledSteps = createdSteps
             .Where(result => result.Created || result.State.Status == ProcessStepStatus.Pending)
-            .Select(result => messagesByStepId[Guid.Parse(result.State.Id)])
+            .Select(result => result.State)
             .ToList();
 
-        if (queueMessages.Count == 0)
+        if (scheduledSteps.Count == 0)
         {
             return 0;
         }
 
-        await _processStepQueueWriter.EnqueueBatchAsync(queueMessages, cancellationToken);
-
-        foreach (var message in queueMessages)
+        foreach (var step in scheduledSteps)
         {
-            if (!joinStateIdsByStepId.TryGetValue(message.ProcessStepId, out var joinStateId))
+            if (!joinStateIdsByStepId.TryGetValue(Guid.Parse(step.Id), out var joinStateId))
             {
                 continue;
             }
@@ -396,17 +387,22 @@ public sealed class NodeActivationService
             await MarkJoinStepEnqueuedAsync(
                 context.ProcessId,
                 joinStateId,
-                message.ProcessStepId,
+                Guid.Parse(step.Id),
                 timestamp,
                 cancellationToken);
         }
 
+        foreach (var step in scheduledSteps)
+        {
+            await _processStepDispatchService.TryDispatchAsync(step, cancellationToken);
+        }
+
         _logger.LogInformation(
-            "Queued {StepCount} downstream step(s) for process {ProcessId} after receiving required inbound bindings.",
-            queueMessages.Count,
+            "Scheduled {StepCount} downstream step(s) for process {ProcessId} after receiving required inbound bindings.",
+            scheduledSteps.Count,
             context.ProcessId);
 
-        return queueMessages.Count;
+        return scheduledSteps.Count;
     }
 
     private async Task MarkJoinStepEnqueuedAsync(

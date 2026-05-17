@@ -21,7 +21,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing.AddSource(ProcessLifecycleTelemetry.ActivitySourceName))
-    .WithMetrics(metrics => metrics.AddMeter("WorkflowBuilder.Engine.Processes"));
+    .WithMetrics(metrics => metrics
+        .AddMeter("WorkflowBuilder.Engine.Processes")
+        .AddMeter(ProcessStepDispatchTelemetry.MeterName));
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -31,6 +33,11 @@ builder.Services.Configure<DebuggerAutoAttachOptions>(
     builder.Configuration.GetSection("DebuggerAutoAttach"));
 builder.Services.Configure<CollectionIteratorOptions>(
     builder.Configuration.GetSection("CollectionIterator"));
+builder.Services.AddSingleton(sp =>
+    sp.GetRequiredService<IConfiguration>()
+        .GetSection("ProcessStepDispatch")
+        .Get<ProcessStepDispatchOptions>()
+    ?? new ProcessStepDispatchOptions());
 
 var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(
     builder.Configuration,
@@ -156,10 +163,13 @@ builder.Services.AddTransient<JobFinalizationService>();
 builder.Services.AddTransient<NodeActivationService>();
 builder.Services.AddTransient<CollectionIteratorExecutionService>();
 builder.Services.AddSingleton<ProcessLifecycleTelemetry>();
+builder.Services.AddSingleton<ProcessStepDispatchTelemetry>();
+builder.Services.AddSingleton<ProcessStepDispatchService>();
 builder.Services.AddSingleton<JobManager>();
 builder.Services.AddSingleton<PluginResultFinalizationQueue>();
 
 builder.Services.AddHostedService<QueueConsumer>();
+builder.Services.AddHostedService<ProcessStepDispatchWorker>();
 builder.Services.AddHostedService<PluginResultFinalizationWorker>();
 builder.Services.AddHostedService<PluginReloadConsumer>();
 

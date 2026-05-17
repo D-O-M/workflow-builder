@@ -46,6 +46,49 @@ public interface IProcessStepRepository
         Guid processId,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<ProcessStepRecord>> GetDueStepDispatchesAsync(
+        DateTimeOffset now,
+        int maxItemCount,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<ProcessStepDispatchBacklogSnapshot> GetDispatchBacklogSnapshotAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<(bool Claimed, ProcessStepRecord? State)> TryClaimStepDispatchAsync(
+        ProcessStepRecord state,
+        string leaseId,
+        DateTimeOffset now,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<bool> MarkStepDispatchSucceededAsync(
+        ProcessStepRecord state,
+        string leaseId,
+        DateTimeOffset dispatchedAt,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<bool> MarkStepDispatchRetryableErrorAsync(
+        ProcessStepRecord state,
+        string leaseId,
+        ProcessStepDispatchErrorKind errorKind,
+        string errorMessage,
+        DateTimeOffset failedAt,
+        DateTimeOffset nextAttemptAt,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<bool> MarkStepDispatchSkippedTerminalAsync(
+        ProcessStepRecord state,
+        string leaseId,
+        DateTimeOffset skippedAt,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
     Task CompleteProcessStepAsync(
         Guid taskInstanceId,
         Guid processId,
@@ -70,3 +113,7 @@ public interface IProcessStepRepository
         ProcessStepRecord state,
         CancellationToken cancellationToken);
 }
+
+public sealed record ProcessStepDispatchBacklogSnapshot(
+    long PendingCount,
+    DateTimeOffset? OldestPendingCreatedAt);

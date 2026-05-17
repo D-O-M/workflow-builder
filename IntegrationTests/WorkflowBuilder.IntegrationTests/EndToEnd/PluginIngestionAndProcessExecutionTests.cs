@@ -108,6 +108,9 @@ public sealed class PluginIngestionAndProcessExecutionTests
         snapshot.Process.GlobalState["StepsCompleted"].GetInt32().ShouldBe(3);
         snapshot.Process.GlobalState["TotalScore"].GetInt32().ShouldBe(20);
         snapshot.Process.GlobalState["LastStage"].GetString().ShouldBe("result");
+        snapshot.RealSteps
+            .All(step => step.Dispatch?.Status == ProcessStepDispatchStatus.Dispatched)
+            .ShouldBeTrue();
 
         var finalStep = snapshot.RealSteps.Single(step => step.BlueprintNodeId == blueprint.FinalBlueprintNodeId.ToString());
         var finalOutput = ProcessAssertions.GetOutput(finalStep, "Success");

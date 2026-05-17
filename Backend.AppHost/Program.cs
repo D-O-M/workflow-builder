@@ -8,6 +8,7 @@ internal class Program
 {
     private const string ProcessesContainerName = "processes";
     private const string TasksContainerName = "processsteps";
+    private const string StepFinalizationsContainerName = "processstepfinalizations";
     private const string NodeActivationsContainerName = "nodeactivations";
     private const string NodeJoinStatesContainerName = "nodejoinstates";
     private const string PhasedProcessesContainerName = "phasedprocesses";
@@ -452,6 +453,7 @@ internal class Program
         var database = cosmos.AddCosmosDatabase(cosmosDatabaseName);
         database.AddContainer(ProcessesContainerName, "/blueprintId");
         database.AddContainer(TasksContainerName, "/processId");
+        database.AddContainer(StepFinalizationsContainerName, "/id");
         database.AddContainer(NodeActivationsContainerName, "/processId");
         database.AddContainer(NodeJoinStatesContainerName, "/processId");
         database.AddContainer(PhasedProcessesContainerName, "/phasedBlueprintDefinitionId");

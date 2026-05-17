@@ -26,7 +26,8 @@ public sealed class ServiceBusProcessStepQueueWriter : IProcessStepQueueWriter
         var queueMessage = new ServiceBusMessage(
             BinaryData.FromBytes(JsonSerializer.SerializeToUtf8Bytes(message)))
         {
-            ContentType = "application/json"
+            ContentType = "application/json",
+            MessageId = message.ProcessStepId.ToString("N")
         };
 
         _logger.LogInformation(
@@ -53,7 +54,8 @@ public sealed class ServiceBusProcessStepQueueWriter : IProcessStepQueueWriter
             var queueMessage = new ServiceBusMessage(
                 BinaryData.FromBytes(JsonSerializer.SerializeToUtf8Bytes(message)))
             {
-                ContentType = "application/json"
+                ContentType = "application/json",
+                MessageId = message.ProcessStepId.ToString("N")
             };
 
             if (!batch.TryAddMessage(queueMessage))

@@ -10,6 +10,7 @@ Key runtime resources wired there:
 - Cosmos DB database with containers:
   - `processes`
   - `processsteps`
+  - `processstepfinalizations`
   - `processstepprogressleases`
 - Blob Storage container for plugin bundles
 - Service Bus queues for:
@@ -66,7 +67,7 @@ flowchart LR
 
 1. The frontend calls `POST /api/blueprints/{id}/processes`.
 2. The API resolves the selected blueprint version and creates initial process state.
-3. The API persists process and step state, then enqueues the next process-step message.
+3. The API persists process and initial step state with durable dispatch intent, then attempts best-effort process-step queue dispatch.
 4. `Backend.Engine` consumes the process-step queue.
 5. The engine loads the executable blueprint and resolves the newest runnable task version.
 6. Before launching a plugin runtime agent, the engine validates the plugin manifest capability requirements.
@@ -74,10 +75,24 @@ flowchart LR
 8. After capability validation succeeds, runtime config files are generated and passed to the plugin with repeated `--config` arguments.
 9. The plugin runtime launches the plugin executable through the harness.
 10. The plugin hydrates its required input/global state from Cosmos using the invocation envelope identifiers.
-11. The plugin emits result data; the engine updates process-step state and queues downstream work as needed.
+11. The plugin emits result data; the engine updates process-step state and durably schedules downstream work as needed.
 12. Cosmos changes in `processsteps` are observed by `ProgressBroadcaster`.
 13. `ProgressBroadcaster` builds realtime batches and publishes them to SignalR subscribers.
 14. The UI receives `processSummaryUpdated` and `processStepsUpdated` events and refreshes the process explorer state.
+
+## Step Dispatch Guarantee
+
+Process-step scheduling is at-least-once. Every new pending `ProcessStepRecord` carries an embedded `dispatch` state, so the step and its queue-dispatch intent are durable in the same Cosmos document before Service Bus is required to accept a message.
+
+API process start and Engine downstream activation may attempt immediate Service Bus dispatch, but enqueue failure does not strand the step once `dispatch.status` is durable. `Backend.Engine` runs a dispatch worker that scans pending or retryable dispatch intents, claims them with a short lease, sends the deterministic process-step message, and marks `dispatch.status = Dispatched` only after Service Bus send succeeds. Retryable failures update `nextAttemptAt` with backoff.
+
+Duplicate Service Bus messages are safe: process-step queue messages use the process step id as the deterministic message id for diagnostics and future broker duplicate detection, while the real correctness guard remains the idempotent step claim, which only transitions `Pending` steps to `InProgress`. Legacy completed or failed steps without dispatch metadata are treated as settled; legacy pending steps can be reconciled into pending dispatch intent.
+
+## Step Finalization Guarantee
+
+Plugin-backed steps and native Collection Iterator steps finalize through the `processstepfinalizations` outbox container. The engine writes a `ResultReceived` checkpoint before mutating step or process state, advances explicit stages as outputs/failures, downstream activation, and phase/process effects become durable, and only acknowledges the process-step queue message after the finalization record reaches `QueueMessageCompleted`.
+
+If a queue message is redelivered for a step with an incomplete finalization record, the engine resumes from the recorded stage instead of re-running the plugin or native operator. Downstream step creation remains idempotent because runtime step ids are deterministic and inserts use create-if-not-exists semantics. Legacy completed or failed steps without a finalization record are treated as already settled.
 
 ## Engine Capabilities
 

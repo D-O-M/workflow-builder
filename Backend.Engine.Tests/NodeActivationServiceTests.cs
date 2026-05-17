@@ -10,6 +10,7 @@ using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Models;
 using Backend.Plugins.Communication;
+using Backend.Services.ProcessStepQueue;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 
@@ -45,7 +46,7 @@ public sealed class NodeActivationServiceTests
             processRepository);
         var service = new NodeActivationService(
             new InMemoryNodeJoinStateRepository(),
-            queueWriter,
+            CreateDispatchService(stepRepository, queueWriter),
             stepRepository,
             NullLogger<NodeActivationService>.Instance);
 
@@ -92,7 +93,7 @@ public sealed class NodeActivationServiceTests
         var joinRepository = new InMemoryNodeJoinStateRepository();
         var service = new NodeActivationService(
             joinRepository,
-            queueWriter,
+            CreateDispatchService(stepRepository, queueWriter),
             stepRepository,
             NullLogger<NodeActivationService>.Instance);
 
@@ -210,7 +211,7 @@ public sealed class NodeActivationServiceTests
             processRepository);
         var service = new NodeActivationService(
             new InMemoryNodeJoinStateRepository(),
-            queueWriter,
+            CreateDispatchService(stepRepository, queueWriter),
             stepRepository,
             NullLogger<NodeActivationService>.Instance);
 
@@ -283,6 +284,20 @@ public sealed class NodeActivationServiceTests
         claimed.ShouldBeTrue();
         return context;
     }
+
+    private static ProcessStepDispatchService CreateDispatchService(
+        InMemoryProcessStepRepository stepRepository,
+        ProcessStepQueueWriterSpy queueWriter) =>
+        new(
+            stepRepository,
+            queueWriter,
+            new ProcessStepDispatchOptions
+            {
+                RetryBaseDelay = TimeSpan.FromMilliseconds(1),
+                RetryMaxDelay = TimeSpan.FromMilliseconds(10)
+            },
+            new ProcessStepDispatchTelemetry(),
+            NullLogger<ProcessStepDispatchService>.Instance);
 
     private static PluginExecutionResult CreateResult(JobContext context, string outputChannelName) =>
         new(
@@ -571,6 +586,129 @@ public sealed class NodeActivationServiceTests
                 .ToList());
         }
 
+        public Task<IReadOnlyList<ProcessStepRecord>> GetDueStepDispatchesAsync(
+            DateTimeOffset now,
+            int maxItemCount,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ProcessStepRecord>>(States.Values
+                .Where(state => state.Status is ProcessStepStatus.Pending && IsDispatchDue(state.Dispatch, now))
+                .OrderBy(state => state.CreatedAt)
+                .Take(maxItemCount)
+                .ToList());
+
+        public Task<ProcessStepDispatchBacklogSnapshot> GetDispatchBacklogSnapshotAsync(
+            DateTimeOffset now,
+            CancellationToken cancellationToken)
+        {
+            var pending = States.Values
+                .Where(state => state.Status is ProcessStepStatus.Pending &&
+                    (state.Dispatch is null ||
+                     state.Dispatch.Status is ProcessStepDispatchStatus.Pending or ProcessStepDispatchStatus.Dispatching or ProcessStepDispatchStatus.RetryableDispatchError))
+                .ToList();
+            return Task.FromResult(new ProcessStepDispatchBacklogSnapshot(
+                pending.Count,
+                pending.OrderBy(state => state.CreatedAt).FirstOrDefault()?.Dispatch?.CreatedAt ??
+                    pending.OrderBy(state => state.CreatedAt).FirstOrDefault()?.CreatedAt));
+        }
+
+        public Task<(bool Claimed, ProcessStepRecord? State)> TryClaimStepDispatchAsync(
+            ProcessStepRecord state,
+            string leaseId,
+            DateTimeOffset now,
+            TimeSpan leaseDuration,
+            CancellationToken cancellationToken)
+        {
+            var processStepId = Guid.Parse(state.Id);
+            if (!States.TryGetValue(processStepId, out var current) ||
+                current.Status is not ProcessStepStatus.Pending ||
+                !IsDispatchDue(current.Dispatch, now))
+            {
+                return Task.FromResult<(bool, ProcessStepRecord?)>((false, null));
+            }
+
+            current.Dispatch ??= ProcessStepDispatchService.CreatePendingDispatchState(current.CreatedAt);
+            current.Dispatch.Status = ProcessStepDispatchStatus.Dispatching;
+            current.Dispatch.MessageId = current.Id;
+            current.Dispatch.AttemptCount++;
+            current.Dispatch.UpdatedAt = now;
+            current.Dispatch.NextAttemptAt = null;
+            current.Dispatch.DispatchingStartedAt = now;
+            current.Dispatch.LockedUntil = now.Add(leaseDuration);
+            current.Dispatch.LeaseId = leaseId;
+            return Task.FromResult<(bool, ProcessStepRecord?)>((true, current));
+        }
+
+        public Task<bool> MarkStepDispatchSucceededAsync(
+            ProcessStepRecord state,
+            string leaseId,
+            DateTimeOffset dispatchedAt,
+            CancellationToken cancellationToken)
+        {
+            if (!TryGetLeasedDispatch(state, leaseId, out var dispatch))
+            {
+                return Task.FromResult(false);
+            }
+
+            dispatch.Status = ProcessStepDispatchStatus.Dispatched;
+            dispatch.MessageId = state.Id;
+            dispatch.UpdatedAt = dispatchedAt;
+            dispatch.DispatchedAt = dispatchedAt;
+            dispatch.NextAttemptAt = null;
+            dispatch.DispatchingStartedAt = null;
+            dispatch.LockedUntil = null;
+            dispatch.LeaseId = null;
+            dispatch.LastErrorKind = null;
+            dispatch.LastErrorMessage = null;
+            dispatch.LastErrorAt = null;
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> MarkStepDispatchRetryableErrorAsync(
+            ProcessStepRecord state,
+            string leaseId,
+            ProcessStepDispatchErrorKind errorKind,
+            string errorMessage,
+            DateTimeOffset failedAt,
+            DateTimeOffset nextAttemptAt,
+            CancellationToken cancellationToken)
+        {
+            if (!TryGetLeasedDispatch(state, leaseId, out var dispatch))
+            {
+                return Task.FromResult(false);
+            }
+
+            dispatch.Status = ProcessStepDispatchStatus.RetryableDispatchError;
+            dispatch.UpdatedAt = failedAt;
+            dispatch.NextAttemptAt = nextAttemptAt;
+            dispatch.DispatchingStartedAt = null;
+            dispatch.LockedUntil = null;
+            dispatch.LeaseId = null;
+            dispatch.LastErrorKind = errorKind;
+            dispatch.LastErrorMessage = errorMessage;
+            dispatch.LastErrorAt = failedAt;
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> MarkStepDispatchSkippedTerminalAsync(
+            ProcessStepRecord state,
+            string leaseId,
+            DateTimeOffset skippedAt,
+            CancellationToken cancellationToken)
+        {
+            if (!TryGetLeasedDispatch(state, leaseId, out var dispatch))
+            {
+                return Task.FromResult(false);
+            }
+
+            dispatch.Status = ProcessStepDispatchStatus.DispatchSkippedTerminal;
+            dispatch.UpdatedAt = skippedAt;
+            dispatch.NextAttemptAt = null;
+            dispatch.DispatchingStartedAt = null;
+            dispatch.LockedUntil = null;
+            dispatch.LeaseId = null;
+            return Task.FromResult(true);
+        }
+
         public Task<ProcessStepRecord> UpdateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken)
         {
             States[Guid.Parse(state.Id)] = state;
@@ -645,6 +783,34 @@ public sealed class NodeActivationServiceTests
             state.FailedAt = failedAt;
             state.UpdatedAt = failedAt;
             return Task.CompletedTask;
+        }
+
+        private static bool IsDispatchDue(
+            ProcessStepDispatchState? dispatch,
+            DateTimeOffset now) =>
+            dispatch is null ||
+            dispatch.Status is ProcessStepDispatchStatus.Pending ||
+            dispatch.Status is ProcessStepDispatchStatus.RetryableDispatchError &&
+                (!dispatch.NextAttemptAt.HasValue || dispatch.NextAttemptAt.Value <= now) ||
+            dispatch.Status is ProcessStepDispatchStatus.Dispatching &&
+                dispatch.LockedUntil.HasValue &&
+                dispatch.LockedUntil.Value <= now;
+
+        private bool TryGetLeasedDispatch(
+            ProcessStepRecord state,
+            string leaseId,
+            out ProcessStepDispatchState dispatch)
+        {
+            dispatch = null!;
+            if (!States.TryGetValue(Guid.Parse(state.Id), out var current) ||
+                current.Dispatch is null ||
+                !string.Equals(current.Dispatch.LeaseId, leaseId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            dispatch = current.Dispatch;
+            return true;
         }
     }
 

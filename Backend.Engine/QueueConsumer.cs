@@ -81,6 +81,34 @@ public class QueueConsumer : BackgroundService
                 return;
             }
 
+            var finalizationRepository = scope.ServiceProvider.GetRequiredService<IProcessStepFinalizationRepository>();
+            var finalization = await finalizationRepository.GetAsync(
+                job.ProcessStepId,
+                stoppingToken);
+            if (finalization is not null)
+            {
+                if (finalization.ResolvedTaskVersionId is int resolvedTaskVersionId)
+                {
+                    blueprintNode.ResolvedTaskVersionId = resolvedTaskVersionId;
+                }
+
+                if (!string.IsNullOrWhiteSpace(finalization.ResolvedTaskVersion) &&
+                    Version.TryParse(finalization.ResolvedTaskVersion, out var resolvedVersion))
+                {
+                    blueprintNode.ResolvedVersion = resolvedVersion;
+                }
+
+                var resumeContext = ActivatorUtilities.CreateInstance<JobContext>(
+                    scope.ServiceProvider,
+                    job,
+                    message,
+                    executableBlueprint);
+                _processLifecycleTelemetry.RecordQueueWait(resumeContext, message.EnqueuedAt, receivedAt);
+                await scope.ServiceProvider.GetRequiredService<JobFinalizationService>()
+                    .ResumeFinalizationAsync(resumeContext, finalization, stoppingToken);
+                return;
+            }
+
             if (blueprintNode.NodeKind is ExecutableBlueprintNodeKind.CollectionIterator)
             {
                 var nativeContext = ActivatorUtilities.CreateInstance<JobContext>(

@@ -39,6 +39,10 @@ public sealed class ProcessStateInitializerHostedService : IHostedService
             cancellationToken: cancellationToken);
 
         await databaseResponse.Database.CreateContainerIfNotExistsAsync(
+            new ContainerProperties(_options.StepFinalizationsContainerName, "/id"),
+            cancellationToken: cancellationToken);
+
+        await databaseResponse.Database.CreateContainerIfNotExistsAsync(
             new ContainerProperties(_options.ActivationsContainerName, "/processId"),
             cancellationToken: cancellationToken);
 

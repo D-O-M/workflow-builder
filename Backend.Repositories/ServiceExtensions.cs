@@ -26,6 +26,7 @@ public static class ServiceExtensions
         string databaseName = "enginedb",
         string processesContainerName = "processes",
         string tasksContainerName = "processsteps",
+        string stepFinalizationsContainerName = "processstepfinalizations",
         string activationsContainerName = "nodeactivations",
         string joinStatesContainerName = "nodejoinstates",
         string phasedProcessesContainerName = "phasedprocesses",
@@ -36,6 +37,7 @@ public static class ServiceExtensions
             DatabaseName = databaseName,
             ProcessesContainerName = processesContainerName,
             TasksContainerName = tasksContainerName,
+            StepFinalizationsContainerName = stepFinalizationsContainerName,
             ActivationsContainerName = activationsContainerName,
             JoinStatesContainerName = joinStatesContainerName,
             PhasedProcessesContainerName = phasedProcessesContainerName,
@@ -46,6 +48,13 @@ public static class ServiceExtensions
         {
             var client = sp.GetRequiredService<CosmosClient>();
             return new ProcessStepRepository(client.GetContainer(databaseName, tasksContainerName));
+        });
+
+        services.AddSingleton<IProcessStepFinalizationRepository>(sp =>
+        {
+            var client = sp.GetRequiredService<CosmosClient>();
+            return new ProcessStepFinalizationRepository(
+                client.GetContainer(databaseName, stepFinalizationsContainerName));
         });
 
         services.AddSingleton<INodeActivationRepository>(sp =>

@@ -200,6 +200,36 @@ public class JobContext
         await _processStepRepository.UpdateProcessStep(taskState, cancellationToken);
     }
 
+    public async Task HydrateForFinalizationAsync(CancellationToken cancellationToken)
+    {
+        var stepState = await GetPersistedStepAsync(cancellationToken);
+        ApplyStepState(stepState);
+
+        var processState = await _processInstanceRepository.GetProcessStateById(
+            ProcessId,
+            ExecutableBlueprintId,
+            cancellationToken);
+        EnsureExecutionProgress(processState);
+        ProcessNodeOverrides = processState.NodeOverrides;
+        PhaseMetadata = processState.Phase;
+    }
+
+    public Task<ProcessStepRecord> GetPersistedStepAsync(CancellationToken cancellationToken) =>
+        _processStepRepository.GetProcessStepById(
+            ProcessStepId,
+            ProcessId,
+            cancellationToken);
+
+    public async Task<bool> IsProcessCompletedAsync(CancellationToken cancellationToken)
+    {
+        var processState = await _processInstanceRepository.GetProcessStateById(
+            ProcessId,
+            ExecutableBlueprintId,
+            cancellationToken);
+        EnsureExecutionProgress(processState);
+        return processState.Status is ProcessStatus.Completed;
+    }
+
     public async Task<bool> PersistSuccessAsync(
         Dictionary<string, JsonElement>? effectiveInputData,
         Dictionary<string, JsonElement> outputData,
@@ -333,6 +363,26 @@ public class JobContext
         if (processState.ExecutionProgress.TotalStepCount <= 0)
         {
             processState.ExecutionProgress.TotalStepCount = processState.ExecutionProgress.TotalNodeCount;
+        }
+    }
+
+    private void ApplyStepState(ProcessStepRecord stepState)
+    {
+        InputHydrationPlan = stepState.InputHydrationPlan;
+        StartedAt = stepState.StartedAt;
+        ClaimedAt = stepState.StartedAt;
+        CompletedAt = stepState.CompletedAt ?? stepState.FailedAt;
+        IterationContext = stepState.IterationContext;
+
+        if (stepState.ResolvedTaskVersionId is int resolvedTaskVersionId)
+        {
+            BlueprintNode.ResolvedTaskVersionId = resolvedTaskVersionId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(stepState.ResolvedTaskVersion) &&
+            Version.TryParse(stepState.ResolvedTaskVersion, out var resolvedVersion))
+        {
+            BlueprintNode.ResolvedVersion = resolvedVersion;
         }
     }
 

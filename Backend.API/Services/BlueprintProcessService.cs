@@ -7,6 +7,7 @@ using Backend.Models;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
 using Backend.Plugins.Communication;
+using Backend.Services.ProcessStepQueue;
 using Microsoft.Extensions.Logging;
 
 namespace Backend.API.Services;
@@ -19,7 +20,7 @@ public sealed record BlueprintProcessAcceptedResult(
 public sealed class BlueprintProcessService
 {
     private readonly IProcessStepRepository _processStepRepository;
-    private readonly IProcessStepQueueWriter _processStepQueueWriter;
+    private readonly ProcessStepDispatchService _processStepDispatchService;
     private readonly IBlueprintExecutionCache _blueprintExecutionCache;
     private readonly IBlueprintRepository _blueprintRepository;
     private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
@@ -28,7 +29,7 @@ public sealed class BlueprintProcessService
 
     public BlueprintProcessService(
         IProcessStepRepository processStepRepository,
-        IProcessStepQueueWriter processStepQueueWriter,
+        ProcessStepDispatchService processStepDispatchService,
         IBlueprintExecutionCache blueprintExecutionCache,
         IBlueprintRepository blueprintRepository,
         IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
@@ -36,7 +37,7 @@ public sealed class BlueprintProcessService
         ILogger<BlueprintProcessService> logger)
     {
         _processStepRepository = processStepRepository;
-        _processStepQueueWriter = processStepQueueWriter;
+        _processStepDispatchService = processStepDispatchService;
         _blueprintExecutionCache = blueprintExecutionCache;
         _blueprintRepository = blueprintRepository;
         _processInstanceRepository = processInstanceRepository;
@@ -134,7 +135,8 @@ public sealed class BlueprintProcessService
             CreatedAt = acceptedAt,
             UpdatedAt = acceptedAt,
             Status = ProcessStepStatus.Pending,
-            InputHydrationPlan = initialHydrationPlan
+            InputHydrationPlan = initialHydrationPlan,
+            Dispatch = ProcessStepDispatchService.CreatePendingDispatchState(acceptedAt)
         };
 
         _logger.LogInformation(
@@ -152,20 +154,12 @@ public sealed class BlueprintProcessService
             processId);
         using (_processStartTelemetry.StartCreateInitialStep(blueprintDefinitionId))
         {
-            await _processStepRepository.CreateProcessStep(initialStepState, cancellationToken);
+            initialStepState = await _processStepRepository.CreateProcessStep(initialStepState, cancellationToken);
         }
 
         using (_processStartTelemetry.StartEnqueueInitialStep(blueprintDefinitionId))
         {
-            await _processStepQueueWriter.EnqueueAsync(
-                new ProcessStepInitialisationMessage
-                {
-                    ProcessId = processId,
-                    ExecutableBlueprintId = latestVersionId,
-                    ProcessStepId = initialProcessStepId,
-                    BlueprintNodeId = executableBlueprint.InitialNode.Id
-                },
-                cancellationToken);
+            await _processStepDispatchService.TryDispatchAsync(initialStepState, cancellationToken);
         }
 
         _logger.LogInformation(
@@ -266,7 +260,8 @@ public sealed class BlueprintProcessService
             CreatedAt = acceptedAt,
             UpdatedAt = acceptedAt,
             Status = ProcessStepStatus.Pending,
-            InputHydrationPlan = initialHydrationPlan
+            InputHydrationPlan = initialHydrationPlan,
+            Dispatch = ProcessStepDispatchService.CreatePendingDispatchState(acceptedAt)
         };
 
         _logger.LogInformation(
@@ -284,20 +279,12 @@ public sealed class BlueprintProcessService
             processId);
         using (_processStartTelemetry.StartCreateInitialStep(blueprintDefinitionId))
         {
-            await _processStepRepository.CreateProcessStep(initialStepState, cancellationToken);
+            initialStepState = await _processStepRepository.CreateProcessStep(initialStepState, cancellationToken);
         }
 
         using (_processStartTelemetry.StartEnqueueInitialStep(blueprintDefinitionId))
         {
-            await _processStepQueueWriter.EnqueueAsync(
-                new ProcessStepInitialisationMessage
-                {
-                    ProcessId = processId,
-                    ExecutableBlueprintId = blueprintVersionId,
-                    ProcessStepId = initialProcessStepId,
-                    BlueprintNodeId = executableBlueprint.InitialNode.Id
-                },
-                cancellationToken);
+            await _processStepDispatchService.TryDispatchAsync(initialStepState, cancellationToken);
         }
 
         _logger.LogInformation(

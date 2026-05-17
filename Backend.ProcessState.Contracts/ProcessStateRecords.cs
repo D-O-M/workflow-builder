@@ -28,6 +28,49 @@ public enum ProcessStepStatus
     Failed
 }
 
+public enum ProcessStepDispatchStatus
+{
+    Pending,
+    Dispatching,
+    Dispatched,
+    RetryableDispatchError,
+    DispatchSkippedTerminal
+}
+
+public enum ProcessStepDispatchErrorKind
+{
+    RetryableServiceBusError,
+    DispatchFailed
+}
+
+public enum ProcessStepFinalizationOutcome
+{
+    Succeeded,
+    Failed
+}
+
+public enum ProcessStepFinalizationSource
+{
+    Plugin,
+    CollectionIterator
+}
+
+public enum ProcessStepFinalizationStage
+{
+    ResultReceived,
+    OutputsPersisted,
+    FailurePersisted,
+    DownstreamActivationCompleted,
+    ProcessFinalizationCompleted,
+    QueueMessageCompleted
+}
+
+public enum ProcessStepFinalizationErrorKind
+{
+    RetryableFinalizationError,
+    FinalizationFailed
+}
+
 public class ProcessInstanceRecord<TGlobalState>
 {
     private string _id = null!;
@@ -160,6 +203,154 @@ public class ProcessStepRecord
 
     [JsonPropertyName("iterationContext")]
     public ProcessStepIterationContext? IterationContext { get; set; }
+
+    [JsonPropertyName("dispatch")]
+    public ProcessStepDispatchState? Dispatch { get; set; }
+}
+
+public sealed class ProcessStepDispatchState
+{
+    [JsonPropertyName("status")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ProcessStepDispatchStatus Status { get; set; }
+
+    [JsonPropertyName("messageId")]
+    public string? MessageId { get; set; }
+
+    [JsonPropertyName("attemptCount")]
+    public int AttemptCount { get; set; }
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; set; }
+
+    [JsonPropertyName("nextAttemptAt")]
+    public DateTimeOffset? NextAttemptAt { get; set; }
+
+    [JsonPropertyName("dispatchingStartedAt")]
+    public DateTimeOffset? DispatchingStartedAt { get; set; }
+
+    [JsonPropertyName("lockedUntil")]
+    public DateTimeOffset? LockedUntil { get; set; }
+
+    [JsonPropertyName("leaseId")]
+    public string? LeaseId { get; set; }
+
+    [JsonPropertyName("dispatchedAt")]
+    public DateTimeOffset? DispatchedAt { get; set; }
+
+    [JsonPropertyName("lastErrorKind")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ProcessStepDispatchErrorKind? LastErrorKind { get; set; }
+
+    [JsonPropertyName("lastErrorMessage")]
+    public string? LastErrorMessage { get; set; }
+
+    [JsonPropertyName("lastErrorAt")]
+    public DateTimeOffset? LastErrorAt { get; set; }
+}
+
+public sealed class ProcessStepFinalizationRecord
+{
+    private string _id = null!;
+
+    [JsonPropertyName("id")]
+    public required string id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonIgnore]
+    public string Id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonPropertyName("_etag")]
+    public string? ETag { get; set; }
+
+    [JsonPropertyName("processId")]
+    public required string ProcessId { get; init; }
+
+    [JsonPropertyName("blueprintId")]
+    public required string BlueprintId { get; init; }
+
+    [JsonPropertyName("blueprintNodeId")]
+    public required string BlueprintNodeId { get; init; }
+
+    [JsonPropertyName("taskDefinitionId")]
+    public int? TaskDefinitionId { get; set; }
+
+    [JsonPropertyName("resolvedTaskVersionId")]
+    public int? ResolvedTaskVersionId { get; set; }
+
+    [JsonPropertyName("resolvedTaskVersion")]
+    public string? ResolvedTaskVersion { get; set; }
+
+    [JsonPropertyName("outcome")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ProcessStepFinalizationOutcome Outcome { get; set; }
+
+    [JsonPropertyName("source")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ProcessStepFinalizationSource Source { get; set; }
+
+    [JsonPropertyName("stage")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ProcessStepFinalizationStage Stage { get; set; }
+
+    [JsonPropertyName("effectiveInputData")]
+    public Dictionary<string, JsonElement>? EffectiveInputData { get; set; }
+
+    [JsonPropertyName("outputData")]
+    public Dictionary<string, JsonElement>? OutputData { get; set; }
+
+    [JsonPropertyName("globalState")]
+    public Dictionary<string, JsonElement>? GlobalState { get; set; }
+
+    [JsonPropertyName("timingsMs")]
+    public Dictionary<string, double>? TimingsMs { get; set; }
+
+    [JsonPropertyName("errorMessage")]
+    public string? ErrorMessage { get; set; }
+
+    [JsonPropertyName("startedAt")]
+    public DateTimeOffset StartedAt { get; set; }
+
+    [JsonPropertyName("completedAt")]
+    public DateTimeOffset CompletedAt { get; set; }
+
+    [JsonPropertyName("collectionIteratorItemCount")]
+    public int? CollectionIteratorItemCount { get; set; }
+
+    [JsonPropertyName("collectionIteratorRepeatedBlueprintNodeCount")]
+    public int? CollectionIteratorRepeatedBlueprintNodeCount { get; set; }
+
+    [JsonPropertyName("collectionIteratorBatchSize")]
+    public int? CollectionIteratorBatchSize { get; set; }
+
+    [JsonPropertyName("lastErrorKind")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ProcessStepFinalizationErrorKind? LastErrorKind { get; set; }
+
+    [JsonPropertyName("lastErrorMessage")]
+    public string? LastErrorMessage { get; set; }
+
+    [JsonPropertyName("lastErrorAt")]
+    public DateTimeOffset? LastErrorAt { get; set; }
+
+    [JsonPropertyName("retryCount")]
+    public int RetryCount { get; set; }
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; set; }
 }
 
 public sealed class ProcessExecutionProgress

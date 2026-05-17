@@ -12,6 +12,7 @@ using Backend.Models;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
 using Backend.Plugins.Communication;
+using Backend.Services.ProcessStepQueue;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 
@@ -29,7 +30,7 @@ public sealed class BlueprintProcessServiceTests
         var queueWriter = new ProcessStepQueueWriterSpy();
         var service = new BlueprintProcessService(
             processSteps,
-            queueWriter,
+            CreateDispatchService(processSteps, queueWriter),
             new BlueprintExecutionCacheStub(CreateExecutableBlueprint(initialNodeId)),
             repository,
             processInstances,
@@ -66,7 +67,7 @@ public sealed class BlueprintProcessServiceTests
         var queueWriter = new ProcessStepQueueWriterSpy();
         var service = new BlueprintProcessService(
             processSteps,
-            queueWriter,
+            CreateDispatchService(processSteps, queueWriter),
             new BlueprintExecutionCacheStub(CreateExecutableBlueprint(initialNodeId)),
             repository,
             processInstances,
@@ -103,7 +104,7 @@ public sealed class BlueprintProcessServiceTests
         var queueWriter = new ProcessStepQueueWriterSpy();
         var service = new BlueprintProcessService(
             processSteps,
-            queueWriter,
+            CreateDispatchService(processSteps, queueWriter),
             new BlueprintExecutionCacheStub(CreateExecutableBlueprint(initialNodeId)),
             repository,
             processInstances,
@@ -155,6 +156,50 @@ public sealed class BlueprintProcessServiceTests
         queueWriter.Messages[0].ProcessStepId.ShouldBe(Guid.Parse(processSteps.CreatedStep.Id));
         queueWriter.Messages[0].BlueprintNodeId.ShouldBe(initialNodeId);
     }
+
+    [Test]
+    public async Task StartLatestVersionAsync_accepts_when_immediate_dispatch_fails_after_intent_is_durable()
+    {
+        var initialNodeId = Guid.NewGuid();
+        var repository = new BlueprintRepositoryStub(CreateBlueprintViewModel(), CreateExecutableBlueprint(initialNodeId));
+        var processSteps = new ProcessStepRepositorySpy();
+        var processInstances = new ProcessInstanceRepositorySpy();
+        var queueWriter = new ProcessStepQueueWriterSpy { ThrowOnEnqueueAttempts = 1 };
+        var service = new BlueprintProcessService(
+            processSteps,
+            CreateDispatchService(processSteps, queueWriter),
+            new BlueprintExecutionCacheStub(CreateExecutableBlueprint(initialNodeId)),
+            repository,
+            processInstances,
+            new ProcessStartTelemetry(),
+            NullLogger<BlueprintProcessService>.Instance);
+
+        var accepted = await service.StartLatestVersionAsync(
+            7,
+            new BlueprintProcessInputModel(),
+            CancellationToken.None);
+
+        accepted.BlueprintId.ShouldBe(7);
+        processSteps.CreatedStep.ShouldNotBeNull();
+        processSteps.CreatedStep.Dispatch.ShouldNotBeNull();
+        processSteps.CreatedStep.Dispatch.Status.ShouldBe(ProcessStepDispatchStatus.RetryableDispatchError);
+        processSteps.CreatedStep.Dispatch.NextAttemptAt.ShouldNotBeNull();
+        queueWriter.Messages.Count.ShouldBe(0);
+    }
+
+    private static ProcessStepDispatchService CreateDispatchService(
+        ProcessStepRepositorySpy processSteps,
+        ProcessStepQueueWriterSpy queueWriter) =>
+        new(
+            processSteps,
+            queueWriter,
+            new ProcessStepDispatchOptions
+            {
+                RetryBaseDelay = TimeSpan.FromMilliseconds(1),
+                RetryMaxDelay = TimeSpan.FromMilliseconds(10)
+            },
+            new ProcessStepDispatchTelemetry(),
+            NullLogger<ProcessStepDispatchService>.Instance);
 
     private static BlueprintViewModel CreateBlueprintViewModel() =>
         new()
@@ -285,6 +330,99 @@ public sealed class BlueprintProcessServiceTests
         public Task<List<ProcessStepRecord>> GetProcessStepsForProcess(Guid processId, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<IReadOnlyList<ProcessStepRecord>> GetDueStepDispatchesAsync(
+            DateTimeOffset now,
+            int maxItemCount,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ProcessStepDispatchBacklogSnapshot> GetDispatchBacklogSnapshotAsync(
+            DateTimeOffset now,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new ProcessStepDispatchBacklogSnapshot(
+                CreatedStep is null ||
+                    CreatedStep.Dispatch?.Status is ProcessStepDispatchStatus.Dispatched or ProcessStepDispatchStatus.DispatchSkippedTerminal ? 0 : 1,
+                CreatedStep?.Dispatch?.CreatedAt ?? CreatedStep?.CreatedAt));
+
+        public Task<(bool Claimed, ProcessStepRecord? State)> TryClaimStepDispatchAsync(
+            ProcessStepRecord state,
+            string leaseId,
+            DateTimeOffset now,
+            TimeSpan leaseDuration,
+            CancellationToken cancellationToken)
+        {
+            if (CreatedStep is null ||
+                CreatedStep.Status is not ProcessStepStatus.Pending ||
+                CreatedStep.Dispatch?.Status is ProcessStepDispatchStatus.Dispatched)
+            {
+                return Task.FromResult<(bool, ProcessStepRecord?)>((false, null));
+            }
+
+            CreatedStep.Dispatch ??= ProcessStepDispatchService.CreatePendingDispatchState(CreatedStep.CreatedAt);
+            CreatedStep.Dispatch.Status = ProcessStepDispatchStatus.Dispatching;
+            CreatedStep.Dispatch.MessageId = CreatedStep.Id;
+            CreatedStep.Dispatch.AttemptCount++;
+            CreatedStep.Dispatch.UpdatedAt = now;
+            CreatedStep.Dispatch.NextAttemptAt = null;
+            CreatedStep.Dispatch.DispatchingStartedAt = now;
+            CreatedStep.Dispatch.LockedUntil = now.Add(leaseDuration);
+            CreatedStep.Dispatch.LeaseId = leaseId;
+            return Task.FromResult<(bool, ProcessStepRecord?)>((true, CreatedStep));
+        }
+
+        public Task<bool> MarkStepDispatchSucceededAsync(
+            ProcessStepRecord state,
+            string leaseId,
+            DateTimeOffset dispatchedAt,
+            CancellationToken cancellationToken)
+        {
+            if (CreatedStep?.Dispatch is null ||
+                !string.Equals(CreatedStep.Dispatch.LeaseId, leaseId, StringComparison.Ordinal))
+            {
+                return Task.FromResult(false);
+            }
+
+            CreatedStep.Dispatch.Status = ProcessStepDispatchStatus.Dispatched;
+            CreatedStep.Dispatch.MessageId = CreatedStep.Id;
+            CreatedStep.Dispatch.UpdatedAt = dispatchedAt;
+            CreatedStep.Dispatch.DispatchedAt = dispatchedAt;
+            CreatedStep.Dispatch.NextAttemptAt = null;
+            CreatedStep.Dispatch.DispatchingStartedAt = null;
+            CreatedStep.Dispatch.LockedUntil = null;
+            CreatedStep.Dispatch.LeaseId = null;
+            CreatedStep.Dispatch.LastErrorKind = null;
+            CreatedStep.Dispatch.LastErrorMessage = null;
+            CreatedStep.Dispatch.LastErrorAt = null;
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> MarkStepDispatchRetryableErrorAsync(
+            ProcessStepRecord state,
+            string leaseId,
+            ProcessStepDispatchErrorKind errorKind,
+            string errorMessage,
+            DateTimeOffset failedAt,
+            DateTimeOffset nextAttemptAt,
+            CancellationToken cancellationToken)
+        {
+            if (CreatedStep?.Dispatch is null ||
+                !string.Equals(CreatedStep.Dispatch.LeaseId, leaseId, StringComparison.Ordinal))
+            {
+                return Task.FromResult(false);
+            }
+
+            CreatedStep.Dispatch.Status = ProcessStepDispatchStatus.RetryableDispatchError;
+            CreatedStep.Dispatch.UpdatedAt = failedAt;
+            CreatedStep.Dispatch.NextAttemptAt = nextAttemptAt;
+            CreatedStep.Dispatch.DispatchingStartedAt = null;
+            CreatedStep.Dispatch.LockedUntil = null;
+            CreatedStep.Dispatch.LeaseId = null;
+            CreatedStep.Dispatch.LastErrorKind = errorKind;
+            CreatedStep.Dispatch.LastErrorMessage = errorMessage;
+            CreatedStep.Dispatch.LastErrorAt = failedAt;
+            return Task.FromResult(true);
+        }
+
         public Task<ProcessStepRecord> UpdateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
@@ -381,9 +519,16 @@ public sealed class BlueprintProcessServiceTests
     private sealed class ProcessStepQueueWriterSpy : IProcessStepQueueWriter
     {
         public List<ProcessStepInitialisationMessage> Messages { get; } = [];
+        public int ThrowOnEnqueueAttempts { get; set; }
 
         public Task EnqueueAsync(ProcessStepInitialisationMessage message, CancellationToken cancellationToken)
         {
+            if (ThrowOnEnqueueAttempts > 0)
+            {
+                ThrowOnEnqueueAttempts--;
+                throw new InvalidOperationException("Queue enqueue failed.");
+            }
+
             Messages.Add(message);
             return Task.CompletedTask;
         }

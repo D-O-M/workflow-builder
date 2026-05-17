@@ -169,6 +169,252 @@ public class ProcessStepRepository
             });
     }
 
+    public async Task<IReadOnlyList<ProcessStepRecord>> GetDueStepDispatchesAsync(
+        DateTimeOffset now,
+        int maxItemCount,
+        CancellationToken cancellationToken)
+    {
+        var query = new QueryDefinition(
+            """
+            SELECT TOP @maxItemCount *
+            FROM c
+            WHERE c.status = 'Pending'
+              AND (
+                NOT IS_DEFINED(c.dispatch)
+                OR IS_NULL(c.dispatch)
+                OR c.dispatch.status = 'Pending'
+                OR c.dispatch.status = 'RetryableDispatchError'
+                OR (
+                    c.dispatch.status = 'Dispatching'
+                    AND IS_DEFINED(c.dispatch.lockedUntil)
+                    AND c.dispatch.lockedUntil <= @now
+                )
+              )
+              AND (
+                NOT IS_DEFINED(c.dispatch)
+                OR IS_NULL(c.dispatch)
+                OR NOT IS_DEFINED(c.dispatch.nextAttemptAt)
+                OR IS_NULL(c.dispatch.nextAttemptAt)
+                OR c.dispatch.nextAttemptAt <= @now
+              )
+            ORDER BY c.createdAt ASC
+            """)
+            .WithParameter("@maxItemCount", Math.Max(1, maxItemCount))
+            .WithParameter("@now", now);
+
+        return await QueryToListAsync(query, cancellationToken);
+    }
+
+    public async Task<ProcessStepDispatchBacklogSnapshot> GetDispatchBacklogSnapshotAsync(
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var countQuery = new QueryDefinition(
+            """
+            SELECT VALUE COUNT(1)
+            FROM c
+            WHERE c.status = 'Pending'
+              AND (
+                NOT IS_DEFINED(c.dispatch)
+                OR IS_NULL(c.dispatch)
+                OR c.dispatch.status = 'Pending'
+                OR c.dispatch.status = 'RetryableDispatchError'
+                OR c.dispatch.status = 'Dispatching'
+              )
+            """);
+        using var countIterator = Container.GetItemQueryIterator<long>(countQuery);
+        var pendingCount = 0L;
+        if (countIterator.HasMoreResults)
+        {
+            var page = await countIterator.ReadNextAsync(cancellationToken);
+            pendingCount = page.FirstOrDefault();
+        }
+
+        if (pendingCount == 0)
+        {
+            return new ProcessStepDispatchBacklogSnapshot(0, null);
+        }
+
+        var oldestQuery = new QueryDefinition(
+            """
+            SELECT TOP 1 *
+            FROM c
+            WHERE c.status = 'Pending'
+              AND (
+                NOT IS_DEFINED(c.dispatch)
+                OR IS_NULL(c.dispatch)
+                OR c.dispatch.status = 'Pending'
+                OR c.dispatch.status = 'RetryableDispatchError'
+                OR c.dispatch.status = 'Dispatching'
+              )
+            ORDER BY c.createdAt ASC
+            """);
+        var oldest = (await QueryToListAsync(oldestQuery, cancellationToken)).FirstOrDefault();
+
+        return new ProcessStepDispatchBacklogSnapshot(
+            pendingCount,
+            oldest?.Dispatch?.CreatedAt ?? oldest?.CreatedAt);
+    }
+
+    public async Task<(bool Claimed, ProcessStepRecord? State)> TryClaimStepDispatchAsync(
+        ProcessStepRecord state,
+        string leaseId,
+        DateTimeOffset now,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        if (state.Status is not ProcessStepStatus.Pending)
+        {
+            return (false, null);
+        }
+
+        if (!IsDispatchDue(state.Dispatch, now))
+        {
+            return (false, null);
+        }
+
+        var dispatch = CreateClaimedDispatchState(state, leaseId, now, leaseDuration);
+        var options = new PatchItemRequestOptions
+        {
+            FilterPredicate = "FROM c WHERE c.status = 'Pending'"
+        };
+        if (!string.IsNullOrWhiteSpace(state.ETag))
+        {
+            options.IfMatchEtag = state.ETag;
+        }
+
+        try
+        {
+            var response = await Container.PatchItemAsync<ProcessStepRecord>(
+                state.Id,
+                new PartitionKey(state.ProcessId),
+                [
+                    PatchOperation.Set("/dispatch", dispatch)
+                ],
+                options,
+                cancellationToken);
+
+            return (true, response.Resource);
+        }
+        catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict or HttpStatusCode.NotFound)
+        {
+            return (false, null);
+        }
+    }
+
+    public async Task<bool> MarkStepDispatchSucceededAsync(
+        ProcessStepRecord state,
+        string leaseId,
+        DateTimeOffset dispatchedAt,
+        CancellationToken cancellationToken)
+    {
+        var escapedLeaseId = EscapeSqlString(leaseId);
+        try
+        {
+            await Container.PatchItemAsync<ProcessStepRecord>(
+                state.Id,
+                new PartitionKey(state.ProcessId),
+                [
+                    PatchOperation.Set("/dispatch/status", ProcessStepDispatchStatus.Dispatched.ToString()),
+                    PatchOperation.Set("/dispatch/messageId", state.Id),
+                    PatchOperation.Set("/dispatch/updatedAt", dispatchedAt),
+                    PatchOperation.Set("/dispatch/dispatchedAt", dispatchedAt),
+                    PatchOperation.Set<object?>("/dispatch/nextAttemptAt", null),
+                    PatchOperation.Set<object?>("/dispatch/dispatchingStartedAt", null),
+                    PatchOperation.Set<object?>("/dispatch/lockedUntil", null),
+                    PatchOperation.Set<object?>("/dispatch/leaseId", null),
+                    PatchOperation.Set<object?>("/dispatch/lastErrorKind", null),
+                    PatchOperation.Set<object?>("/dispatch/lastErrorMessage", null),
+                    PatchOperation.Set<object?>("/dispatch/lastErrorAt", null)
+                ],
+                new PatchItemRequestOptions
+                {
+                    FilterPredicate = $"FROM c WHERE IS_DEFINED(c.dispatch) AND c.dispatch.leaseId = '{escapedLeaseId}'"
+                },
+                cancellationToken);
+
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict or HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> MarkStepDispatchRetryableErrorAsync(
+        ProcessStepRecord state,
+        string leaseId,
+        ProcessStepDispatchErrorKind errorKind,
+        string errorMessage,
+        DateTimeOffset failedAt,
+        DateTimeOffset nextAttemptAt,
+        CancellationToken cancellationToken)
+    {
+        var escapedLeaseId = EscapeSqlString(leaseId);
+        try
+        {
+            await Container.PatchItemAsync<ProcessStepRecord>(
+                state.Id,
+                new PartitionKey(state.ProcessId),
+                [
+                    PatchOperation.Set("/dispatch/status", ProcessStepDispatchStatus.RetryableDispatchError.ToString()),
+                    PatchOperation.Set("/dispatch/updatedAt", failedAt),
+                    PatchOperation.Set("/dispatch/nextAttemptAt", nextAttemptAt),
+                    PatchOperation.Set<object?>("/dispatch/dispatchingStartedAt", null),
+                    PatchOperation.Set<object?>("/dispatch/lockedUntil", null),
+                    PatchOperation.Set<object?>("/dispatch/leaseId", null),
+                    PatchOperation.Set("/dispatch/lastErrorKind", errorKind.ToString()),
+                    PatchOperation.Set("/dispatch/lastErrorMessage", errorMessage),
+                    PatchOperation.Set("/dispatch/lastErrorAt", failedAt)
+                ],
+                new PatchItemRequestOptions
+                {
+                    FilterPredicate = $"FROM c WHERE c.status = 'Pending' AND IS_DEFINED(c.dispatch) AND c.dispatch.leaseId = '{escapedLeaseId}'"
+                },
+                cancellationToken);
+
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict or HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> MarkStepDispatchSkippedTerminalAsync(
+        ProcessStepRecord state,
+        string leaseId,
+        DateTimeOffset skippedAt,
+        CancellationToken cancellationToken)
+    {
+        var escapedLeaseId = EscapeSqlString(leaseId);
+        try
+        {
+            await Container.PatchItemAsync<ProcessStepRecord>(
+                state.Id,
+                new PartitionKey(state.ProcessId),
+                [
+                    PatchOperation.Set("/dispatch/status", ProcessStepDispatchStatus.DispatchSkippedTerminal.ToString()),
+                    PatchOperation.Set("/dispatch/updatedAt", skippedAt),
+                    PatchOperation.Set<object?>("/dispatch/nextAttemptAt", null),
+                    PatchOperation.Set<object?>("/dispatch/dispatchingStartedAt", null),
+                    PatchOperation.Set<object?>("/dispatch/lockedUntil", null),
+                    PatchOperation.Set<object?>("/dispatch/leaseId", null)
+                ],
+                new PatchItemRequestOptions
+                {
+                    FilterPredicate = $"FROM c WHERE IS_DEFINED(c.dispatch) AND c.dispatch.leaseId = '{escapedLeaseId}'"
+                },
+                cancellationToken);
+
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict or HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
     public async Task CompleteProcessStepAsync(
         Guid taskInstanceId,
         Guid processId,
@@ -192,11 +438,22 @@ public class ProcessStepRepository
             operations.Add(PatchOperation.Set("/inputData", effectiveInputData));
         }
 
-        await Container.PatchItemAsync<ProcessStepRecord>(
-            taskInstanceId.ToString(),
-            new PartitionKey(processId.ToString()),
-            operations,
-            cancellationToken: cancellationToken);
+        try
+        {
+            await Container.PatchItemAsync<ProcessStepRecord>(
+                taskInstanceId.ToString(),
+                new PartitionKey(processId.ToString()),
+                operations,
+                new PatchItemRequestOptions
+                {
+                    FilterPredicate = "FROM c WHERE c.status != 'Completed' AND c.status != 'Failed'"
+                },
+                cancellationToken: cancellationToken);
+        }
+        catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
+        {
+            // The success payload is already durable, or the step reached another terminal state.
+        }
     }
 
     public async Task FailProcessStepAsync(
@@ -220,11 +477,22 @@ public class ProcessStepRepository
             operations.Add(PatchOperation.Set("/inputData", effectiveInputData));
         }
 
-        await Container.PatchItemAsync<ProcessStepRecord>(
-            taskInstanceId.ToString(),
-            new PartitionKey(processId.ToString()),
-            operations,
-            cancellationToken: cancellationToken);
+        try
+        {
+            await Container.PatchItemAsync<ProcessStepRecord>(
+                taskInstanceId.ToString(),
+                new PartitionKey(processId.ToString()),
+                operations,
+                new PatchItemRequestOptions
+                {
+                    FilterPredicate = "FROM c WHERE c.status != 'Completed' AND c.status != 'Failed'"
+                },
+                cancellationToken: cancellationToken);
+        }
+        catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict)
+        {
+            // The failure payload is already durable, or the step reached another terminal state.
+        }
     }
 
     public async Task<ProcessStepRecord> UpdateProcessStep(
@@ -248,4 +516,41 @@ public class ProcessStepRepository
             return false;
         }
     }
+
+    private static ProcessStepDispatchState CreateClaimedDispatchState(
+        ProcessStepRecord state,
+        string leaseId,
+        DateTimeOffset now,
+        TimeSpan leaseDuration)
+    {
+        var dispatch = state.Dispatch ?? new ProcessStepDispatchState
+        {
+            Status = ProcessStepDispatchStatus.Pending,
+            CreatedAt = state.CreatedAt
+        };
+
+        dispatch.Status = ProcessStepDispatchStatus.Dispatching;
+        dispatch.MessageId = state.Id;
+        dispatch.AttemptCount++;
+        dispatch.UpdatedAt = now;
+        dispatch.NextAttemptAt = null;
+        dispatch.DispatchingStartedAt = now;
+        dispatch.LockedUntil = now.Add(leaseDuration);
+        dispatch.LeaseId = leaseId;
+        return dispatch;
+    }
+
+    private static bool IsDispatchDue(
+        ProcessStepDispatchState? dispatch,
+        DateTimeOffset now) =>
+        dispatch is null ||
+        dispatch.Status is ProcessStepDispatchStatus.Pending ||
+        dispatch.Status is ProcessStepDispatchStatus.RetryableDispatchError &&
+            (!dispatch.NextAttemptAt.HasValue || dispatch.NextAttemptAt.Value <= now) ||
+        dispatch.Status is ProcessStepDispatchStatus.Dispatching &&
+            dispatch.LockedUntil.HasValue &&
+            dispatch.LockedUntil.Value <= now;
+
+    private static string EscapeSqlString(string value) =>
+        value.Replace("'", "''", StringComparison.Ordinal);
 }

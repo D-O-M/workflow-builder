@@ -21,6 +21,10 @@ public class Program
         AspireEndpointEnvironment.PreferAspireHttpPortsOverInheritedUrls();
         var builder = WebApplication.CreateBuilder(args);
         builder.AddServiceDefaults();
+        builder.Services.AddOpenTelemetry()
+            .WithMetrics(metrics => metrics
+                .AddMeter(ProcessStepDispatchTelemetry.MeterName)
+                .AddMeter("WorkflowBuilder.API.ProcessStart"));
 
         // Add services to the container.
         builder.Services.AddSingleton<IBlueprintDbContextOptionsConfigurator, SqlServerBlueprintDbContextOptionsConfigurator>();
@@ -60,6 +64,13 @@ public class Program
         });
         builder.Services.AddSingleton<IProcessStepQueueWriter, ServiceBusProcessStepQueueWriter>();
         builder.Services.AddSingleton<ProcessStartTelemetry>();
+        builder.Services.AddSingleton(sp =>
+            sp.GetRequiredService<IConfiguration>()
+                .GetSection("ProcessStepDispatch")
+                .Get<ProcessStepDispatchOptions>()
+            ?? new ProcessStepDispatchOptions());
+        builder.Services.AddSingleton<ProcessStepDispatchTelemetry>();
+        builder.Services.AddSingleton<ProcessStepDispatchService>();
         builder.Services.AddScoped<BlueprintProcessService>();
         builder.Services.AddScoped<PhasedBlueprintProcessService>();
         builder.Services.AddScoped<BlueprintPortabilityService>();
