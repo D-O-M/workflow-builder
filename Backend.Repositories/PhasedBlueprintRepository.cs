@@ -502,7 +502,7 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
         var nodes = await _context.BlueprintNodes
             .AsNoTracking()
             .Where(node => node.BlueprintVersionId == blueprintVersionId)
-            .Include(node => node.TaskDefinition)
+            .Include(node => node.TaskDefinition!)
                 .ThenInclude(taskDefinition => taskDefinition.Versions)
                     .ThenInclude(taskVersion => taskVersion.Channels)
                         .ThenInclude(channel => channel.Properties)
@@ -528,7 +528,7 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
         return await _context.BlueprintNodes
             .AsNoTracking()
             .Where(node => node.Id == startingBlueprintNodeId)
-            .Include(node => node.TaskDefinition)
+            .Include(node => node.TaskDefinition!)
                 .ThenInclude(taskDefinition => taskDefinition.Versions)
                     .ThenInclude(taskVersion => taskVersion.Channels)
                         .ThenInclude(channel => channel.Properties)

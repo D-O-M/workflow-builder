@@ -29,7 +29,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
     private static readonly DiagnosticDescriptor MultipleBuilderChainsRule = new(
         id: "WBP001",
         title: "Multiple plugin builder chains are not supported",
-        messageFormat: "The plugin contract generator found more than one Plugin.CreateBuilder<TPlugin>(...) chain in this assembly.",
+        messageFormat: "The plugin contract generator found more than one Plugin.CreateBuilder<TPlugin>(...) chain in this assembly",
         category: "WorkflowBuilder.PluginContracts",
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -1186,8 +1186,13 @@ internal static class {{GetProviderClassName(providerTypeName)}}
             return false;
         }
 
-        propertySymbol = semanticModel.GetSymbolInfo(memberAccess).Symbol as IPropertySymbol;
-        return propertySymbol is not null;
+        if (semanticModel.GetSymbolInfo(memberAccess).Symbol is not IPropertySymbol selectedProperty)
+        {
+            return false;
+        }
+
+        propertySymbol = selectedProperty;
+        return true;
     }
 
     private static ITypeSymbol UnwrapNullable(ITypeSymbol type, out bool isNullableValueType)

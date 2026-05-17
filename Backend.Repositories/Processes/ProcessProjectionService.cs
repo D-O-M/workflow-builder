@@ -258,7 +258,7 @@ public sealed class ProcessProjectionService
         CancellationToken cancellationToken) =>
         await _dbContext.BlueprintVersions
             .Include(version => version.BlueprintNodes)
-                .ThenInclude(blueprintNode => blueprintNode.TaskDefinition)
+                .ThenInclude(blueprintNode => blueprintNode.TaskDefinition!)
                     .ThenInclude(taskDefinition => taskDefinition.Versions)
                         .ThenInclude(taskVersion => taskVersion.Channels)
             .Include(version => version.BlueprintNodes)
@@ -283,7 +283,7 @@ public sealed class ProcessProjectionService
             .Where(blueprintNode =>
                 blueprintNode.BlueprintVersionId == blueprintVersionId &&
                 changedBlueprintNodeIds.Contains(blueprintNode.Id))
-            .Include(blueprintNode => blueprintNode.TaskDefinition)
+            .Include(blueprintNode => blueprintNode.TaskDefinition!)
                 .ThenInclude(taskDefinition => taskDefinition.Versions)
                     .ThenInclude(taskVersion => taskVersion.Channels)
             .AsNoTracking()

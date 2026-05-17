@@ -37,7 +37,7 @@ public class BlueprintRepository : IBlueprintRepository
 
         var nodeEntities = await _context.BlueprintNodes
             .Where(node => node.BlueprintVersionId == id)
-            .Include(node => node.TaskDefinition)
+            .Include(node => node.TaskDefinition!)
                 .ThenInclude(taskDefinition => taskDefinition.Versions)
                     .ThenInclude(taskVersion => taskVersion.Channels)
                         .ThenInclude(channel => channel.Properties)
@@ -218,7 +218,7 @@ public class BlueprintRepository : IBlueprintRepository
         var items = await _context.BlueprintDefinitions
             .Include(definition => definition.Versions)
                 .ThenInclude(version => version.BlueprintNodes)
-                    .ThenInclude(node => node.TaskDefinition)
+                    .ThenInclude(node => node.TaskDefinition!)
                         .ThenInclude(taskDefinition => taskDefinition.Versions)
                             .ThenInclude(taskVersion => taskVersion.Channels)
                                 .ThenInclude(channel => channel.Properties)
@@ -602,7 +602,7 @@ public class BlueprintRepository : IBlueprintRepository
 
         var taskInstances = await _context.BlueprintNodes
             .Where(taskInstance => taskInstance.BlueprintVersionId == blueprintVersionId)
-            .Include(taskInstance => taskInstance.TaskDefinition)
+            .Include(taskInstance => taskInstance.TaskDefinition!)
                 .ThenInclude(taskDefinition => taskDefinition.Versions)
                     .ThenInclude(taskVersion => taskVersion.Channels)
                         .ThenInclude(channel => channel.Properties)
