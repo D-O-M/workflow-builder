@@ -249,7 +249,6 @@ public sealed class StepFinalizationServiceTests
             processRepository,
             telemetry);
         var activationPersistenceService = new ActivationPersistenceService(
-            new ActivationPlanner(),
             new InMemoryNodeJoinStateRepository(),
             dispatchService,
             stepRepository,
@@ -262,6 +261,7 @@ public sealed class StepFinalizationServiceTests
             stepRepository,
             NullLogger<PhasedProcessFinalizationService>.Instance);
         return new StepFinalizationService(
+            new ActivationPlanner(),
             activationPersistenceService,
             phasedProcessFinalizationService,
             finalizationRepository,

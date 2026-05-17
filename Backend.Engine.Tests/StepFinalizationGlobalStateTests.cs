@@ -213,7 +213,6 @@ public class StepFinalizationGlobalStateTests
             new ProcessStepDispatchTelemetry(),
             NullLogger<ProcessStepDispatchService>.Instance);
         var activationPersistenceService = new ActivationPersistenceService(
-            new ActivationPlanner(),
             Mock.Of<INodeJoinStateRepository>(),
             dispatchService,
             stepRepository.Object,
@@ -230,6 +229,7 @@ public class StepFinalizationGlobalStateTests
             processRepository.Object,
             telemetry);
         var service = new StepFinalizationService(
+            new ActivationPlanner(),
             activationPersistenceService,
             phasedProcessFinalizationService,
             finalizationRepository,

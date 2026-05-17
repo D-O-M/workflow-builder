@@ -5,33 +5,72 @@ using Backend.Plugins.Communication;
 
 namespace Backend.Engine;
 
+public sealed record ActivationPlanningRequest(
+    ExecutableBlueprint ExecutableBlueprint,
+    ExecutableBlueprintNode CurrentNode,
+    Guid ProcessId,
+    Guid SourceProcessStepId,
+    PluginExecutionResult ExecutionResult,
+    ProcessStepIterationContext? IterationContext,
+    IReadOnlyDictionary<string, Dictionary<string, JsonElement>> RuntimeNodeOverrides,
+    IReadOnlyDictionary<Guid, JoinReadinessSnapshot>? JoinReadinessSnapshots = null);
+
+public sealed record CollectionIteratorActivationPlanningRequest(
+    ExecutableBlueprint ExecutableBlueprint,
+    ExecutableBlueprintNode CurrentNode,
+    Guid ProcessId,
+    Guid SourceProcessStepId,
+    IReadOnlyList<JsonElement> Items,
+    IReadOnlyDictionary<string, Dictionary<string, JsonElement>> RuntimeNodeOverrides,
+    IReadOnlyDictionary<Guid, JoinReadinessSnapshot>? JoinReadinessSnapshots = null);
+
 public sealed record ActivationPlan(
-    IReadOnlyList<ActivationCandidate> Candidates)
+    IReadOnlyList<ActivationIntent> Intents,
+    IReadOnlyList<JoinSourceObservation> JoinSourceObservations)
 {
-    public static ActivationPlan Empty { get; } = new([]);
+    public static ActivationPlan Empty { get; } = new([], []);
 }
 
-public sealed record ActivationCandidate(
+public sealed record ActivationIntent(
+    Guid ProcessId,
+    int ExecutableBlueprintId,
     Guid ProcessStepId,
     ExecutableBlueprintNode DestinationNode,
-    IReadOnlyList<InputHydrationSource> Sources,
+    InputHydrationPlan InputHydrationPlan,
     ProcessStepIterationContext? IterationContext,
     Guid? JoinStateId);
+
+public sealed record JoinSourceObservation(
+    Guid ProcessId,
+    int ExecutableBlueprintId,
+    Guid JoinStateId,
+    Guid DestinationBlueprintNodeId,
+    IReadOnlyCollection<string> RequiredBindingIds,
+    InputHydrationSource Source);
+
+public sealed record JoinReadinessSnapshot(
+    Guid ProcessId,
+    int ExecutableBlueprintId,
+    Guid JoinStateId,
+    Guid DestinationBlueprintNodeId,
+    IReadOnlyCollection<string> RequiredBindingIds,
+    IReadOnlyDictionary<string, InputHydrationSource> ReceivedSources,
+    bool StepEnqueued,
+    Guid? EnqueuedProcessStepId);
 
 public sealed class ActivationPlanner
 {
     private const string CollectionIteratorOutputChannelName = "Item";
 
-    public ActivationPlan PlanReadyActivations(
-        StepExecutionContext context,
-        PluginExecutionResult executionResult)
+    public ActivationPlan PlanReadyActivations(ActivationPlanningRequest request)
     {
-        var nodesById = context.ExecutableBlueprint.NodesById;
-        var candidates = new List<ActivationCandidate>();
+        var intents = new List<ActivationIntent>();
+        var observations = new List<JoinSourceObservation>();
+        var nodesById = request.ExecutableBlueprint.NodesById;
 
-        foreach (var outputChannel in context.BlueprintNode.OutputChannels.Values)
+        foreach (var outputChannel in request.CurrentNode.OutputChannels.Values)
         {
-            if (!executionResult.OutputData.ContainsKey(outputChannel.Name))
+            if (!request.ExecutionResult.OutputData.ContainsKey(outputChannel.Name))
             {
                 continue;
             }
@@ -43,39 +82,47 @@ public sealed class ActivationPlanner
                     continue;
                 }
 
-                candidates.Add(CreateCandidate(
-                    context,
+                AddActivation(
+                    request.ExecutableBlueprint.Id,
+                    request.ProcessId,
+                    request.SourceProcessStepId,
+                    outputChannel,
+                    binding,
                     destinationNode,
-                    [CreateHydrationSource(context, outputChannel, binding)],
-                    context.IterationContext));
+                    request.IterationContext,
+                    request.RuntimeNodeOverrides,
+                    request.JoinReadinessSnapshots,
+                    inlineInput: null,
+                    intents,
+                    observations);
             }
         }
 
-        return candidates.Count == 0
+        return intents.Count == 0 && observations.Count == 0
             ? ActivationPlan.Empty
-            : new ActivationPlan(candidates);
+            : new ActivationPlan(intents, observations);
     }
 
     public ActivationPlan PlanCollectionIteratorItemActivations(
-        StepExecutionContext context,
-        IReadOnlyList<JsonElement> items)
+        CollectionIteratorActivationPlanningRequest request)
     {
-        if (!context.BlueprintNode.OutputChannels.TryGetValue(
+        if (!request.CurrentNode.OutputChannels.TryGetValue(
                 CollectionIteratorOutputChannelName,
                 out var itemOutputChannel))
         {
             return ActivationPlan.Empty;
         }
 
-        var nodesById = context.ExecutableBlueprint.NodesById;
-        var candidates = new List<ActivationCandidate>();
+        var intents = new List<ActivationIntent>();
+        var observations = new List<JoinSourceObservation>();
+        var nodesById = request.ExecutableBlueprint.NodesById;
 
-        for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
+        for (var itemIndex = 0; itemIndex < request.Items.Count; itemIndex++)
         {
             var itemPayload = JsonSerializer.SerializeToElement(
                 new Dictionary<string, JsonElement>(StringComparer.Ordinal)
                 {
-                    ["item"] = items[itemIndex].Clone()
+                    ["item"] = request.Items[itemIndex].Clone()
                 },
                 JsonSerializerOptions.Web);
 
@@ -88,73 +135,148 @@ public sealed class ActivationPlanner
 
                 var iterationContext = new ProcessStepIterationContext
                 {
-                    SourceIteratorStepId = context.ProcessStepId.ToString(),
-                    SourceIteratorBlueprintNodeId = context.BlueprintNodeId.ToString(),
+                    SourceIteratorStepId = request.SourceProcessStepId.ToString(),
+                    SourceIteratorBlueprintNodeId = request.CurrentNode.Id.ToString(),
                     ItemIndex = itemIndex,
-                    ItemKey = $"{context.ProcessStepId:N}:{itemIndex:D8}"
+                    ItemKey = $"{request.SourceProcessStepId:N}:{itemIndex:D8}"
                 };
 
-                candidates.Add(CreateCandidate(
-                    context,
+                AddActivation(
+                    request.ExecutableBlueprint.Id,
+                    request.ProcessId,
+                    request.SourceProcessStepId,
+                    itemOutputChannel,
+                    binding,
                     destinationNode,
-                    [CreateHydrationSource(
-                        context,
-                        itemOutputChannel,
-                        binding,
-                        BlueprintInputMaterializer.MaterializePartialInput(
-                            itemPayload,
-                            binding.PropertyMappings))],
-                    iterationContext));
+                    iterationContext,
+                    request.RuntimeNodeOverrides,
+                    request.JoinReadinessSnapshots,
+                    BlueprintInputMaterializer.MaterializePartialInput(
+                        itemPayload,
+                        binding.PropertyMappings),
+                    intents,
+                    observations);
             }
         }
 
-        return candidates.Count == 0
+        return intents.Count == 0 && observations.Count == 0
             ? ActivationPlan.Empty
-            : new ActivationPlan(candidates);
+            : new ActivationPlan(intents, observations);
     }
 
-    public ActivationCandidate WithSources(
-        StepExecutionContext context,
-        ActivationCandidate candidate,
-        IReadOnlyList<InputHydrationSource> sources) =>
-        candidate with
+    private static void AddActivation(
+        int executableBlueprintId,
+        Guid processId,
+        Guid sourceProcessStepId,
+        ExecutableBlueprintChannel outputChannel,
+        ExecutableBlueprintBinding binding,
+        ExecutableBlueprintNode destinationNode,
+        ProcessStepIterationContext? iterationContext,
+        IReadOnlyDictionary<string, Dictionary<string, JsonElement>> runtimeNodeOverrides,
+        IReadOnlyDictionary<Guid, JoinReadinessSnapshot>? joinReadinessSnapshots,
+        Dictionary<string, JsonElement>? inlineInput,
+        List<ActivationIntent> intents,
+        List<JoinSourceObservation> observations)
+    {
+        var source = CreateHydrationSource(
+            sourceProcessStepId,
+            outputChannel,
+            binding,
+            inlineInput);
+
+        if (destinationNode.InboundBindings.Count <= 1)
         {
-            Sources = sources,
-            ProcessStepId = CreateScopedRuntimeIdentity(
-                context.ProcessId,
-                candidate.DestinationNode.Id,
-                candidate.IterationContext),
-            JoinStateId = candidate.DestinationNode.InboundBindings.Count > 1
-                ? CreateScopedJoinStateId(
-                    context.ProcessId,
-                    candidate.DestinationNode.Id,
-                    candidate.IterationContext)
-                : null
+            intents.Add(CreateIntent(
+                processId,
+                executableBlueprintId,
+                destinationNode,
+                [source],
+                iterationContext,
+                runtimeNodeOverrides,
+                joinStateId: null));
+            return;
+        }
+
+        var joinStateId = CreateScopedJoinStateId(processId, destinationNode.Id, iterationContext);
+        var requiredBindingIds = destinationNode.InboundBindings
+            .Select(inboundBinding => inboundBinding.Id)
+            .ToArray();
+        observations.Add(new JoinSourceObservation(
+            processId,
+            executableBlueprintId,
+            joinStateId,
+            destinationNode.Id,
+            requiredBindingIds,
+            source));
+
+        if (joinReadinessSnapshots is null ||
+            !joinReadinessSnapshots.TryGetValue(joinStateId, out var snapshot) ||
+            snapshot.StepEnqueued)
+        {
+            return;
+        }
+
+        var receivedSources = new Dictionary<string, InputHydrationSource>(
+            snapshot.ReceivedSources,
+            StringComparer.Ordinal)
+        {
+            [source.BindingId] = source
         };
 
-    private static ActivationCandidate CreateCandidate(
-        StepExecutionContext context,
+        if (!requiredBindingIds.All(receivedSources.ContainsKey))
+        {
+            return;
+        }
+
+        intents.Add(CreateIntent(
+            processId,
+            executableBlueprintId,
+            destinationNode,
+            requiredBindingIds
+                .OrderBy(bindingId => bindingId, StringComparer.Ordinal)
+                .Select(bindingId => receivedSources[bindingId])
+                .ToList(),
+            iterationContext,
+            runtimeNodeOverrides,
+            joinStateId));
+    }
+
+    private static ActivationIntent CreateIntent(
+        Guid processId,
+        int executableBlueprintId,
         ExecutableBlueprintNode destinationNode,
         IReadOnlyList<InputHydrationSource> sources,
-        ProcessStepIterationContext? iterationContext) =>
-        new(
-            CreateScopedRuntimeIdentity(context.ProcessId, destinationNode.Id, iterationContext),
+        ProcessStepIterationContext? iterationContext,
+        IReadOnlyDictionary<string, Dictionary<string, JsonElement>> runtimeNodeOverrides,
+        Guid? joinStateId)
+    {
+        runtimeNodeOverrides.TryGetValue(destinationNode.Id.ToString(), out var runtimeOverrides);
+
+        return new ActivationIntent(
+            processId,
+            executableBlueprintId,
+            CreateScopedRuntimeIdentity(processId, destinationNode.Id, iterationContext),
             destinationNode,
-            sources,
+            new InputHydrationPlan
+            {
+                InputChannelName = destinationNode.InputChannel.Name,
+                Sources = CloneSources(sources),
+                DesignTimeInputOverrides = CloneJsonMap(destinationNode.DesignTimeInputOverrides) ?? new(StringComparer.Ordinal),
+                RuntimeInputOverrides = CloneJsonMap(runtimeOverrides) ?? new(StringComparer.Ordinal)
+            },
             iterationContext,
-            destinationNode.InboundBindings.Count > 1
-                ? CreateScopedJoinStateId(context.ProcessId, destinationNode.Id, iterationContext)
-                : null);
+            joinStateId);
+    }
 
     private static InputHydrationSource CreateHydrationSource(
-        StepExecutionContext context,
+        Guid sourceProcessStepId,
         ExecutableBlueprintChannel outputChannel,
         ExecutableBlueprintBinding binding,
         Dictionary<string, JsonElement>? inlineInput = null) =>
         new()
         {
             BindingId = binding.Id,
-            SourceProcessStepId = context.ProcessStepId.ToString(),
+            SourceProcessStepId = sourceProcessStepId.ToString(),
             SourceOutputChannelName = outputChannel.Name,
             PropertyMappings = binding.PropertyMappings
                 .Select(mapping => new InputHydrationPropertyMapping
@@ -163,8 +285,38 @@ public sealed class ActivationPlanner
                     TargetProperty = mapping.TargetProperty
                 })
                 .ToList(),
-            InlineInput = inlineInput
+            InlineInput = CloneJsonMap(inlineInput)
         };
+
+    private static List<InputHydrationSource> CloneSources(IReadOnlyList<InputHydrationSource> sources) =>
+        sources.Select(source => new InputHydrationSource
+        {
+            BindingId = source.BindingId,
+            SourceProcessStepId = source.SourceProcessStepId,
+            SourceOutputChannelName = source.SourceOutputChannelName,
+            PropertyMappings = source.PropertyMappings
+                .Select(mapping => new InputHydrationPropertyMapping
+                {
+                    SourceProperty = mapping.SourceProperty,
+                    TargetProperty = mapping.TargetProperty
+                })
+                .ToList(),
+            InlineInput = CloneJsonMap(source.InlineInput)
+        }).ToList();
+
+    private static Dictionary<string, JsonElement>? CloneJsonMap(
+        IReadOnlyDictionary<string, JsonElement>? values)
+    {
+        if (values is null)
+        {
+            return null;
+        }
+
+        return values.ToDictionary(
+            entry => entry.Key,
+            entry => entry.Value.Clone(),
+            StringComparer.Ordinal);
+    }
 
     private static Guid CreateScopedRuntimeIdentity(
         Guid processId,

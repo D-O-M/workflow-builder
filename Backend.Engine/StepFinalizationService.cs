@@ -60,6 +60,7 @@ public class StepFinalizationService : IStepFinalizationService
         WriteIndented = false
     };
 
+    private readonly ActivationPlanner _activationPlanner;
     private readonly ActivationPersistenceService _activationPersistenceService;
     private readonly PhasedProcessFinalizationService _phasedProcessFinalizationService;
     private readonly IProcessStepFinalizationRepository _finalizationRepository;
@@ -70,6 +71,7 @@ public class StepFinalizationService : IStepFinalizationService
     private readonly ILogger<StepFinalizationService> _logger;
 
     public StepFinalizationService(
+        ActivationPlanner activationPlanner,
         ActivationPersistenceService activationPersistenceService,
         PhasedProcessFinalizationService phasedProcessFinalizationService,
         IProcessStepFinalizationRepository finalizationRepository,
@@ -79,6 +81,7 @@ public class StepFinalizationService : IStepFinalizationService
         ProcessLifecycleTelemetry processLifecycleTelemetry,
         ILogger<StepFinalizationService> logger)
     {
+        _activationPlanner = activationPlanner;
         _activationPersistenceService = activationPersistenceService;
         _phasedProcessFinalizationService = phasedProcessFinalizationService;
         _finalizationRepository = finalizationRepository;
@@ -240,9 +243,11 @@ public class StepFinalizationService : IStepFinalizationService
             }
             else
             {
-                await _activationPersistenceService.PersistReadyActivationsAsync(
+                await PlanAndPersistReadyActivationsAsync(
                     context,
                     activationResult,
+                    activationResult.CompletedAt,
+                    batchSize: int.MaxValue,
                     cancellationToken);
             }
 
@@ -392,7 +397,7 @@ public class StepFinalizationService : IStepFinalizationService
     {
         var items = await ResolveCollectionIteratorItemsAsync(context, record, cancellationToken);
         var stopwatch = Stopwatch.StartNew();
-        var result = await _activationPersistenceService.PersistCollectionIteratorItemActivationsAsync(
+        var result = await PlanAndPersistCollectionIteratorActivationsAsync(
             context,
             items,
             Math.Max(1, record.CollectionIteratorBatchSize ?? 1),
@@ -406,6 +411,93 @@ public class StepFinalizationService : IStepFinalizationService
             result.ScheduledStepCount,
             stopwatch.Elapsed);
     }
+
+    private async Task<ActivationPersistenceResult> PlanAndPersistReadyActivationsAsync(
+        StepExecutionContext context,
+        PluginExecutionResult executionResult,
+        DateTimeOffset timestamp,
+        int batchSize,
+        CancellationToken cancellationToken)
+    {
+        var request = CreateActivationPlanningRequest(
+            context,
+            executionResult,
+            joinReadinessSnapshots: null);
+        var plan = _activationPlanner.PlanReadyActivations(request);
+
+        if (plan.JoinSourceObservations.Count > 0)
+        {
+            var snapshots = await _activationPersistenceService.RecordJoinSourceObservationsAsync(
+                plan,
+                timestamp,
+                cancellationToken);
+            plan = _activationPlanner.PlanReadyActivations(
+                request with { JoinReadinessSnapshots = snapshots });
+        }
+
+        return await _activationPersistenceService.PersistReadyActivationsAsync(
+            plan,
+            timestamp,
+            batchSize,
+            cancellationToken);
+    }
+
+    private async Task<ActivationPersistenceResult> PlanAndPersistCollectionIteratorActivationsAsync(
+        StepExecutionContext context,
+        IReadOnlyList<JsonElement> items,
+        int batchSize,
+        DateTimeOffset timestamp,
+        CancellationToken cancellationToken)
+    {
+        var request = CreateCollectionIteratorActivationPlanningRequest(
+            context,
+            items,
+            joinReadinessSnapshots: null);
+        var plan = _activationPlanner.PlanCollectionIteratorItemActivations(request);
+
+        if (plan.JoinSourceObservations.Count > 0)
+        {
+            var snapshots = await _activationPersistenceService.RecordJoinSourceObservationsAsync(
+                plan,
+                timestamp,
+                cancellationToken);
+            plan = _activationPlanner.PlanCollectionIteratorItemActivations(
+                request with { JoinReadinessSnapshots = snapshots });
+        }
+
+        return await _activationPersistenceService.PersistReadyActivationsAsync(
+            plan,
+            timestamp,
+            batchSize,
+            cancellationToken);
+    }
+
+    private static ActivationPlanningRequest CreateActivationPlanningRequest(
+        StepExecutionContext context,
+        PluginExecutionResult executionResult,
+        IReadOnlyDictionary<Guid, JoinReadinessSnapshot>? joinReadinessSnapshots) =>
+        new(
+            context.ExecutableBlueprint,
+            context.BlueprintNode,
+            context.ProcessId,
+            context.ProcessStepId,
+            executionResult,
+            context.IterationContext,
+            context.ProcessNodeOverrides,
+            joinReadinessSnapshots);
+
+    private static CollectionIteratorActivationPlanningRequest CreateCollectionIteratorActivationPlanningRequest(
+        StepExecutionContext context,
+        IReadOnlyList<JsonElement> items,
+        IReadOnlyDictionary<Guid, JoinReadinessSnapshot>? joinReadinessSnapshots) =>
+        new(
+            context.ExecutableBlueprint,
+            context.BlueprintNode,
+            context.ProcessId,
+            context.ProcessStepId,
+            items,
+            context.ProcessNodeOverrides,
+            joinReadinessSnapshots);
 
     private async Task<IReadOnlyList<JsonElement>> ResolveCollectionIteratorItemsAsync(
         StepExecutionContext context,

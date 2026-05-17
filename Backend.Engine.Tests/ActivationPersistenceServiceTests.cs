@@ -45,15 +45,17 @@ public sealed class ActivationPersistenceServiceTests
             stepRepository,
             processRepository);
         var service = new ActivationPersistenceService(
-            new ActivationPlanner(),
             new InMemoryNodeJoinStateRepository(),
             CreateDispatchService(stepRepository, queueWriter),
             stepRepository,
             NullLogger<ActivationPersistenceService>.Instance);
+        var result = CreateResult(context, "Out");
+        var plan = PlanReadyActivations(context, result);
 
         await service.PersistReadyActivationsAsync(
-            context,
-            CreateResult(context, "Out"),
+            plan,
+            result.CompletedAt,
+            batchSize: int.MaxValue,
             CancellationToken.None);
 
         stepRepository.CreatedSteps.Count.ShouldBe(1);
@@ -93,7 +95,6 @@ public sealed class ActivationPersistenceServiceTests
         var queueWriter = new ProcessStepQueueWriterSpy();
         var joinRepository = new InMemoryNodeJoinStateRepository();
         var service = new ActivationPersistenceService(
-            new ActivationPlanner(),
             joinRepository,
             CreateDispatchService(stepRepository, queueWriter),
             stepRepository,
@@ -106,9 +107,16 @@ public sealed class ActivationPersistenceServiceTests
             stepRepository,
             processRepository);
 
+        var leftResult = CreateResult(leftContext, "LeftOut");
+        var leftPlan = PlanReadyActivations(leftContext, leftResult);
+        await service.RecordJoinSourceObservationsAsync(
+            leftPlan,
+            leftResult.CompletedAt,
+            CancellationToken.None);
         await service.PersistReadyActivationsAsync(
-            leftContext,
-            CreateResult(leftContext, "LeftOut"),
+            leftPlan,
+            leftResult.CompletedAt,
+            batchSize: int.MaxValue,
             CancellationToken.None);
 
         stepRepository.CreatedSteps.Count.ShouldBe(0);
@@ -121,9 +129,17 @@ public sealed class ActivationPersistenceServiceTests
             stepRepository,
             processRepository);
 
+        var rightResult = CreateResult(rightContext, "RightOut");
+        var rightPlan = PlanReadyActivations(rightContext, rightResult);
+        var rightSnapshots = await service.RecordJoinSourceObservationsAsync(
+            rightPlan,
+            rightResult.CompletedAt,
+            CancellationToken.None);
+        var readyRightPlan = PlanReadyActivations(rightContext, rightResult, rightSnapshots);
         await service.PersistReadyActivationsAsync(
-            rightContext,
-            CreateResult(rightContext, "RightOut"),
+            readyRightPlan,
+            rightResult.CompletedAt,
+            batchSize: int.MaxValue,
             CancellationToken.None);
 
         stepRepository.CreatedSteps.Count.ShouldBe(1);
@@ -142,9 +158,16 @@ public sealed class ActivationPersistenceServiceTests
         joinRepository.States[(processId, joinNodeId)].EnqueuedProcessStepId.ShouldBe(createdStep.Id);
         stepRepository.ProcessStepListFetchCount.ShouldBe(0);
 
+        var duplicatePlan = PlanReadyActivations(rightContext, rightResult);
+        var duplicateSnapshots = await service.RecordJoinSourceObservationsAsync(
+            duplicatePlan,
+            rightResult.CompletedAt,
+            CancellationToken.None);
+        var duplicateReadyPlan = PlanReadyActivations(rightContext, rightResult, duplicateSnapshots);
         await service.PersistReadyActivationsAsync(
-            rightContext,
-            CreateResult(rightContext, "RightOut"),
+            duplicateReadyPlan,
+            rightResult.CompletedAt,
+            batchSize: int.MaxValue,
             CancellationToken.None);
 
         stepRepository.CreatedSteps.Count.ShouldBe(1);
@@ -172,17 +195,19 @@ public sealed class ActivationPersistenceServiceTests
             stepRepository,
             processRepository);
         var service = new ActivationPersistenceService(
-            new ActivationPlanner(),
             new InMemoryNodeJoinStateRepository(),
             CreateDispatchService(stepRepository, queueWriter),
             stepRepository,
             NullLogger<ActivationPersistenceService>.Instance);
-
-        var result = await service.PersistCollectionIteratorItemActivationsAsync(
+        var timestamp = DateTimeOffset.UtcNow;
+        var plan = PlanCollectionIteratorActivations(
             context,
-            [Json("alpha"), Json("bravo")],
+            [Json("alpha"), Json("bravo")]);
+
+        var result = await service.PersistReadyActivationsAsync(
+            plan,
+            timestamp,
             batchSize: 100,
-            DateTimeOffset.UtcNow,
             CancellationToken.None);
 
         result.ScheduledStepCount.ShouldBe(2);
@@ -282,6 +307,34 @@ public sealed class ActivationPersistenceServiceTests
             CompletedAt: DateTimeOffset.UtcNow,
             TimingsMs: null,
             ErrorMessage: null);
+
+    private static ActivationPlan PlanReadyActivations(
+        StepExecutionContext context,
+        PluginExecutionResult result,
+        IReadOnlyDictionary<Guid, JoinReadinessSnapshot>? joinReadinessSnapshots = null) =>
+        new ActivationPlanner().PlanReadyActivations(new ActivationPlanningRequest(
+            context.ExecutableBlueprint,
+            context.BlueprintNode,
+            context.ProcessId,
+            context.ProcessStepId,
+            result,
+            context.IterationContext,
+            context.ProcessNodeOverrides,
+            joinReadinessSnapshots));
+
+    private static ActivationPlan PlanCollectionIteratorActivations(
+        StepExecutionContext context,
+        IReadOnlyList<JsonElement> items,
+        IReadOnlyDictionary<Guid, JoinReadinessSnapshot>? joinReadinessSnapshots = null) =>
+        new ActivationPlanner().PlanCollectionIteratorItemActivations(
+            new CollectionIteratorActivationPlanningRequest(
+                context.ExecutableBlueprint,
+                context.BlueprintNode,
+                context.ProcessId,
+                context.ProcessStepId,
+                items,
+                context.ProcessNodeOverrides,
+                joinReadinessSnapshots));
 
     private static ExecutableBlueprint CreateSingleInboundBlueprint(
         Guid sourceNodeId,
@@ -846,7 +899,7 @@ public sealed class ActivationPersistenceServiceTests
 
     private sealed class InMemoryNodeJoinStateRepository : INodeJoinStateRepository
     {
-        public Dictionary<(Guid ProcessId, Guid NodeId), NodeJoinStateRecord> States { get; } = new();
+        public Dictionary<(Guid ProcessId, Guid JoinStateId), NodeJoinStateRecord> States { get; } = new();
 
         public Task<NodeJoinStateRecord?> GetJoinStateAsync(
             Guid processId,
@@ -861,7 +914,7 @@ public sealed class ActivationPersistenceServiceTests
             NodeJoinStateRecord state,
             CancellationToken cancellationToken)
         {
-            var key = (Guid.Parse(state.ProcessId), Guid.Parse(state.BlueprintNodeId));
+            var key = (Guid.Parse(state.ProcessId), Guid.Parse(state.Id));
             if (States.TryGetValue(key, out var existing))
             {
                 return Task.FromResult((false, existing));
@@ -875,7 +928,7 @@ public sealed class ActivationPersistenceServiceTests
             NodeJoinStateRecord state,
             CancellationToken cancellationToken)
         {
-            States[(Guid.Parse(state.ProcessId), Guid.Parse(state.BlueprintNodeId))] = state;
+            States[(Guid.Parse(state.ProcessId), Guid.Parse(state.Id))] = state;
             return Task.FromResult(true);
         }
     }
