@@ -42,6 +42,13 @@ public interface IProcessStepRepository
         DateTimeOffset startedAt,
         CancellationToken cancellationToken);
 
+    Task<bool> TryResetProcessStepToPendingAsync(
+        Guid taskInstanceId,
+        Guid processId,
+        DateTimeOffset resetAt,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
     Task<List<ProcessStepRecord>> GetProcessStepsForProcess(
         Guid processId,
         CancellationToken cancellationToken);

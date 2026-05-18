@@ -18,7 +18,10 @@ public enum PluginRuntimeProtocolLineDisposition
 
 public sealed record PluginRuntimeProcessExitSummary(
     bool ExitedBeforeReady,
-    int InFlightJobCount);
+    IReadOnlyList<Guid> InFlightJobIds)
+{
+    public int InFlightJobCount => InFlightJobIds.Count;
+}
 
 public sealed class PluginRuntimeProtocolSession
 {
@@ -110,26 +113,36 @@ public sealed class PluginRuntimeProtocolSession
         }
     }
 
-    public PluginRuntimeProcessExitSummary RecordProcessExit(int exitCode)
+    public PluginRuntimeProcessExitSummary RecordProcessExit(
+        int exitCode,
+        bool shutdownRequested = false)
     {
-        int inFlightCount;
+        Guid[] inFlightJobIds;
         lock (_sync)
         {
-            inFlightCount = _inFlightJobs.Count;
+            inFlightJobIds = [.. _inFlightJobs];
             _inFlightJobs.Clear();
         }
 
-        if (inFlightCount > 0)
+        if (inFlightJobIds.Length > 0 && !shutdownRequested)
         {
-            _telemetry.RecordInFlightJobsOnExit(_pluginName, inFlightCount);
+            _telemetry.RecordInFlightJobsOnExit(_pluginName, inFlightJobIds.Length);
             _logger.LogWarning(
                 "Plugin runtime {PluginName} exited with {InFlightJobCount} in-flight process step(s). Exit code: {ExitCode}. Service Bus redelivery will recover unfinished work.",
                 _pluginName,
-                inFlightCount,
+                inFlightJobIds.Length,
+                exitCode);
+        }
+        else if (inFlightJobIds.Length > 0)
+        {
+            _logger.LogInformation(
+                "Plugin runtime {PluginName} exited during shutdown with {InFlightJobCount} in-flight process step(s). Exit code: {ExitCode}.",
+                _pluginName,
+                inFlightJobIds.Length,
                 exitCode);
         }
 
-        return new PluginRuntimeProcessExitSummary(!IsReady, inFlightCount);
+        return new PluginRuntimeProcessExitSummary(!IsReady, inFlightJobIds);
     }
 
     private PluginRuntimeProtocolLineDisposition HandleReady()

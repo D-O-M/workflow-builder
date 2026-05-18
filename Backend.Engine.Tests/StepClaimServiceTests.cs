@@ -82,15 +82,35 @@ public sealed class StepClaimServiceTests
     public async Task ResetStepToPendingAsync_resets_only_in_progress_steps()
     {
         var fixture = CreateFixture(ProcessStatus.InProgress, ProcessStepStatus.InProgress);
+        fixture.StepRepository
+            .Setup(repository => repository.TryResetProcessStepToPendingAsync(
+                fixture.Context.ProcessStepId,
+                fixture.Context.ProcessId,
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .Callback(() =>
+            {
+                fixture.Step.Status = ProcessStepStatus.Pending;
+                fixture.Step.StartedAt = null;
+            })
+            .ReturnsAsync(true);
         var service = CreateService(fixture);
 
-        await service.ResetStepToPendingAsync(fixture.Context, CancellationToken.None);
+        var result = await service.TryResetStepToPendingAsync(fixture.Context, CancellationToken.None);
 
+        result.ShouldBe(StepResetResult.ResetToPending);
         fixture.Step.Status.ShouldBe(ProcessStepStatus.Pending);
         fixture.Step.StartedAt.ShouldBeNull();
         fixture.StepRepository.Verify(
-            repository => repository.UpdateProcessStep(fixture.Step, It.IsAny<CancellationToken>()),
+            repository => repository.TryResetProcessStepToPendingAsync(
+                fixture.Context.ProcessStepId,
+                fixture.Context.ProcessId,
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()),
             Times.Once);
+        fixture.StepRepository.Verify(
+            repository => repository.UpdateProcessStep(It.IsAny<ProcessStepRecord>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     private static StepClaimService CreateService(Fixture fixture) =>

@@ -99,13 +99,31 @@ public sealed class PluginRuntimeProtocolSessionTests
     public void Process_exit_with_inflight_jobs_records_recovery_metric()
     {
         var session = CreateSession(out _, out var telemetry);
-        session.TrackQueuedJob(Guid.NewGuid());
-        session.TrackQueuedJob(Guid.NewGuid());
+        var firstJobId = Guid.NewGuid();
+        var secondJobId = Guid.NewGuid();
+        session.TrackQueuedJob(firstJobId);
+        session.TrackQueuedJob(secondJobId);
 
         var summary = session.RecordProcessExit(exitCode: 1);
 
         summary.InFlightJobCount.ShouldBe(2);
+        summary.InFlightJobIds.ShouldContain(firstJobId);
+        summary.InFlightJobIds.ShouldContain(secondJobId);
         telemetry.RecordedInFlightJobsOnExit.ShouldBe(2);
+        session.InFlightJobCount.ShouldBe(0);
+    }
+
+    [Test]
+    public void Shutdown_process_exit_with_inflight_jobs_returns_ids_without_recovery_metric()
+    {
+        var session = CreateSession(out _, out var telemetry);
+        var jobId = Guid.NewGuid();
+        session.TrackQueuedJob(jobId);
+
+        var summary = session.RecordProcessExit(exitCode: 0, shutdownRequested: true);
+
+        summary.InFlightJobIds.ShouldContain(jobId);
+        telemetry.RecordedInFlightJobsOnExit.ShouldBe(0);
         session.InFlightJobCount.ShouldBe(0);
     }
 

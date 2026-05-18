@@ -31,13 +31,14 @@ public interface IStepExecutionService
         CancellationToken cancellationToken);
 }
 
-public sealed class StepExecutionService : IStepExecutionService
+public sealed class StepExecutionService : IStepExecutionService, IPluginAgentFailureHandler
 {
     private readonly IAgentManager _agentManager;
     private readonly ConcurrentDictionary<Guid, StepExecutionContext> _activeSteps = new();
     private readonly PluginRuntimeCatalog _pluginRuntimeCatalog;
     private readonly IPluginRuntimeReloader _pluginRuntimeReloader;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
+    private readonly PluginRuntimeAgentTelemetry _pluginRuntimeAgentTelemetry;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly StepClaimService _stepClaimService;
     private readonly ILogger<StepExecutionService> _logger;
@@ -47,6 +48,7 @@ public sealed class StepExecutionService : IStepExecutionService
         PluginRuntimeCatalog pluginRuntimeCatalog,
         IPluginRuntimeReloader pluginRuntimeReloader,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
+        PluginRuntimeAgentTelemetry pluginRuntimeAgentTelemetry,
         IServiceScopeFactory serviceScopeFactory,
         StepClaimService stepClaimService,
         ILogger<StepExecutionService> logger)
@@ -55,6 +57,7 @@ public sealed class StepExecutionService : IStepExecutionService
         _pluginRuntimeCatalog = pluginRuntimeCatalog;
         _pluginRuntimeReloader = pluginRuntimeReloader;
         _processLifecycleTelemetry = processLifecycleTelemetry;
+        _pluginRuntimeAgentTelemetry = pluginRuntimeAgentTelemetry;
         _serviceScopeFactory = serviceScopeFactory;
         _stepClaimService = stepClaimService;
         _logger = logger;
@@ -245,6 +248,88 @@ public sealed class StepExecutionService : IStepExecutionService
             Activity.Current = previousActivity;
             _activeSteps.TryRemove(context.Id, out _);
             _agentManager.ReleaseStepSlot(context.ResolvedTaskVersionId);
+        }
+    }
+
+    public async Task HandlePluginAgentExitedAsync(
+        PluginAgentExitNotification notification,
+        CancellationToken cancellationToken)
+    {
+        if (notification.ShutdownRequested)
+        {
+            _logger.LogInformation(
+                "Plugin runtime {PluginName} exited during shutdown with {InFlightJobCount} in-flight process step(s); broker redelivery will recover unfinished work.",
+                notification.PluginName,
+                notification.InFlightProcessStepIds.Count);
+            return;
+        }
+
+        foreach (var processStepId in notification.InFlightProcessStepIds.Distinct())
+        {
+            if (!_activeSteps.TryRemove(processStepId, out var context))
+            {
+                _logger.LogWarning(
+                    "Plugin runtime {PluginName} reported abandoned process step {ProcessStepId}, but no active step context was found.",
+                    notification.PluginName,
+                    processStepId);
+                continue;
+            }
+
+            try
+            {
+                var resetResult = await _stepClaimService.TryResetStepToPendingAsync(
+                    context,
+                    cancellationToken);
+
+                if (resetResult is StepResetResult.ResetToPending or StepResetResult.AlreadyPending)
+                {
+                    await context.AbandonMessageAsync(cancellationToken);
+                    _pluginRuntimeAgentTelemetry.RecordActiveStepCleanupSucceeded(notification.PluginName);
+                    _logger.LogWarning(
+                        "Cleaned up abandoned process step {ProcessStepId} after plugin runtime {PluginName} exited with code {ExitCode}; queue message was abandoned for redelivery.",
+                        processStepId,
+                        notification.PluginName,
+                        notification.ExitCode);
+                    continue;
+                }
+
+                if (resetResult is StepResetResult.AlreadyTerminal)
+                {
+                    _pluginRuntimeAgentTelemetry.RecordActiveStepCleanupSucceeded(notification.PluginName);
+                    _logger.LogInformation(
+                        "Removed abandoned active context for terminal process step {ProcessStepId} after plugin runtime {PluginName} exited with code {ExitCode}.",
+                        processStepId,
+                        notification.PluginName,
+                        notification.ExitCode);
+                    continue;
+                }
+
+                _pluginRuntimeAgentTelemetry.RecordActiveStepCleanupFailed(notification.PluginName);
+                _logger.LogError(
+                    "Failed to reset abandoned process step {ProcessStepId} after plugin runtime {PluginName} exited with code {ExitCode}; queue message was left unsettled.",
+                    processStepId,
+                    notification.PluginName,
+                    notification.ExitCode);
+            }
+            catch (Exception ex)
+            {
+                _pluginRuntimeAgentTelemetry.RecordActiveStepCleanupFailed(notification.PluginName, ex);
+                _logger.LogError(
+                    ex,
+                    "Failed to clean up abandoned process step {ProcessStepId} after plugin runtime {PluginName} exited with code {ExitCode}; queue message was left unsettled.",
+                    processStepId,
+                    notification.PluginName,
+                    notification.ExitCode);
+            }
+            finally
+            {
+                _processLifecycleTelemetry.StopStepActivity(
+                    context,
+                    result: null,
+                    exception: new InvalidOperationException(
+                        $"Plugin runtime {notification.PluginName} exited before returning a result for process step {processStepId}."));
+                _agentManager.ReleaseStepSlot(context.ResolvedTaskVersionId);
+            }
         }
     }
 

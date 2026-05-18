@@ -21,6 +21,7 @@ public class PluginRuntimeAgent
     private readonly ILogger _logger;
     private readonly PluginResultFinalizationQueue _resultFinalizationQueue;
     private readonly PluginRuntimeAgentTelemetry _agentTelemetry;
+    private readonly PluginAgentExitNotificationService _exitNotificationService;
     private readonly IChildProcessTracker _childProcessTracker;
     private readonly IOperatingSystemInformation _operatingSystemInformation;
     private readonly IPluginRuntimeConfigurationService _pluginRuntimeConfigurationService;
@@ -43,6 +44,7 @@ public class PluginRuntimeAgent
         ILogger<PluginRuntimeAgent> logger,
         PluginResultFinalizationQueue resultFinalizationQueue,
         PluginRuntimeAgentTelemetry agentTelemetry,
+        PluginAgentExitNotificationService exitNotificationService,
         IChildProcessTracker childProcessTracker,
         IOperatingSystemInformation operatingSystemInformation,
         IPluginRuntimeConfigurationService pluginRuntimeConfigurationService)
@@ -52,6 +54,7 @@ public class PluginRuntimeAgent
         _logger = logger;
         _resultFinalizationQueue = resultFinalizationQueue;
         _agentTelemetry = agentTelemetry;
+        _exitNotificationService = exitNotificationService;
         _childProcessTracker = childProcessTracker;
         _operatingSystemInformation = operatingSystemInformation;
         _pluginRuntimeConfigurationService = pluginRuntimeConfigurationService;
@@ -230,9 +233,29 @@ public class PluginRuntimeAgent
                         await FlushBufferedOutputAsync(
                             processRemainingText: true,
                             _processCancellation?.Token ?? cancellationToken);
-                        var exitSummary = EnsureProtocolSession().RecordProcessExit(exited.ExitCode);
                         var stopWasRequested = Volatile.Read(ref _stopRequested) == 1 ||
                                                _processCancellation?.IsCancellationRequested == true;
+                        var exitSummary = EnsureProtocolSession().RecordProcessExit(
+                            exited.ExitCode,
+                            stopWasRequested);
+
+                        try
+                        {
+                            await _exitNotificationService.NotifyProcessExitAsync(
+                                Name,
+                                exited.ExitCode,
+                                stopWasRequested,
+                                exitSummary,
+                                cancellationToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(
+                                ex,
+                                "Failed to notify engine services that plugin runtime {PluginName} exited with {InFlightJobCount} in-flight process step(s).",
+                                Name,
+                                exitSummary.InFlightJobCount);
+                        }
 
                         if (stopWasRequested)
                         {

@@ -192,6 +192,8 @@ builder.Services.AddSingleton<PluginRuntimeAgentTelemetry>();
 builder.Services.AddSingleton<ProcessStepDispatchService>();
 builder.Services.AddSingleton<StepExecutionService>();
 builder.Services.AddSingleton<IStepExecutionService>(provider => provider.GetRequiredService<StepExecutionService>());
+builder.Services.AddSingleton<IPluginAgentFailureHandler>(provider => provider.GetRequiredService<StepExecutionService>());
+builder.Services.AddSingleton<PluginAgentExitNotificationService>();
 builder.Services.AddSingleton<StepMessageHandler>();
 builder.Services.AddSingleton<PluginResultFinalizationQueue>();
 

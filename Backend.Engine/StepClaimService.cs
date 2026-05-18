@@ -9,6 +9,14 @@ public sealed record StepClaimResult(
     bool StepClaimed,
     bool ProcessStarted);
 
+public enum StepResetResult
+{
+    ResetToPending,
+    AlreadyPending,
+    AlreadyTerminal,
+    NotReset
+}
+
 public sealed class StepClaimService
 {
     private readonly IProcessStepRepository _processStepRepository;
@@ -51,20 +59,42 @@ public sealed class StepClaimService
         StepExecutionContext context,
         CancellationToken cancellationToken)
     {
+        _ = await TryResetStepToPendingAsync(context, cancellationToken);
+    }
+
+    public async Task<StepResetResult> TryResetStepToPendingAsync(
+        StepExecutionContext context,
+        CancellationToken cancellationToken)
+    {
         var step = await _processStepRepository.GetProcessStepById(
             context.ProcessStepId,
             context.ProcessId,
             cancellationToken);
 
-        if (step.Status is not ProcessStepStatus.InProgress)
+        if (step.Status is ProcessStepStatus.Pending)
         {
-            return;
+            return StepResetResult.AlreadyPending;
         }
 
-        step.Status = ProcessStepStatus.Pending;
-        step.UpdatedAt = DateTimeOffset.UtcNow;
-        step.StartedAt = null;
-        await _processStepRepository.UpdateProcessStep(step, cancellationToken);
+        if (step.Status is ProcessStepStatus.Completed or ProcessStepStatus.Failed)
+        {
+            return StepResetResult.AlreadyTerminal;
+        }
+
+        if (step.Status is not ProcessStepStatus.InProgress)
+        {
+            return StepResetResult.NotReset;
+        }
+
+        var reset = await _processStepRepository.TryResetProcessStepToPendingAsync(
+            context.ProcessStepId,
+            context.ProcessId,
+            DateTimeOffset.UtcNow,
+            cancellationToken);
+
+        return reset
+            ? StepResetResult.ResetToPending
+            : StepResetResult.NotReset;
     }
 
     public async Task HydrateStepForFinalizationAsync(

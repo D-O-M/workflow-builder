@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -129,11 +131,143 @@ public sealed class StepExecutionServiceTests
             CancellationToken.None);
     }
 
+    [Test]
+    public async Task HandlePluginAgentExitedAsync_resets_active_step_abandons_message_and_releases_slot()
+    {
+        var fixture = CreateFixture();
+        var agentManager = new Mock<IAgentManager>();
+        var telemetry = new PluginRuntimeAgentTelemetry();
+        var service = CreateService(
+            new PluginRuntimeCatalog(),
+            Mock.Of<IPluginRuntimeReloader>(),
+            agentManager.Object,
+            fixture,
+            telemetry);
+        TrackActiveStep(service, fixture.Context);
+        SetupPersistedStep(fixture, ProcessStepStatus.InProgress);
+        fixture.StepRepository
+            .Setup(repository => repository.TryResetProcessStepToPendingAsync(
+                fixture.Context.ProcessStepId,
+                fixture.Context.ProcessId,
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        await service.HandlePluginAgentExitedAsync(
+            CreateExitNotification(fixture.Context.ProcessStepId),
+            CancellationToken.None);
+
+        fixture.QueueMessage.AbandonCount.ShouldBe(1);
+        fixture.QueueMessage.CompleteCount.ShouldBe(0);
+        ActiveStepCount(service).ShouldBe(0);
+        telemetry.RecordedActiveStepCleanupSucceeded.ShouldBe(1);
+        telemetry.RecordedActiveStepCleanupFailed.ShouldBe(0);
+        agentManager.Verify(
+            manager => manager.ReleaseStepSlot(fixture.Context.ResolvedTaskVersionId),
+            Times.Once);
+    }
+
+    [Test]
+    public async Task HandlePluginAgentExitedAsync_cleanup_failure_does_not_settle_message()
+    {
+        var fixture = CreateFixture();
+        var agentManager = new Mock<IAgentManager>();
+        var telemetry = new PluginRuntimeAgentTelemetry();
+        var service = CreateService(
+            new PluginRuntimeCatalog(),
+            Mock.Of<IPluginRuntimeReloader>(),
+            agentManager.Object,
+            fixture,
+            telemetry);
+        TrackActiveStep(service, fixture.Context);
+        SetupPersistedStep(fixture, ProcessStepStatus.InProgress);
+        fixture.StepRepository
+            .Setup(repository => repository.TryResetProcessStepToPendingAsync(
+                fixture.Context.ProcessStepId,
+                fixture.Context.ProcessId,
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        await service.HandlePluginAgentExitedAsync(
+            CreateExitNotification(fixture.Context.ProcessStepId),
+            CancellationToken.None);
+
+        fixture.QueueMessage.AbandonCount.ShouldBe(0);
+        fixture.QueueMessage.CompleteCount.ShouldBe(0);
+        ActiveStepCount(service).ShouldBe(0);
+        telemetry.RecordedActiveStepCleanupSucceeded.ShouldBe(0);
+        telemetry.RecordedActiveStepCleanupFailed.ShouldBe(1);
+        agentManager.Verify(
+            manager => manager.ReleaseStepSlot(fixture.Context.ResolvedTaskVersionId),
+            Times.Once);
+    }
+
+    [Test]
+    public async Task HandlePluginAgentExitedAsync_tolerates_unknown_job_ids()
+    {
+        var fixture = CreateFixture();
+        var agentManager = new Mock<IAgentManager>();
+        var telemetry = new PluginRuntimeAgentTelemetry();
+        var service = CreateService(
+            new PluginRuntimeCatalog(),
+            Mock.Of<IPluginRuntimeReloader>(),
+            agentManager.Object,
+            fixture,
+            telemetry);
+
+        await service.HandlePluginAgentExitedAsync(
+            CreateExitNotification(Guid.NewGuid()),
+            CancellationToken.None);
+
+        fixture.QueueMessage.AbandonCount.ShouldBe(0);
+        telemetry.RecordedActiveStepCleanupSucceeded.ShouldBe(0);
+        telemetry.RecordedActiveStepCleanupFailed.ShouldBe(0);
+        agentManager.Verify(
+            manager => manager.ReleaseStepSlot(It.IsAny<int>()),
+            Times.Never);
+    }
+
+    [Test]
+    public async Task HandlePluginAgentExitedAsync_terminal_step_is_not_reset_destructively()
+    {
+        var fixture = CreateFixture();
+        var agentManager = new Mock<IAgentManager>();
+        var telemetry = new PluginRuntimeAgentTelemetry();
+        var service = CreateService(
+            new PluginRuntimeCatalog(),
+            Mock.Of<IPluginRuntimeReloader>(),
+            agentManager.Object,
+            fixture,
+            telemetry);
+        TrackActiveStep(service, fixture.Context);
+        SetupPersistedStep(fixture, ProcessStepStatus.Completed);
+
+        await service.HandlePluginAgentExitedAsync(
+            CreateExitNotification(fixture.Context.ProcessStepId),
+            CancellationToken.None);
+
+        fixture.QueueMessage.AbandonCount.ShouldBe(0);
+        fixture.QueueMessage.CompleteCount.ShouldBe(0);
+        telemetry.RecordedActiveStepCleanupSucceeded.ShouldBe(1);
+        fixture.StepRepository.Verify(
+            repository => repository.TryResetProcessStepToPendingAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<Guid>(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        agentManager.Verify(
+            manager => manager.ReleaseStepSlot(fixture.Context.ResolvedTaskVersionId),
+            Times.Once);
+    }
+
     private static StepExecutionService CreateService(
         PluginRuntimeCatalog catalog,
         IPluginRuntimeReloader reloader,
         IAgentManager agentManager,
-        Fixture fixture)
+        Fixture fixture,
+        PluginRuntimeAgentTelemetry? pluginRuntimeAgentTelemetry = null)
     {
         var provider = new ServiceCollection().BuildServiceProvider();
         var telemetry = new ProcessLifecycleTelemetry(NullLogger<ProcessLifecycleTelemetry>.Instance);
@@ -146,6 +280,7 @@ public sealed class StepExecutionServiceTests
             catalog,
             reloader,
             telemetry,
+            pluginRuntimeAgentTelemetry ?? new PluginRuntimeAgentTelemetry(),
             provider.GetRequiredService<IServiceScopeFactory>(),
             stepClaimService,
             NullLogger<StepExecutionService>.Instance);
@@ -203,6 +338,54 @@ public sealed class StepExecutionServiceTests
         return new Fixture(context, queueMessage, stepRepository, processRepository);
     }
 
+    private static void SetupPersistedStep(
+        Fixture fixture,
+        ProcessStepStatus status)
+    {
+        fixture.StepRepository
+            .Setup(repository => repository.GetProcessStepById(
+                fixture.Context.ProcessStepId,
+                fixture.Context.ProcessId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProcessStepRecord
+            {
+                Id = fixture.Context.ProcessStepId.ToString(),
+                ProcessId = fixture.Context.ProcessId.ToString(),
+                BlueprintId = fixture.Context.ExecutableBlueprintId.ToString(),
+                BlueprintNodeId = fixture.Context.BlueprintNodeId.ToString(),
+                Status = status
+            });
+    }
+
+    private static PluginAgentExitNotification CreateExitNotification(Guid processStepId) =>
+        new(
+            "TestPlugin",
+            ExitCode: 1,
+            ShutdownRequested: false,
+            ExitedBeforeReady: false,
+            [processStepId]);
+
+    private static void TrackActiveStep(
+        StepExecutionService service,
+        StepExecutionContext context)
+    {
+        GetActiveSteps(service)
+            .TryAdd(context.Id, context)
+            .ShouldBeTrue();
+    }
+
+    private static int ActiveStepCount(StepExecutionService service) =>
+        GetActiveSteps(service).Count;
+
+    private static ConcurrentDictionary<Guid, StepExecutionContext> GetActiveSteps(StepExecutionService service)
+    {
+        var field = typeof(StepExecutionService).GetField(
+            "_activeSteps",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        field.ShouldNotBeNull();
+        return (ConcurrentDictionary<Guid, StepExecutionContext>)field.GetValue(service)!;
+    }
+
     private static TaskDefinitionInfo CreateTaskVersion() =>
         new(
             100,
@@ -233,7 +416,13 @@ public sealed class StepExecutionServiceTests
             return Task.CompletedTask;
         }
 
-        public Task AbandonAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public int AbandonCount { get; private set; }
+
+        public Task AbandonAsync(CancellationToken cancellationToken)
+        {
+            AbandonCount++;
+            return Task.CompletedTask;
+        }
 
         public Task RenewLockAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
