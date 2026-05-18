@@ -444,6 +444,33 @@ namespace Backend.Database.Relational.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("AbiHydrationProtocolVersion")
+                        .HasColumnType("int");
+
+                    b.Property<string>("AbiHarnessVersion")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("AbiInvocationEnvelopeSchemaVersion")
+                        .HasColumnType("int");
+
+                    b.Property<int>("AbiResultSchemaVersion")
+                        .HasColumnType("int");
+
+                    b.Property<string>("AbiSupportedPropertyKindsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("AbiSupportedStateStoreModesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("AbiVersionMajor")
+                        .HasColumnType("int");
+
+                    b.Property<int>("AbiVersionMinor")
+                        .HasColumnType("int");
+
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
 

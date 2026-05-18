@@ -17,6 +17,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Backend.PluginLoader.Services;
 using Backend.Functions.PluginDetector;
+using Backend.PluginAbi;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
@@ -64,6 +65,7 @@ builder.Services.AddSingleton<IPluginWorkspaceFactoryUtility, PluginWorkspaceFac
 builder.Services.AddSingleton<IPluginArchiveExtractionUtility, PluginArchiveExtractionUtility>();
 builder.Services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();
 builder.Services.AddSingleton<IPluginSchemaAggregationUtility, PluginSchemaAggregationUtility>();
+builder.Services.AddSingleton<PluginAbiCompatibilityService>();
 builder.Services.AddSingleton<IPluginBundleProcessingService, PluginBundleProcessingService>();
 builder.Services.AddHostedService<PluginBlobReconciliationHostedService>();
 

@@ -8,6 +8,7 @@ using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
 using Backend.Models;
+using Backend.PluginAbi;
 using Backend.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -177,6 +178,7 @@ public sealed class PluginBundleProcessingServiceConfigurationTests
             manifestParser.Object,
             schemaAggregator.Object,
             reloadQueue.Object,
+            new PluginAbiCompatibilityService(),
             services.GetRequiredService<IServiceScopeFactory>(),
             NullLogger<PluginBundleProcessingService>.Instance);
     }
@@ -186,6 +188,7 @@ public sealed class PluginBundleProcessingServiceConfigurationTests
         new()
         {
             DisplayName = "Config plugin",
+            Abi = PluginAbiDefaults.CurrentMetadata,
             OutputChannels = [],
             Capabilities = new ManifestFileCapabilitiesInfo
             {

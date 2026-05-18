@@ -13,6 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Backend.PluginAbi\Backend.PluginAbi.csproj" />
     <ProjectReference Include="..\Backend.Services\Backend.Services.csproj" />
   </ItemGroup>
 </Project>

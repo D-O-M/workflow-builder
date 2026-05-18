@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Backend.Models;
 using Backend.Interfaces.Utilities;
+using Backend.PluginAbi;
 using Microsoft.Extensions.Logging;
 
 namespace Backend.Utilities;
@@ -36,11 +37,42 @@ public sealed class PluginManifestParsingUtility : IPluginManifestParsingUtility
         {
             DisplayName = manifestObject["displayName"]?.GetValue<string>()
                 ?? throw new JsonException("Manifest displayName is missing."),
+            Abi = ReadAbi(manifestObject["abi"]),
             InputChannel = ReadChannel(manifestObject["inputChannel"]),
             OutputChannels = ReadChannels(manifestObject["outputChannels"]),
             GlobalState = ReadGlobalState(manifestObject["globalState"]),
             Configuration = ReadConfiguration(manifestObject["configuration"]),
             Capabilities = ReadCapabilities(manifestObject["capabilities"])
+        };
+    }
+
+    private static PluginAbiMetadata? ReadAbi(JsonNode? node)
+    {
+        if (node is not JsonObject abiObject)
+        {
+            return null;
+        }
+
+        var versionObject = abiObject["version"] as JsonObject
+            ?? throw new JsonException("Manifest abi.version is missing.");
+
+        return new PluginAbiMetadata
+        {
+            Version = new PluginAbiVersion(
+                versionObject["major"]?.GetValue<int>()
+                    ?? throw new JsonException("Manifest abi.version.major is missing."),
+                versionObject["minor"]?.GetValue<int>()
+                    ?? throw new JsonException("Manifest abi.version.minor is missing.")),
+            InvocationEnvelopeSchemaVersion = abiObject["invocationEnvelopeSchemaVersion"]?.GetValue<int>()
+                ?? throw new JsonException("Manifest abi.invocationEnvelopeSchemaVersion is missing."),
+            ResultSchemaVersion = abiObject["resultSchemaVersion"]?.GetValue<int>()
+                ?? throw new JsonException("Manifest abi.resultSchemaVersion is missing."),
+            HydrationProtocolVersion = abiObject["hydrationProtocolVersion"]?.GetValue<int>()
+                ?? throw new JsonException("Manifest abi.hydrationProtocolVersion is missing."),
+            HarnessVersion = abiObject["harnessVersion"]?.GetValue<string>()
+                ?? throw new JsonException("Manifest abi.harnessVersion is missing."),
+            SupportedStateStoreModes = ReadStringArray(abiObject["supportedStateStoreModes"]),
+            SupportedPropertyKinds = ReadStringArray(abiObject["supportedPropertyKinds"])
         };
     }
 

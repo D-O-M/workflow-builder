@@ -9,6 +9,7 @@ using Backend.Engine;
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Models;
+using Backend.PluginAbi;
 using Backend.Plugins.Communication;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -209,7 +210,8 @@ public sealed class StepExecutionServiceTests
             "Plugin",
             "plugin.exe",
             new Version(1, 0, 0),
-            TaskVersionState.Active);
+            TaskVersionState.Active,
+            PluginAbiDefaults.CurrentMetadata);
 
     private sealed record Fixture(
         StepExecutionContext Context,

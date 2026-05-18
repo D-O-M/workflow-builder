@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
+using Backend.PluginAbi;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -1027,6 +1028,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
             new PluginManifestFile
             {
                 DisplayName = contract.DisplayName,
+                Abi = PluginAbiDefaults.CurrentMetadata,
                 InputChannel = contract.InputChannel is null ? null : MapChannel(contract.InputChannel),
                 OutputChannels = contract.OutputChannels.Select(MapChannel).ToList(),
                 GlobalState = contract.GlobalState is null ? null : MapChannel(contract.GlobalState),
@@ -1316,6 +1318,7 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         var builder = new JsonBuilder();
         builder.StartObject();
         builder.Property("displayName", manifest.DisplayName);
+        WriteAbi(builder, manifest.Abi);
         builder.PropertyName("inputChannel");
         if (manifest.InputChannel is null)
         {
@@ -1433,6 +1436,24 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         builder.EndObject();
         builder.EndObject();
         return builder.ToString();
+    }
+
+    private static void WriteAbi(JsonBuilder builder, PluginAbiMetadata abi)
+    {
+        builder.PropertyName("abi");
+        builder.StartObject();
+        builder.PropertyName("version");
+        builder.StartObject();
+        builder.Property("major", abi.Version.Major);
+        builder.Property("minor", abi.Version.Minor);
+        builder.EndObject();
+        builder.Property("invocationEnvelopeSchemaVersion", abi.InvocationEnvelopeSchemaVersion);
+        builder.Property("resultSchemaVersion", abi.ResultSchemaVersion);
+        builder.Property("hydrationProtocolVersion", abi.HydrationProtocolVersion);
+        builder.Property("harnessVersion", abi.HarnessVersion);
+        builder.Property("supportedStateStoreModes", abi.SupportedStateStoreModes);
+        builder.Property("supportedPropertyKinds", abi.SupportedPropertyKinds);
+        builder.EndObject();
     }
 
     private static string SerializeSchemas(GeneratedSchemasFile schemasFile)
@@ -1633,6 +1654,7 @@ internal static class {{GetProviderClassName(providerTypeName)}}
     private sealed class PluginManifestFile
     {
         public string DisplayName { get; init; } = string.Empty;
+        public PluginAbiMetadata Abi { get; init; } = PluginAbiDefaults.CurrentMetadata;
         public ManifestFileChannelInfo? InputChannel { get; init; }
         public List<ManifestFileChannelInfo> OutputChannels { get; init; } = [];
         public ManifestFileChannelInfo? GlobalState { get; init; }

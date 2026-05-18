@@ -22,6 +22,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Backend.Constants\Backend.Constants.csproj" />
+      <ProjectReference Include="..\Backend.PluginAbi\Backend.PluginAbi.csproj" />
     </ItemGroup>
 
     <ItemGroup>

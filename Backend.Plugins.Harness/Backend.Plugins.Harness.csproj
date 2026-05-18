@@ -24,6 +24,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Backend.ProcessState.Contracts\Backend.ProcessState.Contracts.csproj" />
+      <ProjectReference Include="..\Backend.PluginAbi\Backend.PluginAbi.csproj" />
       <ProjectReference Include="..\Backend.Plugins.Communication\Backend.Plugins.Communication.csproj" />
       <ProjectReference Include="..\Backend.Plugins.Configuration\Abstractions\Backend.Plugins.Configuration.Abstractions.csproj" />
       <ProjectReference Include="..\Backend.Engine.Capabilities\Backend.Engine.Capabilities.csproj" />

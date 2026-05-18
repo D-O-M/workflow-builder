@@ -6,6 +6,7 @@ using Backend.Engine.Capabilities;
 using Backend.Database.Relational;
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Utilities;
+using Backend.PluginAbi;
 using Backend.Repositories;
 using Backend.Services.PluginReloadQueue;
 using Backend.Services.PluginBundles;
@@ -87,6 +88,7 @@ builder.Services.AddSingleton<IChildProcessTracker, ChildProcessTracker>();
 builder.Services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();
 builder.Services.AddSingleton<IPluginRuntimeCapabilityService, PluginRuntimeCapabilityService>();
 builder.Services.AddSingleton<IPluginRuntimeConfigurationService, PluginRuntimeConfigurationService>();
+builder.Services.AddSingleton<PluginAbiCompatibilityService>();
 builder.Services.AddSingleton(sp =>
 {
     var options = sp.GetRequiredService<IConfiguration>()

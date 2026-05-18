@@ -12,6 +12,7 @@ public static class ManifestGenerator
         {
             RespectNullableAnnotations = true,
             WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             TypeInfoResolver = new DefaultJsonTypeInfoResolver()
         };
 

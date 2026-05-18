@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Backend.Models.DomainModels;
 using Backend.Models.ViewModels;
 using Backend.Models.Mappers;
+using Backend.PluginAbi;
 
 namespace Backend.Repositories;
 
@@ -20,16 +21,46 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
         _context = context;
     }
 
-    public async Task<List<TaskDefinitionInfo>> GetAll(CancellationToken cancellationToken) =>
-        await _context.TaskVersions
-            .Select(ts => new TaskDefinitionInfo(
+    public async Task<List<TaskDefinitionInfo>> GetAll(CancellationToken cancellationToken)
+    {
+        var rows = await _context.TaskVersions
+            .Select(ts => new
+            {
                 ts.Id,
                 ts.TaskDefinitionId,
-                ts.TaskDefinition!.Name,
+                Name = ts.TaskDefinition!.Name,
                 ts.Path,
                 ts.Version,
-                ts.State))
+                ts.State,
+                ts.AbiVersionMajor,
+                ts.AbiVersionMinor,
+                ts.AbiInvocationEnvelopeSchemaVersion,
+                ts.AbiResultSchemaVersion,
+                ts.AbiHydrationProtocolVersion,
+                ts.AbiHarnessVersion,
+                ts.AbiSupportedStateStoreModesJson,
+                ts.AbiSupportedPropertyKindsJson
+            })
             .ToListAsync(cancellationToken);
+
+        return [.. rows.Select(row => new TaskDefinitionInfo(
+            row.Id,
+            row.TaskDefinitionId,
+            row.Name,
+            row.Path,
+            row.Version,
+            row.State,
+            new PluginAbiMetadata
+            {
+                Version = new PluginAbiVersion(row.AbiVersionMajor, row.AbiVersionMinor),
+                InvocationEnvelopeSchemaVersion = row.AbiInvocationEnvelopeSchemaVersion,
+                ResultSchemaVersion = row.AbiResultSchemaVersion,
+                HydrationProtocolVersion = row.AbiHydrationProtocolVersion,
+                HarnessVersion = row.AbiHarnessVersion,
+                SupportedStateStoreModes = TaskVersion.DeserializeAbiList(row.AbiSupportedStateStoreModesJson),
+                SupportedPropertyKinds = TaskVersion.DeserializeAbiList(row.AbiSupportedPropertyKindsJson)
+            }))];
+    }
 
     public async Task<List<TaskDefinitionViewModel>> GetAllTaskDefinitionViewModels(CancellationToken cancellationToken) =>
         [..(await _context.TaskDefinitions
@@ -86,7 +117,8 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
             Description = version.Description,
             Path = version.WorkspaceEntryPointPath,
             Version = version.Version,
-            State = TaskVersionState.Registered
+            State = TaskVersionState.Registered,
+            Abi = version.Abi
         };
 
         if (version.RequiredGlobalState is not null)
@@ -204,7 +236,8 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
         taskDefinition.Versions.Add(new TaskVersion
         {
             Path = entryPath,
-            Version = new Version(version)
+            Version = new Version(version),
+            Abi = PluginAbiDefaults.CurrentMetadata
         });
 
         _context.Add(taskDefinition);

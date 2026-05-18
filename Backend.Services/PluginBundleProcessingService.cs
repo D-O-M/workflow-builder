@@ -6,6 +6,7 @@ using Backend.Models;
 using Backend.Models.DomainModels;
 using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
+using Backend.PluginAbi;
 using Backend.Plugins.Communication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,6 +24,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
     private readonly IPluginManifestParsingUtility _manifestParser;
     private readonly IPluginSchemaAggregationUtility _schemaAggregator;
     private readonly IPluginReloadQueueWriter _pluginReloadQueueWriter;
+    private readonly PluginAbiCompatibilityService _abiCompatibilityService;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PluginBundleProcessingService> _logger;
 
@@ -32,6 +34,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         IPluginManifestParsingUtility manifestReader,
         IPluginSchemaAggregationUtility schemaAggregator,
         IPluginReloadQueueWriter pluginReloadQueueWriter,
+        PluginAbiCompatibilityService abiCompatibilityService,
         IServiceScopeFactory scopeFactory,
         ILogger<PluginBundleProcessingService> logger)
     {
@@ -40,6 +43,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         _manifestParser = manifestReader;
         _schemaAggregator = schemaAggregator;
         _pluginReloadQueueWriter = pluginReloadQueueWriter;
+        _abiCompatibilityService = abiCompatibilityService;
         _scopeFactory = scopeFactory;
         _logger = logger;
     }
@@ -81,6 +85,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                 _logger.LogWarning("Manifest not found for plugin {Plugin} ({Version}). Processing aborted.", pluginInfo.PluginName, pluginInfo.Version);
                 return;
             }
+            ValidateAbi(pluginInfo, manifest);
             ValidateCapabilityRequirements(pluginInfo, manifest);
             ValidateConfigurationRequirements(pluginInfo, manifest);
 
@@ -97,6 +102,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                 DisplayName = manifest.DisplayName,
                 Version = pluginInfo.Version,
                 WorkspaceEntryPointPath = entryPoint,
+                Abi = manifest.Abi!,
                 RequiredGlobalState = GetGlobalStateRequirements(pluginInfo, manifest, schemas),
                 InputChannelDefinition = GetInputChannelDefinition(pluginInfo, manifest, schemas),
                 OutputChannelDefinitions = GetOutputChannelDefinitions(pluginInfo, manifest, schemas)
@@ -158,6 +164,81 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
             schemas.DefinitionCount,
             pluginInfo.PluginName,
             pluginInfo.Version);
+    }
+
+    private void ValidateAbi(PluginBlobInfo pluginInfo, ManifestFile manifest)
+    {
+        var declaredPropertyKinds = GetDeclaredAbiPropertyKinds(manifest);
+        var result = _abiCompatibilityService.Evaluate(manifest.Abi, declaredPropertyKinds);
+        if (result.IsCompatible)
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            "Plugin {Plugin} ({Version}) declares incompatible ABI metadata: {Issues}",
+            pluginInfo.PluginName,
+            pluginInfo.Version,
+            string.Join("; ", result.Issues.Select(issue => $"{issue.Code}: {issue.Message}")));
+
+        throw new PluginAbiCompatibilityException(pluginInfo.PluginName, pluginInfo.Version, result);
+    }
+
+    private static IReadOnlyCollection<string> GetDeclaredAbiPropertyKinds(ManifestFile manifest)
+    {
+        var propertyKinds = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var channel in EnumerateChannels(manifest))
+        {
+            foreach (var property in channel.Properties)
+            {
+                propertyKinds.Add(NormalizePropertyKind(property.Kind));
+            }
+        }
+
+        foreach (var requirement in manifest.Configuration.Requirements)
+        {
+            if (!string.IsNullOrWhiteSpace(requirement.Kind))
+            {
+                propertyKinds.Add(NormalizePropertyKind(requirement.Kind));
+            }
+        }
+
+        return propertyKinds;
+    }
+
+    private static IEnumerable<ManifestFileChannelInfo> EnumerateChannels(ManifestFile manifest)
+    {
+        if (manifest.InputChannel is not null)
+        {
+            yield return manifest.InputChannel;
+        }
+
+        if (manifest.GlobalState is not null)
+        {
+            yield return manifest.GlobalState;
+        }
+
+        foreach (var outputChannel in manifest.OutputChannels)
+        {
+            yield return outputChannel;
+        }
+    }
+
+    private static string NormalizePropertyKind(string kind)
+    {
+        if (WorkflowPropertyTypeName.TryParse(kind, out var parsedKind, out _))
+        {
+            return parsedKind.ToString();
+        }
+
+        if (string.Equals(kind, "Uri", StringComparison.Ordinal) ||
+            string.Equals(kind, "TimeSpan", StringComparison.Ordinal))
+        {
+            return WorkflowPropertyKind.String.ToString();
+        }
+
+        return kind.Trim();
     }
 
     private static void ValidateConfigurationRequirements(PluginBlobInfo pluginInfo, ManifestFile manifest)

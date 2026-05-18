@@ -9,6 +9,7 @@ using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
 using Backend.Models;
 using Backend.Models.DomainModels;
+using Backend.PluginAbi;
 using Backend.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -25,6 +26,7 @@ public sealed class PluginBundleProcessingServiceGlobalStateTests
         var capturedVersion = await ProcessManifestAsync(new ManifestFile
         {
             DisplayName = "No state plugin",
+            Abi = PluginAbiDefaults.CurrentMetadata,
             GlobalState = null
         });
 
@@ -38,6 +40,7 @@ public sealed class PluginBundleProcessingServiceGlobalStateTests
             new ManifestFile
             {
                 DisplayName = "Legacy no state plugin",
+                Abi = PluginAbiDefaults.CurrentMetadata,
                 GlobalState = new ManifestFileChannelInfo
                 {
                     Name = "GlobalState",
@@ -157,6 +160,7 @@ public sealed class PluginBundleProcessingServiceGlobalStateTests
             manifestParser.Object,
             schemaAggregator.Object,
             reloadQueue.Object,
+            new PluginAbiCompatibilityService(),
             scopeFactory,
             NullLogger<PluginBundleProcessingService>.Instance);
     }

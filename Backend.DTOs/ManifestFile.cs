@@ -1,8 +1,11 @@
+using Backend.PluginAbi;
+
 namespace Backend.Models;
 
 public record ManifestFile
 {
     public required string DisplayName { get; set; }
+    public PluginAbiMetadata? Abi { get; set; }
     public ManifestFileChannelInfo? GlobalState { get; set; }
     public ManifestFileChannelInfo? InputChannel { get; set; }
     public List<ManifestFileChannelInfo> OutputChannels { get; set; } = [];

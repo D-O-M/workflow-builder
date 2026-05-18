@@ -1,4 +1,5 @@
 using Backend.Database.Relational.Entities;
+using Backend.PluginAbi;
 
 namespace Backend.Models;
 
@@ -8,4 +9,5 @@ public record TaskDefinitionInfo(
     string Name,
     string Path,
     Version Version,
-    TaskVersionState State);
+    TaskVersionState State,
+    PluginAbiMetadata Abi);

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Backend.Database.Relational.Entities;
 using Backend.Engine;
 using Backend.Models;
+using Backend.PluginAbi;
 using Shouldly;
 
 namespace Backend.Engine.Tests;
@@ -19,7 +20,8 @@ public sealed class PluginRuntimeCatalogTests
             "Weather",
             "weather.exe",
             new Version(1, 2, 3),
-            TaskVersionState.Active);
+            TaskVersionState.Active,
+            PluginAbiDefaults.CurrentMetadata);
 
         catalog.ReplaceRoutes(
             [routedVersion],

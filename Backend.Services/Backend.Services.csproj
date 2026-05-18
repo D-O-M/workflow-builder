@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Backend.Interfaces\Backend.Interfaces.csproj" />
+    <ProjectReference Include="..\Backend.PluginAbi\Backend.PluginAbi.csproj" />
     <ProjectReference Include="..\Backend.Plugins.Communication\Backend.Plugins.Communication.csproj" />
   </ItemGroup>
 

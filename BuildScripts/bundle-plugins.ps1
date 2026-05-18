@@ -647,6 +647,20 @@ function Copy-GeneratedContractToStage([string] $contractRoot, [string] $stageRo
   }
 }
 
+function Read-ManifestAbiOrThrow([string] $stageRoot, [string] $projectName) {
+  $manifestPath = Join-Path $stageRoot 'manifest.json'
+  if (-not (Test-Path -LiteralPath $manifestPath)) {
+    throw "Generated manifest.json was not staged for $projectName."
+  }
+
+  $manifest = Get-Content -LiteralPath $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+  if ($null -eq $manifest.abi) {
+    throw "Generated manifest.json for $projectName is missing required abi metadata."
+  }
+
+  return $manifest.abi
+}
+
 function Bundle-OneProject([string] $csprojPath, [string] $resolvedOutputDir) {
   $info = Get-CsprojInfo $csprojPath
   if (-not (Is-ExecutableProject $info)) {
@@ -675,10 +689,12 @@ function Bundle-OneProject([string] $csprojPath, [string] $resolvedOutputDir) {
     New-Item -ItemType Directory -Path $stageApp -Force | Out-Null
     Get-ChildItem -Path $publishDir -Force | Copy-Item -Destination $stageApp -Recurse -Force -ErrorAction Stop
     Copy-GeneratedContractToStage $contractDir $stageRoot
+    $pluginAbi = Read-ManifestAbiOrThrow $stageRoot $info.ProjectName
 
     $bundleMeta = [ordered]@{
       name = $info.ProjectName
       version = $resolvedVersion.ToString(3)
+      abi = $pluginAbi
       createdUtc = (Get-Date).ToUniversalTime().ToString('o')
       publishDir = $publishDir
       rid = if ($RuntimeIdentifier) { $RuntimeIdentifier } else { $null }

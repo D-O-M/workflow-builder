@@ -14,5 +14,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Backend.Engine\Backend.Engine.csproj" />
+    <ProjectReference Include="..\Backend.PluginAbi\Backend.PluginAbi.csproj" />
   </ItemGroup>
 </Project>

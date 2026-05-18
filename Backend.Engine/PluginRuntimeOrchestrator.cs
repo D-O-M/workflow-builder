@@ -3,6 +3,7 @@ using Backend.Engine.Capabilities;
 using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
 using Backend.Models;
+using Backend.PluginAbi;
 
 namespace Backend.Engine;
 
@@ -15,6 +16,7 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
 {
     private readonly IAgentManager _agentManager;
     private readonly IPluginRuntimeCapabilityService _capabilityService;
+    private readonly PluginAbiCompatibilityService _abiCompatibilityService;
     private readonly PluginRuntimeCatalog _pluginRuntimeCatalog;
     private readonly ILogger _logger;
     private readonly IServiceScopeFactory _serviceScopeFactory;
@@ -26,12 +28,14 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
     public PluginRuntimeOrchestrator(
         IAgentManager agentManager,
         IPluginRuntimeCapabilityService capabilityService,
+        PluginAbiCompatibilityService abiCompatibilityService,
         PluginRuntimeCatalog pluginRuntimeCatalog,
         ILogger<PluginRuntimeOrchestrator> logger,
         IServiceScopeFactory serviceScopeFactory)
     {
         _agentManager = agentManager;
         _capabilityService = capabilityService;
+        _abiCompatibilityService = abiCompatibilityService;
         _pluginRuntimeCatalog = pluginRuntimeCatalog;
         _logger = logger;
         _serviceScopeFactory = serviceScopeFactory;
@@ -98,6 +102,12 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
             TaskDefinitionInfo? routedVersion = null;
             foreach (var candidate in ordered)
             {
+                if (!IsRuntimeAbiCompatible(candidate))
+                {
+                    await StopAgentIfIdleAsync(candidate.Id, cancellationToken);
+                    continue;
+                }
+
                 if (await TryEnsureAgentAvailableAsync(candidate, scope, cancellationToken))
                 {
                     routedVersion = candidate;
@@ -155,6 +165,24 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
         {
             await StopAgentIfIdleAsync(staleAgentId, cancellationToken);
         }
+    }
+
+    private bool IsRuntimeAbiCompatible(TaskDefinitionInfo taskInfo)
+    {
+        var result = _abiCompatibilityService.Evaluate(taskInfo.Abi);
+        if (result.IsCompatible)
+        {
+            return true;
+        }
+
+        _logger.LogWarning(
+            "Task version {TaskVersionId} ({TaskName} {Version}) is not runnable because its plugin ABI metadata is incompatible: {Issues}",
+            taskInfo.Id,
+            taskInfo.Name,
+            taskInfo.Version,
+            string.Join("; ", result.Issues.Select(issue => $"{issue.Code}: {issue.Message}")));
+
+        return false;
     }
 
     private async Task<bool> TryEnsureAgentAvailableAsync(

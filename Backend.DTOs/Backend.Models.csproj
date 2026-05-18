@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Backend.Database.Relational\Backend.Database.Relational.csproj" />
+    <ProjectReference Include="..\Backend.PluginAbi\Backend.PluginAbi.csproj" />
   </ItemGroup>
 
 </Project>

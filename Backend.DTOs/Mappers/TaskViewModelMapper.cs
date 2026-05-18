@@ -24,7 +24,7 @@ public class TaskViewModelMapper
         {
             Id = taskVersion.Id,
             Version = taskVersion.Version.ToString(),
-            State = TaskVersionState.Registered.ToString(),
+            State = taskVersion.State.ToString(),
             Description = taskVersion.Description,
             RequiredGlobalState = taskVersion.GlobalState is not null
                 ? MapViewModel(taskVersion.GlobalState)

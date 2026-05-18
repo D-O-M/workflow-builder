@@ -13,4 +13,11 @@
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Backend.PluginAbi\PluginAbiVersion.cs" Link="PluginAbi\PluginAbiVersion.cs" />
+    <Compile Include="..\Backend.PluginAbi\PluginAbiMetadata.cs" Link="PluginAbi\PluginAbiMetadata.cs" />
+    <Compile Include="..\Backend.PluginAbi\PluginStateStoreMode.cs" Link="PluginAbi\PluginStateStoreMode.cs" />
+    <Compile Include="..\Backend.PluginAbi\PluginAbiDefaults.cs" Link="PluginAbi\PluginAbiDefaults.cs" />
+  </ItemGroup>
 </Project>

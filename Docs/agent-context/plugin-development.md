@@ -64,6 +64,14 @@ Important implications:
 - if the harness or communication contracts change, rebuild canonical bundles before relying on seeded or uploaded plugins
 - process-step telemetry context is carried in the envelope so plugin logs, spans, and standard HTTP/runtime metrics flow to the same OTLP collector as the engine without plugin-specific setup
 
+## Plugin ABI Compatibility
+
+Plugin bundles must declare explicit ABI metadata in `manifest.json` under `abi`. ABI v1.0 covers the invocation envelope schema, result schema, hydration protocol, harness ABI stamp, supported state-store modes, and supported property kinds.
+
+Newly ingested bundles without ABI metadata are rejected. Existing SQL task versions are backfilled to ABI v1.0 by migration so already registered legacy versions remain runnable. The Engine also checks SQL ABI metadata during plugin reload and refuses to route incompatible task versions into the runtime catalog.
+
+The canonical bundle script copies `manifest.abi` into `bundle.meta.json` and fails if generated contract output omits ABI metadata. Rebuild plugin bundles after changing `Backend.Plugins.Communication`, `Backend.Plugins.Harness`, hydration behavior, state-store assumptions, or supported property kinds.
+
 ## Canonical Bundle Build Path
 
 The canonical bundle script is:

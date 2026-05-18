@@ -32,6 +32,7 @@
   <Project Path="Backend.Functions.PluginDetector/Backend.Functions.PluginDetector.csproj" />
   <Project Path="Backend.Interfaces/Backend.Interfaces.csproj" />
   <Project Path="Backend.PluginSeeder/Backend.PluginSeeder.csproj" />
+  <Project Path="Backend.PluginAbi/Backend.PluginAbi.csproj" />
   <Project Path="Backend.ProcessState.Contracts/Backend.ProcessState.Contracts.csproj" />
   <Project Path="Backend.Plugins.Communication/Backend.Plugins.Communication.csproj" />
   <Project Path="Backend.Plugins.Configuration/Abstractions/Backend.Plugins.Configuration.Abstractions.csproj" />
