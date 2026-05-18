@@ -1450,6 +1450,7 @@ internal static class {{GetProviderClassName(providerTypeName)}}
         builder.Property("invocationEnvelopeSchemaVersion", abi.InvocationEnvelopeSchemaVersion);
         builder.Property("resultSchemaVersion", abi.ResultSchemaVersion);
         builder.Property("hydrationProtocolVersion", abi.HydrationProtocolVersion);
+        builder.Property("processProtocolVersion", abi.ProcessProtocolVersion);
         builder.Property("harnessVersion", abi.HarnessVersion);
         builder.Property("supportedStateStoreModes", abi.SupportedStateStoreModes);
         builder.Property("supportedPropertyKinds", abi.SupportedPropertyKinds);

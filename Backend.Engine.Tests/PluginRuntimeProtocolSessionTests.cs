@@ -1,0 +1,157 @@
+using System;
+using System.Collections.Generic;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Channels;
+using System.Threading.Tasks;
+using Backend.Engine;
+using Backend.Plugins.Communication;
+using Microsoft.Extensions.Logging.Abstractions;
+using Shouldly;
+
+namespace Backend.Engine.Tests;
+
+public sealed class PluginRuntimeProtocolSessionTests
+{
+    [Test]
+    public async Task Ready_frame_marks_session_ready()
+    {
+        var session = CreateSession(out _, out _);
+
+        var disposition = await session.ProcessOutputLineAsync(
+            PluginProcessMessageSerializer.Serialize(PluginProcessMessageSerializer.Ready()),
+            CancellationToken.None);
+
+        disposition.ShouldBe(PluginRuntimeProtocolLineDisposition.Ready);
+        session.IsReady.ShouldBeTrue();
+    }
+
+    [Test]
+    public async Task Result_frame_for_tracked_job_enqueues_finalization_work()
+    {
+        var session = CreateSession(out var queue, out _);
+        var result = CreateResult(Guid.NewGuid());
+        session.TrackQueuedJob(result.JobId);
+
+        var disposition = await session.ProcessOutputLineAsync(
+            PluginProcessMessageSerializer.Serialize(PluginProcessMessageSerializer.Result(result)),
+            CancellationToken.None);
+
+        disposition.ShouldBe(PluginRuntimeProtocolLineDisposition.ResultQueued);
+        await using var reader = queue.ReadAllAsync(CancellationToken.None).GetAsyncEnumerator();
+        (await reader.MoveNextAsync()).ShouldBeTrue();
+        reader.Current.Result.JobId.ShouldBe(result.JobId);
+        session.InFlightJobCount.ShouldBe(0);
+        queue.Complete();
+    }
+
+    [Test]
+    public async Task Malformed_output_records_protocol_error_without_throwing()
+    {
+        var session = CreateSession(out _, out var telemetry);
+
+        var disposition = await session.ProcessOutputLineAsync("not-json", CancellationToken.None);
+
+        disposition.ShouldBe(PluginRuntimeProtocolLineDisposition.Malformed);
+        telemetry.RecordedProtocolErrors.ShouldBe(1);
+    }
+
+    [Test]
+    public async Task Unknown_job_result_is_dropped_and_recorded()
+    {
+        var session = CreateSession(out var queue, out var telemetry);
+        var result = CreateResult(Guid.NewGuid());
+
+        var disposition = await session.ProcessOutputLineAsync(
+            PluginProcessMessageSerializer.Serialize(PluginProcessMessageSerializer.Result(result)),
+            CancellationToken.None);
+
+        disposition.ShouldBe(PluginRuntimeProtocolLineDisposition.UnknownJobResult);
+        telemetry.RecordedUnknownJobResults.ShouldBe(1);
+        queue.Depth.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task Heartbeat_frame_records_heartbeat_metric()
+    {
+        var session = CreateSession(out _, out var telemetry);
+
+        var disposition = await session.ProcessOutputLineAsync(
+            PluginProcessMessageSerializer.Serialize(PluginProcessMessageSerializer.Heartbeat()),
+            CancellationToken.None);
+
+        disposition.ShouldBe(PluginRuntimeProtocolLineDisposition.Heartbeat);
+        telemetry.RecordedHeartbeats.ShouldBe(1);
+    }
+
+    [Test]
+    public void Process_exit_before_ready_reports_startup_failure()
+    {
+        var session = CreateSession(out _, out _);
+
+        var summary = session.RecordProcessExit(exitCode: 1);
+
+        summary.ExitedBeforeReady.ShouldBeTrue();
+        summary.InFlightJobCount.ShouldBe(0);
+    }
+
+    [Test]
+    public void Process_exit_with_inflight_jobs_records_recovery_metric()
+    {
+        var session = CreateSession(out _, out var telemetry);
+        session.TrackQueuedJob(Guid.NewGuid());
+        session.TrackQueuedJob(Guid.NewGuid());
+
+        var summary = session.RecordProcessExit(exitCode: 1);
+
+        summary.InFlightJobCount.ShouldBe(2);
+        telemetry.RecordedInFlightJobsOnExit.ShouldBe(2);
+        session.InFlightJobCount.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task Closed_finalization_queue_returns_queue_closed_disposition()
+    {
+        var session = CreateSession(out var queue, out _);
+        var result = CreateResult(Guid.NewGuid());
+        session.TrackQueuedJob(result.JobId);
+        queue.Complete();
+
+        var disposition = await session.ProcessOutputLineAsync(
+            PluginProcessMessageSerializer.Serialize(PluginProcessMessageSerializer.Result(result)),
+            CancellationToken.None);
+
+        disposition.ShouldBe(PluginRuntimeProtocolLineDisposition.QueueClosed);
+    }
+
+    private static PluginRuntimeProtocolSession CreateSession(
+        out PluginResultFinalizationQueue queue,
+        out PluginRuntimeAgentTelemetry telemetry)
+    {
+        queue = new PluginResultFinalizationQueue(
+            new PluginRuntimeOptions
+            {
+                ResultFinalizationQueueCapacity = 4,
+                ResultFinalizationQueueFullMode = BoundedChannelFullMode.Wait
+            },
+            new PluginResultFinalizationTelemetry());
+        telemetry = new PluginRuntimeAgentTelemetry();
+        return new PluginRuntimeProtocolSession(
+            "TestPlugin",
+            queue,
+            telemetry,
+            NullLogger.Instance);
+    }
+
+    private static PluginExecutionResult CreateResult(Guid jobId) =>
+        new(
+            jobId,
+            Succeeded: true,
+            EffectiveInputData: null,
+            OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
+            GlobalState: null,
+            StartedAt: DateTimeOffset.UtcNow,
+            CompletedAt: DateTimeOffset.UtcNow,
+            TimingsMs: null,
+            ErrorMessage: null);
+}

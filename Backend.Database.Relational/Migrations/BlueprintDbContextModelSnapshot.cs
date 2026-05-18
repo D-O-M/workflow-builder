@@ -454,6 +454,9 @@ namespace Backend.Database.Relational.Migrations
                     b.Property<int>("AbiInvocationEnvelopeSchemaVersion")
                         .HasColumnType("int");
 
+                    b.Property<int>("AbiProcessProtocolVersion")
+                        .HasColumnType("int");
+
                     b.Property<int>("AbiResultSchemaVersion")
                         .HasColumnType("int");
 

@@ -93,6 +93,13 @@ public sealed class PluginAbiCompatibilityService
                 $"Hydration protocol version {metadata.HydrationProtocolVersion} is not supported."));
         }
 
+        if (metadata.ProcessProtocolVersion != PluginAbiDefaults.CurrentProcessProtocolVersion)
+        {
+            issues.Add(new(
+                "PROCESS_PROTOCOL_UNSUPPORTED",
+                $"Plugin process protocol version {metadata.ProcessProtocolVersion} is not supported."));
+        }
+
         if (string.IsNullOrWhiteSpace(metadata.HarnessVersion))
         {
             issues.Add(new("HARNESS_VERSION_MISSING", "Harness version must be declared."));

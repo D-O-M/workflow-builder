@@ -26,7 +26,8 @@ builder.Services.AddOpenTelemetry()
         .AddMeter("WorkflowBuilder.Engine.Processes")
         .AddMeter("WorkflowBuilder.Cosmos")
         .AddMeter(ProcessStepDispatchTelemetry.MeterName)
-        .AddMeter(PluginResultFinalizationTelemetry.MeterName));
+        .AddMeter(PluginResultFinalizationTelemetry.MeterName)
+        .AddMeter(PluginRuntimeAgentTelemetry.MeterName));
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -183,6 +184,7 @@ builder.Services.AddTransient<ICollectionIteratorExecutionService>(provider => p
 builder.Services.AddSingleton<ProcessLifecycleTelemetry>();
 builder.Services.AddSingleton<ProcessStepDispatchTelemetry>();
 builder.Services.AddSingleton<PluginResultFinalizationTelemetry>();
+builder.Services.AddSingleton<PluginRuntimeAgentTelemetry>();
 builder.Services.AddSingleton<ProcessStepDispatchService>();
 builder.Services.AddSingleton<StepExecutionService>();
 builder.Services.AddSingleton<IStepExecutionService>(provider => provider.GetRequiredService<StepExecutionService>());

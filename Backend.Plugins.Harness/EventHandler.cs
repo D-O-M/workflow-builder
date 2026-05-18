@@ -12,7 +12,9 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<EventHandler<TPlugin>> _logger;
     private readonly bool _diagnosticsEnabled;
+    private readonly TimeSpan? _heartbeatInterval;
     private readonly SemaphoreSlim _outputGate = new(1, 1);
+    private PluginProcessProtocolWriter? _protocolWriter;
 
     public EventHandler(
         IServiceScopeFactory scopeFactory,
@@ -24,41 +26,63 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
             Environment.GetEnvironmentVariable("PluginRuntime__Diagnostics"),
             "true",
             StringComparison.OrdinalIgnoreCase);
+        _heartbeatInterval = ReadHeartbeatInterval();
     }
 
-    public override Task StartAsync(CancellationToken cancellationToken)
+    public override async Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation(
             "Starting plugin event handler for {PluginType} with reactive invocation processing.",
             typeof(TPlugin).FullName);
-        Console.Out.WriteLine("Ready");
-        return base.StartAsync(cancellationToken);
+        EnsureProtocolWriter();
+        await _protocolWriter!.WriteReadyAsync(cancellationToken).ConfigureAwait(false);
+        await base.StartAsync(cancellationToken).ConfigureAwait(false);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        EnsureProtocolWriter();
+        using var heartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        var heartbeatTask = _heartbeatInterval is TimeSpan interval
+            ? RunHeartbeatAsync(interval, heartbeatCancellation.Token)
+            : Task.CompletedTask;
         var inFlight = new List<Task>();
 
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            var line = await Console.In.ReadLineAsync().ConfigureAwait(false);
-            if (line is null)
+            while (!stoppingToken.IsCancellationRequested)
             {
-                break;
+                var line = await Console.In.ReadLineAsync().ConfigureAwait(false);
+                if (line is null)
+                {
+                    break;
+                }
+
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                inFlight.RemoveAll(task => task.IsCompleted);
+                inFlight.Add(ProcessInvocationSlotAsync(line, stoppingToken));
             }
 
-            if (string.IsNullOrWhiteSpace(line))
+            if (inFlight.Count > 0)
             {
-                continue;
+                await Task.WhenAll(inFlight).ConfigureAwait(false);
             }
-
-            inFlight.RemoveAll(task => task.IsCompleted);
-            inFlight.Add(ProcessInvocationSlotAsync(line, stoppingToken));
         }
-
-        if (inFlight.Count > 0)
+        finally
         {
-            await Task.WhenAll(inFlight).ConfigureAwait(false);
+            heartbeatCancellation.Cancel();
+            try
+            {
+                await heartbeatTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected during shutdown.
+            }
         }
     }
 
@@ -71,6 +95,11 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unhandled plugin invocation failure for {PluginType}.", typeof(TPlugin).FullName);
+            await WriteErrorAsync(
+                $"Unhandled plugin invocation failure for {typeof(TPlugin).FullName}.",
+                ex,
+                jobId: null,
+                stoppingToken).ConfigureAwait(false);
         }
     }
 
@@ -85,6 +114,11 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to parse invocation envelope from stdin.");
+            await WriteErrorAsync(
+                "Failed to parse invocation envelope from stdin.",
+                ex,
+                jobId: null,
+                stoppingToken).ConfigureAwait(false);
             return;
         }
 
@@ -166,17 +200,41 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
         PluginExecutionResult result,
         CancellationToken cancellationToken)
     {
-        var serializedResult = PluginExecutionResultSerializer.Serialize(result);
-        await _outputGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        EnsureProtocolWriter();
+        await _protocolWriter!.WriteResultAsync(result, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task WriteErrorAsync(
+        string message,
+        Exception exception,
+        Guid? jobId,
+        CancellationToken cancellationToken)
+    {
+        EnsureProtocolWriter();
+        await _protocolWriter!.WriteErrorAsync(message, exception, jobId, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RunHeartbeatAsync(
+        TimeSpan interval,
+        CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(interval);
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
         {
-            await Console.Out.WriteLineAsync(serializedResult).ConfigureAwait(false);
-            await Console.Out.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await _protocolWriter!.WriteHeartbeatAsync(cancellationToken).ConfigureAwait(false);
         }
-        finally
+    }
+
+    private void EnsureProtocolWriter()
+    {
+        if (_protocolWriter is not null)
         {
-            _outputGate.Release();
+            return;
         }
+
+        var protocolWriter = new PluginProcessProtocolWriter(Console.Out, _outputGate);
+        _protocolWriter = protocolWriter;
+        Console.SetOut(new PluginProcessLogTextWriter(protocolWriter));
     }
 
     private static async Task PopulateStateAsync(
@@ -202,5 +260,16 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
         }
 
         Console.Error.WriteLine($"[plugin-harness] {DateTimeOffset.UtcNow:O} {message}");
+    }
+
+    private static TimeSpan? ReadHeartbeatInterval()
+    {
+        var configuredValue = Environment.GetEnvironmentVariable("PluginRuntime__HeartbeatIntervalSeconds");
+        if (!int.TryParse(configuredValue, out var seconds) || seconds <= 0)
+        {
+            return null;
+        }
+
+        return TimeSpan.FromSeconds(seconds);
     }
 }

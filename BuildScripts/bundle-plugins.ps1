@@ -658,6 +658,10 @@ function Read-ManifestAbiOrThrow([string] $stageRoot, [string] $projectName) {
     throw "Generated manifest.json for $projectName is missing required abi metadata."
   }
 
+  if ($null -eq $manifest.abi.processProtocolVersion -or [int] $manifest.abi.processProtocolVersion -lt 1) {
+    throw "Generated manifest.json for $projectName is missing required abi.processProtocolVersion metadata."
+  }
+
   return $manifest.abi
 }
 

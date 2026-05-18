@@ -30,6 +30,7 @@ public sealed class PluginBundleProcessingServiceAbiTests
         capturedVersion.ShouldNotBeNull();
         capturedVersion.Abi.Version.ShouldBe(PluginAbiDefaults.CurrentVersion);
         capturedVersion.Abi.InvocationEnvelopeSchemaVersion.ShouldBe(PluginAbiDefaults.CurrentInvocationEnvelopeSchemaVersion);
+        capturedVersion.Abi.ProcessProtocolVersion.ShouldBe(PluginAbiDefaults.CurrentProcessProtocolVersion);
         capturedVersion.Abi.SupportedStateStoreModes.ShouldBe(PluginAbiDefaults.CurrentSupportedStateStoreModes);
         capturedVersion.Abi.SupportedPropertyKinds.ShouldBe(PluginAbiDefaults.CurrentSupportedPropertyKinds);
     }
@@ -60,6 +61,22 @@ public sealed class PluginBundleProcessingServiceAbiTests
 
         ex.Result.Status.ShouldBe(PluginAbiCompatibilityStatus.Incompatible);
         ex.Message.ShouldContain("ABI_VERSION_UNSUPPORTED");
+    }
+
+    [Test]
+    public async Task ProcessAsync_Rejects_legacy_process_protocol_metadata()
+    {
+        var manifest = MinimalManifest(
+            PluginAbiDefaults.CurrentMetadata with
+            {
+                ProcessProtocolVersion = 0
+            });
+
+        var ex = await Should.ThrowAsync<PluginAbiCompatibilityException>(
+            () => ProcessManifestAsync(manifest));
+
+        ex.Result.Status.ShouldBe(PluginAbiCompatibilityStatus.Incompatible);
+        ex.Message.ShouldContain("PROCESS_PROTOCOL_UNSUPPORTED");
     }
 
     [Test]

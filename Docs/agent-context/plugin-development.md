@@ -55,7 +55,9 @@ Secrets must stay out of logs, argv, API responses, and manifest examples.
 
 ## Harness and Communication Contracts
 
-The engine and plugin executable communicate through `InvocationEnvelope` in `Backend.Plugins.Communication`.
+The engine sends `InvocationEnvelope` JSON lines to plugin stdin. Plugin stdout is reserved for the versioned process protocol in `Backend.Plugins.Communication`: every stdout line must be a framed JSON message with `protocolVersion`, `kind`, optional `jobId`, and `payload`.
+
+Current stdout frame kinds are `ready`, `result`, `log`, `error`, and `heartbeat`. Normal plugin execution failures are still `result` frames with `succeeded=false`; `error` frames are for harness/protocol failures. The harness captures plugin `Console.Out` and converts it to `log` frames so accidental writes do not corrupt result parsing. Stderr remains on the existing Engine stderr logging path.
 
 Important implications:
 
@@ -66,11 +68,11 @@ Important implications:
 
 ## Plugin ABI Compatibility
 
-Plugin bundles must declare explicit ABI metadata in `manifest.json` under `abi`. ABI v1.0 covers the invocation envelope schema, result schema, hydration protocol, harness ABI stamp, supported state-store modes, and supported property kinds.
+Plugin bundles must declare explicit ABI metadata in `manifest.json` under `abi`. ABI v1.1 covers the invocation envelope schema, result schema, hydration protocol, process stdout protocol version, harness ABI stamp, supported state-store modes, and supported property kinds.
 
-Newly ingested bundles without ABI metadata are rejected. Existing SQL task versions are backfilled to ABI v1.0 by migration so already registered legacy versions remain runnable. The Engine also checks SQL ABI metadata during plugin reload and refuses to route incompatible task versions into the runtime catalog.
+Newly ingested bundles without ABI metadata or with unsupported `processProtocolVersion` are rejected. Existing SQL task versions keep legacy process protocol `0` metadata, so the Engine refuses to route them until they are rebuilt and re-ingested with ABI v1.1 / process protocol v1. The Engine checks SQL ABI metadata during plugin reload and refuses to route incompatible task versions into the runtime catalog.
 
-The canonical bundle script copies `manifest.abi` into `bundle.meta.json` and fails if generated contract output omits ABI metadata. Rebuild plugin bundles after changing `Backend.Plugins.Communication`, `Backend.Plugins.Harness`, hydration behavior, state-store assumptions, or supported property kinds.
+The canonical bundle script copies `manifest.abi` into `bundle.meta.json` and fails if generated contract output omits ABI metadata or process protocol metadata. Rebuild plugin bundles after changing `Backend.Plugins.Communication`, `Backend.Plugins.Harness`, hydration behavior, state-store assumptions, process protocol behavior, or supported property kinds.
 
 ## Canonical Bundle Build Path
 

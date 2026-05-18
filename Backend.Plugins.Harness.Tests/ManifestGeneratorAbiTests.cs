@@ -38,6 +38,7 @@ public sealed class ManifestGeneratorAbiTests
             abi["invocationEnvelopeSchemaVersion"]!.GetValue<int>().ShouldBe(PluginAbiDefaults.CurrentInvocationEnvelopeSchemaVersion);
             abi["resultSchemaVersion"]!.GetValue<int>().ShouldBe(PluginAbiDefaults.CurrentResultSchemaVersion);
             abi["hydrationProtocolVersion"]!.GetValue<int>().ShouldBe(PluginAbiDefaults.CurrentHydrationProtocolVersion);
+            abi["processProtocolVersion"]!.GetValue<int>().ShouldBe(PluginAbiDefaults.CurrentProcessProtocolVersion);
             abi["harnessVersion"]!.GetValue<string>().ShouldBe(PluginAbiDefaults.CurrentHarnessVersion);
             abi["supportedStateStoreModes"]!.AsArray().Select(value => value!.GetValue<string>()).ShouldBe(PluginAbiDefaults.CurrentSupportedStateStoreModes);
             abi["supportedPropertyKinds"]!.AsArray().Select(value => value!.GetValue<string>()).ShouldBe(PluginAbiDefaults.CurrentSupportedPropertyKinds);

@@ -3,10 +3,11 @@ namespace Backend.PluginAbi;
 public static class PluginAbiDefaults
 {
     public const int CurrentMajor = 1;
-    public const int CurrentMinor = 0;
+    public const int CurrentMinor = 1;
     public const int CurrentInvocationEnvelopeSchemaVersion = 1;
     public const int CurrentResultSchemaVersion = 1;
     public const int CurrentHydrationProtocolVersion = 1;
+    public const int CurrentProcessProtocolVersion = 1;
     public const string CurrentHarnessVersion = "1.0.0";
 
     public static PluginAbiVersion CurrentVersion { get; } = new(CurrentMajor, CurrentMinor);
@@ -35,6 +36,7 @@ public static class PluginAbiDefaults
         InvocationEnvelopeSchemaVersion = CurrentInvocationEnvelopeSchemaVersion,
         ResultSchemaVersion = CurrentResultSchemaVersion,
         HydrationProtocolVersion = CurrentHydrationProtocolVersion,
+        ProcessProtocolVersion = CurrentProcessProtocolVersion,
         HarnessVersion = CurrentHarnessVersion,
         SupportedStateStoreModes = CurrentSupportedStateStoreModes,
         SupportedPropertyKinds = CurrentSupportedPropertyKinds

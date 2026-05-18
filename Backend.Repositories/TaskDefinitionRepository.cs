@@ -37,6 +37,7 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
                 ts.AbiInvocationEnvelopeSchemaVersion,
                 ts.AbiResultSchemaVersion,
                 ts.AbiHydrationProtocolVersion,
+                ts.AbiProcessProtocolVersion,
                 ts.AbiHarnessVersion,
                 ts.AbiSupportedStateStoreModesJson,
                 ts.AbiSupportedPropertyKindsJson
@@ -56,6 +57,7 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
                 InvocationEnvelopeSchemaVersion = row.AbiInvocationEnvelopeSchemaVersion,
                 ResultSchemaVersion = row.AbiResultSchemaVersion,
                 HydrationProtocolVersion = row.AbiHydrationProtocolVersion,
+                ProcessProtocolVersion = row.AbiProcessProtocolVersion,
                 HarnessVersion = row.AbiHarnessVersion,
                 SupportedStateStoreModes = TaskVersion.DeserializeAbiList(row.AbiSupportedStateStoreModesJson),
                 SupportedPropertyKinds = TaskVersion.DeserializeAbiList(row.AbiSupportedPropertyKindsJson)

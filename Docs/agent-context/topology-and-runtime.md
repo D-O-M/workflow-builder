@@ -75,7 +75,7 @@ flowchart LR
 8. After capability validation succeeds, runtime config files are generated and passed to the plugin with repeated `--config` arguments.
 9. The plugin runtime launches the plugin executable through the harness.
 10. The plugin hydrates its required input/global state from Cosmos using the invocation envelope identifiers.
-11. The plugin emits result data; the engine updates process-step state and durably schedules downstream work as needed.
+11. The plugin emits framed process-protocol stdout messages; result frames enter bounded finalization, then the engine updates process-step state and durably schedules downstream work as needed.
 12. Cosmos changes in `processsteps` are observed by `ProgressBroadcaster`.
 13. `ProgressBroadcaster` builds realtime batches and publishes them to SignalR subscribers.
 14. The UI receives `processSummaryUpdated` and `processStepsUpdated` events and refreshes the process explorer state.

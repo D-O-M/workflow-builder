@@ -61,6 +61,27 @@ public sealed class PluginRuntimeOrchestratorAbiTests
     }
 
     [Test]
+    public async Task ReloadAsync_skips_legacy_process_protocol_task_version()
+    {
+        var catalog = new PluginRuntimeCatalog();
+        var legacyProtocol = CreateTaskVersion(
+            101,
+            new Version(1, 0, 1),
+            PluginAbiDefaults.CurrentMetadata with
+            {
+                ProcessProtocolVersion = 0
+            });
+        var agentManager = new Mock<IAgentManager>();
+
+        var orchestrator = CreateOrchestrator(catalog, agentManager.Object, [legacyProtocol]);
+
+        await orchestrator.ReloadAsync(CancellationToken.None);
+
+        catalog.TryResolvePluginRuntime(10, 1, 0, out _).ShouldBeFalse();
+        agentManager.Verify(manager => manager.RegisterAgent(It.IsAny<int>(), It.IsAny<PluginRuntimeAgent>()), Times.Never);
+    }
+
+    [Test]
     public async Task ReloadAsync_falls_back_to_compatible_candidate_when_newest_is_incompatible()
     {
         var catalog = new PluginRuntimeCatalog();

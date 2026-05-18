@@ -20,6 +20,7 @@ public class TaskVersion
     public int AbiInvocationEnvelopeSchemaVersion { get; set; } = PluginAbiDefaults.CurrentInvocationEnvelopeSchemaVersion;
     public int AbiResultSchemaVersion { get; set; } = PluginAbiDefaults.CurrentResultSchemaVersion;
     public int AbiHydrationProtocolVersion { get; set; } = PluginAbiDefaults.CurrentHydrationProtocolVersion;
+    public int AbiProcessProtocolVersion { get; set; } = PluginAbiDefaults.CurrentProcessProtocolVersion;
     public string AbiHarnessVersion { get; set; } = PluginAbiDefaults.CurrentHarnessVersion;
     public string AbiSupportedStateStoreModesJson { get; set; } =
         SerializeAbiList(PluginAbiDefaults.CurrentSupportedStateStoreModes);
@@ -37,6 +38,7 @@ public class TaskVersion
             InvocationEnvelopeSchemaVersion = AbiInvocationEnvelopeSchemaVersion,
             ResultSchemaVersion = AbiResultSchemaVersion,
             HydrationProtocolVersion = AbiHydrationProtocolVersion,
+            ProcessProtocolVersion = AbiProcessProtocolVersion,
             HarnessVersion = AbiHarnessVersion,
             SupportedStateStoreModes = DeserializeAbiList(AbiSupportedStateStoreModesJson),
             SupportedPropertyKinds = DeserializeAbiList(AbiSupportedPropertyKindsJson)
@@ -48,6 +50,7 @@ public class TaskVersion
             AbiInvocationEnvelopeSchemaVersion = value.InvocationEnvelopeSchemaVersion;
             AbiResultSchemaVersion = value.ResultSchemaVersion;
             AbiHydrationProtocolVersion = value.HydrationProtocolVersion;
+            AbiProcessProtocolVersion = value.ProcessProtocolVersion;
             AbiHarnessVersion = value.HarnessVersion;
             AbiSupportedStateStoreModesJson = SerializeAbiList(value.SupportedStateStoreModes);
             AbiSupportedPropertyKindsJson = SerializeAbiList(value.SupportedPropertyKinds);

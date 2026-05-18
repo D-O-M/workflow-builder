@@ -19,17 +19,18 @@ public class PluginRuntimeAgent
     private readonly IHostEnvironment _hostEnvironment;
     private readonly ILogger _logger;
     private readonly PluginResultFinalizationQueue _resultFinalizationQueue;
+    private readonly PluginRuntimeAgentTelemetry _agentTelemetry;
     private readonly IChildProcessTracker _childProcessTracker;
     private readonly IOperatingSystemInformation _operatingSystemInformation;
     private readonly IPluginRuntimeConfigurationService _pluginRuntimeConfigurationService;
     private Process? _process;
     private CancellationTokenSource? _processCancellation;
     private Pipe _commsStream = new();
-    private bool ready = false;
     private readonly TaskCompletionSource _readySignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly SemaphoreSlim _queueWriterGate = new(1, 1);
     private Task? _runTask;
     private readonly StringBuilder _stdoutBuffer = new();
+    private PluginRuntimeProtocolSession? _protocolSession;
     private int _stopRequested;
 
     private string _name = string.Empty;
@@ -40,6 +41,7 @@ public class PluginRuntimeAgent
         IHostEnvironment hostEnvironment,
         ILogger<PluginRuntimeAgent> logger,
         PluginResultFinalizationQueue resultFinalizationQueue,
+        PluginRuntimeAgentTelemetry agentTelemetry,
         IChildProcessTracker childProcessTracker,
         IOperatingSystemInformation operatingSystemInformation,
         IPluginRuntimeConfigurationService pluginRuntimeConfigurationService)
@@ -48,6 +50,7 @@ public class PluginRuntimeAgent
         _hostEnvironment = hostEnvironment;
         _logger = logger;
         _resultFinalizationQueue = resultFinalizationQueue;
+        _agentTelemetry = agentTelemetry;
         _childProcessTracker = childProcessTracker;
         _operatingSystemInformation = operatingSystemInformation;
         _pluginRuntimeConfigurationService = pluginRuntimeConfigurationService;
@@ -67,6 +70,11 @@ public class PluginRuntimeAgent
             throw new InvalidOperationException("Plugin runtime process is already initialised.");
         }
 
+        _protocolSession = new PluginRuntimeProtocolSession(
+            Name,
+            _resultFinalizationQueue,
+            _agentTelemetry,
+            _logger);
         _runTask = Run(entryPoint, token);
 
         try
@@ -147,6 +155,10 @@ public class PluginRuntimeAgent
                     _configuration["PluginRuntime:HydrationTimeoutSeconds"]
                 },
                 {
+                    "PluginRuntime__HeartbeatIntervalSeconds",
+                    _configuration["PluginRuntime:HeartbeatIntervalSeconds"]
+                },
+                {
                     "WorkflowBuilder__RepositoryRoot",
                     _configuration["WorkflowBuilder:RepositoryRoot"]
                     ?? Environment.GetEnvironmentVariable("WorkflowBuilder__RepositoryRoot")
@@ -216,6 +228,7 @@ public class PluginRuntimeAgent
                         await FlushBufferedOutputAsync(
                             processRemainingText: true,
                             _processCancellation?.Token ?? cancellationToken);
+                        var exitSummary = EnsureProtocolSession().RecordProcessExit(exited.ExitCode);
                         var stopWasRequested = Volatile.Read(ref _stopRequested) == 1 ||
                                                _processCancellation?.IsCancellationRequested == true;
 
@@ -231,12 +244,12 @@ public class PluginRuntimeAgent
                             _logger.LogCritical("{PluginName} Process exited; Code: {ExitCode}", Name, exited.ExitCode);
                         }
 
-                        if (!ready && !stopWasRequested)
+                        if (exitSummary.ExitedBeforeReady && !stopWasRequested)
                         {
                             _readySignal.TrySetException(
                                 new InvalidOperationException($"{Name} exited before signalling readiness. Exit code: {exited.ExitCode}."));
                         }
-                        else if (!ready)
+                        else if (exitSummary.ExitedBeforeReady)
                         {
                             _readySignal.TrySetCanceled();
                         }
@@ -317,7 +330,7 @@ public class PluginRuntimeAgent
                 continue;
             }
 
-            if (TryConsumeBufferedStandaloneMessage(out var standaloneMessage))
+            if (TryConsumeBufferedCompleteProtocolMessage(out var standaloneMessage))
             {
                 await ProcessOutputLineAsync(standaloneMessage, cancellationToken);
                 continue;
@@ -334,7 +347,7 @@ public class PluginRuntimeAgent
         }
     }
 
-    private bool TryConsumeBufferedStandaloneMessage(out string standaloneMessage)
+    private bool TryConsumeBufferedCompleteProtocolMessage(out string standaloneMessage)
     {
         standaloneMessage = string.Empty;
 
@@ -345,29 +358,14 @@ public class PluginRuntimeAgent
             return false;
         }
 
-        if (!ready)
-        {
-            if (!string.Equals(bufferText, "Ready", StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            _stdoutBuffer.Clear();
-            standaloneMessage = "Ready";
-            return true;
-        }
-
-        try
-        {
-            PluginExecutionResultSerializer.Deserialize(Encoding.UTF8.GetBytes(bufferText));
-            _stdoutBuffer.Clear();
-            standaloneMessage = bufferText;
-            return true;
-        }
-        catch
+        if (!bufferText.StartsWith('{') || !bufferText.EndsWith('}'))
         {
             return false;
         }
+
+        _stdoutBuffer.Clear();
+        standaloneMessage = bufferText;
+        return true;
     }
 
     private async Task ProcessOutputLineAsync(
@@ -379,45 +377,16 @@ public class PluginRuntimeAgent
             return;
         }
 
-        if (!ready)
+        var disposition = await EnsureProtocolSession().ProcessOutputLineAsync(outputLine, cancellationToken);
+        if (disposition is PluginRuntimeProtocolLineDisposition.Ready)
         {
-            if (outputLine == "Ready")
-            {
-                ready = true;
-                _readySignal.TrySetResult();
-                return;
-            }
-
-            _logger.LogDebug(
-                "Ignoring pre-ready stdout from plugin runtime {PluginName}: {Output}",
-                Name,
-                outputLine);
-            return;
+            _readySignal.TrySetResult();
         }
-
-        try
+        else if (disposition is PluginRuntimeProtocolLineDisposition.Error &&
+                 !EnsureProtocolSession().IsReady)
         {
-            var result = PluginExecutionResultSerializer.Deserialize(Encoding.UTF8.GetBytes(outputLine));
-            await _resultFinalizationQueue.EnqueueAsync(result, cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (ChannelClosedException ex)
-        {
-            _logger.LogWarning(
-                ex,
-                "Plugin result finalization queue is closed for plugin runtime {PluginName}; process-step redelivery will recover unfinished work.",
-                Name);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(
-                ex,
-                "Failed to parse output from plugin runtime {PluginName}: {Output}",
-                Name,
-                outputLine);
+            _readySignal.TrySetException(
+                new InvalidOperationException($"{Name} emitted a protocol error before signalling readiness."));
         }
     }
 
@@ -435,6 +404,7 @@ public class PluginRuntimeAgent
             buffer.Span[payload.Length] = (byte)'\n';
             writer.Advance(payload.Length + 1);
             await writer.FlushAsync(cancellationToken);
+            EnsureProtocolSession().TrackQueuedJob(invocationEnvelope.ProcessStepId);
 
             return true;
         }
@@ -522,4 +492,13 @@ public class PluginRuntimeAgent
 
     private string? GetConfigurationOrEnvironmentValue(string name) =>
         _configuration[name] ?? Environment.GetEnvironmentVariable(name);
+
+    private PluginRuntimeProtocolSession EnsureProtocolSession()
+    {
+        return _protocolSession ??= new PluginRuntimeProtocolSession(
+            Name,
+            _resultFinalizationQueue,
+            _agentTelemetry,
+            _logger);
+    }
 }

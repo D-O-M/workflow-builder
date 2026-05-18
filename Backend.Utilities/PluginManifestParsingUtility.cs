@@ -69,6 +69,7 @@ public sealed class PluginManifestParsingUtility : IPluginManifestParsingUtility
                 ?? throw new JsonException("Manifest abi.resultSchemaVersion is missing."),
             HydrationProtocolVersion = abiObject["hydrationProtocolVersion"]?.GetValue<int>()
                 ?? throw new JsonException("Manifest abi.hydrationProtocolVersion is missing."),
+            ProcessProtocolVersion = abiObject["processProtocolVersion"]?.GetValue<int>() ?? 0,
             HarnessVersion = abiObject["harnessVersion"]?.GetValue<string>()
                 ?? throw new JsonException("Manifest abi.harnessVersion is missing."),
             SupportedStateStoreModes = ReadStringArray(abiObject["supportedStateStoreModes"]),

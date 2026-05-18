@@ -113,6 +113,7 @@ public class BlueprintDbContext : DbContext
             entity.Property(e => e.AbiInvocationEnvelopeSchemaVersion).IsRequired();
             entity.Property(e => e.AbiResultSchemaVersion).IsRequired();
             entity.Property(e => e.AbiHydrationProtocolVersion).IsRequired();
+            entity.Property(e => e.AbiProcessProtocolVersion).IsRequired();
             entity.Property(e => e.AbiHarnessVersion).IsRequired();
             entity.Property(e => e.AbiSupportedStateStoreModesJson).IsRequired();
             entity.Property(e => e.AbiSupportedPropertyKindsJson).IsRequired();
