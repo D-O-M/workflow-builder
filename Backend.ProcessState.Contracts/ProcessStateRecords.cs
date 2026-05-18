@@ -71,6 +71,12 @@ public enum ProcessStepFinalizationErrorKind
     FinalizationFailed
 }
 
+public enum ProcessSummaryProjectionScope
+{
+    Tenant,
+    BlueprintVersion
+}
+
 public class ProcessInstanceRecord<TGlobalState>
 {
     private string _id = null!;
@@ -123,6 +129,134 @@ public class ProcessInstanceRecord<TGlobalState>
 
     [JsonPropertyName("phase")]
     public ProcessPhaseMetadata? Phase { get; set; }
+}
+
+public sealed class ProcessDirectoryRecord
+{
+    private string _id = null!;
+
+    [JsonPropertyName("id")]
+    public required string id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonIgnore]
+    public string Id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonPropertyName("_etag")]
+    public string? ETag { get; set; }
+
+    [JsonPropertyName("tenantId")]
+    public required string TenantId { get; init; }
+
+    [JsonPropertyName("processId")]
+    public required string ProcessId { get; init; }
+
+    [JsonPropertyName("blueprintDefinitionId")]
+    public required int BlueprintDefinitionId { get; init; }
+
+    [JsonPropertyName("blueprintVersionId")]
+    public required int BlueprintVersionId { get; init; }
+
+    [JsonPropertyName("processPartitionKey")]
+    public required string ProcessPartitionKey { get; init; }
+
+    [JsonPropertyName("status")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public required ProcessStatus Status { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; init; }
+
+    [JsonPropertyName("completedAt")]
+    public DateTimeOffset? CompletedAt { get; init; }
+
+    [JsonPropertyName("failedAt")]
+    public DateTimeOffset? FailedAt { get; init; }
+
+    [JsonPropertyName("indexedAt")]
+    public required DateTimeOffset IndexedAt { get; init; }
+}
+
+public sealed class ProcessSummaryProjectionRecord
+{
+    private string _id = null!;
+
+    [JsonPropertyName("id")]
+    public required string id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonIgnore]
+    public string Id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonPropertyName("_etag")]
+    public string? ETag { get; set; }
+
+    [JsonPropertyName("partitionKey")]
+    public required string PartitionKey { get; init; }
+
+    [JsonPropertyName("tenantId")]
+    public required string TenantId { get; init; }
+
+    [JsonPropertyName("scope")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public required ProcessSummaryProjectionScope Scope { get; init; }
+
+    [JsonPropertyName("scopeId")]
+    public required string ScopeId { get; init; }
+
+    [JsonPropertyName("shardKey")]
+    public required int ShardKey { get; init; }
+
+    [JsonPropertyName("timeBucket")]
+    public required string TimeBucket { get; init; }
+
+    [JsonPropertyName("processId")]
+    public required string ProcessId { get; init; }
+
+    [JsonPropertyName("blueprintDefinitionId")]
+    public required int BlueprintDefinitionId { get; init; }
+
+    [JsonPropertyName("blueprintVersionId")]
+    public required int BlueprintVersionId { get; init; }
+
+    [JsonPropertyName("processPartitionKey")]
+    public required string ProcessPartitionKey { get; init; }
+
+    [JsonPropertyName("status")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public required ProcessStatus Status { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; init; }
+
+    [JsonPropertyName("completedAt")]
+    public DateTimeOffset? CompletedAt { get; init; }
+
+    [JsonPropertyName("failedAt")]
+    public DateTimeOffset? FailedAt { get; init; }
+
+    [JsonPropertyName("indexedAt")]
+    public required DateTimeOffset IndexedAt { get; init; }
 }
 
 public class ProcessStepRecord
@@ -718,5 +852,11 @@ public sealed class ProcessStateSummary
 public sealed class ProcessStateSummaryPage
 {
     public required IReadOnlyList<ProcessStateSummary> Items { get; init; }
+    public string? ContinuationToken { get; init; }
+}
+
+public sealed class ProcessSummaryProjectionPage
+{
+    public required IReadOnlyList<ProcessSummaryProjectionRecord> Items { get; init; }
     public string? ContinuationToken { get; init; }
 }

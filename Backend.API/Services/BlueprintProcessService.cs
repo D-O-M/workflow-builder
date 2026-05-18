@@ -24,6 +24,7 @@ public sealed class BlueprintProcessService
     private readonly IBlueprintExecutionCache _blueprintExecutionCache;
     private readonly IBlueprintRepository _blueprintRepository;
     private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessIndexProjectionService? _processIndexProjectionService;
     private readonly ProcessStartTelemetry _processStartTelemetry;
     private readonly ILogger<BlueprintProcessService> _logger;
 
@@ -34,13 +35,15 @@ public sealed class BlueprintProcessService
         IBlueprintRepository blueprintRepository,
         IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
         ProcessStartTelemetry processStartTelemetry,
-        ILogger<BlueprintProcessService> logger)
+        ILogger<BlueprintProcessService> logger,
+        IProcessIndexProjectionService? processIndexProjectionService = null)
     {
         _processStepRepository = processStepRepository;
         _processStepDispatchService = processStepDispatchService;
         _blueprintExecutionCache = blueprintExecutionCache;
         _blueprintRepository = blueprintRepository;
         _processInstanceRepository = processInstanceRepository;
+        _processIndexProjectionService = processIndexProjectionService;
         _processStartTelemetry = processStartTelemetry;
         _logger = logger;
     }
@@ -147,6 +150,12 @@ public sealed class BlueprintProcessService
         {
             await _processInstanceRepository.CreateProcessState(processState, cancellationToken);
         }
+
+        await TryProjectProcessAsync(
+            processState,
+            executableBlueprint.DefinitionId,
+            executableBlueprint.Id,
+            cancellationToken);
 
         _logger.LogInformation(
             "Creating initial process step {InitialBlueprintNodeId} for process {ProcessId}.",
@@ -273,6 +282,12 @@ public sealed class BlueprintProcessService
             await _processInstanceRepository.CreateProcessState(processState, cancellationToken);
         }
 
+        await TryProjectProcessAsync(
+            processState,
+            executableBlueprint.DefinitionId,
+            executableBlueprint.Id,
+            cancellationToken);
+
         _logger.LogInformation(
             "Creating initial process step {InitialBlueprintNodeId} for process {ProcessId}.",
             initialProcessStepId,
@@ -296,6 +311,34 @@ public sealed class BlueprintProcessService
             processId,
             blueprintDefinitionId,
             acceptedAt);
+    }
+
+    private async Task TryProjectProcessAsync(
+        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        int blueprintDefinitionId,
+        int blueprintVersionId,
+        CancellationToken cancellationToken)
+    {
+        if (_processIndexProjectionService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _processIndexProjectionService.UpsertFromProcessAsync(
+                process,
+                blueprintDefinitionId,
+                blueprintVersionId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                exception,
+                "Process index projection failed for process {ProcessId}; opt-in backfill can repair the projection.",
+                process.ProcessId);
+        }
     }
 
     private static void ValidateNodeOverrides(

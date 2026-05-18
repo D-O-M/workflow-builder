@@ -14,6 +14,12 @@ public sealed class WorkflowBuilderTopologyValidatorTests
 
         catalog.Cosmos.DefaultDatabaseName.ShouldBe("enginedb");
         catalog.Cosmos.Containers.ShouldContain(container =>
+            container.Name == WorkflowBuilderTopology.Cosmos.Containers.ProcessDirectory.Name &&
+            container.PartitionKey == "/id");
+        catalog.Cosmos.Containers.ShouldContain(container =>
+            container.Name == WorkflowBuilderTopology.Cosmos.Containers.ProcessSummaries.Name &&
+            container.PartitionKey == "/partitionKey");
+        catalog.Cosmos.Containers.ShouldContain(container =>
             container.Name == WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name &&
             container.PartitionKey == "/processId");
         catalog.Storage.Plugins.ContainerName.ShouldBe("plugins");

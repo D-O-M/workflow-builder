@@ -13,16 +13,22 @@ public sealed class StepClaimService
 {
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessIndexProjectionService? _processIndexProjectionService;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
+    private readonly ILogger<StepClaimService>? _logger;
 
     public StepClaimService(
         IProcessStepRepository processStepRepository,
         IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
-        ProcessLifecycleTelemetry processLifecycleTelemetry)
+        ProcessLifecycleTelemetry processLifecycleTelemetry,
+        IProcessIndexProjectionService? processIndexProjectionService = null,
+        ILogger<StepClaimService>? logger = null)
     {
         _processStepRepository = processStepRepository;
         _processInstanceRepository = processInstanceRepository;
+        _processIndexProjectionService = processIndexProjectionService;
         _processLifecycleTelemetry = processLifecycleTelemetry;
+        _logger = logger;
     }
 
     public async Task<StepClaimResult> TryClaimStepAsync(
@@ -116,10 +122,38 @@ public sealed class StepClaimService
             process.Status = ProcessStatus.InProgress;
             process.UpdatedAt = now;
             await _processInstanceRepository.UpdateProcessState(process, cancellationToken);
+            await TryProjectProcessAsync(context, process, cancellationToken);
             return new StepClaimResult(true, true);
         }
 
         return new StepClaimResult(true, false);
+    }
+
+    private async Task TryProjectProcessAsync(
+        StepExecutionContext context,
+        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        CancellationToken cancellationToken)
+    {
+        if (_processIndexProjectionService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _processIndexProjectionService.UpsertFromProcessAsync(
+                process,
+                context.BlueprintDefinitionId,
+                context.ExecutableBlueprintId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Process index projection failed for process {ProcessId} after step claim.",
+                context.ProcessId);
+        }
     }
 
     private Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> GetProcessStateAsync(

@@ -25,6 +25,8 @@ public static class WorkflowBuilderTopology
         public static class Containers
         {
             public static readonly CosmosContainer Processes = new("processes", "/blueprintId");
+            public static readonly CosmosContainer ProcessDirectory = new("processdirectory", "/id");
+            public static readonly CosmosContainer ProcessSummaries = new("processsummaries", "/partitionKey");
             public static readonly CosmosContainer ProcessSteps = new("processsteps", "/processId");
             public static readonly CosmosContainer ProcessStepFinalizations = new("processstepfinalizations", "/id");
             public static readonly CosmosContainer NodeActivations = new("nodeactivations", "/processId");
@@ -157,6 +159,8 @@ public static class WorkflowBuilderTopology
                 Containers:
                 [
                     Cosmos.Containers.Processes,
+                    Cosmos.Containers.ProcessDirectory,
+                    Cosmos.Containers.ProcessSummaries,
                     Cosmos.Containers.ProcessSteps,
                     Cosmos.Containers.ProcessStepFinalizations,
                     Cosmos.Containers.NodeActivations,

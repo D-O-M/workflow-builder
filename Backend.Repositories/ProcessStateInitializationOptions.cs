@@ -8,6 +8,10 @@ public sealed class ProcessStateInitializationOptions
 
     public string ProcessesContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.Processes.Name;
 
+    public string ProcessDirectoryContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.ProcessDirectory.Name;
+
+    public string ProcessSummariesContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.ProcessSummaries.Name;
+
     public string TasksContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name;
 
     public string StepFinalizationsContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.ProcessStepFinalizations.Name;

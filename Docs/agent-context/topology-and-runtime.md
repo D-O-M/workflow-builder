@@ -9,6 +9,8 @@ Key runtime resources wired there:
 - SQL Server database for blueprint and task metadata
 - Cosmos DB database with containers:
   - `processes`
+  - `processdirectory`
+  - `processsummaries`
   - `processsteps`
   - `processstepfinalizations`
   - `nodeactivations`
@@ -75,7 +77,7 @@ flowchart LR
 
 1. The frontend calls `POST /api/blueprints/{id}/processes`.
 2. The API resolves the selected blueprint version and creates initial process state.
-3. The API persists process and initial step state with durable dispatch intent, then attempts best-effort process-step queue dispatch.
+3. The API persists process state, upserts process directory/summary projections, persists the initial step with durable dispatch intent, then attempts best-effort process-step queue dispatch.
 4. `Backend.Engine` consumes the process-step queue.
 5. The engine loads the executable blueprint and resolves the newest runnable task version.
 6. Before launching a plugin runtime agent, the engine validates the plugin manifest capability requirements.
@@ -87,6 +89,19 @@ flowchart LR
 12. Cosmos changes in `processsteps` are observed by `ProgressBroadcaster`.
 13. `ProgressBroadcaster` builds realtime batches and publishes them to SignalR subscribers.
 14. The UI receives `processSummaryUpdated` and `processStepsUpdated` events and refreshes the process explorer state.
+
+## Process Index And Query Model
+
+The `processes` container remains the source of truth for runtime process state and is still partitioned by `/blueprintId`, which is the executable blueprint version id. That keeps existing process writes compatible, but a popular blueprint version can become a hot logical partition and point lookup requires knowing that version id.
+
+New process writes also maintain two scalable projections:
+
+- `processdirectory`, partitioned by `/id`, stores one record per process id. It maps `processId` to tenant, blueprint definition id, blueprint version id, current source partition key, status, and timestamps. Direct `GET /api/processes/{processId}` uses this record to point-read the source process without scanning blueprint versions.
+- `processsummaries`, partitioned by `/partitionKey`, stores two small summary rows per process: a tenant/global row and a blueprint-version row. Partition keys follow `{tenantId}:{scope}:{scopeId}:{yyyyMM}:{shard}`, with tenant currently fixed to `default` and the shard derived deterministically from `processId`.
+
+The summary projection is the query seed for recent-process and dashboard paths. Recent processes across blueprints read tenant-scope rows; blueprint history/search read blueprint-scope rows, then hydrate source process and step documents only for candidates that need global-state, node-status, or node-property filtering. Projection reads are eventually consistent with the source `processes` record, and legacy blueprint-scoped routes fall back to the old version-partition scan while existing data is being backfilled.
+
+Existing deployments can opt into projection repair by running the migration service with `ProcessIndexBackfill:Enabled=true`. The backfill enumerates SQL blueprint versions, pages the existing `processes` partitions, and idempotently upserts directory and summary rows. It is safe to rerun and can be throttled with `ProcessIndexBackfill:BatchSize`.
 
 ## Step Dispatch Guarantee
 

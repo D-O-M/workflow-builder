@@ -35,6 +35,14 @@ public sealed class ProcessStateInitializerHostedService : IHostedService
             cancellationToken: cancellationToken);
 
         await databaseResponse.Database.CreateContainerIfNotExistsAsync(
+            new ContainerProperties(_options.ProcessDirectoryContainerName, "/id"),
+            cancellationToken: cancellationToken);
+
+        await databaseResponse.Database.CreateContainerIfNotExistsAsync(
+            new ContainerProperties(_options.ProcessSummariesContainerName, "/partitionKey"),
+            cancellationToken: cancellationToken);
+
+        await databaseResponse.Database.CreateContainerIfNotExistsAsync(
             new ContainerProperties(_options.TasksContainerName, "/processId"),
             cancellationToken: cancellationToken);
 

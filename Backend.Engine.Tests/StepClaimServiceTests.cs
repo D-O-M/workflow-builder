@@ -45,6 +45,13 @@ public sealed class StepClaimServiceTests
         fixture.ProcessRepository.Verify(
             repository => repository.UpdateProcessState(fixture.Process, It.IsAny<CancellationToken>()),
             Times.Once);
+        fixture.ProcessIndexProjectionService.Verify(
+            service => service.UpsertFromProcessAsync(
+                fixture.Process,
+                fixture.Context.BlueprintDefinitionId,
+                fixture.Context.ExecutableBlueprintId,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Test]
@@ -90,7 +97,9 @@ public sealed class StepClaimServiceTests
         new(
             fixture.StepRepository.Object,
             fixture.ProcessRepository.Object,
-            new ProcessLifecycleTelemetry(NullLogger<ProcessLifecycleTelemetry>.Instance));
+            new ProcessLifecycleTelemetry(NullLogger<ProcessLifecycleTelemetry>.Instance),
+            fixture.ProcessIndexProjectionService.Object,
+            NullLogger<StepClaimService>.Instance);
 
     private static Fixture CreateFixture(
         ProcessStatus processStatus,
@@ -158,7 +167,16 @@ public sealed class StepClaimServiceTests
             .Setup(repository => repository.UpdateProcessState(process, It.IsAny<CancellationToken>()))
             .ReturnsAsync(process);
 
-        return new Fixture(context, step, process, stepRepository, processRepository);
+        var processIndexProjectionService = new Mock<IProcessIndexProjectionService>();
+        processIndexProjectionService
+            .Setup(service => service.UpsertFromProcessAsync(
+                It.IsAny<ProcessInstanceRecord<Dictionary<string, JsonElement>>>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        return new Fixture(context, step, process, stepRepository, processRepository, processIndexProjectionService);
     }
 
     private static ExecutableBlueprint CreateBlueprint(Guid nodeId)
@@ -200,5 +218,6 @@ public sealed class StepClaimServiceTests
         ProcessStepRecord Step,
         ProcessInstanceRecord<Dictionary<string, JsonElement>> Process,
         Mock<IProcessStepRepository> StepRepository,
-        Mock<IProcessInstanceRepository<Dictionary<string, JsonElement>>> ProcessRepository);
+        Mock<IProcessInstanceRepository<Dictionary<string, JsonElement>>> ProcessRepository,
+        Mock<IProcessIndexProjectionService> ProcessIndexProjectionService);
 }

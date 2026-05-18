@@ -29,6 +29,7 @@ public sealed class ProcessQueryService
     private readonly BlueprintDbContext _dbContext;
     private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
     private readonly IProcessStepRepository _processStepRepository;
+    private readonly IProcessIndexProjectionService? _processIndexProjectionService;
     private readonly IMemoryCache _memoryCache;
     private readonly ObservabilityQueryService _observabilityQueryService;
 
@@ -38,12 +39,14 @@ public sealed class ProcessQueryService
         IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
         IProcessStepRepository processStepRepository,
         IMemoryCache memoryCache,
-        ObservabilityQueryService observabilityQueryService)
+        ObservabilityQueryService observabilityQueryService,
+        IProcessIndexProjectionService? processIndexProjectionService = null)
     {
         _projectionService = projectionService;
         _dbContext = dbContext;
         _processInstanceRepository = processInstanceRepository;
         _processStepRepository = processStepRepository;
+        _processIndexProjectionService = processIndexProjectionService;
         _memoryCache = memoryCache;
         _observabilityQueryService = observabilityQueryService;
     }
@@ -61,6 +64,13 @@ public sealed class ProcessQueryService
         CancellationToken cancellationToken) =>
         await _projectionService.GetProcessDetailAsync(
             blueprintDefinitionId,
+            processId,
+            cancellationToken);
+
+    public async Task<ProcessDetailViewModel> GetProcessDetailByIdAsync(
+        Guid processId,
+        CancellationToken cancellationToken) =>
+        await _projectionService.GetProcessDetailByIdAsync(
             processId,
             cancellationToken);
 
@@ -175,6 +185,22 @@ public sealed class ProcessQueryService
             };
         }
 
+        if (_processIndexProjectionService is not null && !IsLegacyProcessHistoryCursor(cursor))
+        {
+            var indexedPage = await GetProcessHistoryFromIndexAsync(
+                definition,
+                limit,
+                cursor,
+                cancellationToken);
+
+            if (indexedPage.Items.Count > 0 ||
+                !string.IsNullOrWhiteSpace(indexedPage.NextCursor) ||
+                !string.IsNullOrWhiteSpace(cursor))
+            {
+                return indexedPage;
+            }
+        }
+
         var partitionStates = CreatePartitionStates(definition, cursor);
         var versionsById = definition.Versions.ToDictionary(version => version.Id);
         var items = new List<BlueprintProcessHistoryEntryViewModel>(limit);
@@ -253,6 +279,25 @@ public sealed class ProcessQueryService
             };
         }
 
+        if (_processIndexProjectionService is not null && !IsLegacyProcessSearchCursor(normalizedRequest.Cursor))
+        {
+            var indexedResult = await SearchProcessesFromIndexAsync(
+                normalizedRequest,
+                filterSignature,
+                versionMetadata,
+                nodeFilters,
+                propertyFilters,
+                cancellationToken);
+
+            if (indexedResult.SawProjectionRows ||
+                indexedResult.Page.Items.Count > 0 ||
+                !string.IsNullOrWhiteSpace(indexedResult.Page.NextCursor) ||
+                !string.IsNullOrWhiteSpace(normalizedRequest.Cursor))
+            {
+                return indexedResult.Page;
+            }
+        }
+
         var partitions = CreateSearchPartitionStates(
             versionMetadata.Values.ToList(),
             normalizedRequest,
@@ -320,6 +365,154 @@ public sealed class ProcessQueryService
         };
     }
 
+    private async Task<IndexedProcessSearchResult> SearchProcessesFromIndexAsync(
+        NormalizedProcessSearchRequest normalizedRequest,
+        string filterSignature,
+        IReadOnlyDictionary<int, SearchVersionMetadata> versionMetadata,
+        IReadOnlyList<SearchNodeFilterPlan> nodeFilters,
+        IReadOnlyList<SearchPropertyFilterPlan> propertyFilters,
+        CancellationToken cancellationToken)
+    {
+        var cursor = string.IsNullOrWhiteSpace(normalizedRequest.Cursor)
+            ? null
+            : DecodeIndexSearchCursor(normalizedRequest.Cursor, filterSignature);
+        var continuationToken = cursor?.ProjectionContinuationToken;
+        var items = new List<BlueprintProcessHistoryEntryViewModel>(normalizedRequest.Limit);
+        var processStateCache = new Dictionary<string, ProcessInstanceRecord<Dictionary<string, JsonElement>>>(StringComparer.Ordinal);
+        var processStepsCache = new Dictionary<string, IReadOnlyDictionary<string, ProcessStepRecord>>(StringComparer.Ordinal);
+        var pageSize = Math.Clamp(normalizedRequest.Limit * 2, 10, 100);
+        var sawProjectionRows = false;
+
+        while (items.Count < normalizedRequest.Limit)
+        {
+            var page = await _processIndexProjectionService!.GetRecentTenantSummariesAsync(
+                continuationToken,
+                pageSize,
+                normalizedRequest.CreatedFrom,
+                normalizedRequest.CreatedTo,
+                GetIndexSearchStatusFilter(normalizedRequest),
+                cancellationToken);
+
+            continuationToken = page.ContinuationToken;
+            if (page.Items.Count == 0)
+            {
+                break;
+            }
+
+            sawProjectionRows = true;
+            foreach (var summary in page.Items.OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.ProcessId, StringComparer.Ordinal))
+            {
+                if (!versionMetadata.TryGetValue(summary.BlueprintVersionId, out var metadata) ||
+                    !IndexSummaryMatchesSearchScope(summary, metadata, normalizedRequest))
+                {
+                    continue;
+                }
+
+                var processStateSummary = new ProcessStateSummary
+                {
+                    id = summary.ProcessId,
+                    BlueprintId = summary.BlueprintVersionId.ToString(CultureInfo.InvariantCulture),
+                    CreatedAt = summary.CreatedAt,
+                    UpdatedAt = summary.UpdatedAt,
+                    Status = summary.Status,
+                };
+
+                var candidateMatches = await CandidateMatchesSearchAsync(
+                    processStateSummary,
+                    metadata,
+                    nodeFilters,
+                    propertyFilters,
+                    processStateCache,
+                    processStepsCache,
+                    cancellationToken);
+                if (!candidateMatches)
+                {
+                    continue;
+                }
+
+                items.Add(new BlueprintProcessHistoryEntryViewModel
+                {
+                    ProcessId = Guid.Parse(summary.ProcessId),
+                    BlueprintDefinitionId = metadata.BlueprintDefinitionId,
+                    BlueprintName = metadata.BlueprintName,
+                    BlueprintVersionId = metadata.BlueprintVersionId,
+                    BlueprintVersionNumber = metadata.BlueprintVersionNumber,
+                    Status = summary.Status.ToString(),
+                    CreatedAt = summary.CreatedAt,
+                    UpdatedAt = summary.UpdatedAt,
+                });
+
+                if (items.Count >= normalizedRequest.Limit)
+                {
+                    break;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(continuationToken))
+            {
+                break;
+            }
+        }
+
+        return new IndexedProcessSearchResult(
+            new ProcessSearchPageViewModel
+            {
+                Items = items,
+                HasMore = !string.IsNullOrWhiteSpace(continuationToken),
+                NextCursor = string.IsNullOrWhiteSpace(continuationToken)
+                    ? null
+                    : EncodeIndexSearchCursor(filterSignature, continuationToken),
+            },
+            sawProjectionRows);
+    }
+
+    private async Task<BlueprintProcessHistoryPageViewModel> GetProcessHistoryFromIndexAsync(
+        BlueprintDefinition definition,
+        int limit,
+        string? cursor,
+        CancellationToken cancellationToken)
+    {
+        var versionsById = definition.Versions.ToDictionary(version => version.Id);
+        var page = await _processIndexProjectionService!.GetRecentBlueprintSummariesAsync(
+            definition.Id,
+            versionsById.Keys.ToArray(),
+            cursor,
+            limit,
+            createdFrom: null,
+            createdTo: null,
+            statuses: null,
+            cancellationToken);
+
+        var items = page.Items
+            .Where(item => versionsById.ContainsKey(item.BlueprintVersionId))
+            .OrderByDescending(item => item.CreatedAt)
+            .ThenByDescending(item => item.ProcessId, StringComparer.Ordinal)
+            .Take(limit)
+            .Select(item =>
+            {
+                var version = versionsById[item.BlueprintVersionId];
+                return new BlueprintProcessHistoryEntryViewModel
+                {
+                    ProcessId = Guid.Parse(item.ProcessId),
+                    BlueprintDefinitionId = definition.Id,
+                    BlueprintName = definition.DisplayName,
+                    BlueprintVersionId = version.Id,
+                    BlueprintVersionNumber = version.Version,
+                    Status = item.Status.ToString(),
+                    CreatedAt = item.CreatedAt,
+                    UpdatedAt = item.UpdatedAt,
+                };
+            })
+            .ToList();
+
+        return new BlueprintProcessHistoryPageViewModel
+        {
+            Items = items,
+            HasMore = !string.IsNullOrWhiteSpace(page.ContinuationToken),
+            NextCursor = page.ContinuationToken,
+        };
+    }
+
     private async Task<IReadOnlyList<BlueprintProcessActivityViewModel>> GetCachedProcessActivityIndexAsync(
         CancellationToken cancellationToken)
     {
@@ -348,6 +541,19 @@ public sealed class ProcessQueryService
         }
 
         var rankingWindowStart = DateTimeOffset.UtcNow.AddHours(-DefaultRankingWindowHours);
+        if (_processIndexProjectionService is not null)
+        {
+            var indexedActivities = await BuildProcessActivityIndexFromIndexAsync(
+                definitions,
+                rankingWindowStart,
+                cancellationToken);
+
+            if (indexedActivities.Count > 0)
+            {
+                return indexedActivities;
+            }
+        }
+
         var versionResults = new ConcurrentDictionary<int, BlueprintVersionProcessActivity>();
         using var throttler = new SemaphoreSlim(8);
 
@@ -415,6 +621,50 @@ public sealed class ProcessQueryService
             })
             .Where(activity => activity is not null)
             .Cast<BlueprintProcessActivityViewModel>()
+            .OrderByDescending(activity => activity.RecentProcessCount)
+            .ThenByDescending(activity => activity.LatestProcessAt)
+            .ThenBy(activity => activity.BlueprintName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private async Task<IReadOnlyList<BlueprintProcessActivityViewModel>> BuildProcessActivityIndexFromIndexAsync(
+        IReadOnlyList<BlueprintDefinition> definitions,
+        DateTimeOffset rankingWindowStart,
+        CancellationToken cancellationToken)
+    {
+        var activities = new List<BlueprintProcessActivityViewModel>();
+        foreach (var definition in definitions)
+        {
+            if (definition.Versions.Count == 0)
+            {
+                continue;
+            }
+
+            var page = await _processIndexProjectionService!.GetRecentBlueprintSummariesAsync(
+                definition.Id,
+                definition.Versions.Select(version => version.Id).ToArray(),
+                continuationToken: null,
+                maxItemCount: ActivityInspectionCapPerVersion,
+                createdFrom: rankingWindowStart,
+                createdTo: null,
+                statuses: null,
+                cancellationToken);
+
+            if (page.Items.Count == 0)
+            {
+                continue;
+            }
+
+            activities.Add(new BlueprintProcessActivityViewModel
+            {
+                BlueprintDefinitionId = definition.Id,
+                BlueprintName = definition.DisplayName,
+                RecentProcessCount = page.Items.Count,
+                LatestProcessAt = page.Items.Max(item => item.CreatedAt),
+            });
+        }
+
+        return activities
             .OrderByDescending(activity => activity.RecentProcessCount)
             .ThenByDescending(activity => activity.LatestProcessAt)
             .ThenBy(activity => activity.BlueprintName, StringComparer.OrdinalIgnoreCase)
@@ -976,6 +1226,24 @@ public sealed class ProcessQueryService
         }
     }
 
+    private static bool IsLegacyProcessHistoryCursor(string? cursor)
+    {
+        if (string.IsNullOrWhiteSpace(cursor))
+        {
+            return false;
+        }
+
+        try
+        {
+            _ = DecodeCursor(cursor);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
     private static string EncodeSearchCursor(string filterSignature, IReadOnlyList<SearchPartitionState> partitionStates)
     {
         var payload = new ProcessSearchCursor(
@@ -1063,6 +1331,97 @@ public sealed class ProcessQueryService
             }
 
             return decoded;
+        }
+        catch (Exception exception) when (
+            exception is FormatException or JsonException or InvalidOperationException)
+        {
+            throw new ArgumentException("The process search cursor is invalid.", nameof(cursor), exception);
+        }
+    }
+
+    private static bool IsLegacyProcessSearchCursor(string? cursor)
+    {
+        if (string.IsNullOrWhiteSpace(cursor))
+        {
+            return false;
+        }
+
+        try
+        {
+            var decoded = DecodeSearchCursor(cursor);
+            return decoded.Partitions is not null;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static IReadOnlyCollection<ProcessStatus>? GetIndexSearchStatusFilter(
+        NormalizedProcessSearchRequest request)
+    {
+        if (request.BlueprintFilters.Count > 0)
+        {
+            return null;
+        }
+
+        return request.ProcessStatuses.Count > 0
+            ? request.ProcessStatuses
+            : null;
+    }
+
+    private static bool IndexSummaryMatchesSearchScope(
+        ProcessSummaryProjectionRecord summary,
+        SearchVersionMetadata metadata,
+        NormalizedProcessSearchRequest request)
+    {
+        if (request.BlueprintDefinitionIds.Count > 0 &&
+            !request.BlueprintDefinitionIds.Contains(metadata.BlueprintDefinitionId))
+        {
+            return false;
+        }
+
+        var blueprintFilter = request.BlueprintFilters
+            .FirstOrDefault(filter => filter.BlueprintDefinitionId == metadata.BlueprintDefinitionId);
+
+        if (blueprintFilter is not null)
+        {
+            return blueprintFilter.Statuses.Count == 0 ||
+                blueprintFilter.Statuses.Contains(summary.Status);
+        }
+
+        return request.ProcessStatuses.Count == 0 ||
+            request.ProcessStatuses.Contains(summary.Status);
+    }
+
+    private static string EncodeIndexSearchCursor(string filterSignature, string projectionContinuationToken)
+    {
+        var payload = new ProcessIndexSearchCursor(filterSignature, projectionContinuationToken);
+        return Convert.ToBase64String(
+            Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, CursorSerializerOptions)));
+    }
+
+    private static ProcessIndexSearchCursor DecodeIndexSearchCursor(string cursor, string filterSignature)
+    {
+        try
+        {
+            var payload = Encoding.UTF8.GetString(Convert.FromBase64String(cursor));
+            var decoded = JsonSerializer.Deserialize<ProcessIndexSearchCursor>(payload, CursorSerializerOptions);
+            if (decoded is null)
+            {
+                throw new InvalidOperationException("The process search cursor did not contain a payload.");
+            }
+
+            if (!string.Equals(decoded.FilterSignature, filterSignature, StringComparison.Ordinal))
+            {
+                throw new ArgumentException("The search cursor does not match the active filter set.", nameof(cursor));
+            }
+
+            return decoded;
+        }
+        catch (ArgumentException)
+        {
+            throw;
         }
         catch (Exception exception) when (
             exception is FormatException or JsonException or InvalidOperationException)
@@ -1444,6 +1803,14 @@ public sealed class ProcessQueryService
     private sealed record ProcessSearchCursor(
         string FilterSignature,
         List<ProcessSearchCursorPartition> Partitions);
+
+    private sealed record IndexedProcessSearchResult(
+        ProcessSearchPageViewModel Page,
+        bool SawProjectionRows);
+
+    private sealed record ProcessIndexSearchCursor(
+        string FilterSignature,
+        string ProjectionContinuationToken);
 
     private sealed record ProcessSearchCursorPartition(
         int BlueprintVersionId,

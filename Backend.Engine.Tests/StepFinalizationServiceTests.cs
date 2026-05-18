@@ -32,7 +32,8 @@ public sealed class StepFinalizationServiceTests
         var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
         var queueWriter = new ProcessStepQueueWriterSpy { ThrowOnEnqueueAttempts = 1 };
         var dispatchService = CreateDispatchService(stepRepository, queueWriter);
-        var service = CreateService(stepRepository, processRepository, finalizationRepository, dispatchService);
+        var processIndex = new ProcessIndexProjectionServiceSpy();
+        var service = CreateService(stepRepository, processRepository, finalizationRepository, dispatchService, processIndex);
         var context = await CreateContextAsync(processId, sourceNodeId, blueprint, stepRepository, processRepository);
         var result = CreateSuccessResult(context, "Out");
 
@@ -46,6 +47,9 @@ public sealed class StepFinalizationServiceTests
         var downstreamStep = stepRepository.CreatedSteps.Single();
         downstreamStep.Dispatch.ShouldNotBeNull();
         downstreamStep.Dispatch.Status.ShouldBe(ProcessStepDispatchStatus.RetryableDispatchError);
+        processIndex.Upserts.Count.ShouldBeGreaterThanOrEqualTo(1);
+        processIndex.Upserts.Last().ProcessId.ShouldBe(processId.ToString());
+        processIndex.Upserts.Last().Status.ShouldBe(ProcessStatus.InProgress);
         queueWriter.Messages.Count.ShouldBe(0);
         context.QueueMessage.CompleteCount.ShouldBe(1);
 
@@ -241,13 +245,16 @@ public sealed class StepFinalizationServiceTests
         InMemoryProcessStepRepository stepRepository,
         InMemoryProcessInstanceRepository processRepository,
         InMemoryProcessStepFinalizationRepository finalizationRepository,
-        ProcessStepDispatchService dispatchService)
+        ProcessStepDispatchService dispatchService,
+        IProcessIndexProjectionService? processIndexProjectionService = null)
     {
         var telemetry = new ProcessLifecycleTelemetry(NullLogger<ProcessLifecycleTelemetry>.Instance);
         var stepClaimService = new StepClaimService(
             stepRepository,
             processRepository,
-            telemetry);
+            telemetry,
+            processIndexProjectionService,
+            NullLogger<StepClaimService>.Instance);
         var activationPersistenceService = new ActivationPersistenceService(
             new InMemoryNodeJoinStateRepository(),
             dispatchService,
@@ -269,7 +276,8 @@ public sealed class StepFinalizationServiceTests
             processRepository,
             stepClaimService,
             telemetry,
-            NullLogger<StepFinalizationService>.Instance);
+            NullLogger<StepFinalizationService>.Instance,
+            processIndexProjectionService);
     }
 
     private static ProcessStepDispatchService CreateDispatchService(
@@ -1016,6 +1024,46 @@ public sealed class StepFinalizationServiceTests
             Messages.Add(message);
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class ProcessIndexProjectionServiceSpy : IProcessIndexProjectionService
+    {
+        public List<ProcessInstanceRecord<Dictionary<string, JsonElement>>> Upserts { get; } = [];
+
+        public Task UpsertFromProcessAsync(
+            ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            CancellationToken cancellationToken)
+        {
+            Upserts.Add(process);
+            return Task.CompletedTask;
+        }
+
+        public Task<ProcessDirectoryRecord?> GetDirectoryByProcessIdAsync(
+            Guid processId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ProcessSummaryProjectionPage> GetRecentTenantSummariesAsync(
+            string? continuationToken,
+            int maxItemCount,
+            DateTimeOffset? createdFrom,
+            DateTimeOffset? createdTo,
+            IReadOnlyCollection<ProcessStatus>? statuses,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ProcessSummaryProjectionPage> GetRecentBlueprintSummariesAsync(
+            int blueprintDefinitionId,
+            IReadOnlyCollection<int>? blueprintVersionIds,
+            string? continuationToken,
+            int maxItemCount,
+            DateTimeOffset? createdFrom,
+            DateTimeOffset? createdTo,
+            IReadOnlyCollection<ProcessStatus>? statuses,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private sealed class ProcessStepQueueMessageSpy : IProcessStepQueueMessage

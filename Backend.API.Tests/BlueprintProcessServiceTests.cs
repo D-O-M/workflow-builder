@@ -187,6 +187,36 @@ public sealed class BlueprintProcessServiceTests
         queueWriter.Messages.Count.ShouldBe(0);
     }
 
+    [Test]
+    public async Task StartLatestVersionAsync_projects_process_directory_and_summaries_after_source_process_is_created()
+    {
+        var initialNodeId = Guid.NewGuid();
+        var repository = new BlueprintRepositoryStub(CreateBlueprintViewModel(), CreateExecutableBlueprint(initialNodeId));
+        var processSteps = new ProcessStepRepositorySpy();
+        var processInstances = new ProcessInstanceRepositorySpy();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var processIndex = new ProcessIndexProjectionServiceSpy();
+        var service = new BlueprintProcessService(
+            processSteps,
+            CreateDispatchService(processSteps, queueWriter),
+            new BlueprintExecutionCacheStub(CreateExecutableBlueprint(initialNodeId)),
+            repository,
+            processInstances,
+            new ProcessStartTelemetry(),
+            NullLogger<BlueprintProcessService>.Instance,
+            processIndex);
+
+        var accepted = await service.StartLatestVersionAsync(
+            7,
+            new BlueprintProcessInputModel(),
+            CancellationToken.None);
+
+        processIndex.Upserts.Count.ShouldBe(1);
+        processIndex.Upserts[0].Process.ProcessId.ShouldBe(accepted.ProcessId.ToString());
+        processIndex.Upserts[0].BlueprintDefinitionId.ShouldBe(7);
+        processIndex.Upserts[0].BlueprintVersionId.ShouldBe(101);
+    }
+
     private static ProcessStepDispatchService CreateDispatchService(
         ProcessStepRepositorySpy processSteps,
         ProcessStepQueueWriterSpy queueWriter) =>
@@ -532,5 +562,45 @@ public sealed class BlueprintProcessServiceTests
             Messages.Add(message);
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class ProcessIndexProjectionServiceSpy : IProcessIndexProjectionService
+    {
+        public List<(ProcessInstanceRecord<Dictionary<string, JsonElement>> Process, int BlueprintDefinitionId, int BlueprintVersionId)> Upserts { get; } = [];
+
+        public Task UpsertFromProcessAsync(
+            ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            CancellationToken cancellationToken)
+        {
+            Upserts.Add((process, blueprintDefinitionId, blueprintVersionId));
+            return Task.CompletedTask;
+        }
+
+        public Task<ProcessDirectoryRecord?> GetDirectoryByProcessIdAsync(
+            Guid processId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ProcessSummaryProjectionPage> GetRecentTenantSummariesAsync(
+            string? continuationToken,
+            int maxItemCount,
+            DateTimeOffset? createdFrom,
+            DateTimeOffset? createdTo,
+            IReadOnlyCollection<ProcessStatus>? statuses,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ProcessSummaryProjectionPage> GetRecentBlueprintSummariesAsync(
+            int blueprintDefinitionId,
+            IReadOnlyCollection<int>? blueprintVersionIds,
+            string? continuationToken,
+            int maxItemCount,
+            DateTimeOffset? createdFrom,
+            DateTimeOffset? createdTo,
+            IReadOnlyCollection<ProcessStatus>? statuses,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

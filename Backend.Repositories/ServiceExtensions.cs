@@ -26,6 +26,8 @@ public static class ServiceExtensions
         this IServiceCollection services,
         string? databaseName = null,
         string? processesContainerName = null,
+        string? processDirectoryContainerName = null,
+        string? processSummariesContainerName = null,
         string? tasksContainerName = null,
         string? stepFinalizationsContainerName = null,
         string? activationsContainerName = null,
@@ -35,6 +37,8 @@ public static class ServiceExtensions
     {
         databaseName ??= WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
         processesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.Processes.Name;
+        processDirectoryContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessDirectory.Name;
+        processSummariesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessSummaries.Name;
         tasksContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name;
         stepFinalizationsContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessStepFinalizations.Name;
         activationsContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.NodeActivations.Name;
@@ -46,6 +50,8 @@ public static class ServiceExtensions
         {
             DatabaseName = databaseName,
             ProcessesContainerName = processesContainerName,
+            ProcessDirectoryContainerName = processDirectoryContainerName,
+            ProcessSummariesContainerName = processSummariesContainerName,
             TasksContainerName = tasksContainerName,
             StepFinalizationsContainerName = stepFinalizationsContainerName,
             ActivationsContainerName = activationsContainerName,
@@ -85,6 +91,22 @@ public static class ServiceExtensions
             return new ProcessInstanceRepository<Dictionary<string, JsonElement>>(
                 client.GetContainer(databaseName, processesContainerName));
         });
+
+        services.AddSingleton<IProcessDirectoryRepository>(sp =>
+        {
+            var client = sp.GetRequiredService<CosmosClient>();
+            return new ProcessDirectoryRepository(
+                client.GetContainer(databaseName, processDirectoryContainerName));
+        });
+
+        services.AddSingleton<IProcessSummaryProjectionRepository>(sp =>
+        {
+            var client = sp.GetRequiredService<CosmosClient>();
+            return new ProcessSummaryProjectionRepository(
+                client.GetContainer(databaseName, processSummariesContainerName));
+        });
+
+        services.AddSingleton<IProcessIndexProjectionService, ProcessIndexProjectionService>();
 
         services.AddSingleton<IPhasedProcessRepository>(sp =>
         {

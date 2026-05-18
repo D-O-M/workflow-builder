@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Backend.Database.Relational\Backend.Database.Relational.csproj" />
+    <ProjectReference Include="..\Backend.Repositories\Backend.Repositories.csproj" />
     <ProjectReference Include="..\Backend.ServiceDefaults\Backend.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Backend.Topology\Backend.Topology.csproj" />
   </ItemGroup>

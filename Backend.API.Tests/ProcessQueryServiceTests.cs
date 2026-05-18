@@ -63,6 +63,48 @@ public sealed class ProcessQueryServiceTests
     }
 
     [Test]
+    public async Task GetProcessHistoryAsync_uses_process_summary_projection_when_available()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var definition = new BlueprintDefinition
+        {
+            Key = "indexed-intake",
+            DisplayName = "Indexed Intake Blueprint",
+            Versions =
+            [
+                new BlueprintVersion { Version = 5 }
+            ]
+        };
+
+        database.Context.BlueprintDefinitions.Add(definition);
+        await database.Context.SaveChangesAsync();
+
+        var processId = Guid.NewGuid();
+        var index = new ProcessIndexProjectionServiceStub(
+            tenantSummaries: [],
+            blueprintSummaries:
+            [
+                CreateProjectionSummary(
+                    processId,
+                    definition.Id,
+                    definition.Versions[0].Id,
+                    "2026-04-21T12:00:00Z",
+                    ProcessStatus.Completed,
+                    ProcessSummaryProjectionScope.BlueprintVersion)
+            ]);
+        var processRepository = new ProcessInstanceRepositoryStub(new Dictionary<int, IReadOnlyList<ProcessStateSummary>>());
+        var service = CreateService(database, processRepository, new ProcessStepRepositoryStub(), index);
+
+        var page = await service.GetProcessHistoryAsync(definition.Id, 25, null, CancellationToken.None);
+
+        page.Items.Count.ShouldBe(1);
+        page.Items[0].ProcessId.ShouldBe(processId);
+        page.Items[0].BlueprintName.ShouldBe("Indexed Intake Blueprint");
+        page.Items[0].BlueprintVersionNumber.ShouldBe(5);
+        processRepository.SummaryPageFetchCount.ShouldBe(0);
+    }
+
+    [Test]
     public async Task SearchProcessesAsync_pages_results_without_hydrating_process_or_step_documents()
     {
         await using var database = await SqliteBlueprintDb.CreateAsync();
@@ -415,6 +457,99 @@ public sealed class ProcessQueryServiceTests
         ]);
     }
 
+    [Test]
+    public async Task SearchProcessesAsync_uses_tenant_process_summary_projection_without_hydrating_candidates()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var definition = new BlueprintDefinition
+        {
+            Key = "indexed-search",
+            DisplayName = "Indexed Search",
+            Versions = [new BlueprintVersion { Version = 1 }]
+        };
+
+        database.Context.BlueprintDefinitions.Add(definition);
+        await database.Context.SaveChangesAsync();
+
+        var processId = Guid.NewGuid();
+        var index = new ProcessIndexProjectionServiceStub(
+            tenantSummaries:
+            [
+                CreateProjectionSummary(
+                    processId,
+                    definition.Id,
+                    definition.Versions[0].Id,
+                    "2026-04-21T11:58:00Z",
+                    ProcessStatus.Completed,
+                    ProcessSummaryProjectionScope.Tenant)
+            ],
+            blueprintSummaries: []);
+        var processRepository = new ProcessInstanceRepositoryStub(new Dictionary<int, IReadOnlyList<ProcessStateSummary>>());
+        var stepRepository = new ProcessStepRepositoryStub();
+        var service = CreateService(database, processRepository, stepRepository, index);
+
+        var page = await service.SearchProcessesAsync(
+            new ProcessSearchRequestInputModel
+            {
+                CreatedFrom = DateTimeOffset.Parse("2026-04-21T11:40:00Z"),
+                CreatedTo = DateTimeOffset.Parse("2026-04-21T12:00:00Z"),
+                Limit = 25,
+            },
+            CancellationToken.None);
+
+        page.Items.Select(item => item.ProcessId).ShouldBe([processId]);
+        processRepository.SummaryPageFetchCount.ShouldBe(0);
+        processRepository.ProcessStateFetchCount.ShouldBe(0);
+        stepRepository.StepFetchCount.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task GetProcessBlueprintActivitiesAsync_uses_summary_projection_for_recent_counts()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var definition = new BlueprintDefinition
+        {
+            Key = "indexed-activity",
+            DisplayName = "Indexed Activity",
+            Versions = [new BlueprintVersion { Version = 1 }]
+        };
+
+        database.Context.BlueprintDefinitions.Add(definition);
+        await database.Context.SaveChangesAsync();
+
+        var now = DateTimeOffset.UtcNow;
+        var index = new ProcessIndexProjectionServiceStub(
+            tenantSummaries: [],
+            blueprintSummaries:
+            [
+                CreateProjectionSummary(
+                    Guid.NewGuid(),
+                    definition.Id,
+                    definition.Versions[0].Id,
+                    now.ToString("O"),
+                    ProcessStatus.Completed,
+                    ProcessSummaryProjectionScope.BlueprintVersion),
+                CreateProjectionSummary(
+                    Guid.NewGuid(),
+                    definition.Id,
+                    definition.Versions[0].Id,
+                    now.AddMinutes(-5).ToString("O"),
+                    ProcessStatus.Failed,
+                    ProcessSummaryProjectionScope.BlueprintVersion),
+            ]);
+        var service = CreateService(
+            database,
+            new ProcessInstanceRepositoryStub(new Dictionary<int, IReadOnlyList<ProcessStateSummary>>()),
+            new ProcessStepRepositoryStub(),
+            index);
+
+        var page = await service.GetProcessBlueprintActivitiesAsync(null, 1, 10, CancellationToken.None);
+
+        page.Items.Count.ShouldBe(1);
+        page.Items[0].BlueprintDefinitionId.ShouldBe(definition.Id);
+        page.Items[0].RecentProcessCount.ShouldBe(2);
+    }
+
     private static ProcessStateSummary CreateSummary(
         int blueprintVersionId,
         string createdAt,
@@ -428,17 +563,45 @@ public sealed class ProcessQueryServiceTests
             Status = status,
         };
 
+    private static ProcessSummaryProjectionRecord CreateProjectionSummary(
+        Guid processId,
+        int blueprintDefinitionId,
+        int blueprintVersionId,
+        string createdAt,
+        ProcessStatus status,
+        ProcessSummaryProjectionScope scope) =>
+        new()
+        {
+            id = $"{scope}:{processId}",
+            PartitionKey = $"default:{scope}:{(scope == ProcessSummaryProjectionScope.Tenant ? "all" : blueprintVersionId.ToString())}:202604:00",
+            TenantId = "default",
+            Scope = scope,
+            ScopeId = scope == ProcessSummaryProjectionScope.Tenant ? "all" : blueprintVersionId.ToString(),
+            ShardKey = 0,
+            TimeBucket = "202604",
+            ProcessId = processId.ToString(),
+            BlueprintDefinitionId = blueprintDefinitionId,
+            BlueprintVersionId = blueprintVersionId,
+            ProcessPartitionKey = blueprintVersionId.ToString(),
+            CreatedAt = DateTimeOffset.Parse(createdAt),
+            UpdatedAt = DateTimeOffset.Parse(createdAt).AddMinutes(1),
+            Status = status,
+            IndexedAt = DateTimeOffset.Parse(createdAt).AddMinutes(2),
+        };
+
     private static ProcessQueryService CreateService(
         SqliteBlueprintDb database,
         ProcessInstanceRepositoryStub processRepository,
-        ProcessStepRepositoryStub stepRepository) =>
+        ProcessStepRepositoryStub stepRepository,
+        IProcessIndexProjectionService? processIndexProjectionService = null) =>
         new(
             projectionService: null!,
             database.Context,
             processRepository,
             stepRepository,
             new MemoryCache(new MemoryCacheOptions()),
-            observabilityQueryService: null!);
+            observabilityQueryService: null!,
+            processIndexProjectionService);
 
     private sealed class ProcessInstanceRepositoryStub : IProcessInstanceRepository<Dictionary<string, JsonElement>>
     {
@@ -455,6 +618,7 @@ public sealed class ProcessQueryServiceTests
         }
 
         public int ProcessStateFetchCount { get; private set; }
+        public int SummaryPageFetchCount { get; private set; }
 
         public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> CreateProcessState(
             ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
@@ -513,6 +677,7 @@ public sealed class ProcessQueryServiceTests
             IReadOnlyCollection<ProcessStatus>? statuses,
             CancellationToken cancellationToken)
         {
+            SummaryPageFetchCount++;
             var items = _itemsByBlueprintVersionId.TryGetValue(blueprintVersionId, out var storedItems)
                 ? storedItems
                 : [];
@@ -546,6 +711,100 @@ public sealed class ProcessQueryServiceTests
             ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class ProcessIndexProjectionServiceStub : IProcessIndexProjectionService
+    {
+        private readonly IReadOnlyList<ProcessSummaryProjectionRecord> _tenantSummaries;
+        private readonly IReadOnlyList<ProcessSummaryProjectionRecord> _blueprintSummaries;
+
+        public ProcessIndexProjectionServiceStub(
+            IReadOnlyList<ProcessSummaryProjectionRecord> tenantSummaries,
+            IReadOnlyList<ProcessSummaryProjectionRecord> blueprintSummaries)
+        {
+            _tenantSummaries = tenantSummaries;
+            _blueprintSummaries = blueprintSummaries;
+        }
+
+        public Task UpsertFromProcessAsync(
+            ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ProcessDirectoryRecord?> GetDirectoryByProcessIdAsync(
+            Guid processId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<ProcessDirectoryRecord?>(null);
+
+        public Task<ProcessSummaryProjectionPage> GetRecentTenantSummariesAsync(
+            string? continuationToken,
+            int maxItemCount,
+            DateTimeOffset? createdFrom,
+            DateTimeOffset? createdTo,
+            IReadOnlyCollection<ProcessStatus>? statuses,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(CreatePage(
+                _tenantSummaries,
+                continuationToken,
+                maxItemCount,
+                createdFrom,
+                createdTo,
+                statuses,
+                blueprintDefinitionId: null,
+                blueprintVersionIds: null));
+
+        public Task<ProcessSummaryProjectionPage> GetRecentBlueprintSummariesAsync(
+            int blueprintDefinitionId,
+            IReadOnlyCollection<int>? blueprintVersionIds,
+            string? continuationToken,
+            int maxItemCount,
+            DateTimeOffset? createdFrom,
+            DateTimeOffset? createdTo,
+            IReadOnlyCollection<ProcessStatus>? statuses,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(CreatePage(
+                _blueprintSummaries,
+                continuationToken,
+                maxItemCount,
+                createdFrom,
+                createdTo,
+                statuses,
+                blueprintDefinitionId,
+                blueprintVersionIds));
+
+        private static ProcessSummaryProjectionPage CreatePage(
+            IReadOnlyList<ProcessSummaryProjectionRecord> source,
+            string? continuationToken,
+            int maxItemCount,
+            DateTimeOffset? createdFrom,
+            DateTimeOffset? createdTo,
+            IReadOnlyCollection<ProcessStatus>? statuses,
+            int? blueprintDefinitionId,
+            IReadOnlyCollection<int>? blueprintVersionIds)
+        {
+            var offset = string.IsNullOrWhiteSpace(continuationToken)
+                ? 0
+                : int.Parse(continuationToken);
+            var filtered = source
+                .Where(item => !createdFrom.HasValue || item.CreatedAt >= createdFrom.Value)
+                .Where(item => !createdTo.HasValue || item.CreatedAt <= createdTo.Value)
+                .Where(item => statuses is not { Count: > 0 } || statuses.Contains(item.Status))
+                .Where(item => !blueprintDefinitionId.HasValue || item.BlueprintDefinitionId == blueprintDefinitionId.Value)
+                .Where(item => blueprintVersionIds is not { Count: > 0 } || blueprintVersionIds.Contains(item.BlueprintVersionId))
+                .OrderByDescending(item => item.CreatedAt)
+                .ThenByDescending(item => item.ProcessId, StringComparer.Ordinal)
+                .ToList();
+            var items = filtered.Skip(offset).Take(maxItemCount).ToList();
+            var nextOffset = offset + items.Count;
+
+            return new ProcessSummaryProjectionPage
+            {
+                Items = items,
+                ContinuationToken = nextOffset < filtered.Count ? nextOffset.ToString() : null,
+            };
+        }
     }
 
     private sealed class ProcessStepRepositoryStub : IProcessStepRepository

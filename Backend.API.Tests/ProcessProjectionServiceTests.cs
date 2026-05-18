@@ -204,6 +204,73 @@ public sealed class ProcessProjectionServiceTests
         detail.Phase.PhaseName.ShouldBe("Receive alert");
     }
 
+    [Test]
+    public async Task GetProcessDetailByIdAsync_uses_process_directory_for_partition_lookup()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var taskDefinition = await SeedTaskDefinitionWithChannelsAsync(
+            database.Context,
+            "Indexed Step",
+            new Dictionary<string, WorkflowPropertyKind>());
+
+        var repository = new BlueprintRepository(database.Context);
+        var nodeId = Guid.NewGuid();
+        var created = await repository.CreateBlueprint(
+            new BlueprintInputModel
+            {
+                Name = "Indexed Process Blueprint",
+                StartingBlueprintNodeId = nodeId,
+                Tasks =
+                [
+                    new BlueprintNodeInputModel
+                    {
+                        InstanceId = nodeId,
+                        TaskDefinitionId = taskDefinition.Id,
+                        AllowedMajor = 1,
+                        AllowedMinor = 0,
+                        Position = new CoordinatesViewModel { X = 120, Y = 80 },
+                    }
+                ],
+            },
+            CancellationToken.None);
+
+        var processId = Guid.NewGuid();
+        var processRecord = new ProcessInstanceRecord<Dictionary<string, JsonElement>>
+        {
+            id = processId.ToString(),
+            BlueprintId = created.Versions[0].BlueprintVersionId.ToString(),
+            CreatedAt = DateTimeOffset.Parse("2026-04-21T00:10:00Z"),
+            Status = ProcessStatus.Pending,
+            GlobalState = new Dictionary<string, JsonElement>(),
+        };
+        var processRepository = new ProcessInstanceRepositoryStub(created.Versions[0].BlueprintVersionId, processRecord);
+        var index = new ProcessIndexProjectionServiceStub(new ProcessDirectoryRecord
+        {
+            id = processId.ToString(),
+            TenantId = "default",
+            ProcessId = processId.ToString(),
+            BlueprintDefinitionId = created.Id,
+            BlueprintVersionId = created.Versions[0].BlueprintVersionId,
+            ProcessPartitionKey = created.Versions[0].BlueprintVersionId.ToString(),
+            Status = ProcessStatus.Pending,
+            CreatedAt = processRecord.CreatedAt,
+            UpdatedAt = processRecord.UpdatedAt,
+            IndexedAt = DateTimeOffset.Parse("2026-04-21T00:10:01Z"),
+        });
+
+        var service = new ProcessProjectionService(
+            database.Context,
+            new ProcessStepRepositoryStub([]),
+            processRepository,
+            index);
+
+        var detail = await service.GetProcessDetailByIdAsync(processId, CancellationToken.None);
+
+        detail.ProcessId.ShouldBe(processId);
+        detail.BlueprintDefinitionId.ShouldBe(created.Id);
+        processRepository.RequestedBlueprintVersionIds.ShouldBe([created.Versions[0].BlueprintVersionId]);
+    }
+
     private static async Task<TaskDefinition> SeedTaskDefinitionWithChannelsAsync(
         Backend.Database.Relational.BlueprintDbContext context,
         string name,
@@ -243,6 +310,8 @@ public sealed class ProcessProjectionServiceTests
             _processRecord = processRecord;
         }
 
+        public List<int> RequestedBlueprintVersionIds { get; } = [];
+
         public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> CreateProcessState(
             ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
             CancellationToken cancellationToken) =>
@@ -253,6 +322,7 @@ public sealed class ProcessProjectionServiceTests
             int blueprintVersionId,
             CancellationToken cancellationToken)
         {
+            RequestedBlueprintVersionIds.Add(blueprintVersionId);
             if (processId == Guid.Parse(_processRecord.ProcessId) && blueprintVersionId == _blueprintVersionId)
             {
                 return Task.FromResult(_processRecord);
@@ -358,6 +428,51 @@ public sealed class ProcessProjectionServiceTests
             Dictionary<string, JsonElement>? effectiveInputData,
             string? errorMessage,
             DateTimeOffset failedAt,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class ProcessIndexProjectionServiceStub : IProcessIndexProjectionService
+    {
+        private readonly ProcessDirectoryRecord? _directory;
+
+        public ProcessIndexProjectionServiceStub(ProcessDirectoryRecord? directory)
+        {
+            _directory = directory;
+        }
+
+        public Task UpsertFromProcessAsync(
+            ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ProcessDirectoryRecord?> GetDirectoryByProcessIdAsync(
+            Guid processId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(
+                _directory is not null && _directory.ProcessId == processId.ToString()
+                    ? _directory
+                    : null);
+
+        public Task<ProcessSummaryProjectionPage> GetRecentTenantSummariesAsync(
+            string? continuationToken,
+            int maxItemCount,
+            DateTimeOffset? createdFrom,
+            DateTimeOffset? createdTo,
+            IReadOnlyCollection<ProcessStatus>? statuses,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ProcessSummaryProjectionPage> GetRecentBlueprintSummariesAsync(
+            int blueprintDefinitionId,
+            IReadOnlyCollection<int>? blueprintVersionIds,
+            string? continuationToken,
+            int maxItemCount,
+            DateTimeOffset? createdFrom,
+            DateTimeOffset? createdTo,
+            IReadOnlyCollection<ProcessStatus>? statuses,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }

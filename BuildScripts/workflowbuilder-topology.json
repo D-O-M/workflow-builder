@@ -12,6 +12,14 @@
         "partitionKey": "/blueprintId"
       },
       {
+        "name": "processdirectory",
+        "partitionKey": "/id"
+      },
+      {
+        "name": "processsummaries",
+        "partitionKey": "/partitionKey"
+      },
+      {
         "name": "processsteps",
         "partitionKey": "/processId"
       },

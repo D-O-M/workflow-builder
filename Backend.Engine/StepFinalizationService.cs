@@ -66,6 +66,7 @@ public class StepFinalizationService : IStepFinalizationService
     private readonly IProcessStepFinalizationRepository _finalizationRepository;
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessIndexProjectionService? _processIndexProjectionService;
     private readonly StepClaimService _stepClaimService;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
     private readonly ILogger<StepFinalizationService> _logger;
@@ -79,7 +80,8 @@ public class StepFinalizationService : IStepFinalizationService
         IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
         StepClaimService stepClaimService,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
-        ILogger<StepFinalizationService> logger)
+        ILogger<StepFinalizationService> logger,
+        IProcessIndexProjectionService? processIndexProjectionService = null)
     {
         _activationPlanner = activationPlanner;
         _activationPersistenceService = activationPersistenceService;
@@ -87,6 +89,7 @@ public class StepFinalizationService : IStepFinalizationService
         _finalizationRepository = finalizationRepository;
         _processStepRepository = processStepRepository;
         _processInstanceRepository = processInstanceRepository;
+        _processIndexProjectionService = processIndexProjectionService;
         _stepClaimService = stepClaimService;
         _processLifecycleTelemetry = processLifecycleTelemetry;
         _logger = logger;
@@ -616,6 +619,33 @@ public class StepFinalizationService : IStepFinalizationService
             cancellationToken);
     }
 
+    private async Task TryProjectProcessAsync(
+        StepExecutionContext context,
+        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        CancellationToken cancellationToken)
+    {
+        if (_processIndexProjectionService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _processIndexProjectionService.UpsertFromProcessAsync(
+                process,
+                context.BlueprintDefinitionId,
+                context.ExecutableBlueprintId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                exception,
+                "Process index projection failed for process {ProcessId} during finalization.",
+                context.ProcessId);
+        }
+    }
+
     private async Task<bool> IsProcessCompletedAsync(
         StepExecutionContext context,
         CancellationToken cancellationToken)
@@ -665,6 +695,7 @@ public class StepFinalizationService : IStepFinalizationService
             if (await _processInstanceRepository.TryUpdateProcessState(process, cancellationToken))
             {
                 context.ApplyProcess(process);
+                await TryProjectProcessAsync(context, process, cancellationToken);
                 return !wasCompleted && process.Status is ProcessStatus.Completed;
             }
         }
@@ -701,6 +732,7 @@ public class StepFinalizationService : IStepFinalizationService
             if (await _processInstanceRepository.TryUpdateProcessState(process, cancellationToken))
             {
                 context.ApplyProcess(process);
+                await TryProjectProcessAsync(context, process, cancellationToken);
                 return;
             }
         }
@@ -749,6 +781,7 @@ public class StepFinalizationService : IStepFinalizationService
             if (await _processInstanceRepository.TryUpdateProcessState(process, cancellationToken))
             {
                 context.ApplyProcess(process);
+                await TryProjectProcessAsync(context, process, cancellationToken);
                 return process.Status is ProcessStatus.Completed;
             }
         }

@@ -15,15 +15,18 @@ public sealed class ProcessProjectionService
     private readonly BlueprintDbContext _dbContext;
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessIndexProjectionService? _processIndexProjectionService;
 
     public ProcessProjectionService(
         BlueprintDbContext dbContext,
         IProcessStepRepository processStepRepository,
-        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository)
+        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        IProcessIndexProjectionService? processIndexProjectionService = null)
     {
         _dbContext = dbContext;
         _processStepRepository = processStepRepository;
         _processInstanceRepository = processInstanceRepository;
+        _processIndexProjectionService = processIndexProjectionService;
     }
 
     public async Task<List<ProcessSummaryViewModel>> GetProcessesForBlueprintDefinitionAsync(
@@ -69,6 +72,21 @@ public sealed class ProcessProjectionService
     {
         var context = await LoadProcessContextAsync(
             blueprintDefinitionId,
+            processId,
+            cancellationToken);
+
+        return BuildDetail(
+            context.Definition,
+            context.BlueprintVersion,
+            context.ProcessRecord,
+            context.ProcessSteps);
+    }
+
+    public async Task<ProcessDetailViewModel> GetProcessDetailByIdAsync(
+        Guid processId,
+        CancellationToken cancellationToken)
+    {
+        var context = await LoadProcessContextByIdAsync(
             processId,
             cancellationToken);
 
@@ -336,6 +354,23 @@ public sealed class ProcessProjectionService
         Guid processId,
         CancellationToken cancellationToken)
     {
+        if (_processIndexProjectionService is not null)
+        {
+            var directory = await _processIndexProjectionService.GetDirectoryByProcessIdAsync(
+                processId,
+                cancellationToken);
+
+            if (directory is not null)
+            {
+                if (directory.BlueprintDefinitionId != blueprintDefinitionId)
+                {
+                    throw new EntityNotFoundException<ProcessDetailViewModel>(processId.ToString());
+                }
+
+                return await LoadProcessContextFromDirectoryAsync(directory, cancellationToken);
+            }
+        }
+
         var definition = await _dbContext.BlueprintDefinitions
             .Include(candidate => candidate.Versions)
             .AsNoTracking()
@@ -375,6 +410,65 @@ public sealed class ProcessProjectionService
             ?? throw new EntityNotFoundException<BlueprintVersionViewModel>(blueprintVersion.Id);
         var processSteps = await _processStepRepository.GetProcessStepsForProcess(
             processId,
+            cancellationToken);
+        var processStepsByBlueprintNodeId = GroupProcessStepsByBlueprintNodeId(processSteps);
+
+        return new ProcessProjectionContext(
+            definition,
+            blueprintVersionEntity,
+            processRecord,
+            processSteps,
+            processStepsByBlueprintNodeId);
+    }
+
+    private async Task<ProcessProjectionContext> LoadProcessContextByIdAsync(
+        Guid processId,
+        CancellationToken cancellationToken)
+    {
+        if (_processIndexProjectionService is null)
+        {
+            throw new EntityNotFoundException<ProcessDetailViewModel>(processId.ToString());
+        }
+
+        var directory = await _processIndexProjectionService.GetDirectoryByProcessIdAsync(
+            processId,
+            cancellationToken);
+
+        if (directory is null)
+        {
+            throw new EntityNotFoundException<ProcessDetailViewModel>(processId.ToString());
+        }
+
+        return await LoadProcessContextFromDirectoryAsync(directory, cancellationToken);
+    }
+
+    private async Task<ProcessProjectionContext> LoadProcessContextFromDirectoryAsync(
+        ProcessDirectoryRecord directory,
+        CancellationToken cancellationToken)
+    {
+        var definition = await _dbContext.BlueprintDefinitions
+            .Include(candidate => candidate.Versions)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == directory.BlueprintDefinitionId, cancellationToken);
+
+        if (definition is null)
+        {
+            throw new EntityNotFoundException<BlueprintViewModel>(directory.BlueprintDefinitionId);
+        }
+
+        var blueprintVersion = definition.Versions
+            .FirstOrDefault(candidate => candidate.Id == directory.BlueprintVersionId)
+            ?? throw new EntityNotFoundException<BlueprintVersionViewModel>(directory.BlueprintVersionId);
+
+        var processRecord = await _processInstanceRepository.GetProcessStateById(
+            Guid.Parse(directory.ProcessId),
+            directory.BlueprintVersionId,
+            cancellationToken);
+
+        var blueprintVersionEntity = await LoadBlueprintGraphAsync(blueprintVersion.Id, cancellationToken)
+            ?? throw new EntityNotFoundException<BlueprintVersionViewModel>(blueprintVersion.Id);
+        var processSteps = await _processStepRepository.GetProcessStepsForProcess(
+            Guid.Parse(directory.ProcessId),
             cancellationToken);
         var processStepsByBlueprintNodeId = GroupProcessStepsByBlueprintNodeId(processSteps);
 
