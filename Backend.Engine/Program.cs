@@ -23,7 +23,8 @@ builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing.AddSource(ProcessLifecycleTelemetry.ActivitySourceName))
     .WithMetrics(metrics => metrics
         .AddMeter("WorkflowBuilder.Engine.Processes")
-        .AddMeter(ProcessStepDispatchTelemetry.MeterName));
+        .AddMeter(ProcessStepDispatchTelemetry.MeterName)
+        .AddMeter(PluginResultFinalizationTelemetry.MeterName));
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -85,10 +86,18 @@ builder.Services.AddSingleton<IChildProcessTracker, ChildProcessTracker>();
 builder.Services.AddSingleton<IPluginManifestParsingUtility, PluginManifestParsingUtility>();
 builder.Services.AddSingleton<IPluginRuntimeCapabilityService, PluginRuntimeCapabilityService>();
 builder.Services.AddSingleton<IPluginRuntimeConfigurationService, PluginRuntimeConfigurationService>();
+builder.Services.AddSingleton(sp =>
+{
+    var options = sp.GetRequiredService<IConfiguration>()
+        .GetSection("PluginRuntime")
+        .Get<PluginRuntimeOptions>()
+        ?? new PluginRuntimeOptions();
+    options.Validate();
+    return options;
+});
 builder.Services.AddSingleton<PluginRuntimeCatalog>();
 builder.Services.AddSingleton<PluginRuntimeOrchestrator>();
 builder.Services.AddSingleton<IPluginRuntimeReloader>(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
-builder.Services.AddHostedService(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
 builder.Services.AddSingleton<IAsyncDelay, DefaultAsyncDelay>();
 builder.Services.AddSingleton<IDebuggerAttachmentGuard, DebuggerAttachmentGuard>();
 builder.Services.AddSingleton<IOperatingSystemInformation, OperatingSystemInformation>();
@@ -170,15 +179,17 @@ builder.Services.AddTransient<CollectionIteratorExecutionService>();
 builder.Services.AddTransient<ICollectionIteratorExecutionService>(provider => provider.GetRequiredService<CollectionIteratorExecutionService>());
 builder.Services.AddSingleton<ProcessLifecycleTelemetry>();
 builder.Services.AddSingleton<ProcessStepDispatchTelemetry>();
+builder.Services.AddSingleton<PluginResultFinalizationTelemetry>();
 builder.Services.AddSingleton<ProcessStepDispatchService>();
 builder.Services.AddSingleton<StepExecutionService>();
 builder.Services.AddSingleton<IStepExecutionService>(provider => provider.GetRequiredService<StepExecutionService>());
 builder.Services.AddSingleton<StepMessageHandler>();
 builder.Services.AddSingleton<PluginResultFinalizationQueue>();
 
+builder.Services.AddHostedService<PluginResultFinalizationWorker>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
 builder.Services.AddHostedService<QueueConsumer>();
 builder.Services.AddHostedService<ProcessStepDispatchWorker>();
-builder.Services.AddHostedService<PluginResultFinalizationWorker>();
 builder.Services.AddHostedService<PluginReloadConsumer>();
 
 var app = builder.Build();

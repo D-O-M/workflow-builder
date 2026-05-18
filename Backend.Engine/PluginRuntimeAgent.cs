@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Pipelines;
 using System.Text;
+using System.Threading.Channels;
 using Backend.Engine.Debugging;
 using Backend.Plugins.Communication;
 using CliWrap;
@@ -206,13 +207,15 @@ public class PluginRuntimeAgent
                         _logger.LogInformation("{PluginName} Process started; ID: {ProcessId}", Name, started.ProcessId);
                         break;
                     case StandardOutputCommandEvent stdOut:
-                        await OnOutput(stdOut.Text);
+                        await OnOutput(stdOut.Text, _processCancellation?.Token ?? cancellationToken);
                         break;
                     case StandardErrorCommandEvent stdErr:
                         _logger.LogError("{PluginName} Error: {ErrorText}", Name, stdErr.Text);
                         break;
                     case ExitedCommandEvent exited:
-                        await FlushBufferedOutputAsync(processRemainingText: true);
+                        await FlushBufferedOutputAsync(
+                            processRemainingText: true,
+                            _processCancellation?.Token ?? cancellationToken);
                         var stopWasRequested = Volatile.Read(ref _stopRequested) == 1 ||
                                                _processCancellation?.IsCancellationRequested == true;
 
@@ -282,7 +285,7 @@ public class PluginRuntimeAgent
         }
     }
 
-    private async Task OnOutput(string output)
+    private async Task OnOutput(string output, CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(output))
         {
@@ -290,10 +293,12 @@ public class PluginRuntimeAgent
         }
 
         _stdoutBuffer.Append(output);
-        await FlushBufferedOutputAsync(processRemainingText: false);
+        await FlushBufferedOutputAsync(processRemainingText: false, cancellationToken);
     }
 
-    private async Task FlushBufferedOutputAsync(bool processRemainingText)
+    private async Task FlushBufferedOutputAsync(
+        bool processRemainingText,
+        CancellationToken cancellationToken)
     {
         while (true)
         {
@@ -308,13 +313,13 @@ public class PluginRuntimeAgent
             {
                 var line = bufferText[..newlineIndex].TrimEnd('\r');
                 _stdoutBuffer.Remove(0, newlineIndex + 1);
-                await ProcessOutputLineAsync(line);
+                await ProcessOutputLineAsync(line, cancellationToken);
                 continue;
             }
 
             if (TryConsumeBufferedStandaloneMessage(out var standaloneMessage))
             {
-                await ProcessOutputLineAsync(standaloneMessage);
+                await ProcessOutputLineAsync(standaloneMessage, cancellationToken);
                 continue;
             }
 
@@ -324,7 +329,7 @@ public class PluginRuntimeAgent
             }
 
             _stdoutBuffer.Clear();
-            await ProcessOutputLineAsync(bufferText.TrimEnd('\r'));
+            await ProcessOutputLineAsync(bufferText.TrimEnd('\r'), cancellationToken);
             return;
         }
     }
@@ -365,7 +370,9 @@ public class PluginRuntimeAgent
         }
     }
 
-    private async Task ProcessOutputLineAsync(string outputLine)
+    private async Task ProcessOutputLineAsync(
+        string outputLine,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(outputLine))
         {
@@ -391,7 +398,18 @@ public class PluginRuntimeAgent
         try
         {
             var result = PluginExecutionResultSerializer.Deserialize(Encoding.UTF8.GetBytes(outputLine));
-            await _resultFinalizationQueue.EnqueueAsync(result, CancellationToken.None);
+            await _resultFinalizationQueue.EnqueueAsync(result, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (ChannelClosedException ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Plugin result finalization queue is closed for plugin runtime {PluginName}; process-step redelivery will recover unfinished work.",
+                Name);
         }
         catch (Exception ex)
         {
