@@ -40,7 +40,7 @@ public sealed class StepFinalizationServiceTests
         await service.FinalizeSucceededStepAsync(context, result, CancellationToken.None);
 
         var record = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
-        record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
+        record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
         record.LastErrorKind.ShouldBeNull();
         stepRepository.States[context.ProcessStepId].Status.ShouldBe(ProcessStepStatus.Completed);
         stepRepository.CreatedSteps.Count.ShouldBe(1);
@@ -58,7 +58,7 @@ public sealed class StepFinalizationServiceTests
         await dispatchService.DrainDueDispatchesAsync(10, CancellationToken.None);
 
         var completedRecord = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
-        completedRecord.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
+        completedRecord.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
         stepRepository.CreatedSteps.Count.ShouldBe(1);
         queueWriter.Messages.Count.ShouldBe(1);
         queueWriter.Messages[0].BlueprintNodeId.ShouldBe(destinationNodeId);
@@ -85,7 +85,7 @@ public sealed class StepFinalizationServiceTests
         stepRepository.CreatedSteps.Count.ShouldBe(1);
         queueWriter.Messages.Count.ShouldBe(1);
         var record = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
-        record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
+        record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
 
         var duplicateContext = await CreateContextAsync(
             processId,
@@ -156,7 +156,7 @@ public sealed class StepFinalizationServiceTests
         stepRepository.FailMutationCount.ShouldBe(1);
         retryContext.QueueMessage.CompleteCount.ShouldBe(1);
         (await finalizationRepository.GetRequiredAsync(context.ProcessStepId)).Stage
-            .ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
+            .ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
     }
 
     [Test]
@@ -178,7 +178,7 @@ public sealed class StepFinalizationServiceTests
         context.QueueMessage.OnComplete = () =>
         {
             var record = finalizationRepository.Records[context.ProcessStepId];
-            record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
+            record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
         };
 
         await service.FinalizeSucceededStepAsync(
@@ -215,7 +215,7 @@ public sealed class StepFinalizationServiceTests
             CancellationToken.None);
 
         var record = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
-        record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
+        record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
         stepRepository.CreatedSteps.Count.ShouldBe(2);
         stepRepository.CreatedSteps
             .All(step => step.Dispatch?.Status == ProcessStepDispatchStatus.RetryableDispatchError)
@@ -238,7 +238,186 @@ public sealed class StepFinalizationServiceTests
             .All(step => step.Dispatch?.Status == ProcessStepDispatchStatus.Dispatched)
             .ShouldBeTrue();
         (await finalizationRepository.GetRequiredAsync(context.ProcessStepId)).Stage
-            .ShouldBe(ProcessStepFinalizationStage.QueueMessageCompleted);
+            .ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
+    }
+
+    [Test]
+    public async Task Resume_success_finalization_from_each_intermediate_stage_completes_branch()
+    {
+        var stages = new[]
+        {
+            ProcessStepFinalizationStage.ResultReceived,
+            ProcessStepFinalizationStage.OutputsPersisted,
+            ProcessStepFinalizationStage.DownstreamActivationCompleted,
+            ProcessStepFinalizationStage.ProcessFinalizationCompleted,
+            ProcessStepFinalizationStage.QueueMessageCompletionPrepared
+        };
+
+        foreach (var stage in stages)
+        {
+            var processId = Guid.NewGuid();
+            var nodeId = Guid.NewGuid();
+            var blueprint = CreateTerminalBlueprint(nodeId);
+            var stepRepository = new InMemoryProcessStepRepository();
+            var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+            var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+            var service = CreateService(
+                stepRepository,
+                processRepository,
+                finalizationRepository,
+                CreateDispatchService(stepRepository, new ProcessStepQueueWriterSpy()));
+            var context = await CreateContextAsync(processId, nodeId, blueprint, stepRepository, processRepository);
+            var result = CreateSuccessResult(context, outputChannelName: null);
+            var record = CreateFinalizationRecord(context, result, ProcessStepFinalizationOutcome.Succeeded, stage);
+            finalizationRepository.Records[context.ProcessStepId] = record;
+            if (stage is not ProcessStepFinalizationStage.ResultReceived)
+            {
+                MarkSuccessPersisted(context, stepRepository, processRepository, record);
+                TrimResultSnapshot(record);
+            }
+
+            var retryContext = await CreateContextAsync(
+                processId,
+                nodeId,
+                blueprint,
+                stepRepository,
+                processRepository,
+                claim: false);
+
+            await service.ResumeStepFinalizationAsync(retryContext, record, CancellationToken.None);
+
+            var completed = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
+            completed.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
+            retryContext.QueueMessage.CompleteCount.ShouldBe(1);
+            stepRepository.CompleteMutationCount.ShouldBe(
+                stage is ProcessStepFinalizationStage.ResultReceived ? 1 : 0);
+        }
+    }
+
+    [Test]
+    public async Task Resume_failure_finalization_from_each_intermediate_stage_completes_branch()
+    {
+        var stages = new[]
+        {
+            ProcessStepFinalizationStage.ResultReceived,
+            ProcessStepFinalizationStage.FailurePersisted,
+            ProcessStepFinalizationStage.ProcessFinalizationCompleted,
+            ProcessStepFinalizationStage.QueueMessageCompletionPrepared
+        };
+
+        foreach (var stage in stages)
+        {
+            var processId = Guid.NewGuid();
+            var nodeId = Guid.NewGuid();
+            var blueprint = CreateTerminalBlueprint(nodeId);
+            var stepRepository = new InMemoryProcessStepRepository();
+            var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+            var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+            var service = CreateService(
+                stepRepository,
+                processRepository,
+                finalizationRepository,
+                CreateDispatchService(stepRepository, new ProcessStepQueueWriterSpy()));
+            var context = await CreateContextAsync(processId, nodeId, blueprint, stepRepository, processRepository);
+            var result = CreateFailureResult(context, "boom");
+            var record = CreateFinalizationRecord(context, result, ProcessStepFinalizationOutcome.Failed, stage);
+            finalizationRepository.Records[context.ProcessStepId] = record;
+            if (stage is not ProcessStepFinalizationStage.ResultReceived)
+            {
+                MarkFailurePersisted(context, stepRepository, processRepository, record);
+                TrimResultSnapshot(record);
+            }
+
+            var retryContext = await CreateContextAsync(
+                processId,
+                nodeId,
+                blueprint,
+                stepRepository,
+                processRepository,
+                claim: false);
+
+            await service.ResumeStepFinalizationAsync(retryContext, record, CancellationToken.None);
+
+            var completed = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
+            completed.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
+            retryContext.QueueMessage.CompleteCount.ShouldBe(1);
+            stepRepository.FailMutationCount.ShouldBe(
+                stage is ProcessStepFinalizationStage.ResultReceived ? 1 : 0);
+        }
+    }
+
+    [Test]
+    public async Task Queue_message_completion_failure_leaves_durable_terminal_prepared_stage_for_retry()
+    {
+        var processId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+        var blueprint = CreateTerminalBlueprint(nodeId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var service = CreateService(
+            stepRepository,
+            processRepository,
+            finalizationRepository,
+            CreateDispatchService(stepRepository, new ProcessStepQueueWriterSpy()));
+        var context = await CreateContextAsync(processId, nodeId, blueprint, stepRepository, processRepository);
+        context.QueueMessage.ThrowOnComplete = true;
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            service.FinalizeSucceededStepAsync(
+                context,
+                CreateSuccessResult(context, outputChannelName: null),
+                CancellationToken.None));
+
+        var record = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
+        record.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
+        record.LastErrorKind.ShouldBe(ProcessStepFinalizationErrorKind.RetryableFinalizationError);
+        context.QueueMessage.CompleteCount.ShouldBe(0);
+        stepRepository.CompleteMutationCount.ShouldBe(1);
+
+        var retryContext = await CreateContextAsync(
+            processId,
+            nodeId,
+            blueprint,
+            stepRepository,
+            processRepository,
+            claim: false);
+
+        await service.ResumeStepFinalizationAsync(retryContext, record, CancellationToken.None);
+
+        retryContext.QueueMessage.CompleteCount.ShouldBe(1);
+        stepRepository.CompleteMutationCount.ShouldBe(1);
+        (await finalizationRepository.GetRequiredAsync(context.ProcessStepId)).Stage
+            .ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
+    }
+
+    [Test]
+    public async Task Resume_rejects_cross_path_stage_without_retryable_checkpoint()
+    {
+        var processId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+        var blueprint = CreateTerminalBlueprint(nodeId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var service = CreateService(
+            stepRepository,
+            processRepository,
+            finalizationRepository,
+            CreateDispatchService(stepRepository, new ProcessStepQueueWriterSpy()));
+        var context = await CreateContextAsync(processId, nodeId, blueprint, stepRepository, processRepository);
+        var record = CreateFinalizationRecord(
+            context,
+            CreateSuccessResult(context, outputChannelName: null),
+            ProcessStepFinalizationOutcome.Succeeded,
+            ProcessStepFinalizationStage.FailurePersisted);
+        finalizationRepository.Records[context.ProcessStepId] = record;
+
+        await Should.ThrowAsync<ProcessStepFinalizationTransitionException>(() =>
+            service.ResumeStepFinalizationAsync(context, record, CancellationToken.None));
+
+        record.LastErrorKind.ShouldBeNull();
+        context.QueueMessage.CompleteCount.ShouldBe(0);
     }
 
     private static StepFinalizationService CreateService(
@@ -367,6 +546,119 @@ public sealed class StepFinalizationServiceTests
             CompletedAt: DateTimeOffset.UtcNow,
             TimingsMs: null,
             ErrorMessage: null);
+
+    private static PluginExecutionResult CreateFailureResult(
+        StepExecutionContext context,
+        string errorMessage)
+    {
+        var failedAt = DateTimeOffset.UtcNow;
+        return new PluginExecutionResult(
+            context.ProcessStepId,
+            Succeeded: false,
+            EffectiveInputData: null,
+            OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
+            GlobalState: null,
+            StartedAt: failedAt.AddSeconds(-1),
+            CompletedAt: failedAt,
+            TimingsMs: null,
+            ErrorMessage: errorMessage);
+    }
+
+    private static ProcessStepFinalizationRecord CreateFinalizationRecord(
+        StepExecutionContext context,
+        PluginExecutionResult result,
+        ProcessStepFinalizationOutcome outcome,
+        ProcessStepFinalizationStage stage) =>
+        new()
+        {
+            id = context.ProcessStepId.ToString(),
+            ProcessId = context.ProcessId.ToString(),
+            BlueprintId = context.ExecutableBlueprintId.ToString(),
+            BlueprintNodeId = context.BlueprintNodeId.ToString(),
+            TaskDefinitionId = context.TaskDefinitionId,
+            ResolvedTaskVersionId = context.ResolvedTaskVersionId,
+            ResolvedTaskVersion = context.BlueprintNode.ResolvedVersion.ToString(),
+            Outcome = outcome,
+            Source = ProcessStepFinalizationSource.Plugin,
+            Stage = stage,
+            EffectiveInputData = result.EffectiveInputData,
+            OutputData = result.OutputData,
+            GlobalState = result.GlobalState,
+            TimingsMs = result.TimingsMs is null
+                ? null
+                : new Dictionary<string, double>(result.TimingsMs, StringComparer.Ordinal),
+            ErrorMessage = result.ErrorMessage,
+            StartedAt = result.StartedAt,
+            CompletedAt = result.CompletedAt,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+
+    private static void MarkSuccessPersisted(
+        StepExecutionContext context,
+        InMemoryProcessStepRepository stepRepository,
+        InMemoryProcessInstanceRepository processRepository,
+        ProcessStepFinalizationRecord record)
+    {
+        var step = stepRepository.States[context.ProcessStepId];
+        step.Status = ProcessStepStatus.Completed;
+        step.OutputData = record.OutputData is null
+            ? new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+            : new Dictionary<string, JsonElement>(record.OutputData, StringComparer.Ordinal);
+        step.CompletedAt = record.CompletedAt;
+        step.UpdatedAt = record.CompletedAt;
+
+        var process = processRepository.State;
+        EnsureExecutionProgress(context, process);
+        process.ExecutionProgress.CompletedNodeIds.Add(context.BlueprintNodeId.ToString());
+        process.ExecutionProgress.CompletedStepIds.Add(context.ProcessStepId.ToString());
+        process.Status = ProcessStatus.Completed;
+        process.UpdatedAt = record.CompletedAt;
+    }
+
+    private static void MarkFailurePersisted(
+        StepExecutionContext context,
+        InMemoryProcessStepRepository stepRepository,
+        InMemoryProcessInstanceRepository processRepository,
+        ProcessStepFinalizationRecord record)
+    {
+        var step = stepRepository.States[context.ProcessStepId];
+        step.Status = ProcessStepStatus.Failed;
+        step.ErrorMessage = record.ErrorMessage;
+        step.FailedAt = record.CompletedAt;
+        step.UpdatedAt = record.CompletedAt;
+
+        var process = processRepository.State;
+        EnsureExecutionProgress(context, process);
+        process.ExecutionProgress.FailedNodeIds.Add(context.BlueprintNodeId.ToString());
+        process.ExecutionProgress.FailedStepIds.Add(context.ProcessStepId.ToString());
+        process.Status = ProcessStatus.Failed;
+        process.UpdatedAt = record.CompletedAt;
+    }
+
+    private static void TrimResultSnapshot(ProcessStepFinalizationRecord record)
+    {
+        record.EffectiveInputData = null;
+        record.OutputData = null;
+        record.GlobalState = null;
+        record.TimingsMs = null;
+    }
+
+    private static void EnsureExecutionProgress(
+        StepExecutionContext context,
+        ProcessInstanceRecord<Dictionary<string, JsonElement>> process)
+    {
+        process.ExecutionProgress ??= new ProcessExecutionProgress();
+        if (process.ExecutionProgress.TotalNodeCount <= 0)
+        {
+            process.ExecutionProgress.TotalNodeCount = context.ExecutableBlueprint.AllNodes.Count;
+        }
+
+        if (process.ExecutionProgress.TotalStepCount <= 0)
+        {
+            process.ExecutionProgress.TotalStepCount = process.ExecutionProgress.TotalNodeCount;
+        }
+    }
 
     private static PluginExecutionResult CreateCollectionIteratorResult(
         StepExecutionContext context,
@@ -1080,10 +1372,16 @@ public sealed class StepFinalizationServiceTests
         public int CompleteCount { get; private set; }
         public int AbandonCount { get; private set; }
         public Action? OnComplete { get; set; }
+        public bool ThrowOnComplete { get; set; }
 
         public Task CompleteAsync(CancellationToken cancellationToken)
         {
             OnComplete?.Invoke();
+            if (ThrowOnComplete)
+            {
+                throw new InvalidOperationException("Queue message completion failed.");
+            }
+
             CompleteCount++;
             return Task.CompletedTask;
         }

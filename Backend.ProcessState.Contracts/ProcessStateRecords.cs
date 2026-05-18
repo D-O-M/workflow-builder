@@ -57,12 +57,14 @@ public enum ProcessStepFinalizationSource
 
 public enum ProcessStepFinalizationStage
 {
-    ResultReceived,
-    OutputsPersisted,
-    FailurePersisted,
-    DownstreamActivationCompleted,
-    ProcessFinalizationCompleted,
-    QueueMessageCompleted
+    ResultReceived = 0,
+    OutputsPersisted = 1,
+    FailurePersisted = 2,
+    DownstreamActivationCompleted = 3,
+    ProcessFinalizationCompleted = 4,
+    QueueMessageCompletionPrepared = 5,
+    [Obsolete("Use QueueMessageCompletionPrepared. The durable record is advanced before the broker message is completed.")]
+    QueueMessageCompleted = QueueMessageCompletionPrepared
 }
 
 public enum ProcessStepFinalizationErrorKind

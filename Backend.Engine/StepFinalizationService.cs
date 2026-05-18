@@ -185,7 +185,7 @@ public class StepFinalizationService : IStepFinalizationService
     {
         await _stepClaimService.HydrateStepForFinalizationAsync(context, cancellationToken);
 
-        if (record.Stage is ProcessStepFinalizationStage.QueueMessageCompleted)
+        if (ProcessStepFinalizationStageMachine.IsTerminalPrepared(record.Stage))
         {
             await context.CompleteMessageAsync(cancellationToken);
             return new CollectionIteratorFinalizationResult(
@@ -289,7 +289,7 @@ public class StepFinalizationService : IStepFinalizationService
                 cancellationToken);
         }
 
-        await CompleteDurableFinalizationAndMessageAsync(context, record, cancellationToken);
+        await PrepareDurableFinalizationAndCompleteMessageAsync(context, record, cancellationToken);
         return collectionResult;
     }
 
@@ -348,7 +348,7 @@ public class StepFinalizationService : IStepFinalizationService
                 cancellationToken);
         }
 
-        await CompleteDurableFinalizationAndMessageAsync(context, record, cancellationToken);
+        await PrepareDurableFinalizationAndCompleteMessageAsync(context, record, cancellationToken);
 
         if (!string.IsNullOrWhiteSpace(record.ErrorMessage))
         {
@@ -790,14 +790,14 @@ public class StepFinalizationService : IStepFinalizationService
             $"Could not update Collection Iterator expansion for process {context.ProcessId} after {MaxProcessStateUpdateAttempts} attempts.");
     }
 
-    private async Task CompleteDurableFinalizationAndMessageAsync(
+    private async Task PrepareDurableFinalizationAndCompleteMessageAsync(
         StepExecutionContext context,
         ProcessStepFinalizationRecord record,
         CancellationToken cancellationToken)
     {
         await AdvanceStageAsync(
             record.Id,
-            ProcessStepFinalizationStage.QueueMessageCompleted,
+            ProcessStepFinalizationStage.QueueMessageCompletionPrepared,
             trimResultSnapshot: false,
             cancellationToken);
         await context.CompleteMessageAsync(cancellationToken);
@@ -858,7 +858,8 @@ public class StepFinalizationService : IStepFinalizationService
         {
             return await action();
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested &&
+                                   ex is not ProcessStepFinalizationTransitionException)
         {
             await RecordRetryableErrorAsync(recordId, ex, cancellationToken);
             throw;
@@ -894,7 +895,12 @@ public class StepFinalizationService : IStepFinalizationService
                     return false;
                 }
 
-                record.Stage = stage;
+                ProcessStepFinalizationStageMachine.EnsureCanAdvance(
+                    record.Outcome,
+                    record.Stage,
+                    stage);
+
+                record.Stage = ProcessStepFinalizationStageMachine.NormalizeTerminalStage(stage);
                 record.UpdatedAt = DateTimeOffset.UtcNow;
                 record.LastErrorKind = null;
                 record.LastErrorMessage = null;
@@ -958,7 +964,10 @@ public class StepFinalizationService : IStepFinalizationService
     private static bool HasReached(
         ProcessStepFinalizationRecord record,
         ProcessStepFinalizationStage stage) =>
-        record.Stage >= stage;
+        ProcessStepFinalizationStageMachine.HasReached(
+            record.Outcome,
+            record.Stage,
+            stage);
 
     private static void TrimResultSnapshot(ProcessStepFinalizationRecord record)
     {
