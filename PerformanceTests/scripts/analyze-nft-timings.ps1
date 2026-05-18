@@ -562,6 +562,7 @@ $apiCounterSummary = @(
       "process_start_total_ms",
       "cosmos_operation_duration_ms",
       "cosmos_request_units",
+      "cosmos_request_units_total",
       "dotnet.process.memory.working_set",
       "dotnet.gc.heap.total_allocated"
     )
@@ -581,6 +582,7 @@ $engineCounterSummary = @(
       "plugin_execute_ms",
       "cosmos_operation_duration_ms",
       "cosmos_request_units",
+      "cosmos_request_units_total",
       "dotnet.process.memory.working_set",
       "dotnet.gc.heap.total_allocated"
     )

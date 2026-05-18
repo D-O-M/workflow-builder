@@ -311,6 +311,28 @@ static object BuildProcessPayload(int index, string blueprintKey, CommandOptions
         };
     }
 
+    if (blueprintKey.StartsWith("nft-score-collection-iterator", StringComparison.OrdinalIgnoreCase))
+    {
+        return new
+        {
+            globalState = new
+            {
+                runLabel = "local-nft",
+                stepsCompleted = 0,
+                totalScore = 0,
+                lastStage = "",
+                traceEnabled = false
+            },
+            initialTaskInput = new
+            {
+                correlationKey,
+                itemCount = options.GetInt("collection-item-count", 10),
+                delayMs = 0
+            },
+            nodeOverrides
+        };
+    }
+
     return new
     {
         globalState = new

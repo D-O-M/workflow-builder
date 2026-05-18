@@ -25,6 +25,12 @@ internal class Program
         var pluginRuntimeMaxConcurrentResultFinalizations = builder.Configuration.GetValue(
             "Nft:PluginRuntime:MaxConcurrentResultFinalizations",
             nftEnabled ? Environment.ProcessorCount * 4 : Environment.ProcessorCount * 2);
+        var pluginRuntimeResultFinalizationQueueCapacity = builder.Configuration.GetValue(
+            "Nft:PluginRuntime:ResultFinalizationQueueCapacity",
+            1024);
+        var pluginRuntimeResultFinalizationQueueFullMode = builder.Configuration.GetValue(
+            "Nft:PluginRuntime:ResultFinalizationQueueFullMode",
+            "Wait");
         var processStepQueueMaxConcurrentMessages = builder.Configuration.GetValue(
             "Nft:ProcessStepQueue:MaxConcurrentMessages",
             nftEnabled ? 32 : 8);
@@ -200,6 +206,12 @@ internal class Program
             .WithEnvironment(
                 "PluginRuntime__MaxConcurrentResultFinalizations",
                 pluginRuntimeMaxConcurrentResultFinalizations.ToString())
+            .WithEnvironment(
+                "PluginRuntime__ResultFinalizationQueueCapacity",
+                pluginRuntimeResultFinalizationQueueCapacity.ToString())
+            .WithEnvironment(
+                "PluginRuntime__ResultFinalizationQueueFullMode",
+                pluginRuntimeResultFinalizationQueueFullMode)
             .WithEnvironment(
                 "ProcessStepQueue__MaxConcurrentMessages",
                 processStepQueueMaxConcurrentMessages.ToString())

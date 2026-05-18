@@ -16,6 +16,7 @@ public class CosmosRepository<T> where T : class
     private static readonly Meter Meter = new("WorkflowBuilder.Cosmos", "1.0.0");
     private static readonly Histogram<double> OperationDurationMs = Meter.CreateHistogram<double>("cosmos_operation_duration_ms");
     private static readonly Histogram<double> RequestUnits = Meter.CreateHistogram<double>("cosmos_request_units");
+    private static readonly Counter<double> RequestUnitsTotal = Meter.CreateCounter<double>("cosmos_request_units_total");
 
     private readonly Func<T, string> _idSelector;
     private readonly Func<T, PartitionKey> _partitionKeySelector;
@@ -195,6 +196,8 @@ public class CosmosRepository<T> where T : class
         };
 
         OperationDurationMs.Record(Math.Max(0, elapsed.TotalMilliseconds), tags);
-        RequestUnits.Record(Math.Max(0, requestCharge), tags);
+        var normalizedRequestCharge = Math.Max(0, requestCharge);
+        RequestUnits.Record(normalizedRequestCharge, tags);
+        RequestUnitsTotal.Add(normalizedRequestCharge, tags);
     }
 }

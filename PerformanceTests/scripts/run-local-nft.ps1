@@ -10,13 +10,17 @@
 
 [CmdletBinding()]
 param(
-  [ValidateSet("Smoke", "Standard", "Staircase", "Capacity")]
+  [ValidateSet("Smoke", "Standard", "Staircase", "Capacity", "Scoreboard")]
   [string] $Profile = "Smoke",
 
   [ValidateSet("ceiling-lane", "product-lane", "both")]
   [string] $Lane = "ceiling-lane",
 
   [string] $NftBlueprintKey = "nft-ceiling-fanout-join",
+  [string[]] $ScenarioKeys = @(),
+  [ValidateSet("Off", "Warn", "Fail")]
+  [string] $GateMode = "Warn",
+  [string] $BaselinePath = "",
   [switch] $IncludeObservability,
   [switch] $NoBuild,
   [switch] $BuildProductBundles,
@@ -29,6 +33,9 @@ param(
   [int] $CapacityMax = 320,
   [int] $CapacityTimeoutSeconds = 30,
   [int] $PluginRuntimeMaxConcurrentResultFinalizations = 80,
+  [int] $PluginRuntimeResultFinalizationQueueCapacity = 1024,
+  [ValidateSet("Wait")]
+  [string] $PluginRuntimeResultFinalizationQueueFullMode = "Wait",
   [int] $ProcessStepQueueMaxConcurrentMessages = 32,
   [int] $ProcessStepQueuePrefetchCount = 128,
   [int] $ProcessStepQueueMaxAutoLockRenewalMinutes = 5
@@ -45,6 +52,7 @@ $logRoot = Join-Path $runRoot "logs"
 $apiBaseUrl = "http://localhost:5180"
 $appHostPath = Join-Path $repoRoot "Backend.AppHost\Backend.AppHost.csproj"
 $probeProjectPath = Join-Path $repoRoot "PerformanceTests\WorkflowBuilder.PerformanceProbe\WorkflowBuilder.PerformanceProbe.csproj"
+$scoreboardManifestPath = Join-Path $repoRoot "PerformanceTests\scoreboard-scenarios.json"
 $nftBlueprintKey = $NftBlueprintKey
 $productBlueprintKey = "showcase-town-weekend-recommendation"
 $scenarioFailuresPath = Join-Path $runRoot "scenario-failures.txt"
@@ -84,6 +92,104 @@ function Set-EnvironmentDefault([string] $Name, [string] $Value) {
 
 function Split-BlueprintKeys([string] $BlueprintKeys) {
   return @($BlueprintKeys -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
+function Split-ScenarioKeys([string[]] $Keys) {
+  return @($Keys |
+    ForEach-Object { $_ -split "," } |
+    ForEach-Object { $_.Trim() } |
+    Where-Object { $_ })
+}
+
+function Get-ObjectPropertyValue($Object, [string] $Name, $Fallback = $null) {
+  if ($null -eq $Object) {
+    return $Fallback
+  }
+
+  if ($Object.PSObject.Properties.Name -contains $Name) {
+    return $Object.$Name
+  }
+
+  return $Fallback
+}
+
+function Get-ScoreboardManifest {
+  return Get-Content -LiteralPath $scoreboardManifestPath -Raw | ConvertFrom-Json
+}
+
+function Get-ScoreboardProfileSettings($Manifest) {
+  $settings = Get-ObjectPropertyValue $Manifest.profiles $Profile $null
+  if ($null -eq $settings) {
+    throw "Scoreboard profile '$Profile' was not found in $scoreboardManifestPath."
+  }
+
+  return $settings
+}
+
+function Get-ScenarioProfileSettings($Scenario) {
+  $profiles = Get-ObjectPropertyValue $Scenario "profiles" $null
+  if ($null -eq $profiles) {
+    return $null
+  }
+
+  return Get-ObjectPropertyValue $profiles $Profile $null
+}
+
+function Get-ScenarioSetting($Manifest, $Scenario, [string] $Name, $Fallback = $null) {
+  $scenarioProfile = Get-ScenarioProfileSettings $Scenario
+  $scenarioValue = Get-ObjectPropertyValue $scenarioProfile $Name $null
+  if ($null -ne $scenarioValue) {
+    return $scenarioValue
+  }
+
+  $profileSettings = Get-ScoreboardProfileSettings $Manifest
+  $profileValue = Get-ObjectPropertyValue $profileSettings $Name $null
+  if ($null -ne $profileValue) {
+    return $profileValue
+  }
+
+  return $Fallback
+}
+
+function Test-ScenarioEnabled($Scenario) {
+  if ($false -eq (Get-ObjectPropertyValue $Scenario "enabled" $true)) {
+    return $false
+  }
+
+  $scenarioProfile = Get-ScenarioProfileSettings $Scenario
+  return $false -ne (Get-ObjectPropertyValue $scenarioProfile "enabled" $true)
+}
+
+function Resolve-ScoreboardScenarios($Manifest) {
+  $requestedKeys = Split-ScenarioKeys $ScenarioKeys
+  $profileSettings = Get-ScoreboardProfileSettings $Manifest
+  $selectedKeys = if ($requestedKeys.Count -gt 0) {
+    $requestedKeys
+  }
+  else {
+    @($profileSettings.scenarioKeys)
+  }
+
+  $byKey = @{}
+  foreach ($scenario in $Manifest.scenarios) {
+    $byKey[[string]$scenario.key] = $scenario
+  }
+
+  $selected = [System.Collections.Generic.List[object]]::new()
+  foreach ($key in $selectedKeys) {
+    if (-not $byKey.ContainsKey($key)) {
+      throw "Scoreboard scenario '$key' was not found in $scoreboardManifestPath."
+    }
+
+    $scenario = $byKey[$key]
+    if (-not (Test-ScenarioEnabled $scenario)) {
+      Write-Step "Scoreboard scenario '$key' is disabled; it will be recorded as skipped."
+    }
+
+    $selected.Add($scenario)
+  }
+
+  return @($selected)
 }
 
 function Ensure-DotnetCounters {
@@ -199,6 +305,18 @@ function Wait-ForTaskDefinitions([string[]] $TaskNames) {
 function Copy-BlueprintSeeds {
   if ($Lane -eq "ceiling-lane" -or $Lane -eq "both") {
     Copy-Item -Path (Join-Path $repoRoot "PerformanceTests\Blueprints\*.json") -Destination $blueprintRoot -Force
+    if ($scoreboardMode) {
+      Invoke-CheckedCommand -FilePath "pwsh" -Arguments @(
+        "-NoLogo",
+        "-NoProfile",
+        "-File",
+        (Join-Path $repoRoot "PerformanceTests\scripts\New-ThroughputScoreboardBlueprints.ps1"),
+        "-ManifestPath",
+        $scoreboardManifestPath,
+        "-OutputDir",
+        $blueprintRoot
+      )
+    }
   }
 
   if ($Lane -eq "product-lane" -or $Lane -eq "both") {
@@ -266,6 +384,8 @@ function Start-AppHost {
     "Observability__Enabled" = if ($IncludeObservability) { "true" } else { "false" }
     "Nft__Enabled" = "true"
     "Nft__PluginRuntime__MaxConcurrentResultFinalizations" = $PluginRuntimeMaxConcurrentResultFinalizations.ToString()
+    "Nft__PluginRuntime__ResultFinalizationQueueCapacity" = $PluginRuntimeResultFinalizationQueueCapacity.ToString()
+    "Nft__PluginRuntime__ResultFinalizationQueueFullMode" = $PluginRuntimeResultFinalizationQueueFullMode
     "Nft__ProcessStepQueue__MaxConcurrentMessages" = $ProcessStepQueueMaxConcurrentMessages.ToString()
     "Nft__ProcessStepQueue__PrefetchCount" = $ProcessStepQueuePrefetchCount.ToString()
     "Nft__ProcessStepQueue__MaxAutoLockRenewalMinutes" = $ProcessStepQueueMaxAutoLockRenewalMinutes.ToString()
@@ -383,17 +503,23 @@ function Invoke-K6Script {
     [string] $ScriptName,
     [string] $SummaryName,
     [string] $BlueprintKey,
-    [string] $PayloadPath = ""
+    [string] $PayloadPath = "",
+    [hashtable] $EnvironmentOverrides = @{}
   )
 
   $scriptPath = Join-Path $repoRoot "PerformanceTests\k6\$ScriptName"
   $summaryPath = Join-Path $runRoot $SummaryName
-  $logPath = Join-Path $logRoot "$ScriptName.log"
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $summaryPath) | Out-Null
+  $logPath = Join-Path (Split-Path -Parent $summaryPath) "$([System.IO.Path]::GetFileNameWithoutExtension($ScriptName)).log"
   $envValues = @{
     "API_BASE_URL" = $apiBaseUrl
     "BLUEPRINT_KEY" = $BlueprintKey
     "NFT_PROFILE" = $Profile.ToLowerInvariant()
     "K6_SUMMARY_PATH" = $summaryPath
+  }
+
+  foreach ($entry in $EnvironmentOverrides.GetEnumerator()) {
+    $envValues[$entry.Key] = [string] $entry.Value
   }
 
   if ($PayloadPath) {
@@ -433,6 +559,10 @@ function Invoke-K6Script {
     "K6_SUMMARY_PATH" = (Convert-ToContainerPath $summaryPath)
   }
 
+  foreach ($entry in $EnvironmentOverrides.GetEnumerator()) {
+    $containerEnv[$entry.Key] = [string] $entry.Value
+  }
+
   if ($PayloadPath) {
     $containerEnv["PROCESS_PAYLOAD_JSON"] = (Convert-ToContainerPath $PayloadPath)
   }
@@ -457,9 +587,11 @@ function Invoke-PerformanceProbe {
     [int] $Count,
     [int] $Concurrency = 1,
     [int] $TimeoutSeconds = 60,
-    [string] $PayloadPath = ""
+    [string] $PayloadPath = "",
+    [string[]] $ExtraArguments = @()
   )
 
+  $outputPath = Join-Path $runRoot $OutputName
   $arguments = @(
     "run",
     "--project",
@@ -472,7 +604,7 @@ function Invoke-PerformanceProbe {
     "--api-base-url",
     $apiBaseUrl,
     "--output",
-    (Join-Path $runRoot $OutputName),
+    $outputPath,
     "--count",
     $Count.ToString(),
     "--concurrency",
@@ -490,6 +622,10 @@ function Invoke-PerformanceProbe {
 
   if ($PayloadPath) {
     $arguments += @("--payload", $PayloadPath)
+  }
+
+  if ($ExtraArguments.Count -gt 0) {
+    $arguments += $ExtraArguments
   }
 
   Invoke-CheckedCommand -FilePath "dotnet" -Arguments $arguments
@@ -511,12 +647,19 @@ function Write-RunConfig {
     logicalProcessors = (Get-CimInstance Win32_Processor | Measure-Object NumberOfLogicalProcessors -Sum).Sum
     memoryBytes = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
     completionOnly = [bool] $CompletionOnly
+    scoreboardMode = [bool] $scoreboardMode
+    scenarioKeys = @(Split-ScenarioKeys $ScenarioKeys)
+    gateMode = $GateMode
+    baselinePath = $BaselinePath
+    scoreboardManifestPath = $scoreboardManifestPath
     ceilingCompletionCount = $CeilingCompletionCount
     ceilingCompletionConcurrency = $CeilingCompletionConcurrency
     capacityStart = $CapacityStart
     capacityMax = $CapacityMax
     capacityTimeoutSeconds = $CapacityTimeoutSeconds
     pluginRuntimeMaxConcurrentResultFinalizations = $PluginRuntimeMaxConcurrentResultFinalizations
+    pluginRuntimeResultFinalizationQueueCapacity = $PluginRuntimeResultFinalizationQueueCapacity
+    pluginRuntimeResultFinalizationQueueFullMode = $PluginRuntimeResultFinalizationQueueFullMode
     processStepQueueMaxConcurrentMessages = $ProcessStepQueueMaxConcurrentMessages
     processStepQueuePrefetchCount = $ProcessStepQueuePrefetchCount
     processStepQueueMaxAutoLockRenewalMinutes = $ProcessStepQueueMaxAutoLockRenewalMinutes
@@ -808,6 +951,147 @@ function Invoke-CapacityDiscovery {
   }
 }
 
+function Get-ScenarioArtifactName([string] $ScenarioKey, [string] $FileName) {
+  return "scenarios\$ScenarioKey\$FileName"
+}
+
+function Invoke-ScoreboardScenario($Manifest, $Scenario) {
+  $key = [string] $Scenario.key
+  $displayName = [string] $Scenario.displayName
+  $blueprintKey = [string] $Scenario.blueprint.key
+  $mode = [string] $Scenario.mode
+  $scenarioDir = Join-Path $runRoot "scenarios\$key"
+  New-Item -ItemType Directory -Force -Path $scenarioDir | Out-Null
+
+  $window = [ordered]@{
+    key = $key
+    displayName = $displayName
+    mode = $mode
+    blueprintKey = $blueprintKey
+    artifactDir = $scenarioDir
+    startUtc = $null
+    endUtc = $null
+    status = "pending"
+    reason = $null
+  }
+
+  if (-not (Test-ScenarioEnabled $Scenario)) {
+    $window.status = "skipped"
+    $window.reason = [string] (Get-ObjectPropertyValue $Scenario "skipReason" "Scenario disabled for this profile")
+    return [pscustomobject] $window
+  }
+
+  $window.startUtc = (Get-Date).ToUniversalTime().ToString("O")
+  try {
+    Write-Step "Scoreboard scenario '$key' ($displayName) using blueprint '$blueprintKey'."
+    if ($mode -eq "completion") {
+      $count = [int] (Get-ScenarioSetting $Manifest $Scenario "completionCount" 3)
+      $concurrency = [int] (Get-ScenarioSetting $Manifest $Scenario "completionConcurrency" 1)
+      $timeoutSeconds = [int] (Get-ScenarioSetting $Manifest $Scenario "timeoutSeconds" 60)
+      $realtimeCount = [int] (Get-ScenarioSetting $Manifest $Scenario "realtimeCount" 0)
+      $collectionItemCount = [int] (Get-ScenarioSetting $Manifest $Scenario "collectionItemCount" (Get-ObjectPropertyValue $Scenario.blueprint "itemCount" 0))
+      $extraArguments = @()
+      if ($collectionItemCount -gt 0) {
+        $extraArguments += @("--collection-item-count", $collectionItemCount.ToString())
+      }
+
+      Invoke-PerformanceProbe `
+        -Command "completion" `
+        -OutputName (Get-ScenarioArtifactName $key "process-latencies.csv") `
+        -BlueprintKey $blueprintKey `
+        -Count $count `
+        -Concurrency $concurrency `
+        -TimeoutSeconds $timeoutSeconds `
+        -ExtraArguments $extraArguments
+
+      if (-not $CompletionOnly -and $realtimeCount -gt 0) {
+        Invoke-PerformanceProbe `
+          -Command "realtime" `
+          -OutputName (Get-ScenarioArtifactName $key "realtime-latencies.csv") `
+          -BlueprintKey $blueprintKey `
+          -Count $realtimeCount `
+          -Concurrency 1 `
+          -TimeoutSeconds ([Math]::Min($timeoutSeconds, 120)) `
+          -ExtraArguments $extraArguments
+      }
+    }
+    elseif ($mode -eq "bulk-start") {
+      $admissionVus = [int] (Get-ScenarioSetting $Manifest $Scenario "admissionVus" 2)
+      $admissionDuration = [string] (Get-ScenarioSetting $Manifest $Scenario "admissionDuration" "20s")
+      Invoke-K6Script `
+        -ScriptName "admission.js" `
+        -SummaryName (Get-ScenarioArtifactName $key "k6-summary-admission.json") `
+        -BlueprintKey $blueprintKey `
+        -EnvironmentOverrides @{
+          K6_VUS = $admissionVus.ToString()
+          K6_DURATION = $admissionDuration
+          K6_THINK_TIME_SECONDS = "0"
+        }
+    }
+    else {
+      throw "Unknown scoreboard scenario mode '$mode'."
+    }
+
+    $window.status = "completed"
+  }
+  catch {
+    $window.status = "failed"
+    $window.reason = $_.Exception.Message
+    Add-ScenarioFailure "Scoreboard scenario '$key' failed: $($_.Exception.Message)"
+  }
+  finally {
+    $window.endUtc = (Get-Date).ToUniversalTime().ToString("O")
+  }
+
+  return [pscustomobject] $window
+}
+
+function Invoke-ScoreboardMatrix {
+  $manifest = Get-ScoreboardManifest
+  $scenarios = Resolve-ScoreboardScenarios $manifest
+  $windows = [System.Collections.Generic.List[object]]::new()
+
+  foreach ($scenario in $scenarios) {
+    $windows.Add((Invoke-ScoreboardScenario $manifest $scenario))
+  }
+
+  $windows.ToArray() |
+    ConvertTo-Json -Depth 10 -AsArray |
+    Set-Content -LiteralPath (Join-Path $runRoot "scenario-windows.json") -Encoding UTF8
+
+  $summaryArgs = @(
+    "-NoLogo",
+    "-NoProfile",
+    "-File",
+    (Join-Path $repoRoot "PerformanceTests\scripts\Write-ThroughputScoreboard.ps1"),
+    "-RunRoot",
+    $runRoot,
+    "-ManifestPath",
+    $scoreboardManifestPath,
+    "-Profile",
+    $Profile,
+    "-GateMode",
+    $GateMode
+  )
+  if (-not [string]::IsNullOrWhiteSpace($BaselinePath)) {
+    $summaryArgs += @("-BaselinePath", $BaselinePath)
+  }
+
+  $prometheusBaseUrl = [Environment]::GetEnvironmentVariable("PROMETHEUS_BASE_URL")
+  if ($IncludeObservability -and -not [string]::IsNullOrWhiteSpace($prometheusBaseUrl)) {
+    $summaryArgs += @("-PrometheusBaseUrl", $prometheusBaseUrl)
+  }
+
+  & pwsh @summaryArgs
+  if ($LASTEXITCODE -ne 0) {
+    if ($GateMode -eq "Fail") {
+      throw "Scoreboard gates failed. See throughput-scoreboard.md in $runRoot."
+    }
+
+    Add-ScenarioFailure "Scoreboard summarization exited with code $LASTEXITCODE."
+  }
+}
+
 function Write-Summary {
   $summaryPath = Join-Path $runRoot "summary.md"
   $bundleCount = @(Get-ChildItem -LiteralPath $bundleRoot -Filter *.zip -File).Count
@@ -885,6 +1169,7 @@ function Write-Summary {
     "- NFT blueprint key: $($runConfig.nftBlueprintKey)",
     "- Observability included: $([bool]$IncludeObservability)",
     "- Plugin runtime max concurrent result finalizations: $($runConfig.pluginRuntimeMaxConcurrentResultFinalizations)",
+    "- Plugin result finalization queue capacity: $($runConfig.pluginRuntimeResultFinalizationQueueCapacity)",
     "- Process-step queue max concurrent messages: $($runConfig.processStepQueueMaxConcurrentMessages)",
     "- Process-step queue prefetch count: $($runConfig.processStepQueuePrefetchCount)",
     "- Process-step queue max auto-lock renewal: $($runConfig.processStepQueueMaxAutoLockRenewalMinutes) minute(s)",
@@ -951,6 +1236,9 @@ $dockerStatsProcess = $null
 $counterProcesses = @()
 $appHostStdout = Join-Path $logRoot "apphost-stdout.log"
 $appHostStderr = Join-Path $logRoot "apphost-stderr.log"
+$scoreboardMode = $Profile -eq "Scoreboard" -or (Split-ScenarioKeys $ScenarioKeys).Count -gt 0
+$scoreboardManifest = if ($scoreboardMode) { Get-ScoreboardManifest } else { $null }
+$scoreboardScenarios = if ($scoreboardMode) { Resolve-ScoreboardScenarios $scoreboardManifest } else { @() }
 
 try {
   Write-RunConfig
@@ -994,10 +1282,22 @@ try {
     "NftLinearLaneTwoPlugin",
     "NftLinearLaneThreePlugin",
     "NftLinearLaneFourPlugin",
-    "NftLinearLaneFivePlugin"
+    "NftLinearLaneFivePlugin",
+    "NftCollectionSeedPlugin",
+    "NftItemSinkPlugin"
   )
   if ($Lane -eq "ceiling-lane" -or $Lane -eq "both") {
-    foreach ($blueprintKey in (Split-BlueprintKeys $nftBlueprintKey)) {
+    $blueprintKeysToWait = if ($scoreboardMode) {
+      @($scoreboardScenarios |
+        Where-Object { Test-ScenarioEnabled $_ } |
+        ForEach-Object { [string] $_.blueprint.key } |
+        Sort-Object -Unique)
+    }
+    else {
+      Split-BlueprintKeys $nftBlueprintKey
+    }
+
+    foreach ($blueprintKey in $blueprintKeysToWait) {
       Wait-ForBlueprint $blueprintKey
     }
   }
@@ -1010,7 +1310,10 @@ try {
     $counterProcesses += Start-CounterCapture -ProjectName "Backend.Engine" -OutputName "dotnet-counters-engine.csv"
   }
 
-  if ($Lane -eq "ceiling-lane" -or $Lane -eq "both") {
+  if ($scoreboardMode -and ($Lane -eq "ceiling-lane" -or $Lane -eq "both")) {
+    Invoke-ScoreboardMatrix
+  }
+  elseif ($Lane -eq "ceiling-lane" -or $Lane -eq "both") {
     $defaultCompletionCount = if ($Profile -eq "Smoke") { 3 } else { 50 }
     $defaultCompletionConcurrency = if ($Profile -eq "Smoke") { 1 } else { 10 }
     $completionCount = if ($CeilingCompletionCount -gt 0) { $CeilingCompletionCount } else { $defaultCompletionCount }

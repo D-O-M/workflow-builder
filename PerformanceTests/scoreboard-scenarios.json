@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 1,
+  "defaultRegressionBudgets": {
+    "latencyIncreasePercent": 25,
+    "throughputDropPercent": 15
+  },
+  "profiles": {
+    "Smoke": {
+      "scenarioKeys": [
+        "one-node",
+        "fanout-10",
+        "join-heavy",
+        "collection-iterator",
+        "bulk-start"
+      ],
+      "completionCount": 3,
+      "completionConcurrency": 1,
+      "timeoutSeconds": 60,
+      "realtimeCount": 0,
+      "admissionVus": 2,
+      "admissionDuration": "10s"
+    },
+    "Standard": {
+      "scenarioKeys": [
+        "one-node",
+        "linear-3",
+        "linear-10",
+        "fanout-10",
+        "fanout-100",
+        "fanout-1000",
+        "join-heavy",
+        "collection-iterator",
+        "plugin-light",
+        "bulk-start"
+      ],
+      "completionCount": 25,
+      "completionConcurrency": 5,
+      "timeoutSeconds": 120,
+      "realtimeCount": 3,
+      "admissionVus": 4,
+      "admissionDuration": "20s"
+    },
+    "Staircase": {
+      "scenarioKeys": [
+        "one-node",
+        "linear-10",
+        "fanout-100",
+        "join-heavy",
+        "bulk-start"
+      ],
+      "completionCount": 20,
+      "completionConcurrency": 4,
+      "timeoutSeconds": 120,
+      "realtimeCount": 0,
+      "admissionVus": 6,
+      "admissionDuration": "30s"
+    },
+    "Capacity": {
+      "scenarioKeys": [
+        "fanout-100",
+        "join-heavy",
+        "bulk-start"
+      ],
+      "completionCount": 40,
+      "completionConcurrency": 10,
+      "timeoutSeconds": 180,
+      "realtimeCount": 0,
+      "admissionVus": 10,
+      "admissionDuration": "45s"
+    },
+    "Scoreboard": {
+      "scenarioKeys": [
+        "one-node",
+        "linear-3",
+        "linear-10",
+        "fanout-10",
+        "fanout-100",
+        "fanout-1000",
+        "join-heavy",
+        "collection-iterator",
+        "plugin-light",
+        "bulk-start"
+      ],
+      "completionCount": 50,
+      "completionConcurrency": 10,
+      "timeoutSeconds": 180,
+      "realtimeCount": 5,
+      "admissionVus": 8,
+      "admissionDuration": "30s"
+    }
+  },
+  "scenarios": [
+    {
+      "key": "one-node",
+      "displayName": "1-node blueprint",
+      "mode": "completion",
+      "blueprint": {
+        "key": "nft-linear-single-step",
+        "source": "seeded"
+      },
+      "thresholds": {
+        "successRateMin": 0.99,
+        "processDurationP95MsMax": 30000
+      }
+    },
+    {
+      "key": "linear-3",
+      "displayName": "3-node linear blueprint",
+      "mode": "completion",
+      "blueprint": {
+        "key": "nft-score-linear-3",
+        "source": "generated",
+        "generator": "linear",
+        "nodeCount": 3
+      },
+      "thresholds": {
+        "successRateMin": 0.99,
+        "processDurationP95MsMax": 45000
+      }
+    },
+    {
+      "key": "linear-10",
+      "displayName": "10-node linear blueprint",
+      "mode": "completion",
+      "blueprint": {
+        "key": "nft-score-linear-10",
+        "source": "generated",
+        "generator": "linear",
+        "nodeCount": 10
+      },
+      "thresholds": {
+        "successRateMin": 0.99,
+        "processDurationP95MsMax": 90000
+      }
+    },
+    {
+      "key": "fanout-10",
+      "displayName": "fan-out 10",
+      "mode": "completion",
+      "blueprint": {
+        "key": "nft-score-fanout-10",
+        "source": "generated",
+        "generator": "fanout",
+        "fanOut": 10
+      },
+      "thresholds": {
+        "successRateMin": 0.99,
+        "processDurationP95MsMax": 90000
+      }
+    },
+    {
+      "key": "fanout-100",
+      "displayName": "fan-out 100",
+      "mode": "completion",
+      "blueprint": {
+        "key": "nft-score-fanout-100",
+        "source": "generated",
+        "generator": "fanout",
+        "fanOut": 100
+      },
+      "profiles": {
+        "Smoke": {
+          "enabled": false
+        },
+        "Standard": {
+          "completionCount": 5,
+          "completionConcurrency": 1,
+          "timeoutSeconds": 180,
+          "realtimeCount": 0
+        },
+        "Scoreboard": {
+          "completionCount": 10,
+          "completionConcurrency": 2,
+          "timeoutSeconds": 240,
+          "realtimeCount": 0
+        }
+      },
+      "thresholds": {
+        "successRateMin": 0.95,
+        "processDurationP95MsMax": 180000
+      }
+    },
+    {
+      "key": "fanout-1000",
+      "displayName": "fan-out 1,000",
+      "mode": "completion",
+      "blueprint": {
+        "key": "nft-score-fanout-1000",
+        "source": "generated",
+        "generator": "fanout",
+        "fanOut": 1000
+      },
+      "profiles": {
+        "Smoke": {
+          "enabled": false
+        },
+        "Standard": {
+          "completionCount": 1,
+          "completionConcurrency": 1,
+          "timeoutSeconds": 300,
+          "realtimeCount": 0
+        },
+        "Scoreboard": {
+          "completionCount": 2,
+          "completionConcurrency": 1,
+          "timeoutSeconds": 420,
+          "realtimeCount": 0
+        }
+      },
+      "thresholds": {
+        "successRateMin": 0.9,
+        "processDurationP95MsMax": 420000
+      }
+    },
+    {
+      "key": "join-heavy",
+      "displayName": "join-heavy graph",
+      "mode": "completion",
+      "blueprint": {
+        "key": "nft-ceiling-fanout-join",
+        "source": "seeded"
+      },
+      "thresholds": {
+        "successRateMin": 0.99,
+        "processDurationP95MsMax": 90000
+      }
+    },
+    {
+      "key": "collection-iterator",
+      "displayName": "Collection Iterator graph",
+      "mode": "completion",
+      "blueprint": {
+        "key": "nft-score-collection-iterator",
+        "source": "generated",
+        "generator": "collectionIterator",
+        "itemCount": 10
+      },
+      "profiles": {
+        "Smoke": {
+          "collectionItemCount": 5
+        },
+        "Standard": {
+          "collectionItemCount": 25,
+          "completionCount": 10,
+          "completionConcurrency": 2
+        },
+        "Scoreboard": {
+          "collectionItemCount": 50,
+          "completionCount": 20,
+          "completionConcurrency": 4
+        }
+      },
+      "thresholds": {
+        "successRateMin": 0.99,
+        "processDurationP95MsMax": 120000
+      }
+    },
+    {
+      "key": "plugin-light",
+      "displayName": "plugin-light graph",
+      "mode": "completion",
+      "blueprint": {
+        "key": "nft-linear-alpha-single-step",
+        "source": "seeded"
+      },
+      "thresholds": {
+        "successRateMin": 0.99,
+        "processDurationP95MsMax": 30000
+      }
+    },
+    {
+      "key": "native-light",
+      "displayName": "native-light graph",
+      "mode": "completion",
+      "enabled": false,
+      "skipReason": "Native execution scenario pending a native operator beyond Collection Iterator",
+      "blueprint": {
+        "key": "nft-score-native-light",
+        "source": "placeholder"
+      }
+    },
+    {
+      "key": "bulk-start",
+      "displayName": "bulk process-start scenario",
+      "mode": "bulk-start",
+      "blueprint": {
+        "key": "nft-linear-single-step",
+        "source": "seeded"
+      },
+      "thresholds": {
+        "acceptedPerSecondMin": 1,
+        "httpFailureRateMax": 0.01
+      }
+    }
+  ]
+}

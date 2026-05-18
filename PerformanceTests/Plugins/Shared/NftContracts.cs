@@ -138,3 +138,33 @@ public sealed class NftLaneResult
 
     public string LaneDigest { get; set; } = string.Empty;
 }
+
+public sealed class NftCollectionSeedRequest
+{
+    public string CorrelationKey { get; set; } = string.Empty;
+
+    public int ItemCount { get; set; }
+
+    public int? DelayMs { get; set; }
+}
+
+public sealed class NftCollectionSeedResult
+{
+    public string CorrelationKey { get; set; } = string.Empty;
+
+    public string[] Items { get; set; } = [];
+}
+
+public sealed class NftItemSinkRequest
+{
+    public string Item { get; set; } = string.Empty;
+
+    public int? DelayMs { get; set; }
+}
+
+public sealed class NftItemSinkResult
+{
+    public string Item { get; set; } = string.Empty;
+
+    public bool Accepted { get; set; }
+}

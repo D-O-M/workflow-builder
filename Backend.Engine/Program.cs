@@ -23,6 +23,7 @@ builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing.AddSource(ProcessLifecycleTelemetry.ActivitySourceName))
     .WithMetrics(metrics => metrics
         .AddMeter("WorkflowBuilder.Engine.Processes")
+        .AddMeter("WorkflowBuilder.Cosmos")
         .AddMeter(ProcessStepDispatchTelemetry.MeterName)
         .AddMeter(PluginResultFinalizationTelemetry.MeterName));
 

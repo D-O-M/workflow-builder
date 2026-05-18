@@ -157,6 +157,16 @@ AppHost smoke run:
 
 Performance probe assets and scripts live under `PerformanceTests/`. Use them for targeted non-functional probes rather than replacing the normal unit/build/E2E confidence lanes.
 
+Throughput scoreboard:
+
+```powershell
+PerformanceTests/scripts/run-local-nft.ps1 -Profile Scoreboard -GateMode Warn
+PerformanceTests/scripts/run-local-nft.ps1 -Profile Scoreboard -ScenarioKeys one-node,fanout-10,collection-iterator,bulk-start
+PerformanceTests/scripts/run-local-nft.ps1 -Profile Scoreboard -BaselinePath .artifacts/nft/<baseline>/throughput-scoreboard.json -GateMode Fail
+```
+
+The scoreboard writes `throughput-scoreboard.json`, `throughput-scoreboard.md`, `scenario-windows.json`, and per-scenario artifacts under `.artifacts/nft/<timestamp>/scenarios/<scenarioKey>/`. It uses deterministic runtime-generated blueprints for large linear/fan-out graphs and reports explicit `n/a` values when optional realtime, Prometheus, or counter data is unavailable.
+
 ## Practical Rules
 
 - AppHost is the source of truth for distributed wiring.

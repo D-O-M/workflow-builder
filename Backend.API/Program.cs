@@ -24,6 +24,7 @@ public class Program
         builder.Services.AddOpenTelemetry()
             .WithMetrics(metrics => metrics
                 .AddMeter(ProcessStepDispatchTelemetry.MeterName)
+                .AddMeter("WorkflowBuilder.Cosmos")
                 .AddMeter("WorkflowBuilder.API.ProcessStart"));
 
         // Add services to the container.
