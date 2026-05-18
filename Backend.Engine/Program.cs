@@ -11,6 +11,7 @@ using Backend.Repositories;
 using Backend.Services.PluginReloadQueue;
 using Backend.Services.PluginBundles;
 using Backend.Services.ProcessStepQueue;
+using Backend.Topology;
 using Backend.Utilities;
 using Backend.Interfaces.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,8 @@ using System.Text.Json;
 AspireEndpointEnvironment.PreferAspireHttpPortsOverInheritedUrls();
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
+WorkflowBuilderTopologyValidator.ValidateEngine(builder.Configuration);
+
 builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing.AddSource(ProcessLifecycleTelemetry.ActivitySourceName))
     .WithMetrics(metrics => metrics
@@ -63,7 +66,8 @@ builder.Services.AddSingleton(_ => new CosmosClient(
         UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
     }));
 builder.Services.AddRelationalDataRepositories();
-builder.Services.AddProcessState();
+builder.Services.AddProcessState(
+    databaseName: builder.Configuration[WorkflowBuilderTopology.Cosmos.DatabaseNameKey]!);
 
 builder.Services.AddSingleton(_ =>
 {

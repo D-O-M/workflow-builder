@@ -1,6 +1,7 @@
 using Backend.Interfaces.Repositories;
 using Backend.Database.State.Objects;
 using Backend.Repositories.Processes;
+using Backend.Topology;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
@@ -23,15 +24,24 @@ public static class ServiceExtensions
 
     public static IServiceCollection AddProcessState(
         this IServiceCollection services,
-        string databaseName = "enginedb",
-        string processesContainerName = "processes",
-        string tasksContainerName = "processsteps",
-        string stepFinalizationsContainerName = "processstepfinalizations",
-        string activationsContainerName = "nodeactivations",
-        string joinStatesContainerName = "nodejoinstates",
-        string phasedProcessesContainerName = "phasedprocesses",
-        string phaseCorrelationsContainerName = "phasecorrelations")
+        string? databaseName = null,
+        string? processesContainerName = null,
+        string? tasksContainerName = null,
+        string? stepFinalizationsContainerName = null,
+        string? activationsContainerName = null,
+        string? joinStatesContainerName = null,
+        string? phasedProcessesContainerName = null,
+        string? phaseCorrelationsContainerName = null)
     {
+        databaseName ??= WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
+        processesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.Processes.Name;
+        tasksContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name;
+        stepFinalizationsContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessStepFinalizations.Name;
+        activationsContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.NodeActivations.Name;
+        joinStatesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.NodeJoinStates.Name;
+        phasedProcessesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.PhasedProcesses.Name;
+        phaseCorrelationsContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.PhaseCorrelations.Name;
+
         services.AddSingleton(new ProcessStateInitializationOptions
         {
             DatabaseName = databaseName,

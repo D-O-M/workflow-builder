@@ -1,0 +1,122 @@
+{
+  "cosmos": {
+    "resourceNameKey": "AzureCosmos:ResourceName",
+    "connectionNameKey": "AzureCosmos:ConnectionName",
+    "connectionStringKey": "AzureCosmos:ConnectionString",
+    "databaseNameKey": "AzureCosmos:DatabaseName",
+    "defaultResourceName": "workflow-cosmos",
+    "defaultDatabaseName": "enginedb",
+    "containers": [
+      {
+        "name": "processes",
+        "partitionKey": "/blueprintId"
+      },
+      {
+        "name": "processsteps",
+        "partitionKey": "/processId"
+      },
+      {
+        "name": "processstepfinalizations",
+        "partitionKey": "/id"
+      },
+      {
+        "name": "nodeactivations",
+        "partitionKey": "/processId"
+      },
+      {
+        "name": "nodejoinstates",
+        "partitionKey": "/processId"
+      },
+      {
+        "name": "phasedprocesses",
+        "partitionKey": "/phasedBlueprintDefinitionId"
+      },
+      {
+        "name": "phasecorrelations",
+        "partitionKey": "/targetPhaseKey"
+      },
+      {
+        "name": "processstepprogressleases",
+        "partitionKey": "/id"
+      }
+    ]
+  },
+  "storage": {
+    "resourceNameKey": "AzureStorage:ResourceName",
+    "defaultResourceName": "workflow-storage",
+    "blobConnectionName": "BlobConnection",
+    "azureWebJobsStorageKey": "AzureWebJobsStorage",
+    "plugins": {
+      "resourceName": "plugins",
+      "containerName": "plugins",
+      "resourceNameKey": "AzureStorage:BlobContainers:Plugins:ResourceName",
+      "resourceNameEnvironmentVariable": "AzureStorage__BlobContainers__Plugins__ResourceName",
+      "containerNameKey": "AzureStorage:BlobContainers:Plugins:ContainerName",
+      "containerNameEnvironmentVariable": "AzureStorage__BlobContainers__Plugins__ContainerName",
+      "legacyAliasKey": "PluginsBlobContainerName"
+    },
+    "artifacts": {
+      "resourceName": "artifacts",
+      "containerName": "artifacts",
+      "resourceNameKey": "AzureStorage:BlobContainers:Artifacts:ResourceName",
+      "resourceNameEnvironmentVariable": "AzureStorage__BlobContainers__Artifacts__ResourceName",
+      "containerNameKey": "AzureStorage:BlobContainers:Artifacts:ContainerName",
+      "containerNameEnvironmentVariable": "AzureStorage__BlobContainers__Artifacts__ContainerName",
+      "legacyAliasKey": null
+    }
+  },
+  "serviceBus": {
+    "resourceNameKey": "AzureServiceBus:ResourceName",
+    "defaultResourceName": "workflow-servicebus",
+    "sharedConnectionName": "ServiceBus",
+    "processStepQueue": {
+      "logicalName": "ProcessStepQueue",
+      "resourceName": "process-step-queue",
+      "connectionName": "process-step-queue",
+      "queueName": "processsteps",
+      "resourceNameKey": "AzureServiceBus:Queues:ProcessStepQueue:ResourceName",
+      "resourceNameEnvironmentVariable": "AzureServiceBus__Queues__ProcessStepQueue__ResourceName",
+      "connectionNameKey": "AzureServiceBus:Queues:ProcessStepQueue:ConnectionName",
+      "connectionNameEnvironmentVariable": "AzureServiceBus__Queues__ProcessStepQueue__ConnectionName",
+      "queueNameKey": "AzureServiceBus:Queues:ProcessStepQueue:Name",
+      "queueNameEnvironmentVariable": "AzureServiceBus__Queues__ProcessStepQueue__Name",
+      "legacyQueueNameKey": "AzureServiceBus:Queues:ProcessStepQueue"
+    },
+    "pluginControlQueue": {
+      "logicalName": "PluginControlQueue",
+      "resourceName": "plugin-control-queue",
+      "connectionName": "plugin-control-queue",
+      "queueName": "pluginreloadqueue",
+      "resourceNameKey": "AzureServiceBus:Queues:PluginControlQueue:ResourceName",
+      "resourceNameEnvironmentVariable": "AzureServiceBus__Queues__PluginControlQueue__ResourceName",
+      "connectionNameKey": "AzureServiceBus:Queues:PluginControlQueue:ConnectionName",
+      "connectionNameEnvironmentVariable": "AzureServiceBus__Queues__PluginControlQueue__ConnectionName",
+      "queueNameKey": "AzureServiceBus:Queues:PluginControlQueue:Name",
+      "queueNameEnvironmentVariable": "AzureServiceBus__Queues__PluginControlQueue__Name",
+      "legacyQueueNameKey": "AzureServiceBus:Queues:PluginControlQueue"
+    }
+  },
+  "realtime": {
+    "signalRBaseUrlKey": "Realtime:SignalRBaseUrl",
+    "useHostedChangeFeedKey": "Realtime:UseHostedChangeFeed",
+    "realtimeCosmosConnectionName": "RealtimeCosmos",
+    "cosmosDatabaseNameKey": "Realtime:Cosmos:DatabaseName",
+    "processesContainerNameKey": "Realtime:Cosmos:ProcessesContainerName",
+    "processStepsContainerNameKey": "Realtime:Cosmos:TasksContainerName",
+    "leaseContainerNameKey": "Realtime:Cosmos:LeaseContainerName",
+    "hubRoute": "/hubs/processes",
+    "internalSubscriptionSnapshotRoute": "internal/subscriptions/snapshot",
+    "internalProcessEventsRoute": "internal/process-events",
+    "processSummaryUpdatedEvent": "processSummaryUpdated",
+    "processStepsUpdatedEvent": "processStepsUpdated",
+    "blueprintGroupPrefix": "blueprint:",
+    "processGroupPrefix": "process:"
+  },
+  "clientConfig": {
+    "sectionName": "ClientConfig",
+    "route": "api/client-config",
+    "apiBaseUrlKey": "ClientConfig:ApiBaseUrl",
+    "signalRBaseUrlKey": "ClientConfig:SignalRBaseUrl",
+    "grafanaBaseUrlKey": "ClientConfig:GrafanaBaseUrl"
+  }
+}

@@ -1,20 +1,12 @@
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Azure;
+using Backend.Topology;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using System.Net;
 
 internal class Program
 {
-    private const string ProcessesContainerName = "processes";
-    private const string TasksContainerName = "processsteps";
-    private const string StepFinalizationsContainerName = "processstepfinalizations";
-    private const string NodeActivationsContainerName = "nodeactivations";
-    private const string NodeJoinStatesContainerName = "nodejoinstates";
-    private const string PhasedProcessesContainerName = "phasedprocesses";
-    private const string PhaseCorrelationsContainerName = "phasecorrelations";
-    private const string TaskProgressLeaseContainerName = "processstepprogressleases";
-
     private static void Main(string[] args)
     {
         var builder = DistributedApplication.CreateBuilder(args);
@@ -43,9 +35,10 @@ internal class Program
         var pluginSeedingBundlesRoot = GetPluginSeedingBundlesRoot(builder.Configuration, repositoryRoot);
         var blueprintSeedingRoot = GetBlueprintSeedingRoot(builder.Configuration, repositoryRoot);
 
-        var cosmosDatabaseName = GetRequiredConfigurationValue(
+        var cosmosDatabaseName = GetConfigurationValueOrDefault(
             builder.Configuration,
-            "AzureCosmos:DatabaseName");
+            WorkflowBuilderTopology.Cosmos.DatabaseNameKey,
+            WorkflowBuilderTopology.Cosmos.DefaultDatabaseName);
         var (cosmos, cosmosDb) = AddCosmos(
             builder,
             cosmosDatabaseName,
@@ -54,23 +47,23 @@ internal class Program
         var password = builder.AddParameter("SqlServerPassword", secret: true);
 
         var sql = AddSqlServer(builder, password);
-        var sqlDb = sql.AddDatabase("TasksDB");
+        var sqlDb = sql.AddDatabase(WorkflowBuilderTopology.Sql.TasksDbConnectionName);
 
         var pluginsBlobResourceName = builder.Configuration.GetValue(
-            "AzureStorage:BlobContainers:Plugins:ResourceName",
-            "plugins");
+            WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ResourceNameKey,
+            WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ResourceName);
 
         var pluginsBlobContainerName = builder.Configuration.GetValue(
-            "AzureStorage:BlobContainers:Plugins:ContainerName",
-            "plugins");
+            WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameKey,
+            WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerName);
 
         var artifactsBlobResourceName = builder.Configuration.GetValue(
-            "AzureStorage:BlobContainers:Artifacts:ResourceName",
-            "artifacts");
+            WorkflowBuilderTopology.Storage.BlobContainers.Artifacts.ResourceNameKey,
+            WorkflowBuilderTopology.Storage.BlobContainers.Artifacts.ResourceName);
 
         var artifactsBlobContainerName = builder.Configuration.GetValue(
-            "AzureStorage:BlobContainers:Artifacts:ContainerName",
-            "artifacts");
+            WorkflowBuilderTopology.Storage.BlobContainers.Artifacts.ContainerNameKey,
+            WorkflowBuilderTopology.Storage.BlobContainers.Artifacts.ContainerName);
 
         var (storage, blobs, pluginsBlobContainer, artifactsBlobContainer) = AddStorage(builder,
             pluginsBlobResourceName,
@@ -84,33 +77,38 @@ internal class Program
                 builder,
                 observabilityRoot)
             : ObservabilityResources.Disabled();
-        var cosmosResourceName = GetRequiredConfigurationValue(
+        var cosmosResourceName = GetConfigurationValueOrDefault(
             builder.Configuration,
-            "AzureCosmos:ResourceName");
+            WorkflowBuilderTopology.Cosmos.ResourceNameKey,
+            WorkflowBuilderTopology.Cosmos.DefaultResourceName);
         var cosmosConnectionName =
-            TryGetConfigurationValue(builder.Configuration, "AzureCosmos:ConnectionName")
-            ?? "enginedb";
-        var processStepQueueConnectionName = GetRequiredConfigurationValue(
+            TryGetConfigurationValue(builder.Configuration, WorkflowBuilderTopology.Cosmos.ConnectionNameKey)
+            ?? WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
+        var processStepQueueConnectionName = GetConfigurationValueOrDefault(
             builder.Configuration,
-            "AzureServiceBus:Queues:ProcessStepQueue:ConnectionName");
-        var processStepQueueName = GetRequiredConfigurationValue(
+            WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameKey,
+            WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionName);
+        var processStepQueueName = GetConfigurationValueOrDefault(
             builder.Configuration,
-            "AzureServiceBus:Queues:ProcessStepQueue:Name");
-        var pluginControlQueueConnectionName = GetRequiredConfigurationValue(
+            WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameKey,
+            WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueName);
+        var pluginControlQueueConnectionName = GetConfigurationValueOrDefault(
             builder.Configuration,
-            "AzureServiceBus:Queues:PluginControlQueue:ConnectionName");
-        var pluginControlQueueName = GetRequiredConfigurationValue(
+            WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionNameKey,
+            WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionName);
+        var pluginControlQueueName = GetConfigurationValueOrDefault(
             builder.Configuration,
-            "AzureServiceBus:Queues:PluginControlQueue:Name");
+            WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueNameKey,
+            WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueName);
         var migrations = builder.AddProject<Projects.Backend_Database_MigrationService>("backend-database-migrations")
             .WithReference(cosmos, connectionName: cosmosConnectionName)
             .WaitFor(cosmosDb)
             .WithReference(sqlDb)
             .WaitFor(sqlDb);
         WaitForObservability(migrations, observability);
-        migrations.WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
-            .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
-            .WithEnvironment("AzureCosmos__DatabaseName", cosmosDatabaseName);
+        migrations.WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName);
         ConfigureTelemetryAndObservability(
             migrations,
             observability);
@@ -144,10 +142,11 @@ internal class Program
                 .WithExternalHttpEndpoints();
         }
 
-        api.WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
-            .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
-            .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__ConnectionName", processStepQueueConnectionName)
-            .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__Name", processStepQueueName);
+        api.WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
+            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
 
         var signalR = builder.AddProject<Projects.Backend_SignalR>(
                 "backend-signalr",
@@ -159,15 +158,15 @@ internal class Program
         WaitForObservability(signalR, observability);
         var signalRHttpEndpoint = signalR.GetEndpoint("http");
 
-        api.WithEnvironment("ClientConfig__ApiBaseUrl", api.GetEndpoint("http"))
-            .WithEnvironment("ClientConfig__SignalRBaseUrl", signalRHttpEndpoint);
+        api.WithEnvironment(WorkflowBuilderTopology.ClientConfig.ApiBaseUrlEnvironmentVariable, api.GetEndpoint("http"))
+            .WithEnvironment(WorkflowBuilderTopology.ClientConfig.SignalRBaseUrlEnvironmentVariable, signalRHttpEndpoint);
         if (observability.Enabled)
         {
-            api.WithEnvironment("ClientConfig__GrafanaBaseUrl", observability.GrafanaHttpEndpoint!);
+            api.WithEnvironment(WorkflowBuilderTopology.ClientConfig.GrafanaBaseUrlEnvironmentVariable, observability.GrafanaHttpEndpoint!);
         }
         else
         {
-            api.WithEnvironment("ClientConfig__GrafanaBaseUrl", "http://127.0.0.1:9");
+            api.WithEnvironment(WorkflowBuilderTopology.ClientConfig.GrafanaBaseUrlEnvironmentVariable, "http://127.0.0.1:9");
         }
 
         ConfigureTelemetryAndObservability(
@@ -195,14 +194,15 @@ internal class Program
             .WaitFor(sqlDb)
             .WaitForCompletion(migrations);
         WaitForObservability(engine, observability);
-        engine.WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
-            .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
-            .WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName)
-            .WithEnvironment("AzureStorage__BlobContainers__Artifacts__ContainerName", artifactsBlobContainerName)
-            .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__ConnectionName", processStepQueueConnectionName)
-            .WithEnvironment("AzureServiceBus__Queues__ProcessStepQueue__Name", processStepQueueName)
-            .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__ConnectionName", pluginControlQueueConnectionName)
-            .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__Name", pluginControlQueueName)
+        engine.WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
+            .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameEnvironmentVariable, pluginsBlobContainerName)
+            .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Artifacts.ContainerNameEnvironmentVariable, artifactsBlobContainerName)
+            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName)
+            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionNameEnvironmentVariable, pluginControlQueueConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueNameEnvironmentVariable, pluginControlQueueName)
             .WithEnvironment(
                 "PluginRuntime__MaxConcurrentResultFinalizations",
                 pluginRuntimeMaxConcurrentResultFinalizations.ToString())
@@ -243,7 +243,7 @@ internal class Program
         var pluginDetector = builder.AddAzureFunctionsProject<Projects.Backend_Functions_PluginDetector>("plugin-detector")
             .WithHostStorage(storage)
             .WaitFor(pluginsBlobContainer)
-            .WithReference(serviceBus, connectionName: "ServiceBus")
+            .WithReference(serviceBus, connectionName: WorkflowBuilderTopology.ServiceBus.SharedConnectionName)
             .WithReference(pluginControlQueue, connectionName: pluginControlQueueConnectionName)
             .WaitFor(serviceBus)
             .WithReference(sqlDb)
@@ -251,10 +251,10 @@ internal class Program
             .WaitForCompletion(migrations)
             ;
         WaitForObservability(pluginDetector, observability);
-        pluginDetector.WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName)
-            .WithEnvironment("PluginsBlobContainerName", pluginsBlobContainerName)
-            .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__ConnectionName", pluginControlQueueConnectionName)
-            .WithEnvironment("AzureServiceBus__Queues__PluginControlQueue__Name", pluginControlQueueName);
+        pluginDetector.WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameEnvironmentVariable, pluginsBlobContainerName)
+            .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.LegacyAliasKey!, pluginsBlobContainerName)
+            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionNameEnvironmentVariable, pluginControlQueueConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueNameEnvironmentVariable, pluginControlQueueName);
         ConfigureTelemetryAndObservability(
             pluginDetector,
             observability);
@@ -262,23 +262,23 @@ internal class Program
         var progressBroadcaster = builder.AddAzureFunctionsProject<Projects.Backend_Functions_ProgressBroadcaster>("progress-broadcaster")
             .WithHostStorage(storage)
             .WithReference(cosmos, connectionName: cosmosConnectionName)
-            .WithReference(cosmos, connectionName: "RealtimeCosmos")
+            .WithReference(cosmos, connectionName: WorkflowBuilderTopology.Realtime.RealtimeCosmosConnectionName)
             .WaitFor(cosmosDb)
             .WithReference(sqlDb)
             .WaitFor(sqlDb)
             .WaitForCompletion(migrations)
             .WaitFor(signalR)
-            .WithEnvironment("AzureCosmos__ConnectionName", cosmosConnectionName)
-            .WithEnvironment("AzureCosmos__ResourceName", cosmosResourceName)
-            .WithEnvironment("Realtime__SignalRBaseUrl", signalRHttpEndpoint)
-            .WithEnvironment("Realtime__Cosmos__DatabaseName", cosmosDatabaseName)
-            .WithEnvironment("Realtime__Cosmos__ProcessesContainerName", ProcessesContainerName)
-            .WithEnvironment("Realtime__Cosmos__TasksContainerName", TasksContainerName)
-            .WithEnvironment("Realtime__Cosmos__LeaseContainerName", TaskProgressLeaseContainerName);
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+            .WithEnvironment(WorkflowBuilderTopology.Realtime.SignalRBaseUrlEnvironmentVariable, signalRHttpEndpoint)
+            .WithEnvironment(WorkflowBuilderTopology.Realtime.CosmosDatabaseNameEnvironmentVariable, cosmosDatabaseName)
+            .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessesContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.Processes.Name)
+            .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessStepsContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name)
+            .WithEnvironment(WorkflowBuilderTopology.Realtime.LeaseContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessStepProgressLeases.Name);
         WaitForObservability(progressBroadcaster, observability);
         if (integrationTestsEnabled)
         {
-            progressBroadcaster.WithEnvironment("Realtime__UseHostedChangeFeed", "true");
+            progressBroadcaster.WithEnvironment(WorkflowBuilderTopology.Realtime.UseHostedChangeFeedEnvironmentVariable, "true");
         }
 
         ConfigureTelemetryAndObservability(
@@ -297,8 +297,8 @@ internal class Program
                 .WaitForCompletion(migrations)
                 .WithEnvironment("PluginSeeding__Enabled", "true")
                 .WithEnvironment("PluginSeeding__BundlesRoot", pluginSeedingBundlesRoot)
-                .WithEnvironment("PluginsBlobContainerName", pluginsBlobContainerName)
-                .WithEnvironment("AzureStorage__BlobContainers__Plugins__ContainerName", pluginsBlobContainerName);
+                .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.LegacyAliasKey!, pluginsBlobContainerName)
+                .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameEnvironmentVariable, pluginsBlobContainerName);
             WaitForObservability(pluginSeeder, observability);
         }
 
@@ -431,9 +431,10 @@ internal class Program
         string cosmosDatabaseName,
         bool integrationTestsEnabled)
     {
-        var cosmosResourceName = GetRequiredConfigurationValue(
+        var cosmosResourceName = GetConfigurationValueOrDefault(
             builder.Configuration,
-            "AzureCosmos:ResourceName");
+            WorkflowBuilderTopology.Cosmos.ResourceNameKey,
+            WorkflowBuilderTopology.Cosmos.DefaultResourceName);
         var persistCosmosData = builder.Configuration.GetValue("AzureCosmos:PersistData", false);
 
 #pragma warning disable ASPIRECOSMOSDB001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
@@ -463,14 +464,10 @@ internal class Program
 #pragma warning restore ASPIRECOSMOSDB001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
         var database = cosmos.AddCosmosDatabase(cosmosDatabaseName);
-        database.AddContainer(ProcessesContainerName, "/blueprintId");
-        database.AddContainer(TasksContainerName, "/processId");
-        database.AddContainer(StepFinalizationsContainerName, "/id");
-        database.AddContainer(NodeActivationsContainerName, "/processId");
-        database.AddContainer(NodeJoinStatesContainerName, "/processId");
-        database.AddContainer(PhasedProcessesContainerName, "/phasedBlueprintDefinitionId");
-        database.AddContainer(PhaseCorrelationsContainerName, "/targetPhaseKey");
-        database.AddContainer(TaskProgressLeaseContainerName, "/id");
+        foreach (var container in WorkflowBuilderTopology.CreateCatalog().Cosmos.Containers)
+        {
+            database.AddContainer(container.Name, container.PartitionKey);
+        }
 
         return (cosmos, database);
     }
@@ -510,7 +507,9 @@ internal class Program
             string artifactsBlobContainerName)
     {
         var azureStorage = builder.AddAzureStorage(
-            builder.Configuration.GetValue("AzureStorage:ResourceName", "workflow-storage"));
+            builder.Configuration.GetValue(
+                WorkflowBuilderTopology.Storage.ResourceNameKey,
+                WorkflowBuilderTopology.Storage.DefaultResourceName));
         var persistStorageData = builder.Configuration.GetValue("AzureStorage:PersistData", false);
 
         if (builder.Environment.IsDevelopment())
@@ -522,7 +521,7 @@ internal class Program
                         : ContainerLifetime.Session));
         }
 
-        var blobs = azureStorage.AddBlobs("BlobConnection");
+        var blobs = azureStorage.AddBlobs(WorkflowBuilderTopology.Storage.BlobConnectionName);
 
         var pluginsBlobContainer = azureStorage.AddBlobContainer(
             pluginsBlobResourceName,
@@ -540,21 +539,26 @@ internal class Program
         IResourceBuilder<AzureServiceBusQueueResource> pluginControlQueue)
         AddServiceBus(IDistributedApplicationBuilder builder)
     {
-        var serviceBusResourceName = GetRequiredConfigurationValue(
+        var serviceBusResourceName = GetConfigurationValueOrDefault(
             builder.Configuration,
-            "AzureServiceBus:ResourceName");
-        var processStepQueueResourceName = GetRequiredConfigurationValue(
+            WorkflowBuilderTopology.ServiceBus.ResourceNameKey,
+            WorkflowBuilderTopology.ServiceBus.DefaultResourceName);
+        var processStepQueueResourceName = GetConfigurationValueOrDefault(
             builder.Configuration,
-            "AzureServiceBus:Queues:ProcessStepQueue:ResourceName");
-        var processStepQueueName = GetRequiredConfigurationValue(
+            WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ResourceNameKey,
+            WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ResourceName);
+        var processStepQueueName = GetConfigurationValueOrDefault(
             builder.Configuration,
-            "AzureServiceBus:Queues:ProcessStepQueue:Name");
-        var pluginControlQueueResourceName = GetRequiredConfigurationValue(
+            WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameKey,
+            WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueName);
+        var pluginControlQueueResourceName = GetConfigurationValueOrDefault(
             builder.Configuration,
-            "AzureServiceBus:Queues:PluginControlQueue:ResourceName");
-        var pluginControlQueueName = GetRequiredConfigurationValue(
+            WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ResourceNameKey,
+            WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ResourceName);
+        var pluginControlQueueName = GetConfigurationValueOrDefault(
             builder.Configuration,
-            "AzureServiceBus:Queues:PluginControlQueue:Name");
+            WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueNameKey,
+            WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueName);
 
         var serviceBus = builder.AddAzureServiceBus(serviceBusResourceName);
 
@@ -578,6 +582,12 @@ internal class Program
         string key) =>
         configuration.GetValue<string>(key)
         ?? throw new InvalidOperationException($"Configuration value '{key}' is not configured.");
+
+    static string GetConfigurationValueOrDefault(
+        IConfiguration configuration,
+        string key,
+        string defaultValue) =>
+        configuration.GetValue<string>(key) ?? defaultValue;
 
     static string? TryGetConfigurationValue(IConfiguration configuration, string key) =>
         configuration.GetValue<string>(key);

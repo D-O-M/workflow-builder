@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Backend.Database.Relational;
+using Backend.Topology;
 using Microsoft.Azure.Cosmos;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,15 +16,6 @@ internal sealed class DatabaseMigrationWorker(
 
     private static readonly ActivitySource ActivitySource = new(ActivitySourceName);
     private static readonly TimeSpan CosmosOperationTimeout = TimeSpan.FromSeconds(45);
-
-    private const string DefaultDatabaseName = "enginedb";
-    private const string ProcessesContainerName = "processes";
-    private const string ProcessStepsContainerName = "processsteps";
-    private const string NodeActivationsContainerName = "nodeactivations";
-    private const string NodeJoinStatesContainerName = "nodejoinstates";
-    private const string PhasedProcessesContainerName = "phasedprocesses";
-    private const string PhaseCorrelationsContainerName = "phasecorrelations";
-    private const string ProcessStepProgressLeasesContainerName = "processstepprogressleases";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -72,7 +64,8 @@ internal sealed class DatabaseMigrationWorker(
         IServiceProvider serviceProvider,
         CancellationToken cancellationToken)
     {
-        var databaseName = configuration["AzureCosmos:DatabaseName"] ?? DefaultDatabaseName;
+        var databaseName = configuration[WorkflowBuilderTopology.Cosmos.DatabaseNameKey]
+            ?? WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
         var cosmosClient = serviceProvider.GetRequiredService<CosmosClient>();
 
         logger.LogInformation(
@@ -88,38 +81,35 @@ internal sealed class DatabaseMigrationWorker(
 
         await EnsureContainerAsync(
             databaseResponse.Database,
-            ProcessesContainerName,
-            "/blueprintId",
+            WorkflowBuilderTopology.Cosmos.Containers.Processes,
             cancellationToken);
         await EnsureContainerAsync(
             databaseResponse.Database,
-            ProcessStepsContainerName,
-            "/processId",
+            WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps,
             cancellationToken);
         await EnsureContainerAsync(
             databaseResponse.Database,
-            NodeActivationsContainerName,
-            "/processId",
+            WorkflowBuilderTopology.Cosmos.Containers.ProcessStepFinalizations,
             cancellationToken);
         await EnsureContainerAsync(
             databaseResponse.Database,
-            NodeJoinStatesContainerName,
-            "/processId",
+            WorkflowBuilderTopology.Cosmos.Containers.NodeActivations,
             cancellationToken);
         await EnsureContainerAsync(
             databaseResponse.Database,
-            PhasedProcessesContainerName,
-            "/phasedBlueprintDefinitionId",
+            WorkflowBuilderTopology.Cosmos.Containers.NodeJoinStates,
             cancellationToken);
         await EnsureContainerAsync(
             databaseResponse.Database,
-            PhaseCorrelationsContainerName,
-            "/targetPhaseKey",
+            WorkflowBuilderTopology.Cosmos.Containers.PhasedProcesses,
             cancellationToken);
         await EnsureContainerAsync(
             databaseResponse.Database,
-            ProcessStepProgressLeasesContainerName,
-            "/id",
+            WorkflowBuilderTopology.Cosmos.Containers.PhaseCorrelations,
+            cancellationToken);
+        await EnsureContainerAsync(
+            databaseResponse.Database,
+            WorkflowBuilderTopology.Cosmos.Containers.ProcessStepProgressLeases,
             cancellationToken);
 
         logger.LogInformation(
@@ -129,14 +119,13 @@ internal sealed class DatabaseMigrationWorker(
 
     private Task<ContainerResponse> EnsureContainerAsync(
         Microsoft.Azure.Cosmos.Database database,
-        string containerName,
-        string partitionKeyPath,
+        CosmosContainer container,
         CancellationToken cancellationToken) =>
         WithCosmosTimeout(
             database.CreateContainerIfNotExistsAsync(
-                new ContainerProperties(containerName, partitionKeyPath),
+                new ContainerProperties(container.Name, container.PartitionKey),
                 cancellationToken: cancellationToken),
-            $"create process state container {containerName}",
+            $"create process state container {container.Name}",
             cancellationToken);
 
     private static async Task<T> WithCosmosTimeout<T>(

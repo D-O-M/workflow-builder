@@ -53,6 +53,8 @@ $apiBaseUrl = "http://localhost:5180"
 $appHostPath = Join-Path $repoRoot "Backend.AppHost\Backend.AppHost.csproj"
 $probeProjectPath = Join-Path $repoRoot "PerformanceTests\WorkflowBuilder.PerformanceProbe\WorkflowBuilder.PerformanceProbe.csproj"
 $scoreboardManifestPath = Join-Path $repoRoot "PerformanceTests\scoreboard-scenarios.json"
+$topologyCatalogPath = Join-Path $repoRoot "BuildScripts\workflowbuilder-topology.json"
+$topology = Get-Content -LiteralPath $topologyCatalogPath -Raw | ConvertFrom-Json
 $nftBlueprintKey = $NftBlueprintKey
 $productBlueprintKey = "showcase-town-weekend-recommendation"
 $scenarioFailuresPath = Join-Path $runRoot "scenario-failures.txt"
@@ -393,12 +395,24 @@ function Start-AppHost {
     "PluginSeeding__BundlesRoot" = $bundleRoot
     "BlueprintSeeding__Enabled" = "true"
     "BlueprintSeeding__BlueprintsRoot" = $blueprintRoot
+    "AzureCosmos__ResourceName" = $topology.cosmos.defaultResourceName
+    "AzureCosmos__ConnectionName" = $topology.cosmos.defaultDatabaseName
+    "AzureCosmos__DatabaseName" = $topology.cosmos.defaultDatabaseName
     "AzureCosmos__PersistData" = "false"
+    "AzureStorage__ResourceName" = $topology.storage.defaultResourceName
+    "AzureStorage__BlobContainers__Plugins__ResourceName" = $topology.storage.plugins.resourceName
+    "AzureStorage__BlobContainers__Plugins__ContainerName" = $topology.storage.plugins.containerName
+    "AzureStorage__BlobContainers__Artifacts__ResourceName" = $topology.storage.artifacts.resourceName
+    "AzureStorage__BlobContainers__Artifacts__ContainerName" = $topology.storage.artifacts.containerName
     "AzureStorage__PersistData" = "false"
     "SqlServer__PersistData" = "false"
-    "AzureServiceBus__Queues__PluginControlQueue__ResourceName" = "plugin-control-queue"
-    "AzureServiceBus__Queues__PluginControlQueue__ConnectionName" = "plugin-control-queue"
-    "AzureServiceBus__Queues__PluginControlQueue__Name" = "pluginreloadqueue"
+    "AzureServiceBus__ResourceName" = $topology.serviceBus.defaultResourceName
+    "AzureServiceBus__Queues__ProcessStepQueue__ResourceName" = $topology.serviceBus.processStepQueue.resourceName
+    "AzureServiceBus__Queues__ProcessStepQueue__ConnectionName" = $topology.serviceBus.processStepQueue.connectionName
+    "AzureServiceBus__Queues__ProcessStepQueue__Name" = $topology.serviceBus.processStepQueue.queueName
+    "AzureServiceBus__Queues__PluginControlQueue__ResourceName" = $topology.serviceBus.pluginControlQueue.resourceName
+    "AzureServiceBus__Queues__PluginControlQueue__ConnectionName" = $topology.serviceBus.pluginControlQueue.connectionName
+    "AzureServiceBus__Queues__PluginControlQueue__Name" = $topology.serviceBus.pluginControlQueue.queueName
   }.GetEnumerator() | ForEach-Object {
     "`$env:$($_.Key) = $(Convert-ToSingleQuotedPowerShellLiteral $_.Value)"
   }

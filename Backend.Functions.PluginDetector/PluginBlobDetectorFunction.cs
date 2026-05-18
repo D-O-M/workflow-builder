@@ -1,5 +1,6 @@
 using Backend.Interfaces.Utilities;
 using Backend.Services;
+using Backend.Topology;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 
@@ -23,7 +24,10 @@ public class PluginBlobDetectorFunction
 
     [Function(nameof(PluginBlobDetectorFunction))]
     public async Task Run(
-        [BlobTrigger("%PluginsBlobContainerName%/{name}", Connection = "AzureWebJobsStorage")] Stream stream,
+        [BlobTrigger(
+            WorkflowBuilderTopology.Storage.BlobContainers.PluginsContainerNameBindingExpression + "/{name}",
+            Connection = WorkflowBuilderTopology.Storage.AzureWebJobsStorageKey)]
+        Stream stream,
         string name,
         CancellationToken cancellationToken)
     {

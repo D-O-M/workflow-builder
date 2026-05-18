@@ -1,11 +1,12 @@
 using Backend.API.Infrastructure;
+using Backend.Topology;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
 namespace Backend.API.Controllers;
 
 [ApiController]
-[Route("api/client-config")]
+[Route(WorkflowBuilderTopology.ClientConfig.Route)]
 public sealed class ClientConfigController : ControllerBase
 {
     private readonly ClientRuntimeConfigOptions _options;
@@ -21,9 +22,9 @@ public sealed class ClientConfigController : ControllerBase
         var apiBaseUrl = NormalizeBaseUrl(_options.ApiBaseUrl)
             ?? $"{Request.Scheme}://{Request.Host.Value}";
         var signalRBaseUrl = NormalizeBaseUrl(_options.SignalRBaseUrl)
-            ?? throw new InvalidOperationException("ClientConfig:SignalRBaseUrl is not configured.");
+            ?? throw new InvalidOperationException($"{WorkflowBuilderTopology.ClientConfig.SignalRBaseUrlKey} is not configured.");
         var grafanaBaseUrl = NormalizeBaseUrl(_options.GrafanaBaseUrl)
-            ?? throw new InvalidOperationException("ClientConfig:GrafanaBaseUrl is not configured.");
+            ?? throw new InvalidOperationException($"{WorkflowBuilderTopology.ClientConfig.GrafanaBaseUrlKey} is not configured.");
 
         return Ok(new ClientRuntimeConfigViewModel(
             apiBaseUrl,

@@ -18,6 +18,7 @@ using Microsoft.Extensions.Hosting;
 using Backend.PluginLoader.Services;
 using Backend.Functions.PluginDetector;
 using Backend.PluginAbi;
+using Backend.Topology;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
@@ -26,16 +27,17 @@ builder.Configuration
     .AddEnvironmentVariables();
 
 builder.AddServiceDefaults();
+WorkflowBuilderTopologyValidator.ValidatePluginDetector(builder.Configuration);
 
-var sqlConnectionString = builder.Configuration.GetConnectionString("TasksDB");
+var sqlConnectionString = builder.Configuration.GetConnectionString(WorkflowBuilderTopology.Sql.TasksDbConnectionName);
 builder.Services.AddDbContextPool<BlueprintDbContext>(options =>
     options.UseSqlServer(sqlConnectionString));
 
 builder.Services.AddSingleton(_ =>
 {
-    var blobConnectionString = builder.Configuration["AzureWebJobsStorage"]
-        ?? throw new InvalidOperationException("AzureWebJobsStorage is not configured.");
-    var containerName = builder.Configuration["AzureStorage:BlobContainers:Plugins:ContainerName"]!;
+    var blobConnectionString = builder.Configuration[WorkflowBuilderTopology.Storage.AzureWebJobsStorageKey]
+        ?? throw new InvalidOperationException($"{WorkflowBuilderTopology.Storage.AzureWebJobsStorageKey} is not configured.");
+    var containerName = builder.Configuration[WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameKey]!;
 
     return new BlobContainerClient(blobConnectionString, containerName);
 });

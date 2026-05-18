@@ -1,20 +1,22 @@
+using Backend.Topology;
+
 namespace Backend.Repositories;
 
 public sealed class ProcessStateInitializationOptions
 {
-    public string DatabaseName { get; init; } = "enginedb";
+    public string DatabaseName { get; init; } = WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
 
-    public string ProcessesContainerName { get; init; } = "processes";
+    public string ProcessesContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.Processes.Name;
 
-    public string TasksContainerName { get; init; } = "processsteps";
+    public string TasksContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name;
 
-    public string StepFinalizationsContainerName { get; init; } = "processstepfinalizations";
+    public string StepFinalizationsContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.ProcessStepFinalizations.Name;
 
-    public string ActivationsContainerName { get; init; } = "nodeactivations";
+    public string ActivationsContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.NodeActivations.Name;
 
-    public string JoinStatesContainerName { get; init; } = "nodejoinstates";
+    public string JoinStatesContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.NodeJoinStates.Name;
 
-    public string PhasedProcessesContainerName { get; init; } = "phasedprocesses";
+    public string PhasedProcessesContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.PhasedProcesses.Name;
 
-    public string PhaseCorrelationsContainerName { get; init; } = "phasecorrelations";
+    public string PhaseCorrelationsContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.PhaseCorrelations.Name;
 }

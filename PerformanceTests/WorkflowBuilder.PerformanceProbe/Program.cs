@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Backend.Topology;
 using Microsoft.AspNetCore.SignalR.Client;
 
 var command = args.FirstOrDefault()?.ToLowerInvariant();
@@ -78,7 +79,7 @@ static async Task<int> RunCompletionAsync(CommandOptions options)
 static async Task<int> RunRealtimeAsync(CommandOptions options)
 {
     using var http = CreateHttpClient(options);
-    var config = await http.GetFromJsonAsync<ClientConfig>("api/client-config", ProbeJson.Options)
+    var config = await http.GetFromJsonAsync<ClientConfig>(WorkflowBuilderTopology.ClientConfig.Route, ProbeJson.Options)
         ?? throw new InvalidOperationException("Unable to read API client config.");
     var blueprint = await FindBlueprintAsync(http, options.BlueprintKey);
     var totalCount = options.GetInt("count", 10);
@@ -91,14 +92,14 @@ static async Task<int> RunRealtimeAsync(CommandOptions options)
 
     var pending = new ConcurrentDictionary<Guid, TaskCompletionSource<RealtimeCompletion>>();
     await using var connection = new HubConnectionBuilder()
-        .WithUrl($"{config.SignalRBaseUrl}/hubs/processes", options =>
+        .WithUrl($"{config.SignalRBaseUrl}{WorkflowBuilderTopology.Realtime.HubRoute}", options =>
         {
             options.UseDefaultCredentials = false;
         })
         .WithAutomaticReconnect()
         .Build();
 
-    connection.On<ProcessSummaryUpdatedEvent>("processSummaryUpdated", evt =>
+    connection.On<ProcessSummaryUpdatedEvent>(WorkflowBuilderTopology.Realtime.ProcessSummaryUpdatedEvent, evt =>
     {
         if (!IsTerminalStatus(evt.Status))
         {

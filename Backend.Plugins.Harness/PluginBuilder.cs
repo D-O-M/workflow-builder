@@ -5,6 +5,7 @@ using Backend.Engine.Capabilities;
 using Backend.Database.State.Objects;
 using Backend.Plugins.Configuration;
 using Backend.Plugins.Communication;
+using Backend.Topology;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -22,8 +23,8 @@ namespace Backend.Plugins.Harness;
 public class PluginBuilder<TPlugin>
     where TPlugin : class, IPlugin
 {
-    private const string ProcessStepsContainerName = "processsteps";
-    private const string ProcessesContainerName = "processes";
+    private static readonly string ProcessStepsContainerName = WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name;
+    private static readonly string ProcessesContainerName = WorkflowBuilderTopology.Cosmos.Containers.Processes.Name;
     private readonly string _displayName;
     private Func<TPlugin, object?>? _globalStateGetter;
     private readonly Dictionary<string, PluginChannel> _inputChannels = new();
@@ -273,15 +274,15 @@ public class PluginBuilder<TPlugin>
             "Plugin state store root path is not configured for file-based hydration.");
 
     private string GetCosmosDatabaseName() =>
-        _hostAppBuilder.Configuration["AzureCosmos:DatabaseName"]
-        ?? "enginedb";
+        _hostAppBuilder.Configuration[WorkflowBuilderTopology.Cosmos.DatabaseNameKey]
+        ?? WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
 
     private string GetCosmosConnectionString() =>
-        _hostAppBuilder.Configuration["AzureCosmos:ConnectionString"]
+        _hostAppBuilder.Configuration[WorkflowBuilderTopology.Cosmos.ConnectionStringKey]
         ?? _hostAppBuilder.Configuration.GetConnectionString(
-            _hostAppBuilder.Configuration["AzureCosmos:ConnectionName"]
-            ?? "enginedb")
-        ?? _hostAppBuilder.Configuration.GetConnectionString("enginedb")
+            _hostAppBuilder.Configuration[WorkflowBuilderTopology.Cosmos.ConnectionNameKey]
+            ?? WorkflowBuilderTopology.Cosmos.DefaultDatabaseName)
+        ?? _hostAppBuilder.Configuration.GetConnectionString(WorkflowBuilderTopology.Cosmos.DefaultDatabaseName)
         ?? throw new InvalidOperationException(
             "Cosmos DB connection string is not configured for the plugin harness.");
 

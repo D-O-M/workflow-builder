@@ -9,6 +9,8 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $projectPath = Join-Path $repoRoot "IntegrationTests\WorkflowBuilder.IntegrationTests.AppHost\WorkflowBuilder.IntegrationTests.AppHost.csproj"
 $liveRunsPath = Join-Path $repoRoot "IntegrationTests\WorkflowBuilder.IntegrationTests\LiveRuns"
+$topologyCatalogPath = Join-Path $repoRoot "BuildScripts\workflowbuilder-topology.json"
+$topology = Get-Content -LiteralPath $topologyCatalogPath -Raw | ConvertFrom-Json
 
 New-Item -ItemType Directory -Force -Path $liveRunsPath | Out-Null
 
@@ -30,14 +32,20 @@ function Set-EnvironmentDefault {
 }
 
 Set-EnvironmentDefault -Name "AzureCosmos__ResourceName" -DefaultValue "integration-cosmos"
-Set-EnvironmentDefault -Name "AzureCosmos__ConnectionName" -DefaultValue "enginedb"
+Set-EnvironmentDefault -Name "AzureCosmos__ConnectionName" -DefaultValue $topology.cosmos.defaultDatabaseName
+Set-EnvironmentDefault -Name "AzureCosmos__DatabaseName" -DefaultValue $topology.cosmos.defaultDatabaseName
 Set-EnvironmentDefault -Name "AzureStorage__ResourceName" -DefaultValue "integration-storage"
-Set-EnvironmentDefault -Name "AzureStorage__BlobContainers__Plugins__ResourceName" -DefaultValue "plugins"
-Set-EnvironmentDefault -Name "AzureStorage__BlobContainers__Plugins__ContainerName" -DefaultValue "plugins"
+Set-EnvironmentDefault -Name "AzureStorage__BlobContainers__Plugins__ResourceName" -DefaultValue $topology.storage.plugins.resourceName
+Set-EnvironmentDefault -Name "AzureStorage__BlobContainers__Plugins__ContainerName" -DefaultValue $topology.storage.plugins.containerName
+Set-EnvironmentDefault -Name "AzureStorage__BlobContainers__Artifacts__ResourceName" -DefaultValue $topology.storage.artifacts.resourceName
+Set-EnvironmentDefault -Name "AzureStorage__BlobContainers__Artifacts__ContainerName" -DefaultValue $topology.storage.artifacts.containerName
 Set-EnvironmentDefault -Name "AzureServiceBus__ResourceName" -DefaultValue "integration-servicebus"
-Set-EnvironmentDefault -Name "AzureServiceBus__Queues__ProcessStepQueue__ResourceName" -DefaultValue "process-step-queue"
-Set-EnvironmentDefault -Name "AzureServiceBus__Queues__ProcessStepQueue__ConnectionName" -DefaultValue "process-step-queue"
-Set-EnvironmentDefault -Name "AzureServiceBus__Queues__ProcessStepQueue__Name" -DefaultValue "processsteps"
+Set-EnvironmentDefault -Name "AzureServiceBus__Queues__ProcessStepQueue__ResourceName" -DefaultValue $topology.serviceBus.processStepQueue.resourceName
+Set-EnvironmentDefault -Name "AzureServiceBus__Queues__ProcessStepQueue__ConnectionName" -DefaultValue $topology.serviceBus.processStepQueue.connectionName
+Set-EnvironmentDefault -Name "AzureServiceBus__Queues__ProcessStepQueue__Name" -DefaultValue $topology.serviceBus.processStepQueue.queueName
+Set-EnvironmentDefault -Name "AzureServiceBus__Queues__PluginControlQueue__ResourceName" -DefaultValue $topology.serviceBus.pluginControlQueue.resourceName
+Set-EnvironmentDefault -Name "AzureServiceBus__Queues__PluginControlQueue__ConnectionName" -DefaultValue $topology.serviceBus.pluginControlQueue.connectionName
+Set-EnvironmentDefault -Name "AzureServiceBus__Queues__PluginControlQueue__Name" -DefaultValue $topology.serviceBus.pluginControlQueue.queueName
 Set-EnvironmentDefault -Name "Parameters__SqlServerPassword" -DefaultValue "IntegrationTests_password_123!"
 Set-EnvironmentDefault -Name "SqlServerPassword" -DefaultValue ([Environment]::GetEnvironmentVariable("Parameters__SqlServerPassword"))
 $env:IntegrationTests__StartEngine = if ($StartEngine) { "true" } else { "false" }

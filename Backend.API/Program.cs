@@ -7,6 +7,7 @@ using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Repositories;
 using Backend.Services.ProcessStepQueue;
+using Backend.Topology;
 using Microsoft.Azure.Cosmos;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
@@ -21,6 +22,8 @@ public class Program
         AspireEndpointEnvironment.PreferAspireHttpPortsOverInheritedUrls();
         var builder = WebApplication.CreateBuilder(args);
         builder.AddServiceDefaults();
+        WorkflowBuilderTopologyValidator.ValidateApi(builder.Configuration);
+
         builder.Services.AddOpenTelemetry()
             .WithMetrics(metrics => metrics
                 .AddMeter(ProcessStepDispatchTelemetry.MeterName)
@@ -48,7 +51,8 @@ public class Program
                 UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
             }));
         builder.Services.AddRelationalDataRepositories();
-        builder.Services.AddProcessState();
+        builder.Services.AddProcessState(
+            databaseName: builder.Configuration[WorkflowBuilderTopology.Cosmos.DatabaseNameKey]!);
 
         builder.Services.AddSingleton(sp => new ServiceBusClient(
             LocalDevelopmentResourceSettings.GetProcessStepQueueConnectionString(
@@ -78,7 +82,7 @@ public class Program
         builder.Services.AddScoped<ProcessQueryService>();
         builder.Services.AddScoped<ObservabilityQueryService>();
         builder.Services.Configure<ClientRuntimeConfigOptions>(
-            builder.Configuration.GetSection(ClientRuntimeConfigOptions.SectionName));
+            builder.Configuration.GetSection(WorkflowBuilderTopology.ClientConfig.SectionName));
         builder.Services.Configure<ObservabilityOptions>(
             builder.Configuration.GetSection(ObservabilityOptions.SectionName));
         builder.Services.AddHttpClient<LokiQueryClient>((serviceProvider, client) =>

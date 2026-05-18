@@ -8,6 +8,7 @@ using Azure.Storage.Blobs;
 using Backend.Database.State.Objects;
 using Backend.Models.ViewModels;
 using Backend.Repositories;
+using Backend.Topology;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,10 +20,10 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
 {
     private const string CosmosResourceName = "integration-cosmos";
     private const string CosmosConnectionName = CosmosDatabaseName;
-    private const string CosmosDatabaseName = "enginedb";
-    private const string ProcessesContainerName = "processes";
-    private const string TasksContainerName = "processsteps";
-    private const string PluginsBlobContainerName = "pluginblob";
+    private const string CosmosDatabaseName = WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
+    private static readonly string ProcessesContainerName = WorkflowBuilderTopology.Cosmos.Containers.Processes.Name;
+    private static readonly string TasksContainerName = WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name;
+    private static readonly string PluginsBlobContainerName = WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerName;
     private readonly DistributedApplication _app;
     private readonly CosmosClient _cosmosClient;
     private readonly BlobContainerClient _pluginBlobContainer;
@@ -79,22 +80,24 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         var builder = await DistributedApplicationTestingBuilder.CreateAsync<Projects.Backend_AppHost>(
             [
                 "Frontend:Enabled=false",
-                $"AzureCosmos:ResourceName={CosmosResourceName}",
-                $"AzureCosmos:ConnectionName={CosmosConnectionName}",
-                $"AzureCosmos:DatabaseName={CosmosDatabaseName}",
+                $"{WorkflowBuilderTopology.Cosmos.ResourceNameKey}={CosmosResourceName}",
+                $"{WorkflowBuilderTopology.Cosmos.ConnectionNameKey}={CosmosConnectionName}",
+                $"{WorkflowBuilderTopology.Cosmos.DatabaseNameKey}={CosmosDatabaseName}",
                 "AzureCosmos:PersistData=false",
                 "IntegrationTests:Enabled=true",
-                "AzureStorage:ResourceName=integration-storage",
-                "AzureStorage:BlobContainers:Plugins:ResourceName=plugins",
-                $"AzureStorage:BlobContainers:Plugins:ContainerName={PluginsBlobContainerName}",
+                $"{WorkflowBuilderTopology.Storage.ResourceNameKey}=integration-storage",
+                $"{WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ResourceNameKey}={WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ResourceName}",
+                $"{WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameKey}={PluginsBlobContainerName}",
+                $"{WorkflowBuilderTopology.Storage.BlobContainers.Artifacts.ResourceNameKey}={WorkflowBuilderTopology.Storage.BlobContainers.Artifacts.ResourceName}",
+                $"{WorkflowBuilderTopology.Storage.BlobContainers.Artifacts.ContainerNameKey}={WorkflowBuilderTopology.Storage.BlobContainers.Artifacts.ContainerName}",
                 "AzureStorage:PersistData=false",
-                "AzureServiceBus:ResourceName=integration-servicebus",
-                "AzureServiceBus:Queues:ProcessStepQueue:ResourceName=process-step-queue",
-                "AzureServiceBus:Queues:ProcessStepQueue:ConnectionName=process-step-queue",
-                "AzureServiceBus:Queues:ProcessStepQueue:Name=processsteps",
-                "AzureServiceBus:Queues:PluginControlQueue:ResourceName=plugin-control-queue",
-                "AzureServiceBus:Queues:PluginControlQueue:ConnectionName=plugin-control-queue",
-                "AzureServiceBus:Queues:PluginControlQueue:Name=pluginreloadqueue",
+                $"{WorkflowBuilderTopology.ServiceBus.ResourceNameKey}=integration-servicebus",
+                $"{WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ResourceNameKey}={WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ResourceName}",
+                $"{WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameKey}={WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionName}",
+                $"{WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameKey}={WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueName}",
+                $"{WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ResourceNameKey}={WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ResourceName}",
+                $"{WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionNameKey}={WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionName}",
+                $"{WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueNameKey}={WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueName}",
                 "SqlServer:PersistData=false",
                 "PluginSeeding:Enabled=false",
                 "BlueprintSeeding:Enabled=false",
@@ -162,8 +165,8 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
             throw new InvalidOperationException("SignalR base URL was not resolved by the AppHost.");
         }
 
-        var blobConnectionString = await app.GetConnectionStringAsync("BlobConnection")
-            ?? throw new InvalidOperationException("BlobConnection connection string was not resolved by the AppHost.");
+        var blobConnectionString = await app.GetConnectionStringAsync(WorkflowBuilderTopology.Storage.BlobConnectionName)
+            ?? throw new InvalidOperationException($"{WorkflowBuilderTopology.Storage.BlobConnectionName} connection string was not resolved by the AppHost.");
         var cosmosConnectionString = await app.GetConnectionStringAsync(CosmosConnectionName)
             ?? throw new InvalidOperationException($"{CosmosConnectionName} connection string was not resolved by the AppHost.");
 
@@ -266,7 +269,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
 
     public HubConnection CreateSignalRConnection() =>
         new HubConnectionBuilder()
-            .WithUrl($"{SignalRBaseUrl}/hubs/processes")
+            .WithUrl($"{SignalRBaseUrl}{WorkflowBuilderTopology.Realtime.HubRoute}")
             .WithAutomaticReconnect()
             .Build();
 

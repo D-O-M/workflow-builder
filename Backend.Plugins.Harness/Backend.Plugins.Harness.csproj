@@ -28,6 +28,7 @@
       <ProjectReference Include="..\Backend.Plugins.Communication\Backend.Plugins.Communication.csproj" />
       <ProjectReference Include="..\Backend.Plugins.Configuration\Abstractions\Backend.Plugins.Configuration.Abstractions.csproj" />
       <ProjectReference Include="..\Backend.Engine.Capabilities\Backend.Engine.Capabilities.csproj" />
+      <ProjectReference Include="..\Backend.Topology\Backend.Topology.csproj" />
     </ItemGroup>
 
 </Project>

@@ -2,7 +2,7 @@
 
 ## Topology Source of Truth
 
-`Backend.AppHost/Program.cs` is the source of truth for the local distributed topology.
+`Backend.Topology` is the source of truth for runtime topology names, partition-key assumptions, config keys, and realtime routes/events. `Backend.AppHost/Program.cs` consumes those constants when creating local Aspire resources, and `BuildScripts/workflowbuilder-topology.json` is generated from the same catalog for scripts.
 
 Key runtime resources wired there:
 
@@ -11,15 +11,23 @@ Key runtime resources wired there:
   - `processes`
   - `processsteps`
   - `processstepfinalizations`
+  - `nodeactivations`
+  - `nodejoinstates`
+  - `phasedprocesses`
+  - `phasecorrelations`
   - `processstepprogressleases`
-- Blob Storage container for plugin bundles
+- Blob Storage containers:
+  - `plugins`
+  - `artifacts`
 - Service Bus queues for:
   - process-step execution
   - plugin reload
 - Grafana, Loki, Tempo, Prometheus, and Alloy for observability
 - API, Engine, SignalR, Plugin Detector, Progress Broadcaster, Plugin Seeder, and Blueprint Seeder services
 
-The API currently exposes a fixed external HTTP endpoint on port `5180` in the AppHost. The UI development proxy expects the API/client-config path to remain aligned with AppHost.
+The API currently exposes a fixed external HTTP endpoint on port `5180` in the AppHost. The UI development proxy expects `api/client-config`, `/hubs/processes`, and the SignalR event names in `Backend.Topology` to remain aligned with AppHost and UI runtime config.
+
+Startup validation is intentionally strict. API, Engine, PluginDetector, ProgressBroadcaster, and SignalR fail fast when required SQL/Cosmos/Storage/Service Bus/realtime/client config is missing, placeholder-valued, or inconsistent with the canonical topology. AppHost may provide canonical local defaults, but direct service startup must provide explicit valid configuration.
 
 ## Service Ownership
 
@@ -152,7 +160,8 @@ Phase handoff mappings are design-time SQL data. Runtime phase correlation and f
 
 ## Important Runtime Invariants
 
-- AppHost is the only authoritative place for local topology wiring.
+- `Backend.Topology` is the authoritative place for topology names; AppHost is the local resource wiring layer.
+- Keep `BuildScripts/workflowbuilder-topology.json` regenerated from `Backend.Topology` when topology constants change.
 - SQL is design-time and catalog state; Cosmos is live runtime state.
 - The engine depends on the process-step queue configuration staying aligned across AppHost, Engine, tests, and smoke scripts.
 - The progress broadcaster depends on Cosmos binding configuration being correct at startup.

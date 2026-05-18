@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Backend.Topology;
 using Microsoft.Extensions.Configuration;
 
 namespace Microsoft.Extensions.Hosting;
@@ -10,76 +11,76 @@ public static class LocalDevelopmentResourceSettings
     private const string LocalServiceBusConnectionString =
         "Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;";
     private const string LocalBlobConnectionString = "UseDevelopmentStorage=true";
-    private const string DefaultProcessStepQueueName = "processsteps";
-    private const string DefaultPluginReloadQueueName = "pluginreloadqueue";
-    private const string DefaultPluginsBlobContainerName = "pluginblob";
-    private const string DefaultArtifactsBlobContainerName = "artifacts";
+    private static readonly string DefaultProcessStepQueueName = WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueName;
+    private static readonly string DefaultPluginReloadQueueName = WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueName;
+    private static readonly string DefaultPluginsBlobContainerName = WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerName;
+    private static readonly string DefaultArtifactsBlobContainerName = WorkflowBuilderTopology.Storage.BlobContainers.Artifacts.ContainerName;
 
     public static string GetTasksDbConnectionString(
         IConfiguration configuration,
         IHostEnvironment environment) =>
-        TryGetConnectionString(configuration, "TasksDB")
-        ?? TryGetConnectionString(configuration, "SqlServer")
+        TryGetConnectionString(configuration, WorkflowBuilderTopology.Sql.TasksDbConnectionName)
+        ?? TryGetConnectionString(configuration, WorkflowBuilderTopology.Sql.SqlServerConnectionName)
         ?? ThrowMissingConnectionString(
             "SQL Server",
-            "TasksDB or SqlServer",
+            $"{WorkflowBuilderTopology.Sql.TasksDbConnectionName} or {WorkflowBuilderTopology.Sql.SqlServerConnectionName}",
             environment);
 
     public static string GetCosmosConnectionString(
         IConfiguration configuration,
         IHostEnvironment environment) =>
         NormalizeLocalCosmosConnectionString(
-            TryGetConfigurationValue(configuration, "AzureCosmos:ConnectionString")
-            ?? TryGetConfiguredConnectionString(configuration, "AzureCosmos:ConnectionName")
-            ?? TryGetConnectionString(configuration, "enginedb"),
+            TryGetConfigurationValue(configuration, WorkflowBuilderTopology.Cosmos.ConnectionStringKey)
+            ?? TryGetConfiguredConnectionString(configuration, WorkflowBuilderTopology.Cosmos.ConnectionNameKey)
+            ?? TryGetConnectionString(configuration, WorkflowBuilderTopology.Cosmos.DefaultDatabaseName),
             configuration,
             environment)
         ?? TryGetAzuriteMappedCosmosConnectionString(configuration, environment)
         ?? UseDevelopmentFallback(environment, LocalCosmosConnectionString)
         ?? ThrowMissingConnectionString(
             "Azure Cosmos",
-            "AzureCosmos:ConnectionName or enginedb",
+            $"{WorkflowBuilderTopology.Cosmos.ConnectionNameKey} or {WorkflowBuilderTopology.Cosmos.DefaultDatabaseName}",
             environment);
 
     public static string GetProcessStepQueueConnectionString(
         IConfiguration configuration,
         IHostEnvironment environment) =>
-        TryGetConfiguredConnectionString(configuration, "AzureServiceBus:Queues:ProcessStepQueue:ConnectionName")
-        ?? TryGetConnectionString(configuration, "process-step-queue")
-        ?? TryGetConnectionString(configuration, "ServiceBus")
+        TryGetConfiguredConnectionString(configuration, WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameKey)
+        ?? TryGetConnectionString(configuration, WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionName)
+        ?? TryGetConnectionString(configuration, WorkflowBuilderTopology.ServiceBus.SharedConnectionName)
         ?? UseDevelopmentFallback(environment, LocalServiceBusConnectionString)
         ?? ThrowMissingConnectionString(
             "process step queue",
-            "AzureServiceBus:Queues:ProcessStepQueue:ConnectionName, process-step-queue, or ServiceBus",
+            $"{WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameKey}, {WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionName}, or {WorkflowBuilderTopology.ServiceBus.SharedConnectionName}",
             environment);
 
     public static string GetProcessStepQueueName(
         IConfiguration configuration,
         IHostEnvironment environment) =>
         TryGetServiceBusEntityPath(GetProcessStepQueueConnectionString(configuration, environment))
-        ?? TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:ProcessStepQueue:Name")
-        ?? TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:ProcessStepQueue")
+        ?? TryGetConfigurationValue(configuration, WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameKey)
+        ?? TryGetConfigurationValue(configuration, WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.LegacyQueueNameKey)
         ?? UseDevelopmentFallback(environment, DefaultProcessStepQueueName)
         ?? throw new InvalidOperationException("Process step queue name is not configured.");
 
     public static string GetPluginReloadQueueConnectionString(
         IConfiguration configuration,
         IHostEnvironment environment) =>
-        TryGetConfiguredConnectionString(configuration, "AzureServiceBus:Queues:PluginControlQueue:ConnectionName")
-        ?? TryGetConnectionString(configuration, "plugin-control-queue")
-        ?? TryGetConnectionString(configuration, "ServiceBus")
+        TryGetConfiguredConnectionString(configuration, WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionNameKey)
+        ?? TryGetConnectionString(configuration, WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionName)
+        ?? TryGetConnectionString(configuration, WorkflowBuilderTopology.ServiceBus.SharedConnectionName)
         ?? UseDevelopmentFallback(environment, LocalServiceBusConnectionString)
         ?? ThrowMissingConnectionString(
             "plugin reload queue",
-            "AzureServiceBus:Queues:PluginControlQueue:ConnectionName, plugin-control-queue, or ServiceBus",
+            $"{WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionNameKey}, {WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionName}, or {WorkflowBuilderTopology.ServiceBus.SharedConnectionName}",
             environment);
 
     public static string GetPluginReloadQueueName(
         IConfiguration configuration,
         IHostEnvironment environment) =>
         TryGetServiceBusEntityPath(GetPluginReloadQueueConnectionString(configuration, environment))
-        ?? TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:PluginControlQueue:Name")
-        ?? TryGetConfigurationValue(configuration, "AzureServiceBus:Queues:PluginControlQueue")
+        ?? TryGetConfigurationValue(configuration, WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueNameKey)
+        ?? TryGetConfigurationValue(configuration, WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.LegacyQueueNameKey)
         ?? UseDevelopmentFallback(environment, DefaultPluginReloadQueueName)
         ?? throw new InvalidOperationException("Plugin reload queue name is not configured.");
 
@@ -88,29 +89,29 @@ public static class LocalDevelopmentResourceSettings
         IHostEnvironment environment)
     {
         var configuredConnectionString =
-            TryGetConnectionString(configuration, "BlobConnection")
-            ?? TryGetStorageResourceConnectionString(configuration, "BlobConnection");
+            TryGetConnectionString(configuration, WorkflowBuilderTopology.Storage.BlobConnectionName)
+            ?? TryGetStorageResourceConnectionString(configuration, WorkflowBuilderTopology.Storage.BlobConnectionName);
 
         return NormalizeLocalBlobConnectionString(configuredConnectionString, environment)
             ?? TryGetAzuriteMappedBlobConnectionString(environment)
             ?? UseDevelopmentFallback(environment, LocalBlobConnectionString)
             ?? ThrowMissingConnectionString(
             "blob storage",
-            "BlobConnection",
+            WorkflowBuilderTopology.Storage.BlobConnectionName,
             environment);
     }
 
     public static string GetPluginsBlobContainerName(
         IConfiguration configuration,
         IHostEnvironment environment) =>
-        TryGetConfigurationValue(configuration, "AzureStorage:BlobContainers:Plugins:ContainerName")
+        TryGetConfigurationValue(configuration, WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameKey)
         ?? UseDevelopmentFallback(environment, DefaultPluginsBlobContainerName)
         ?? throw new InvalidOperationException("Plugins blob container name is not configured.");
 
     public static string GetArtifactsBlobContainerName(
         IConfiguration configuration,
         IHostEnvironment environment) =>
-        TryGetConfigurationValue(configuration, "AzureStorage:BlobContainers:Artifacts:ContainerName")
+        TryGetConfigurationValue(configuration, WorkflowBuilderTopology.Storage.BlobContainers.Artifacts.ContainerNameKey)
         ?? UseDevelopmentFallback(environment, DefaultArtifactsBlobContainerName)
         ?? throw new InvalidOperationException("Artifacts blob container name is not configured.");
 
@@ -285,7 +286,7 @@ public static class LocalDevelopmentResourceSettings
 
         var mappedPort = TryGetDockerMappedPort(
             configuration,
-            "AzureCosmos:ResourceName",
+            WorkflowBuilderTopology.Cosmos.ResourceNameKey,
             8081);
 
         return mappedPort is null
@@ -448,10 +449,10 @@ public static class LocalDevelopmentResourceSettings
     {
         var keys = new List<string>
         {
-            "AzureCosmos:ResourceName"
+            WorkflowBuilderTopology.Cosmos.ResourceNameKey
         };
 
-        var connectionName = TryGetConfigurationValue(configuration, "AzureCosmos:ConnectionName");
+        var connectionName = TryGetConfigurationValue(configuration, WorkflowBuilderTopology.Cosmos.ConnectionNameKey);
         if (IsConfiguredValue(connectionName))
         {
             keys.Add("AzureCosmos:ConnectionName");

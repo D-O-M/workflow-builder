@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Backend.Topology\Backend.Topology.csproj" IsAspireProjectResource="false" />
     <ProjectReference Include="..\Backend.API\Backend.API.csproj" />
     <ProjectReference Include="..\Backend.Engine\Backend.Engine.csproj" />
     <ProjectReference Include="..\Backend.Database.MigrationService\Backend.Database.MigrationService.csproj" />

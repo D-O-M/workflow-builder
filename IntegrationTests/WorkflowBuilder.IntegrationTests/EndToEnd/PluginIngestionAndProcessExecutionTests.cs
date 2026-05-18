@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Backend.Database.State.Objects;
 using Backend.Models.InputModels;
+using Backend.Topology;
 using Microsoft.AspNetCore.SignalR.Client;
 using Shouldly;
 using WorkflowBuilder.IntegrationTests.Infrastructure;
@@ -131,14 +132,14 @@ public sealed class PluginIngestionAndProcessExecutionTests
         var gate = new object();
 
         await using var connection = _environment.CreateSignalRConnection();
-        connection.On<JsonElement>("processSummaryUpdated", update =>
+        connection.On<JsonElement>(WorkflowBuilderTopology.Realtime.ProcessSummaryUpdatedEvent, update =>
         {
             lock (gate)
             {
                 summaryUpdates.Add(update.Clone());
             }
         });
-        connection.On<JsonElement>("processStepsUpdated", update =>
+        connection.On<JsonElement>(WorkflowBuilderTopology.Realtime.ProcessStepsUpdatedEvent, update =>
         {
             lock (gate)
             {

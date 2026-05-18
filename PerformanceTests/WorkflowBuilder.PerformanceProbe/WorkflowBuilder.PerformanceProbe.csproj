@@ -10,4 +10,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
   </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Backend.Topology\Backend.Topology.csproj" />
+  </ItemGroup>
 </Project>

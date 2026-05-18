@@ -21,4 +21,8 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Backend.Topology\Backend.Topology.csproj" />
+  </ItemGroup>
+
 </Project>

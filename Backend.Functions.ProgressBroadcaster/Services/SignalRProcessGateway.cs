@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using Backend.Models.Realtime;
+using Backend.Topology;
 using Microsoft.Extensions.Logging;
 
 namespace Backend.Functions.ProgressBroadcaster.Services;
@@ -40,7 +41,7 @@ public sealed class SignalRProcessGateway
             var snapshot = await _httpClientFactory
                 .CreateClient(HttpClientName)
                 .GetFromJsonAsync<ProcessSubscriptionSnapshotViewModel>(
-                    "internal/subscriptions/snapshot",
+                    WorkflowBuilderTopology.Realtime.InternalSubscriptionSnapshotRoute,
                     cancellationToken)
                 ?? new ProcessSubscriptionSnapshotViewModel();
 
@@ -76,7 +77,7 @@ public sealed class SignalRProcessGateway
         {
             using var response = await _httpClientFactory
                 .CreateClient(HttpClientName)
-                .PostAsJsonAsync("internal/process-events", batch, cancellationToken);
+                .PostAsJsonAsync(WorkflowBuilderTopology.Realtime.InternalProcessEventsRoute, batch, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {

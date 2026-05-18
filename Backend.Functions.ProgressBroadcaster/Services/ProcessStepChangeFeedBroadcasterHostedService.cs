@@ -1,4 +1,5 @@
 using Backend.Database.State.Objects;
+using Backend.Topology;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,9 +30,9 @@ public sealed class ProcessStepChangeFeedBroadcasterHostedService : IHostedServi
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        var databaseName = _configuration["Realtime:Cosmos:DatabaseName"] ?? "enginedb";
-        var tasksContainerName = _configuration["Realtime:Cosmos:TasksContainerName"] ?? "processsteps";
-        var leaseContainerName = _configuration["Realtime:Cosmos:LeaseContainerName"] ?? "processstepprogressleases";
+        var databaseName = _configuration[WorkflowBuilderTopology.Realtime.CosmosDatabaseNameKey]!;
+        var tasksContainerName = _configuration[WorkflowBuilderTopology.Realtime.ProcessStepsContainerNameKey]!;
+        var leaseContainerName = _configuration[WorkflowBuilderTopology.Realtime.LeaseContainerNameKey]!;
 
         var database = _cosmosClient.GetDatabase(databaseName);
         var monitoredContainer = database.GetContainer(tasksContainerName);

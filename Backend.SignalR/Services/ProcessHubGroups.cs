@@ -1,9 +1,11 @@
+using Backend.Topology;
+
 namespace Backend.SignalR.Services;
 
 public static class ProcessHubGroups
 {
-    private const string BlueprintPrefix = "blueprint:";
-    private const string ProcessPrefix = "process:";
+    private const string BlueprintPrefix = WorkflowBuilderTopology.Realtime.BlueprintGroupPrefix;
+    private const string ProcessPrefix = WorkflowBuilderTopology.Realtime.ProcessGroupPrefix;
 
     public static string Blueprint(int blueprintDefinitionId) => $"{BlueprintPrefix}{blueprintDefinitionId}";
 

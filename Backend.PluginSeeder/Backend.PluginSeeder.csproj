@@ -16,6 +16,7 @@
     <ProjectReference Include="..\Backend.DTOs\Backend.Models.csproj" />
     <ProjectReference Include="..\Backend.Interfaces\Backend.Interfaces.csproj" />
     <ProjectReference Include="..\Backend.ServiceDefaults\Backend.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Backend.Topology\Backend.Topology.csproj" />
     <ProjectReference Include="..\Backend.Utilities\Backend.Utilities.csproj" />
   </ItemGroup>
 </Project>

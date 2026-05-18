@@ -26,6 +26,7 @@
     <ProjectReference Include="..\Backend.Repositories\Backend.Repositories.csproj" />
     <ProjectReference Include="..\Backend.ServiceDefaults\Backend.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Backend.State.DAL\Backend.Database.State.csproj" />
+    <ProjectReference Include="..\Backend.Topology\Backend.Topology.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Update="host.json">

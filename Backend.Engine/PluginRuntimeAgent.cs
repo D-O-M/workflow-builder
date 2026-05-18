@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading.Channels;
 using Backend.Engine.Debugging;
 using Backend.Plugins.Communication;
+using Backend.Topology;
 using CliWrap;
 using CliWrap.Builders;
 using CliWrap.EventStream;
@@ -98,8 +99,8 @@ public class PluginRuntimeAgent
 
             await using var stdinStream = _commsStream.Reader.AsStream(leaveOpen: true);
             var cosmosConnectionName =
-                _configuration["AzureCosmos:ConnectionName"]
-                ?? "enginedb";
+                _configuration[WorkflowBuilderTopology.Cosmos.ConnectionNameKey]
+                ?? WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
             var cosmosConnectionString =
                 LocalDevelopmentResourceSettings.GetCosmosConnectionString(
                     _configuration,
@@ -173,20 +174,21 @@ public class PluginRuntimeAgent
             if (!string.IsNullOrWhiteSpace(blobConnectionString))
             {
                 environmentVariables["AzureStorage__ConnectionString"] = blobConnectionString;
-                environmentVariables["ConnectionStrings__BlobConnection"] = blobConnectionString;
-                environmentVariables["AzureStorage__BlobContainers__Plugins__ContainerName"] = pluginsBlobContainerName;
-                environmentVariables["AzureStorage__BlobContainers__Artifacts__ContainerName"] = artifactsBlobContainerName;
+                environmentVariables[$"ConnectionStrings__{WorkflowBuilderTopology.Storage.BlobConnectionName}"] = blobConnectionString;
+                environmentVariables[WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameEnvironmentVariable] = pluginsBlobContainerName;
+                environmentVariables[WorkflowBuilderTopology.Storage.BlobContainers.Artifacts.ContainerNameEnvironmentVariable] = artifactsBlobContainerName;
             }
 
             if (!string.IsNullOrWhiteSpace(cosmosConnectionString))
             {
                 environmentVariables["AzureCosmos__ConnectionString"] = cosmosConnectionString;
-                environmentVariables["AzureCosmos__ConnectionName"] = cosmosConnectionName;
-                environmentVariables["AzureCosmos__DatabaseName"] =
-                    _configuration["AzureCosmos:DatabaseName"] ?? "enginedb";
-                environmentVariables["AzureCosmos__ResourceName"] =
-                    _configuration["AzureCosmos:ResourceName"];
-                environmentVariables["ConnectionStrings__enginedb"] = cosmosConnectionString;
+                environmentVariables[WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable] = cosmosConnectionName;
+                environmentVariables[WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable] =
+                    _configuration[WorkflowBuilderTopology.Cosmos.DatabaseNameKey]
+                    ?? WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
+                environmentVariables[WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable] =
+                    _configuration[WorkflowBuilderTopology.Cosmos.ResourceNameKey];
+                environmentVariables[$"ConnectionStrings__{WorkflowBuilderTopology.Cosmos.DefaultDatabaseName}"] = cosmosConnectionString;
                 environmentVariables[$"ConnectionStrings__{cosmosConnectionName}"] = cosmosConnectionString;
 
                 _logger.LogInformation(

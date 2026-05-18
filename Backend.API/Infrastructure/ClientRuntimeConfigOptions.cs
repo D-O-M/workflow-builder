@@ -1,8 +1,10 @@
+using Backend.Topology;
+
 namespace Backend.API.Infrastructure;
 
 public sealed class ClientRuntimeConfigOptions
 {
-    public const string SectionName = "ClientConfig";
+    public const string SectionName = WorkflowBuilderTopology.ClientConfig.SectionName;
 
     public string? ApiBaseUrl { get; init; }
 

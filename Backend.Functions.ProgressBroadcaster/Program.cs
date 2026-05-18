@@ -1,6 +1,7 @@
 using Backend.Database.Relational;
 using Backend.Functions.ProgressBroadcaster.Services;
 using Backend.Repositories;
+using Backend.Topology;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,7 @@ builder.Configuration
     .AddEnvironmentVariables();
 
 builder.AddServiceDefaults();
+WorkflowBuilderTopologyValidator.ValidateProgressBroadcaster(builder.Configuration);
 
 var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(
     builder.Configuration,
@@ -38,12 +40,12 @@ builder.Services.AddSingleton(_ => new CosmosClient(
 
 builder.Services.AddRelationalDataRepositories();
 builder.Services.AddProcessState(
-    databaseName: builder.Configuration["Realtime:Cosmos:DatabaseName"] ?? "enginedb",
-    processesContainerName: builder.Configuration["Realtime:Cosmos:ProcessesContainerName"] ?? "processes",
-    tasksContainerName: builder.Configuration["Realtime:Cosmos:TasksContainerName"] ?? "processsteps");
+    databaseName: builder.Configuration[WorkflowBuilderTopology.Realtime.CosmosDatabaseNameKey]!,
+    processesContainerName: builder.Configuration[WorkflowBuilderTopology.Realtime.ProcessesContainerNameKey]!,
+    tasksContainerName: builder.Configuration[WorkflowBuilderTopology.Realtime.ProcessStepsContainerNameKey]!);
 
-var signalRBaseUrl = builder.Configuration["Realtime:SignalRBaseUrl"]
-    ?? throw new InvalidOperationException("Realtime:SignalRBaseUrl is not configured.");
+var signalRBaseUrl = builder.Configuration[WorkflowBuilderTopology.Realtime.SignalRBaseUrlKey]
+    ?? throw new InvalidOperationException($"{WorkflowBuilderTopology.Realtime.SignalRBaseUrlKey} is not configured.");
 builder.Services.AddHttpClient(SignalRProcessGateway.HttpClientName, client =>
 {
     client.BaseAddress = new Uri(EnsureTrailingSlash(signalRBaseUrl), UriKind.Absolute);
@@ -54,7 +56,7 @@ builder.Services.AddSingleton<SignalRProcessGateway>();
 builder.Services.AddSingleton<BlueprintDefinitionLookupCache>();
 builder.Services.AddScoped<ProcessProgressBroadcaster>();
 
-if (builder.Configuration.GetValue("Realtime:UseHostedChangeFeed", false))
+if (builder.Configuration.GetValue(WorkflowBuilderTopology.Realtime.UseHostedChangeFeedKey, false))
 {
     builder.Services.AddHostedService<ProcessStepChangeFeedBroadcasterHostedService>();
 }

@@ -1,11 +1,13 @@
 using Backend.Models.Realtime;
 using Backend.SignalR.Hubs;
 using Backend.SignalR.Services;
+using Backend.Topology;
 using Microsoft.AspNetCore.SignalR;
 
 AspireEndpointEnvironment.PreferAspireHttpPortsOverInheritedUrls();
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
+WorkflowBuilderTopologyValidator.ValidateSignalR();
 
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<ProcessSubscriptionRegistry>();
@@ -25,11 +27,11 @@ var app = builder.Build();
 app.MapDefaultEndpoints();
 app.UseCors("AllowAngularDevClient");
 
-app.MapHub<ProcessProgressHub>("/hubs/processes");
-app.MapGet("/internal/subscriptions/snapshot", (ProcessSubscriptionRegistry registry) =>
+app.MapHub<ProcessProgressHub>(WorkflowBuilderTopology.Realtime.HubRoute);
+app.MapGet(WorkflowBuilderTopology.Realtime.InternalSubscriptionSnapshotRoute, (ProcessSubscriptionRegistry registry) =>
     Results.Ok(registry.GetSnapshot()));
 app.MapPost(
-    "/internal/process-events",
+    WorkflowBuilderTopology.Realtime.InternalProcessEventsRoute,
     async Task<IResult> (
         ProcessRealtimeBatch batch,
         ProcessSubscriptionRegistry registry,
@@ -50,7 +52,7 @@ app.MapPost(
 
             await hubContext.Clients
                 .Group(ProcessHubGroups.Blueprint(summary.BlueprintDefinitionId))
-                .SendAsync("processSummaryUpdated", summary, cancellationToken);
+                .SendAsync(WorkflowBuilderTopology.Realtime.ProcessSummaryUpdatedEvent, summary, cancellationToken);
         }
 
         foreach (var nodeUpdate in batch.NodeUpdates.Where(update => update.Nodes.Count > 0))
@@ -62,7 +64,7 @@ app.MapPost(
 
             await hubContext.Clients
                 .Group(ProcessHubGroups.Process(nodeUpdate.ProcessId))
-                .SendAsync("processStepsUpdated", nodeUpdate, cancellationToken);
+                .SendAsync(WorkflowBuilderTopology.Realtime.ProcessStepsUpdatedEvent, nodeUpdate, cancellationToken);
         }
 
         return Results.Accepted();
