@@ -392,6 +392,181 @@ public sealed class StepFinalizationServiceTests
     }
 
     [Test]
+    public async Task Recovery_resume_success_from_outputs_persisted_activates_downstream_without_queue_message()
+    {
+        var processId = Guid.NewGuid();
+        var sourceNodeId = Guid.NewGuid();
+        var destinationNodeId = Guid.NewGuid();
+        var blueprint = CreateSingleInboundBlueprint(sourceNodeId, destinationNodeId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var service = CreateService(
+            stepRepository,
+            processRepository,
+            finalizationRepository,
+            CreateDispatchService(stepRepository, queueWriter));
+        var context = await CreateContextAsync(processId, sourceNodeId, blueprint, stepRepository, processRepository);
+        var result = CreateSuccessResult(context, "Out");
+        var record = CreateFinalizationRecord(
+            context,
+            result,
+            ProcessStepFinalizationOutcome.Succeeded,
+            ProcessStepFinalizationStage.OutputsPersisted);
+        finalizationRepository.Records[context.ProcessStepId] = record;
+        MarkSuccessPersisted(context, stepRepository, processRepository, record);
+        TrimResultSnapshot(record);
+
+        var recoveryContext = await CreateContextAsync(
+            processId,
+            sourceNodeId,
+            blueprint,
+            stepRepository,
+            processRepository,
+            claim: false);
+
+        await service.ResumeStepFinalizationForRecoveryAsync(
+            recoveryContext,
+            record,
+            CancellationToken.None);
+
+        var recovered = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
+        recovered.Stage.ShouldBe(ProcessStepFinalizationStage.RecoveredWithoutQueueMessage);
+        stepRepository.CreatedSteps.Count.ShouldBe(1);
+        queueWriter.Messages.Count.ShouldBe(1);
+        recoveryContext.QueueMessage.CompleteCount.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task Recovery_resume_failure_from_failure_persisted_marks_recovered_without_queue_message()
+    {
+        var processId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+        var blueprint = CreateTerminalBlueprint(nodeId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var service = CreateService(
+            stepRepository,
+            processRepository,
+            finalizationRepository,
+            CreateDispatchService(stepRepository, new ProcessStepQueueWriterSpy()));
+        var context = await CreateContextAsync(processId, nodeId, blueprint, stepRepository, processRepository);
+        var result = CreateFailureResult(context, "boom");
+        var record = CreateFinalizationRecord(
+            context,
+            result,
+            ProcessStepFinalizationOutcome.Failed,
+            ProcessStepFinalizationStage.FailurePersisted);
+        finalizationRepository.Records[context.ProcessStepId] = record;
+        MarkFailurePersisted(context, stepRepository, processRepository, record);
+        TrimResultSnapshot(record);
+
+        var recoveryContext = await CreateContextAsync(
+            processId,
+            nodeId,
+            blueprint,
+            stepRepository,
+            processRepository,
+            claim: false);
+
+        await service.ResumeStepFinalizationForRecoveryAsync(
+            recoveryContext,
+            record,
+            CancellationToken.None);
+
+        var recovered = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
+        recovered.Stage.ShouldBe(ProcessStepFinalizationStage.RecoveredWithoutQueueMessage);
+        stepRepository.FailMutationCount.ShouldBe(0);
+        recoveryContext.QueueMessage.CompleteCount.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task Later_redelivery_for_recovered_finalization_completes_queue_message_only()
+    {
+        var processId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+        var blueprint = CreateTerminalBlueprint(nodeId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var service = CreateService(
+            stepRepository,
+            processRepository,
+            finalizationRepository,
+            CreateDispatchService(stepRepository, new ProcessStepQueueWriterSpy()));
+        var context = await CreateContextAsync(processId, nodeId, blueprint, stepRepository, processRepository);
+        var record = CreateFinalizationRecord(
+            context,
+            CreateSuccessResult(context, outputChannelName: null),
+            ProcessStepFinalizationOutcome.Succeeded,
+            ProcessStepFinalizationStage.RecoveredWithoutQueueMessage);
+        finalizationRepository.Records[context.ProcessStepId] = record;
+        MarkSuccessPersisted(context, stepRepository, processRepository, record);
+        TrimResultSnapshot(record);
+
+        var redeliveryContext = await CreateContextAsync(
+            processId,
+            nodeId,
+            blueprint,
+            stepRepository,
+            processRepository,
+            claim: false);
+
+        await service.ResumeStepFinalizationAsync(redeliveryContext, record, CancellationToken.None);
+
+        redeliveryContext.QueueMessage.CompleteCount.ShouldBe(1);
+        stepRepository.CompleteMutationCount.ShouldBe(0);
+        (await finalizationRepository.GetRequiredAsync(context.ProcessStepId)).Stage
+            .ShouldBe(ProcessStepFinalizationStage.RecoveredWithoutQueueMessage);
+    }
+
+    [Test]
+    public async Task Recovery_service_marks_missing_step_unrecoverable()
+    {
+        var processId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+        var blueprint = CreateTerminalBlueprint(nodeId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var service = CreateService(
+            stepRepository,
+            processRepository,
+            finalizationRepository,
+            CreateDispatchService(stepRepository, new ProcessStepQueueWriterSpy()));
+        var context = await CreateContextAsync(processId, nodeId, blueprint, stepRepository, processRepository);
+        var record = CreateFinalizationRecord(
+            context,
+            CreateSuccessResult(context, outputChannelName: null),
+            ProcessStepFinalizationOutcome.Succeeded,
+            ProcessStepFinalizationStage.OutputsPersisted);
+        record.UpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-10);
+        finalizationRepository.Records[context.ProcessStepId] = record;
+        stepRepository.States.Remove(context.ProcessStepId);
+        var recoveryService = CreateRecoveryService(
+            stepRepository,
+            processRepository,
+            finalizationRepository,
+            service,
+            blueprint);
+
+        var recovered = await recoveryService.RecoverDueFinalizationsAsync(
+            new StepFinalizationRecoveryOptions
+            {
+                Enabled = true,
+                MinRecordAgeSeconds = 1,
+                BatchSize = 10,
+                MaxRetryCount = 10
+            },
+            CancellationToken.None);
+
+        recovered.ShouldBe(0);
+        record.LastErrorKind.ShouldBe(ProcessStepFinalizationErrorKind.FinalizationFailed);
+    }
+
+    [Test]
     public async Task Resume_rejects_cross_path_stage_without_retryable_checkpoint()
     {
         var processId = Guid.NewGuid();
@@ -458,6 +633,22 @@ public sealed class StepFinalizationServiceTests
             NullLogger<StepFinalizationService>.Instance,
             processIndexProjectionService);
     }
+
+    private static StepFinalizationRecoveryService CreateRecoveryService(
+        InMemoryProcessStepRepository stepRepository,
+        InMemoryProcessInstanceRepository processRepository,
+        InMemoryProcessStepFinalizationRepository finalizationRepository,
+        IStepFinalizationService stepFinalizationService,
+        ExecutableBlueprint blueprint) =>
+        new(
+            finalizationRepository,
+            stepRepository,
+            processRepository,
+            new StaticBlueprintExecutionCache(blueprint),
+            stepFinalizationService,
+            new StepFinalizationRecoveryTelemetry(),
+            NullLogger<StepFinalizationRecoveryService>.Instance,
+            NullLogger<StepExecutionContext>.Instance);
 
     private static ProcessStepDispatchService CreateDispatchService(
         InMemoryProcessStepRepository stepRepository,
@@ -1241,6 +1432,21 @@ public sealed class StepFinalizationServiceTests
         }
     }
 
+    private sealed class StaticBlueprintExecutionCache : IBlueprintExecutionCache
+    {
+        private readonly ExecutableBlueprint _blueprint;
+
+        public StaticBlueprintExecutionCache(ExecutableBlueprint blueprint)
+        {
+            _blueprint = blueprint;
+        }
+
+        public Task<ExecutableBlueprint> GetExecutableBlueprintAsync(
+            int blueprintVersionId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(_blueprint);
+    }
+
     private sealed class InMemoryProcessStepFinalizationRepository : IProcessStepFinalizationRepository
     {
         public Dictionary<Guid, ProcessStepFinalizationRecord> Records { get; } = new();
@@ -1276,6 +1482,52 @@ public sealed class StepFinalizationServiceTests
         {
             Records[Guid.Parse(record.Id)] = record;
             return Task.FromResult(true);
+        }
+
+        public Task<IReadOnlyList<ProcessStepFinalizationRecord>> GetRecoverableFinalizationsAsync(
+            DateTimeOffset now,
+            TimeSpan minRecordAge,
+            int maxRetryCount,
+            int maxItemCount,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ProcessStepFinalizationRecord>>(Records.Values
+                .Where(record => IsRecoverable(record, now, minRecordAge, maxRetryCount))
+                .OrderBy(record => record.UpdatedAt ?? record.CreatedAt)
+                .Take(maxItemCount)
+                .ToList());
+
+        public Task<ProcessStepFinalizationRecoveryBacklogSnapshot> GetRecoveryBacklogSnapshotAsync(
+            DateTimeOffset now,
+            TimeSpan minRecordAge,
+            int maxRetryCount,
+            CancellationToken cancellationToken)
+        {
+            var records = Records.Values
+                .Where(record => IsRecoverable(record, now, minRecordAge, maxRetryCount))
+                .OrderBy(record => record.UpdatedAt ?? record.CreatedAt)
+                .ToList();
+            return Task.FromResult(new ProcessStepFinalizationRecoveryBacklogSnapshot(
+                records.Count,
+                records.FirstOrDefault()?.UpdatedAt ?? records.FirstOrDefault()?.CreatedAt));
+        }
+
+        private static bool IsRecoverable(
+            ProcessStepFinalizationRecord record,
+            DateTimeOffset now,
+            TimeSpan minRecordAge,
+            int maxRetryCount)
+        {
+            var updatedAt = record.UpdatedAt ?? record.CreatedAt;
+            if (updatedAt > now - minRecordAge ||
+                record.LastErrorKind is ProcessStepFinalizationErrorKind.FinalizationFailed ||
+                record.RetryCount >= maxRetryCount ||
+                ProcessStepFinalizationStageMachine.IsRecoveredWithoutQueueMessage(record.Stage))
+            {
+                return false;
+            }
+
+            return !ProcessStepFinalizationStageMachine.IsQueueMessageCompletionPrepared(record.Stage) ||
+                record.LastErrorKind is not null;
         }
     }
 

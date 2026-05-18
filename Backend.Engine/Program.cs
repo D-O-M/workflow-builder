@@ -30,7 +30,8 @@ builder.Services.AddOpenTelemetry()
         .AddMeter("WorkflowBuilder.Cosmos")
         .AddMeter(ProcessStepDispatchTelemetry.MeterName)
         .AddMeter(PluginResultFinalizationTelemetry.MeterName)
-        .AddMeter(PluginRuntimeAgentTelemetry.MeterName));
+        .AddMeter(PluginRuntimeAgentTelemetry.MeterName)
+        .AddMeter(StepFinalizationRecoveryTelemetry.MeterName));
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -45,6 +46,11 @@ builder.Services.AddSingleton(sp =>
         .GetSection("ProcessStepDispatch")
         .Get<ProcessStepDispatchOptions>()
     ?? new ProcessStepDispatchOptions());
+builder.Services.AddSingleton(sp =>
+    sp.GetRequiredService<IConfiguration>()
+        .GetSection("FinalizationRecovery")
+        .Get<StepFinalizationRecoveryOptions>()
+    ?? new StepFinalizationRecoveryOptions());
 
 var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(
     builder.Configuration,
@@ -189,7 +195,9 @@ builder.Services.AddSingleton<ProcessLifecycleTelemetry>();
 builder.Services.AddSingleton<ProcessStepDispatchTelemetry>();
 builder.Services.AddSingleton<PluginResultFinalizationTelemetry>();
 builder.Services.AddSingleton<PluginRuntimeAgentTelemetry>();
+builder.Services.AddSingleton<StepFinalizationRecoveryTelemetry>();
 builder.Services.AddSingleton<ProcessStepDispatchService>();
+builder.Services.AddTransient<StepFinalizationRecoveryService>();
 builder.Services.AddSingleton<StepExecutionService>();
 builder.Services.AddSingleton<IStepExecutionService>(provider => provider.GetRequiredService<StepExecutionService>());
 builder.Services.AddSingleton<IPluginAgentFailureHandler>(provider => provider.GetRequiredService<StepExecutionService>());
@@ -201,6 +209,7 @@ builder.Services.AddHostedService<PluginResultFinalizationWorker>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
 builder.Services.AddHostedService<QueueConsumer>();
 builder.Services.AddHostedService<ProcessStepDispatchWorker>();
+builder.Services.AddHostedService<StepFinalizationRecoveryWorker>();
 builder.Services.AddHostedService<PluginReloadConsumer>();
 
 var app = builder.Build();

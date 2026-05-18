@@ -63,6 +63,7 @@ public enum ProcessStepFinalizationStage
     DownstreamActivationCompleted = 3,
     ProcessFinalizationCompleted = 4,
     QueueMessageCompletionPrepared = 5,
+    RecoveredWithoutQueueMessage = 6,
     [Obsolete("Use QueueMessageCompletionPrepared. The durable record is advanced before the broker message is completed.")]
     QueueMessageCompleted = QueueMessageCompletionPrepared
 }

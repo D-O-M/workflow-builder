@@ -15,4 +15,23 @@ public interface IProcessStepFinalizationRepository
     Task<bool> TryUpdateAsync(
         ProcessStepFinalizationRecord record,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ProcessStepFinalizationRecord>> GetRecoverableFinalizationsAsync(
+        DateTimeOffset now,
+        TimeSpan minRecordAge,
+        int maxRetryCount,
+        int maxItemCount,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    Task<ProcessStepFinalizationRecoveryBacklogSnapshot> GetRecoveryBacklogSnapshotAsync(
+        DateTimeOffset now,
+        TimeSpan minRecordAge,
+        int maxRetryCount,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
 }
+
+public sealed record ProcessStepFinalizationRecoveryBacklogSnapshot(
+    long IncompleteCount,
+    DateTimeOffset? OldestIncompleteUpdatedAt);

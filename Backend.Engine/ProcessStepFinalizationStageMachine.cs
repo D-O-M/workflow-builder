@@ -10,7 +10,8 @@ public static class ProcessStepFinalizationStageMachine
         ProcessStepFinalizationStage.OutputsPersisted,
         ProcessStepFinalizationStage.DownstreamActivationCompleted,
         ProcessStepFinalizationStage.ProcessFinalizationCompleted,
-        ProcessStepFinalizationStage.QueueMessageCompletionPrepared
+        ProcessStepFinalizationStage.QueueMessageCompletionPrepared,
+        ProcessStepFinalizationStage.RecoveredWithoutQueueMessage
     ];
 
     private static readonly ProcessStepFinalizationStage[] FailureStages =
@@ -18,7 +19,8 @@ public static class ProcessStepFinalizationStageMachine
         ProcessStepFinalizationStage.ResultReceived,
         ProcessStepFinalizationStage.FailurePersisted,
         ProcessStepFinalizationStage.ProcessFinalizationCompleted,
-        ProcessStepFinalizationStage.QueueMessageCompletionPrepared
+        ProcessStepFinalizationStage.QueueMessageCompletionPrepared,
+        ProcessStepFinalizationStage.RecoveredWithoutQueueMessage
     ];
 
     public static bool HasReached(
@@ -53,6 +55,14 @@ public static class ProcessStepFinalizationStageMachine
             return;
         }
 
+        if (targetStage is ProcessStepFinalizationStage.RecoveredWithoutQueueMessage &&
+            currentStage is (
+                ProcessStepFinalizationStage.ProcessFinalizationCompleted or
+                ProcessStepFinalizationStage.QueueMessageCompletionPrepared))
+        {
+            return;
+        }
+
         var pathName = outcome is ProcessStepFinalizationOutcome.Succeeded
             ? "success"
             : "failure";
@@ -61,7 +71,15 @@ public static class ProcessStepFinalizationStageMachine
     }
 
     public static bool IsTerminalPrepared(ProcessStepFinalizationStage stage) =>
+        NormalizeTerminalStage(stage) is
+            ProcessStepFinalizationStage.QueueMessageCompletionPrepared or
+            ProcessStepFinalizationStage.RecoveredWithoutQueueMessage;
+
+    public static bool IsQueueMessageCompletionPrepared(ProcessStepFinalizationStage stage) =>
         NormalizeTerminalStage(stage) is ProcessStepFinalizationStage.QueueMessageCompletionPrepared;
+
+    public static bool IsRecoveredWithoutQueueMessage(ProcessStepFinalizationStage stage) =>
+        NormalizeTerminalStage(stage) is ProcessStepFinalizationStage.RecoveredWithoutQueueMessage;
 
     public static ProcessStepFinalizationStage NormalizeTerminalStage(ProcessStepFinalizationStage stage) =>
         stage is ProcessStepFinalizationStage.QueueMessageCompletionPrepared

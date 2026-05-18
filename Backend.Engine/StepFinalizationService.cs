@@ -44,6 +44,11 @@ public interface IStepFinalizationService
         StepExecutionContext context,
         ProcessStepFinalizationRecord record,
         CancellationToken cancellationToken);
+
+    Task<CollectionIteratorFinalizationResult> ResumeStepFinalizationForRecoveryAsync(
+        StepExecutionContext context,
+        ProcessStepFinalizationRecord record,
+        CancellationToken cancellationToken);
 }
 
 public class StepFinalizationService : IStepFinalizationService
@@ -111,7 +116,11 @@ public class StepFinalizationService : IStepFinalizationService
 
         await RunWithRetryableErrorCheckpointAsync(
             record.Id,
-            () => ContinueSuccessFinalizationAsync(context, record, cancellationToken),
+            () => ContinueSuccessFinalizationAsync(
+                context,
+                record,
+                completeQueueMessage: true,
+                cancellationToken),
             cancellationToken);
     }
 
@@ -131,7 +140,11 @@ public class StepFinalizationService : IStepFinalizationService
 
         await RunWithRetryableErrorCheckpointAsync(
             record.Id,
-            () => ContinueFailureFinalizationAsync(context, record, cancellationToken),
+            () => ContinueFailureFinalizationAsync(
+                context,
+                record,
+                completeQueueMessage: true,
+                cancellationToken),
             cancellationToken);
     }
 
@@ -154,7 +167,11 @@ public class StepFinalizationService : IStepFinalizationService
 
         return await RunWithRetryableErrorCheckpointAsync(
             record.Id,
-            () => ContinueSuccessFinalizationAsync(context, record, cancellationToken),
+            () => ContinueSuccessFinalizationAsync(
+                context,
+                record,
+                completeQueueMessage: true,
+                cancellationToken),
             cancellationToken);
     }
 
@@ -174,7 +191,11 @@ public class StepFinalizationService : IStepFinalizationService
 
         await RunWithRetryableErrorCheckpointAsync(
             record.Id,
-            () => ContinueFailureFinalizationAsync(context, record, cancellationToken),
+            () => ContinueFailureFinalizationAsync(
+                context,
+                record,
+                completeQueueMessage: true,
+                cancellationToken),
             cancellationToken);
     }
 
@@ -183,11 +204,59 @@ public class StepFinalizationService : IStepFinalizationService
         ProcessStepFinalizationRecord record,
         CancellationToken cancellationToken)
     {
+        return await ResumeStepFinalizationCoreAsync(
+            context,
+            record,
+            completeQueueMessage: true,
+            cancellationToken);
+    }
+
+    public async Task<CollectionIteratorFinalizationResult> ResumeStepFinalizationForRecoveryAsync(
+        StepExecutionContext context,
+        ProcessStepFinalizationRecord record,
+        CancellationToken cancellationToken)
+    {
+        return await ResumeStepFinalizationCoreAsync(
+            context,
+            record,
+            completeQueueMessage: false,
+            cancellationToken);
+    }
+
+    private async Task<CollectionIteratorFinalizationResult> ResumeStepFinalizationCoreAsync(
+        StepExecutionContext context,
+        ProcessStepFinalizationRecord record,
+        bool completeQueueMessage,
+        CancellationToken cancellationToken)
+    {
         await _stepClaimService.HydrateStepForFinalizationAsync(context, cancellationToken);
 
-        if (ProcessStepFinalizationStageMachine.IsTerminalPrepared(record.Stage))
+        if (ProcessStepFinalizationStageMachine.IsRecoveredWithoutQueueMessage(record.Stage))
         {
-            await context.CompleteMessageAsync(cancellationToken);
+            if (completeQueueMessage)
+            {
+                await context.CompleteMessageAsync(cancellationToken);
+            }
+
+            return new CollectionIteratorFinalizationResult(
+                record.CollectionIteratorItemCount ?? 0,
+                QueuedStepCount: 0,
+                DownstreamActivationElapsed: TimeSpan.Zero);
+        }
+
+        if (ProcessStepFinalizationStageMachine.IsQueueMessageCompletionPrepared(record.Stage))
+        {
+            if (completeQueueMessage)
+            {
+                await context.CompleteMessageAsync(cancellationToken);
+            }
+            else
+            {
+                await MarkRecoveredWithoutQueueMessageAsync(
+                    record.Id,
+                    cancellationToken);
+            }
+
             return new CollectionIteratorFinalizationResult(
                 record.CollectionIteratorItemCount ?? 0,
                 QueuedStepCount: 0,
@@ -198,11 +267,19 @@ public class StepFinalizationService : IStepFinalizationService
         {
             ProcessStepFinalizationOutcome.Succeeded => await RunWithRetryableErrorCheckpointAsync(
                 record.Id,
-                () => ContinueSuccessFinalizationAsync(context, record, cancellationToken),
+                () => ContinueSuccessFinalizationAsync(
+                    context,
+                    record,
+                    completeQueueMessage,
+                    cancellationToken),
                 cancellationToken),
             ProcessStepFinalizationOutcome.Failed => await RunWithRetryableErrorCheckpointAsync(
                 record.Id,
-                () => ContinueFailureFinalizationAsync(context, record, cancellationToken),
+                () => ContinueFailureFinalizationAsync(
+                    context,
+                    record,
+                    completeQueueMessage,
+                    cancellationToken),
                 cancellationToken),
             _ => throw new InvalidOperationException(
                 $"Unsupported finalization outcome '{record.Outcome}' for step {context.ProcessStepId}.")
@@ -212,6 +289,7 @@ public class StepFinalizationService : IStepFinalizationService
     private async Task<CollectionIteratorFinalizationResult> ContinueSuccessFinalizationAsync(
         StepExecutionContext context,
         ProcessStepFinalizationRecord initialRecord,
+        bool completeQueueMessage,
         CancellationToken cancellationToken)
     {
         var record = await _finalizationRepository.GetAsync(
@@ -289,13 +367,22 @@ public class StepFinalizationService : IStepFinalizationService
                 cancellationToken);
         }
 
-        await PrepareDurableFinalizationAndCompleteMessageAsync(context, record, cancellationToken);
+        if (completeQueueMessage)
+        {
+            await PrepareDurableFinalizationAndCompleteMessageAsync(context, record, cancellationToken);
+        }
+        else
+        {
+            await MarkRecoveredWithoutQueueMessageAsync(record.Id, cancellationToken);
+        }
+
         return collectionResult;
     }
 
     private async Task<CollectionIteratorFinalizationResult> ContinueFailureFinalizationAsync(
         StepExecutionContext context,
         ProcessStepFinalizationRecord initialRecord,
+        bool completeQueueMessage,
         CancellationToken cancellationToken)
     {
         var record = await _finalizationRepository.GetAsync(
@@ -348,7 +435,14 @@ public class StepFinalizationService : IStepFinalizationService
                 cancellationToken);
         }
 
-        await PrepareDurableFinalizationAndCompleteMessageAsync(context, record, cancellationToken);
+        if (completeQueueMessage)
+        {
+            await PrepareDurableFinalizationAndCompleteMessageAsync(context, record, cancellationToken);
+        }
+        else
+        {
+            await MarkRecoveredWithoutQueueMessageAsync(record.Id, cancellationToken);
+        }
 
         if (!string.IsNullOrWhiteSpace(record.ErrorMessage))
         {
@@ -802,6 +896,15 @@ public class StepFinalizationService : IStepFinalizationService
             cancellationToken);
         await context.CompleteMessageAsync(cancellationToken);
     }
+
+    private Task<ProcessStepFinalizationRecord> MarkRecoveredWithoutQueueMessageAsync(
+        string recordId,
+        CancellationToken cancellationToken) =>
+        AdvanceStageAsync(
+            recordId,
+            ProcessStepFinalizationStage.RecoveredWithoutQueueMessage,
+            trimResultSnapshot: false,
+            cancellationToken);
 
     private async Task<ProcessStepFinalizationRecord> CreateOrGetFinalizationRecordAsync(
         StepExecutionContext context,

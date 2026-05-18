@@ -28,6 +28,14 @@ public sealed class ProcessStepFinalizationStageMachineTests
             ProcessStepFinalizationOutcome.Succeeded,
             ProcessStepFinalizationStage.ProcessFinalizationCompleted,
             ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
+        AssertCanAdvance(
+            ProcessStepFinalizationOutcome.Succeeded,
+            ProcessStepFinalizationStage.QueueMessageCompletionPrepared,
+            ProcessStepFinalizationStage.RecoveredWithoutQueueMessage);
+        AssertCanAdvance(
+            ProcessStepFinalizationOutcome.Succeeded,
+            ProcessStepFinalizationStage.ProcessFinalizationCompleted,
+            ProcessStepFinalizationStage.RecoveredWithoutQueueMessage);
     }
 
     [Test]
@@ -45,6 +53,14 @@ public sealed class ProcessStepFinalizationStageMachineTests
             ProcessStepFinalizationOutcome.Failed,
             ProcessStepFinalizationStage.ProcessFinalizationCompleted,
             ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
+        AssertCanAdvance(
+            ProcessStepFinalizationOutcome.Failed,
+            ProcessStepFinalizationStage.QueueMessageCompletionPrepared,
+            ProcessStepFinalizationStage.RecoveredWithoutQueueMessage);
+        AssertCanAdvance(
+            ProcessStepFinalizationOutcome.Failed,
+            ProcessStepFinalizationStage.ProcessFinalizationCompleted,
+            ProcessStepFinalizationStage.RecoveredWithoutQueueMessage);
     }
 
     [Test]
@@ -122,6 +138,8 @@ public sealed class ProcessStepFinalizationStageMachineTests
             "QueueMessageCompleted");
 
         ProcessStepFinalizationStageMachine.IsTerminalPrepared(legacyStage).ShouldBeTrue();
+        ProcessStepFinalizationStageMachine.IsTerminalPrepared(ProcessStepFinalizationStage.RecoveredWithoutQueueMessage)
+            .ShouldBeTrue();
         ProcessStepFinalizationStageMachine.NormalizeTerminalStage(legacyStage)
             .ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
         JsonSerializer.Deserialize<ProcessStepFinalizationStage>(
