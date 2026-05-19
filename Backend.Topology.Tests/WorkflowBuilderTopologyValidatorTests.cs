@@ -22,6 +22,9 @@ public sealed class WorkflowBuilderTopologyValidatorTests
         catalog.Cosmos.Containers.ShouldContain(container =>
             container.Name == WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name &&
             container.PartitionKey == "/processId");
+        catalog.Cosmos.Containers.ShouldContain(container =>
+            container.Name == WorkflowBuilderTopology.Cosmos.Containers.ProcessStepDispatches.Name &&
+            container.PartitionKey == "/partitionKey");
         catalog.Storage.Plugins.ContainerName.ShouldBe("plugins");
         catalog.ServiceBus.ProcessStepQueue.QueueName.ShouldBe("processsteps");
         catalog.Realtime.HubRoute.ShouldBe("/hubs/processes");

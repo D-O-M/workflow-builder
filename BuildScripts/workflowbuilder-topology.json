@@ -24,6 +24,10 @@
         "partitionKey": "/processId"
       },
       {
+        "name": "processstepdispatches",
+        "partitionKey": "/partitionKey"
+      },
+      {
         "name": "processstepfinalizations",
         "partitionKey": "/id"
       },

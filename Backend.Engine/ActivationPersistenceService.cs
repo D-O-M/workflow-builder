@@ -202,6 +202,14 @@ public sealed class ActivationPersistenceService
 
         foreach (var step in scheduledSteps)
         {
+            await _processStepDispatchService.EnsureDispatchIntentAsync(
+                step,
+                timestamp,
+                cancellationToken);
+        }
+
+        foreach (var step in scheduledSteps)
+        {
             if (!joinStateIdsByStepId.TryGetValue(Guid.Parse(step.Id), out var joinState))
             {
                 continue;

@@ -28,6 +28,7 @@ public static class WorkflowBuilderTopology
             public static readonly CosmosContainer ProcessDirectory = new("processdirectory", "/id");
             public static readonly CosmosContainer ProcessSummaries = new("processsummaries", "/partitionKey");
             public static readonly CosmosContainer ProcessSteps = new("processsteps", "/processId");
+            public static readonly CosmosContainer ProcessStepDispatches = new("processstepdispatches", "/partitionKey");
             public static readonly CosmosContainer ProcessStepFinalizations = new("processstepfinalizations", "/id");
             public static readonly CosmosContainer NodeActivations = new("nodeactivations", "/processId");
             public static readonly CosmosContainer NodeJoinStates = new("nodejoinstates", "/processId");
@@ -162,6 +163,7 @@ public static class WorkflowBuilderTopology
                     Cosmos.Containers.ProcessDirectory,
                     Cosmos.Containers.ProcessSummaries,
                     Cosmos.Containers.ProcessSteps,
+                    Cosmos.Containers.ProcessStepDispatches,
                     Cosmos.Containers.ProcessStepFinalizations,
                     Cosmos.Containers.NodeActivations,
                     Cosmos.Containers.NodeJoinStates,

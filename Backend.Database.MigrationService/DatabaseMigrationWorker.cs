@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Backend.Database.Relational;
 using Backend.Database.State.Objects;
+using Backend.Interfaces.Repositories;
 using Backend.Repositories;
 using Backend.Repositories.Processes;
 using Backend.Topology;
@@ -32,6 +33,7 @@ internal sealed class DatabaseMigrationWorker(
             await ApplyRelationalMigrationsAsync(scope.ServiceProvider, stoppingToken);
             await ProvisionProcessStateAsync(scope.ServiceProvider, stoppingToken);
             await BackfillProcessIndexAsync(scope.ServiceProvider, stoppingToken);
+            await BackfillProcessStepDispatchesAsync(scope.ServiceProvider, stoppingToken);
 
             logger.LogInformation("Workflow database provisioning completed successfully.");
             activity?.SetStatus(ActivityStatusCode.Ok);
@@ -99,6 +101,10 @@ internal sealed class DatabaseMigrationWorker(
         await EnsureContainerAsync(
             databaseResponse.Database,
             WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps,
+            cancellationToken);
+        await EnsureContainerAsync(
+            databaseResponse.Database,
+            WorkflowBuilderTopology.Cosmos.Containers.ProcessStepDispatches,
             cancellationToken);
         await EnsureContainerAsync(
             databaseResponse.Database,
@@ -209,6 +215,131 @@ internal sealed class DatabaseMigrationWorker(
         logger.LogInformation(
             "Process index backfill completed after indexing {IndexedProcessCount} processes.",
             indexedCount);
+    }
+
+    private async Task BackfillProcessStepDispatchesAsync(
+        IServiceProvider serviceProvider,
+        CancellationToken cancellationToken)
+    {
+        var enabled = configuration.GetValue("ProcessStepDispatchBackfill:Enabled", false);
+        if (!enabled)
+        {
+            logger.LogInformation("Process-step dispatch backfill is disabled.");
+            return;
+        }
+
+        var shardCount = Math.Clamp(configuration.GetValue("ProcessStepDispatch:ShardCount", 32), 1, 1024);
+        var dueBucketDuration = configuration.GetValue("ProcessStepDispatch:DueBucketDuration", TimeSpan.FromSeconds(5));
+        if (dueBucketDuration <= TimeSpan.Zero)
+        {
+            dueBucketDuration = TimeSpan.FromSeconds(5);
+        }
+
+        var databaseName = configuration[WorkflowBuilderTopology.Cosmos.DatabaseNameKey]
+            ?? WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
+        var cosmosClient = serviceProvider.GetRequiredService<CosmosClient>();
+        var database = cosmosClient.GetDatabase(databaseName);
+        var processStepRepository = new ProcessStepRepository(
+            database.GetContainer(WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name));
+        var intentRepository = new ProcessStepDispatchIntentRepository(
+            database.GetContainer(WorkflowBuilderTopology.Cosmos.Containers.ProcessStepDispatches.Name));
+        var stepsContainer = database.GetContainer(WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name);
+        var query = new QueryDefinition(
+            """
+            SELECT *
+            FROM c
+            WHERE c.status = 'Pending'
+              AND (
+                NOT IS_DEFINED(c.dispatch)
+                OR IS_NULL(c.dispatch)
+                OR NOT IS_DEFINED(c.dispatch.activeIntentId)
+                OR IS_NULL(c.dispatch.activeIntentId)
+              )
+              AND (
+                NOT IS_DEFINED(c.dispatch)
+                OR IS_NULL(c.dispatch)
+                OR c.dispatch.status = 'Pending'
+                OR c.dispatch.status = 'RetryableDispatchError'
+                OR c.dispatch.status = 'Dispatching'
+              )
+            """);
+
+        var now = DateTimeOffset.UtcNow;
+        var createdCount = 0;
+        var minBucketByShard = new Dictionary<int, long>();
+        using var iterator = stepsContainer.GetItemQueryIterator<ProcessStepRecord>(query);
+        while (iterator.HasMoreResults)
+        {
+            var page = await iterator.ReadNextAsync(cancellationToken);
+            foreach (var step in page)
+            {
+                var nextAttemptAt = step.Dispatch?.NextAttemptAt ?? step.CreatedAt;
+                var dueBucket = Math.Max(
+                    ProcessStepDispatchSchedule.CalculateDueBucket(nextAttemptAt, dueBucketDuration),
+                    ProcessStepDispatchSchedule.CalculateDueBucket(now, dueBucketDuration) + 1);
+                var shard = ProcessStepDispatchSchedule.CalculateShard(step.Id, shardCount);
+                var attemptCount = step.Dispatch?.AttemptCount ?? 0;
+                var intent = new ProcessStepDispatchIntentRecord
+                {
+                    id = ProcessStepDispatchSchedule.CreateIntentId(step.Id, dueBucket, attemptCount),
+                    PartitionKey = ProcessStepDispatchIntentKeys.CreateDuePartitionKey(dueBucket, shard),
+                    ProcessStepId = step.Id,
+                    ProcessId = step.ProcessId,
+                    BlueprintId = step.BlueprintId,
+                    BlueprintNodeId = step.BlueprintNodeId,
+                    Status = ProcessStepDispatchStatus.Pending,
+                    DueBucket = dueBucket,
+                    Shard = shard,
+                    NextAttemptAt = nextAttemptAt,
+                    AttemptCount = attemptCount,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+
+                var (created, record) = await intentRepository.CreateIntentIfNotExistsAsync(intent, cancellationToken);
+                if (created)
+                {
+                    createdCount++;
+                }
+
+                var dispatch = step.Dispatch ?? new ProcessStepDispatchState
+                {
+                    CreatedAt = step.CreatedAt
+                };
+                dispatch.ActiveIntentId = record.Id;
+                dispatch.DueBucket = record.DueBucket;
+                dispatch.Shard = record.Shard;
+                dispatch.Status = ProcessStepDispatchStatus.Pending;
+                dispatch.MessageId = step.Id;
+                dispatch.AttemptCount = record.AttemptCount;
+                dispatch.NextAttemptAt = record.NextAttemptAt;
+                dispatch.UpdatedAt = now;
+                await processStepRepository.TryUpdateStepDispatchAsync(
+                    Guid.Parse(step.Id),
+                    Guid.Parse(step.ProcessId),
+                    dispatch,
+                    cancellationToken);
+
+                if (!minBucketByShard.TryGetValue(record.Shard, out var currentMin) ||
+                    record.DueBucket < currentMin)
+                {
+                    minBucketByShard[record.Shard] = record.DueBucket;
+                }
+            }
+        }
+
+        foreach (var (shard, dueBucket) in minBucketByShard)
+        {
+            await intentRepository.TryRewindCursorAsync(
+                shard,
+                dueBucket,
+                DateTimeOffset.UtcNow,
+                cancellationToken);
+        }
+
+        logger.LogInformation(
+            "Process-step dispatch backfill completed after creating {DispatchIntentCount} missing intent records.",
+            createdCount);
     }
 
     private Task<ContainerResponse> EnsureContainerAsync(

@@ -13,4 +13,10 @@ public sealed class ProcessStepDispatchOptions
     public TimeSpan RetryBaseDelay { get; init; } = TimeSpan.FromSeconds(1);
 
     public TimeSpan RetryMaxDelay { get; init; } = TimeSpan.FromMinutes(1);
+
+    public int ShardCount { get; init; } = 32;
+
+    public TimeSpan DueBucketDuration { get; init; } = TimeSpan.FromSeconds(5);
+
+    public int MaxBucketsPerPoll { get; init; } = 12;
 }

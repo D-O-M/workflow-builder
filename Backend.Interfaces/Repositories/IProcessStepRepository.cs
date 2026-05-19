@@ -96,6 +96,13 @@ public interface IProcessStepRepository
         CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
+    Task<bool> TryUpdateStepDispatchAsync(
+        Guid processStepId,
+        Guid processId,
+        ProcessStepDispatchState dispatch,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
     Task CompleteProcessStepAsync(
         Guid taskInstanceId,
         Guid processId,

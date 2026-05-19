@@ -208,6 +208,7 @@ public class StepFinalizationGlobalStateTests
         var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
         var dispatchService = new ProcessStepDispatchService(
             stepRepository.Object,
+            new InMemoryProcessStepDispatchIntentRepository(),
             Mock.Of<IProcessStepQueueWriter>(),
             new ProcessStepDispatchOptions(),
             new ProcessStepDispatchTelemetry(),

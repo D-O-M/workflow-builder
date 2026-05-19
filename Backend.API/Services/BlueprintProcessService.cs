@@ -168,6 +168,10 @@ public sealed class BlueprintProcessService
 
         using (_processStartTelemetry.StartEnqueueInitialStep(blueprintDefinitionId))
         {
+            await _processStepDispatchService.EnsureDispatchIntentAsync(
+                initialStepState,
+                acceptedAt,
+                cancellationToken);
             await _processStepDispatchService.TryDispatchAsync(initialStepState, cancellationToken);
         }
 
@@ -299,6 +303,10 @@ public sealed class BlueprintProcessService
 
         using (_processStartTelemetry.StartEnqueueInitialStep(blueprintDefinitionId))
         {
+            await _processStepDispatchService.EnsureDispatchIntentAsync(
+                initialStepState,
+                acceptedAt,
+                cancellationToken);
             await _processStepDispatchService.TryDispatchAsync(initialStepState, cancellationToken);
         }
 

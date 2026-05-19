@@ -280,6 +280,7 @@ public sealed class ActivationPersistenceServiceTests
         ProcessStepQueueWriterSpy queueWriter) =>
         new(
             stepRepository,
+            new InMemoryProcessStepDispatchIntentRepository(),
             queueWriter,
             new ProcessStepDispatchOptions
             {
@@ -736,6 +737,24 @@ public sealed class ActivationPersistenceServiceTests
         public Task<bool> TryUpdateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken)
         {
             States[Guid.Parse(state.Id)] = state;
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> TryUpdateStepDispatchAsync(
+            Guid processStepId,
+            Guid processId,
+            ProcessStepDispatchState dispatch,
+            CancellationToken cancellationToken)
+        {
+            if (!States.TryGetValue(processStepId, out var state) ||
+                !string.Equals(state.ProcessId, processId.ToString(), StringComparison.Ordinal) ||
+                state.Status is not ProcessStepStatus.Pending)
+            {
+                return Task.FromResult(false);
+            }
+
+            state.Dispatch = dispatch;
+            state.UpdatedAt = dispatch.UpdatedAt;
             return Task.FromResult(true);
         }
 

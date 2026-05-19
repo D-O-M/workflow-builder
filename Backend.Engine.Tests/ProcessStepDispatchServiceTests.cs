@@ -18,11 +18,32 @@ namespace Backend.Engine.Tests;
 public sealed class ProcessStepDispatchServiceTests
 {
     [Test]
+    public async Task EnsureDispatchIntent_creates_active_intent_projection()
+    {
+        var repository = new InMemoryProcessStepRepository();
+        var dispatchIntentRepository = new InMemoryProcessStepDispatchIntentRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var service = CreateService(repository, dispatchIntentRepository, queueWriter);
+        var step = CreateStep();
+        repository.States[Guid.Parse(step.Id)] = step;
+
+        var intent = await service.EnsureDispatchIntentAsync(step, step.CreatedAt, CancellationToken.None);
+
+        step.Dispatch.ShouldNotBeNull();
+        step.Dispatch.ActiveIntentId.ShouldBe(intent.Id);
+        step.Dispatch.DueBucket.ShouldBe(intent.DueBucket);
+        step.Dispatch.Shard.ShouldBe(intent.Shard);
+        dispatchIntentRepository.Intents.Single().Id.ShouldBe(intent.Id);
+        queueWriter.Messages.Count.ShouldBe(0);
+    }
+
+    [Test]
     public async Task Dispatch_failure_keeps_intent_retryable_and_worker_later_sends()
     {
         var repository = new InMemoryProcessStepRepository();
+        var dispatchIntentRepository = new InMemoryProcessStepDispatchIntentRepository();
         var queueWriter = new ProcessStepQueueWriterSpy { ThrowOnEnqueueAttempts = 1 };
-        var service = CreateService(repository, queueWriter);
+        var service = CreateService(repository, dispatchIntentRepository, queueWriter);
         var step = CreateStep();
         repository.States[Guid.Parse(step.Id)] = step;
 
@@ -32,25 +53,31 @@ public sealed class ProcessStepDispatchServiceTests
         queueWriter.Messages.Count.ShouldBe(0);
         step.Dispatch.ShouldNotBeNull();
         step.Dispatch.Status.ShouldBe(ProcessStepDispatchStatus.RetryableDispatchError);
-        repository.MarkSucceededCount.ShouldBe(0);
+        step.Dispatch.ActiveIntentId.ShouldNotBeNull();
+        dispatchIntentRepository.Intents.Count.ShouldBe(2);
+        var retryIntent = dispatchIntentRepository.Intents.Single(intent => intent.Id == step.Dispatch.ActiveIntentId);
+        retryIntent.DueBucket.ShouldBeGreaterThan(ProcessStepDispatchService.CalculateDueBucket(
+            retryIntent.CreatedAt,
+            TimeSpan.FromMilliseconds(1)));
 
         queueWriter.ThrowOnEnqueueAttempts = 0;
-        step.Dispatch.NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        await Task.Delay(20);
         var dispatchedCount = await service.DrainDueDispatchesAsync(10, CancellationToken.None);
 
         dispatchedCount.ShouldBe(1);
         queueWriter.Messages.Count.ShouldBe(1);
         queueWriter.Messages[0].ProcessStepId.ShouldBe(Guid.Parse(step.Id));
         step.Dispatch.Status.ShouldBe(ProcessStepDispatchStatus.Dispatched);
-        repository.MarkSucceededCount.ShouldBe(1);
+        dispatchIntentRepository.Intents.Count(intent => intent.Status == ProcessStepDispatchStatus.Dispatched).ShouldBe(1);
     }
 
     [Test]
     public async Task Duplicate_worker_execution_claims_dispatch_once()
     {
         var repository = new InMemoryProcessStepRepository();
+        var dispatchIntentRepository = new InMemoryProcessStepDispatchIntentRepository();
         var queueWriter = new ProcessStepQueueWriterSpy();
-        var service = CreateService(repository, queueWriter);
+        var service = CreateService(repository, dispatchIntentRepository, queueWriter);
         var step = CreateStep();
         repository.States[Guid.Parse(step.Id)] = step;
 
@@ -63,14 +90,16 @@ public sealed class ProcessStepDispatchServiceTests
         step.Dispatch.ShouldNotBeNull();
         step.Dispatch.AttemptCount.ShouldBe(1);
         step.Dispatch.Status.ShouldBe(ProcessStepDispatchStatus.Dispatched);
+        dispatchIntentRepository.Intents.Count.ShouldBe(1);
     }
 
     [Test]
     public async Task Terminal_steps_are_not_dispatched()
     {
         var repository = new InMemoryProcessStepRepository();
+        var dispatchIntentRepository = new InMemoryProcessStepDispatchIntentRepository();
         var queueWriter = new ProcessStepQueueWriterSpy();
-        var service = CreateService(repository, queueWriter);
+        var service = CreateService(repository, dispatchIntentRepository, queueWriter);
         var step = CreateStep(ProcessStepStatus.Completed);
         repository.States[Guid.Parse(step.Id)] = step;
 
@@ -82,14 +111,16 @@ public sealed class ProcessStepDispatchServiceTests
         queueWriter.Messages.Count.ShouldBe(0);
         step.Dispatch.ShouldNotBeNull();
         step.Dispatch.Status.ShouldBe(ProcessStepDispatchStatus.Pending);
+        dispatchIntentRepository.Intents.Count.ShouldBe(0);
     }
 
     [Test]
     public async Task Dispatch_is_marked_completed_only_after_queue_send_succeeds()
     {
         var repository = new InMemoryProcessStepRepository();
+        var dispatchIntentRepository = new InMemoryProcessStepDispatchIntentRepository();
         var queueWriter = new ProcessStepQueueWriterSpy { ThrowOnEnqueueAttempts = 1 };
-        var service = CreateService(repository, queueWriter);
+        var service = CreateService(repository, dispatchIntentRepository, queueWriter);
         var step = CreateStep();
         repository.States[Guid.Parse(step.Id)] = step;
 
@@ -98,20 +129,71 @@ public sealed class ProcessStepDispatchServiceTests
         step.Dispatch.ShouldNotBeNull();
         step.Dispatch.Status.ShouldNotBe(ProcessStepDispatchStatus.Dispatched);
         step.Dispatch.DispatchedAt.ShouldBeNull();
-        repository.MarkSucceededCount.ShouldBe(0);
+        dispatchIntentRepository.Intents.Any(intent => intent.Status == ProcessStepDispatchStatus.Dispatched).ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task Stale_dispatching_intent_is_reclaimed_after_lock_expiry()
+    {
+        var repository = new InMemoryProcessStepRepository();
+        var dispatchIntentRepository = new InMemoryProcessStepDispatchIntentRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var service = CreateService(repository, dispatchIntentRepository, queueWriter);
+        var step = CreateStep();
+        repository.States[Guid.Parse(step.Id)] = step;
+
+        var intent = await service.EnsureDispatchIntentAsync(step, step.CreatedAt, CancellationToken.None);
+        intent.Status = ProcessStepDispatchStatus.Dispatching;
+        intent.LeaseId = "expired";
+        intent.LockedUntil = DateTimeOffset.UtcNow.AddMilliseconds(-1);
+        intent.DispatchingStartedAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        await Task.Delay(20);
+
+        var dispatchedCount = await service.DrainDueDispatchesAsync(10, CancellationToken.None);
+
+        dispatchedCount.ShouldBe(1);
+        queueWriter.Messages.Count.ShouldBe(1);
+        intent.Status.ShouldBe(ProcessStepDispatchStatus.Dispatched);
+        step.Dispatch!.Status.ShouldBe(ProcessStepDispatchStatus.Dispatched);
+    }
+
+    [Test]
+    public async Task Worker_drains_exact_due_bucket_shard_partitions_without_processstep_scan()
+    {
+        var repository = new InMemoryProcessStepRepository();
+        var dispatchIntentRepository = new InMemoryProcessStepDispatchIntentRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var service = CreateService(repository, dispatchIntentRepository, queueWriter);
+        var step = CreateStep();
+        repository.States[Guid.Parse(step.Id)] = step;
+
+        await service.EnsureDispatchIntentAsync(step, step.CreatedAt, CancellationToken.None);
+        await Task.Delay(20);
+
+        var dispatchedCount = await service.DrainDueDispatchesAsync(10, CancellationToken.None);
+
+        dispatchedCount.ShouldBe(1);
+        queueWriter.Messages.Count.ShouldBe(1);
+        repository.DueStepDispatchScanCalls.ShouldBe(0);
+        dispatchIntentRepository.DueQueries.ShouldNotBeEmpty();
+        dispatchIntentRepository.DueQueries.ShouldAllBe(query => query.Shard >= 0 && query.Shard < 4);
     }
 
     private static ProcessStepDispatchService CreateService(
         InMemoryProcessStepRepository repository,
+        InMemoryProcessStepDispatchIntentRepository dispatchIntentRepository,
         ProcessStepQueueWriterSpy queueWriter) =>
         new(
             repository,
+            dispatchIntentRepository,
             queueWriter,
             new ProcessStepDispatchOptions
             {
                 RetryBaseDelay = TimeSpan.FromMilliseconds(1),
                 RetryMaxDelay = TimeSpan.FromMilliseconds(10),
-                LeaseDuration = TimeSpan.FromSeconds(30)
+                LeaseDuration = TimeSpan.FromSeconds(30),
+                DueBucketDuration = TimeSpan.FromMilliseconds(1),
+                ShardCount = 4
             },
             new ProcessStepDispatchTelemetry(),
             NullLogger<ProcessStepDispatchService>.Instance);
@@ -146,7 +228,7 @@ public sealed class ProcessStepDispatchServiceTests
 
         public Dictionary<Guid, ProcessStepRecord> States { get; } = new();
 
-        public int MarkSucceededCount { get; private set; }
+        public int DueStepDispatchScanCalls { get; private set; }
 
         public Task<IReadOnlyList<ProcessStepRecord>> GetDueStepDispatchesAsync(
             DateTimeOffset now,
@@ -155,6 +237,7 @@ public sealed class ProcessStepDispatchServiceTests
         {
             lock (_gate)
             {
+                DueStepDispatchScanCalls++;
                 return Task.FromResult<IReadOnlyList<ProcessStepRecord>>(States.Values
                     .Where(state => state.Status is ProcessStepStatus.Pending && IsDispatchDue(state.Dispatch, now))
                     .OrderBy(state => state.CreatedAt)
@@ -224,7 +307,6 @@ public sealed class ProcessStepDispatchServiceTests
                     return Task.FromResult(false);
                 }
 
-                MarkSucceededCount++;
                 dispatch.Status = ProcessStepDispatchStatus.Dispatched;
                 dispatch.MessageId = state.Id;
                 dispatch.UpdatedAt = dispatchedAt;
@@ -280,8 +362,19 @@ public sealed class ProcessStepDispatchServiceTests
         public Task<ProcessStepRecord> GetProcessStepById(
             Guid taskInstanceId,
             Guid processId,
-            CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+            CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                if (States.TryGetValue(taskInstanceId, out var state) &&
+                    string.Equals(state.ProcessId, processId.ToString(), StringComparison.Ordinal))
+                {
+                    return Task.FromResult(state);
+                }
+
+                throw new KeyNotFoundException($"Step {taskInstanceId} was not found.");
+            }
+        }
 
         public Task<(bool Claimed, ProcessStepRecord? State)> TryClaimProcessStepAsync(
             Guid taskInstanceId,
@@ -323,6 +416,27 @@ public sealed class ProcessStepDispatchServiceTests
 
         public Task<bool> TryUpdateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<bool> TryUpdateStepDispatchAsync(
+            Guid processStepId,
+            Guid processId,
+            ProcessStepDispatchState dispatch,
+            CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                if (!States.TryGetValue(processStepId, out var state) ||
+                    !string.Equals(state.ProcessId, processId.ToString(), StringComparison.Ordinal) ||
+                    state.Status is not ProcessStepStatus.Pending)
+                {
+                    return Task.FromResult(false);
+                }
+
+                state.Dispatch = dispatch;
+                state.UpdatedAt = dispatch.UpdatedAt;
+                return Task.FromResult(true);
+            }
+        }
 
         private static bool IsDispatchDue(
             ProcessStepDispatchState? dispatch,

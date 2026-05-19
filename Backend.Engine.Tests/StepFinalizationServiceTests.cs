@@ -55,6 +55,7 @@ public sealed class StepFinalizationServiceTests
 
         queueWriter.ThrowOnEnqueueAttempts = 0;
         downstreamStep.Dispatch.NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        await Task.Delay(20);
         await dispatchService.DrainDueDispatchesAsync(10, CancellationToken.None);
 
         var completedRecord = await finalizationRepository.GetRequiredAsync(context.ProcessStepId);
@@ -229,6 +230,7 @@ public sealed class StepFinalizationServiceTests
             step.Dispatch!.NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(-1);
         }
 
+        await Task.Delay(20);
         await dispatchService.DrainDueDispatchesAsync(10, CancellationToken.None);
 
         stepRepository.CreatedSteps.Count.ShouldBe(2);
@@ -655,11 +657,14 @@ public sealed class StepFinalizationServiceTests
         ProcessStepQueueWriterSpy queueWriter) =>
         new(
             stepRepository,
+            new InMemoryProcessStepDispatchIntentRepository(),
             queueWriter,
             new ProcessStepDispatchOptions
             {
                 RetryBaseDelay = TimeSpan.FromMilliseconds(1),
-                RetryMaxDelay = TimeSpan.FromMilliseconds(10)
+                RetryMaxDelay = TimeSpan.FromMilliseconds(10),
+                DueBucketDuration = TimeSpan.FromMilliseconds(1),
+                ShardCount = 4
             },
             new ProcessStepDispatchTelemetry(),
             NullLogger<ProcessStepDispatchService>.Instance);
@@ -1251,6 +1256,24 @@ public sealed class StepFinalizationServiceTests
         public Task<bool> TryUpdateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken)
         {
             States[Guid.Parse(state.Id)] = state;
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> TryUpdateStepDispatchAsync(
+            Guid processStepId,
+            Guid processId,
+            ProcessStepDispatchState dispatch,
+            CancellationToken cancellationToken)
+        {
+            if (!States.TryGetValue(processStepId, out var state) ||
+                !string.Equals(state.ProcessId, processId.ToString(), StringComparison.Ordinal) ||
+                state.Status is not ProcessStepStatus.Pending)
+            {
+                return Task.FromResult(false);
+            }
+
+            state.Dispatch = dispatch;
+            state.UpdatedAt = dispatch.UpdatedAt;
             return Task.FromResult(true);
         }
 

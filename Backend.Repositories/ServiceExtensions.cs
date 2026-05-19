@@ -29,6 +29,7 @@ public static class ServiceExtensions
         string? processDirectoryContainerName = null,
         string? processSummariesContainerName = null,
         string? tasksContainerName = null,
+        string? stepDispatchesContainerName = null,
         string? stepFinalizationsContainerName = null,
         string? activationsContainerName = null,
         string? joinStatesContainerName = null,
@@ -40,6 +41,7 @@ public static class ServiceExtensions
         processDirectoryContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessDirectory.Name;
         processSummariesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessSummaries.Name;
         tasksContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name;
+        stepDispatchesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessStepDispatches.Name;
         stepFinalizationsContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessStepFinalizations.Name;
         activationsContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.NodeActivations.Name;
         joinStatesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.NodeJoinStates.Name;
@@ -53,6 +55,7 @@ public static class ServiceExtensions
             ProcessDirectoryContainerName = processDirectoryContainerName,
             ProcessSummariesContainerName = processSummariesContainerName,
             TasksContainerName = tasksContainerName,
+            StepDispatchesContainerName = stepDispatchesContainerName,
             StepFinalizationsContainerName = stepFinalizationsContainerName,
             ActivationsContainerName = activationsContainerName,
             JoinStatesContainerName = joinStatesContainerName,
@@ -71,6 +74,13 @@ public static class ServiceExtensions
             var client = sp.GetRequiredService<CosmosClient>();
             return new ProcessStepFinalizationRepository(
                 client.GetContainer(databaseName, stepFinalizationsContainerName));
+        });
+
+        services.AddSingleton<IProcessStepDispatchIntentRepository>(sp =>
+        {
+            var client = sp.GetRequiredService<CosmosClient>();
+            return new ProcessStepDispatchIntentRepository(
+                client.GetContainer(databaseName, stepDispatchesContainerName));
         });
 
         services.AddSingleton<INodeActivationRepository>(sp =>

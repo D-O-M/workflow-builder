@@ -445,6 +445,35 @@ public class ProcessStepRepository
         }
     }
 
+    public async Task<bool> TryUpdateStepDispatchAsync(
+        Guid processStepId,
+        Guid processId,
+        ProcessStepDispatchState dispatch,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Container.PatchItemAsync<ProcessStepRecord>(
+                processStepId.ToString(),
+                new PartitionKey(processId.ToString()),
+                [
+                    PatchOperation.Set("/dispatch", dispatch),
+                    PatchOperation.Set("/updatedAt", dispatch.UpdatedAt ?? DateTimeOffset.UtcNow)
+                ],
+                new PatchItemRequestOptions
+                {
+                    FilterPredicate = "FROM c WHERE c.status = 'Pending'"
+                },
+                cancellationToken);
+
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict or HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
     public async Task CompleteProcessStepAsync(
         Guid taskInstanceId,
         Guid processId,

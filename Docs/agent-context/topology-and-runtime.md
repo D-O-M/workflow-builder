@@ -12,6 +12,7 @@ Key runtime resources wired there:
   - `processdirectory`
   - `processsummaries`
   - `processsteps`
+  - `processstepdispatches`
   - `processstepfinalizations`
   - `nodeactivations`
   - `nodejoinstates`
@@ -105,15 +106,15 @@ Existing deployments can opt into projection repair by running the migration ser
 
 ## Step Dispatch Guarantee
 
-Process-step scheduling is at-least-once. Every new pending `ProcessStepRecord` carries an embedded `dispatch` state, so the step and its queue-dispatch intent are durable in the same Cosmos document before Service Bus is required to accept a message.
+Process-step scheduling is at-least-once. Every new pending `ProcessStepRecord` carries an embedded `dispatch` projection for display/debugging, and the authoritative queue-dispatch intent is written to `processstepdispatches` before process start is accepted or downstream finalization advances.
 
-API process start and Engine downstream activation may attempt immediate Service Bus dispatch, but enqueue failure does not strand the step once `dispatch.status` is durable. `Backend.Engine` runs a dispatch worker that scans pending or retryable dispatch intents, claims them with a short lease, sends the deterministic process-step message, and marks `dispatch.status = Dispatched` only after Service Bus send succeeds. Retryable failures update `nextAttemptAt` with backoff.
+`processstepdispatches` is partitioned by `/partitionKey`, using absolute due-bucket and shard keys for dispatch attempts plus cursor records per shard. API process start and Engine downstream activation may attempt immediate Service Bus dispatch, but enqueue failure does not strand the step once the intent exists. `Backend.Engine` runs a dispatch worker that advances shard cursors through due buckets, queries exact bucket/shard partitions, claims pending or expired dispatching intents with a short lease, sends the deterministic process-step message, and marks the intent and step projection as dispatched only after Service Bus send succeeds. Retryable failures create a new future-bucket attempt record and update the step projection with the active intent id, bucket, shard, and retry metadata.
 
-Duplicate Service Bus messages are safe: process-step queue messages use the process step id as the deterministic message id for diagnostics and future broker duplicate detection, while the real correctness guard remains the idempotent step claim, which only transitions `Pending` steps to `InProgress`. Legacy completed or failed steps without dispatch metadata are treated as settled; legacy pending steps can be reconciled into pending dispatch intent.
+Duplicate Service Bus messages are safe: process-step queue messages use the process step id as the deterministic message id for diagnostics and future broker duplicate detection, while the real correctness guard remains the idempotent step claim, which only transitions `Pending` steps to `InProgress`. Legacy completed or failed steps without dispatch metadata are treated as settled; legacy pending steps can be reconciled into `processstepdispatches` by running the migration service with `ProcessStepDispatchBackfill:Enabled=true`.
 
 ## Step Finalization Guarantee
 
-Plugin-backed steps and native Collection Iterator steps finalize through the `processstepfinalizations` outbox container. The engine writes a `ResultReceived` checkpoint before mutating step or process state, advances explicit stages as outputs/failures, downstream activation, and phase/process effects become durable, and only acknowledges the process-step queue message after the finalization record reaches `QueueMessageCompleted`.
+Plugin-backed steps and native Collection Iterator steps finalize through the `processstepfinalizations` outbox container. The engine writes a `ResultReceived` checkpoint before mutating step or process state, advances explicit stages as outputs/failures, downstream activation, and phase/process effects become durable, and only acknowledges the process-step queue message after the finalization record reaches `QueueMessageCompletionPrepared`.
 
 If a queue message is redelivered for a step with an incomplete finalization record, the engine resumes from the recorded stage instead of re-running the plugin or native operator. Downstream step creation remains idempotent because runtime step ids are deterministic and inserts use create-if-not-exists semantics. Legacy completed or failed steps without a finalization record are treated as already settled.
 

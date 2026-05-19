@@ -347,6 +347,15 @@ public class ProcessStepRecord
 
 public sealed class ProcessStepDispatchState
 {
+    [JsonPropertyName("activeIntentId")]
+    public string? ActiveIntentId { get; set; }
+
+    [JsonPropertyName("dueBucket")]
+    public long? DueBucket { get; set; }
+
+    [JsonPropertyName("shard")]
+    public int? Shard { get; set; }
+
     [JsonPropertyName("status")]
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public ProcessStepDispatchStatus Status { get; set; }
@@ -387,6 +396,127 @@ public sealed class ProcessStepDispatchState
 
     [JsonPropertyName("lastErrorAt")]
     public DateTimeOffset? LastErrorAt { get; set; }
+}
+
+public sealed class ProcessStepDispatchIntentRecord
+{
+    private string _id = null!;
+
+    [JsonPropertyName("id")]
+    public required string id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonIgnore]
+    public string Id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonPropertyName("_etag")]
+    public string? ETag { get; set; }
+
+    [JsonPropertyName("partitionKey")]
+    public required string PartitionKey { get; init; }
+
+    [JsonPropertyName("processStepId")]
+    public required string ProcessStepId { get; init; }
+
+    [JsonPropertyName("processId")]
+    public required string ProcessId { get; init; }
+
+    [JsonPropertyName("blueprintId")]
+    public required string BlueprintId { get; init; }
+
+    [JsonPropertyName("blueprintNodeId")]
+    public required string BlueprintNodeId { get; init; }
+
+    [JsonPropertyName("status")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ProcessStepDispatchStatus Status { get; set; }
+
+    [JsonPropertyName("dueBucket")]
+    public long DueBucket { get; init; }
+
+    [JsonPropertyName("shard")]
+    public int Shard { get; init; }
+
+    [JsonPropertyName("nextAttemptAt")]
+    public DateTimeOffset NextAttemptAt { get; set; }
+
+    [JsonPropertyName("attemptCount")]
+    public int AttemptCount { get; set; }
+
+    [JsonPropertyName("messageId")]
+    public string? MessageId { get; set; }
+
+    [JsonPropertyName("lockedUntil")]
+    public DateTimeOffset? LockedUntil { get; set; }
+
+    [JsonPropertyName("leaseId")]
+    public string? LeaseId { get; set; }
+
+    [JsonPropertyName("dispatchingStartedAt")]
+    public DateTimeOffset? DispatchingStartedAt { get; set; }
+
+    [JsonPropertyName("dispatchedAt")]
+    public DateTimeOffset? DispatchedAt { get; set; }
+
+    [JsonPropertyName("lastErrorKind")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ProcessStepDispatchErrorKind? LastErrorKind { get; set; }
+
+    [JsonPropertyName("lastErrorMessage")]
+    public string? LastErrorMessage { get; set; }
+
+    [JsonPropertyName("lastErrorAt")]
+    public DateTimeOffset? LastErrorAt { get; set; }
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; set; }
+}
+
+public sealed class ProcessStepDispatchCursorRecord
+{
+    private string _id = null!;
+
+    [JsonPropertyName("id")]
+    public required string id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonIgnore]
+    public string Id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonPropertyName("_etag")]
+    public string? ETag { get; set; }
+
+    [JsonPropertyName("partitionKey")]
+    public required string PartitionKey { get; init; }
+
+    [JsonPropertyName("shard")]
+    public int Shard { get; init; }
+
+    [JsonPropertyName("nextDueBucket")]
+    public long NextDueBucket { get; set; }
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; set; }
 }
 
 public sealed class ProcessStepFinalizationRecord
