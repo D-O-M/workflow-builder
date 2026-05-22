@@ -21,6 +21,8 @@ public sealed class WorkflowBuilderTopologyValidationException : InvalidOperatio
 
 public static class WorkflowBuilderTopologyValidator
 {
+    private const string ProcessStepDispatchEnabledKey = "ProcessStepDispatch:Enabled";
+
     public static void ValidateApi(IConfiguration configuration)
     {
         var errors = new List<string>();
@@ -28,6 +30,7 @@ public static class WorkflowBuilderTopologyValidator
         RequireCosmos(errors, configuration);
         RequireCosmosDatabase(errors, configuration, WorkflowBuilderTopology.Cosmos.DatabaseNameKey);
         RequireQueue(errors, configuration, WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep);
+        RequireProcessStepDispatchEnabled(errors, configuration);
         RequireAbsoluteUri(errors, configuration, WorkflowBuilderTopology.ClientConfig.SignalRBaseUrlKey);
         RequireAbsoluteUri(errors, configuration, WorkflowBuilderTopology.ClientConfig.GrafanaBaseUrlKey);
         ThrowIfAny("API", errors);
@@ -44,6 +47,7 @@ public static class WorkflowBuilderTopologyValidator
         RequireBlobContainer(errors, configuration, WorkflowBuilderTopology.Storage.BlobContainers.Artifacts);
         RequireQueue(errors, configuration, WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep);
         RequireQueue(errors, configuration, WorkflowBuilderTopology.ServiceBus.Queues.PluginControl);
+        RequireProcessStepDispatchEnabled(errors, configuration);
         ThrowIfAny("Engine", errors);
     }
 
@@ -84,6 +88,16 @@ public static class WorkflowBuilderTopologyValidator
             configuration,
             WorkflowBuilderTopology.Realtime.ProcessStepsContainerNameKey,
             WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name);
+        RequireExactValue(
+            errors,
+            configuration,
+            WorkflowBuilderTopology.Realtime.ProcessRealtimeSummariesContainerNameKey,
+            WorkflowBuilderTopology.Cosmos.Containers.ProcessRealtimeSummaries.Name);
+        RequireExactValue(
+            errors,
+            configuration,
+            WorkflowBuilderTopology.Realtime.ProcessNodeRealtimeContainerNameKey,
+            WorkflowBuilderTopology.Cosmos.Containers.ProcessNodeRealtime.Name);
         RequireExactValue(
             errors,
             configuration,
@@ -265,6 +279,27 @@ public static class WorkflowBuilderTopologyValidator
         if (value is not null && !bool.TryParse(value, out _))
         {
             errors.Add($"{key} must be 'true' or 'false' when configured.");
+        }
+    }
+
+    private static void RequireProcessStepDispatchEnabled(List<string> errors, IConfiguration configuration)
+    {
+        var rawValue = configuration[ProcessStepDispatchEnabledKey];
+        if (string.IsNullOrWhiteSpace(rawValue))
+        {
+            return;
+        }
+
+        var trimmed = rawValue.Trim();
+        if (!HasConfiguredValue(trimmed) || !bool.TryParse(trimmed, out var enabled))
+        {
+            errors.Add($"{ProcessStepDispatchEnabledKey} must be 'true' or omitted for normal execution startup.");
+            return;
+        }
+
+        if (!enabled)
+        {
+            errors.Add($"{ProcessStepDispatchEnabledKey} must be 'true' for normal execution startup.");
         }
     }
 

@@ -28,6 +28,8 @@ public static class ServiceExtensions
         string? processesContainerName = null,
         string? processDirectoryContainerName = null,
         string? processSummariesContainerName = null,
+        string? processRealtimeSummariesContainerName = null,
+        string? processNodeRealtimeContainerName = null,
         string? tasksContainerName = null,
         string? stepDispatchesContainerName = null,
         string? stepFinalizationsContainerName = null,
@@ -40,6 +42,8 @@ public static class ServiceExtensions
         processesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.Processes.Name;
         processDirectoryContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessDirectory.Name;
         processSummariesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessSummaries.Name;
+        processRealtimeSummariesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessRealtimeSummaries.Name;
+        processNodeRealtimeContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessNodeRealtime.Name;
         tasksContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name;
         stepDispatchesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessStepDispatches.Name;
         stepFinalizationsContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessStepFinalizations.Name;
@@ -54,6 +58,8 @@ public static class ServiceExtensions
             ProcessesContainerName = processesContainerName,
             ProcessDirectoryContainerName = processDirectoryContainerName,
             ProcessSummariesContainerName = processSummariesContainerName,
+            ProcessRealtimeSummariesContainerName = processRealtimeSummariesContainerName,
+            ProcessNodeRealtimeContainerName = processNodeRealtimeContainerName,
             TasksContainerName = tasksContainerName,
             StepDispatchesContainerName = stepDispatchesContainerName,
             StepFinalizationsContainerName = stepFinalizationsContainerName,
@@ -115,6 +121,17 @@ public static class ServiceExtensions
             return new ProcessSummaryProjectionRepository(
                 client.GetContainer(databaseName, processSummariesContainerName));
         });
+
+        services.AddSingleton<IProcessRealtimeProjectionRepository>(sp =>
+        {
+            var client = sp.GetRequiredService<CosmosClient>();
+            return new ProcessRealtimeProjectionRepository(
+                client.GetContainer(databaseName, processRealtimeSummariesContainerName),
+                client.GetContainer(databaseName, processNodeRealtimeContainerName));
+        });
+
+        services.AddSingleton<ProcessRealtimeProjectionTelemetry>();
+        services.AddSingleton<IProcessRealtimeProjectionService, ProcessRealtimeProjectionService>();
 
         services.AddSingleton<IProcessIndexProjectionService, ProcessIndexProjectionService>();
 

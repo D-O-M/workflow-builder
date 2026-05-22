@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Backend.Database.Relational;
 using Backend.Database.Relational.Entities;
@@ -16,17 +17,23 @@ public sealed class ProcessProjectionService
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
     private readonly IProcessIndexProjectionService? _processIndexProjectionService;
+    private readonly IProcessRealtimeProjectionService? _processRealtimeProjectionService;
+    private readonly ProcessRealtimeProjectionTelemetry? _realtimeProjectionTelemetry;
 
     public ProcessProjectionService(
         BlueprintDbContext dbContext,
         IProcessStepRepository processStepRepository,
         IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
-        IProcessIndexProjectionService? processIndexProjectionService = null)
+        IProcessIndexProjectionService? processIndexProjectionService = null,
+        IProcessRealtimeProjectionService? processRealtimeProjectionService = null,
+        ProcessRealtimeProjectionTelemetry? realtimeProjectionTelemetry = null)
     {
         _dbContext = dbContext;
         _processStepRepository = processStepRepository;
         _processInstanceRepository = processInstanceRepository;
         _processIndexProjectionService = processIndexProjectionService;
+        _processRealtimeProjectionService = processRealtimeProjectionService;
+        _realtimeProjectionTelemetry = realtimeProjectionTelemetry;
     }
 
     public async Task<List<ProcessSummaryViewModel>> GetProcessesForBlueprintDefinitionAsync(
@@ -199,6 +206,45 @@ public sealed class ProcessProjectionService
             return null;
         }
 
+        if (_processRealtimeProjectionService is not null)
+        {
+            var projectionBatch = await TryBuildRealtimeBatchFromProjectionsAsync(
+                blueprintVersionId,
+                blueprintDefinitionId,
+                processId,
+                changedBlueprintNodeIds,
+                includeSummary,
+                includeNodeUpdates,
+                cancellationToken);
+
+            if (projectionBatch is not null)
+            {
+                return projectionBatch;
+            }
+        }
+
+        _realtimeProjectionTelemetry?.RecordFallback("projection_missing");
+        return await BuildRealtimeBatchFromSourceAsync(
+            blueprintVersionId,
+            blueprintDefinitionId,
+            processId,
+            changedBlueprintNodeIds,
+            includeSummary,
+            includeNodeUpdates,
+            repairProjection: _processRealtimeProjectionService is not null,
+            cancellationToken);
+    }
+
+    private async Task<ProcessRealtimeBatch?> BuildRealtimeBatchFromSourceAsync(
+        int blueprintVersionId,
+        int blueprintDefinitionId,
+        Guid processId,
+        IReadOnlyCollection<Guid> changedBlueprintNodeIds,
+        bool includeSummary,
+        bool includeNodeUpdates,
+        bool repairProjection,
+        CancellationToken cancellationToken)
+    {
         var processRecord = await _processInstanceRepository.GetProcessStateById(
             processId,
             blueprintVersionId,
@@ -206,6 +252,23 @@ public sealed class ProcessProjectionService
         var processSteps = await _processStepRepository.GetProcessStepsForProcess(
             processId,
             cancellationToken);
+
+        if (repairProjection && _processRealtimeProjectionService is not null)
+        {
+            try
+            {
+                await _processRealtimeProjectionService.UpsertFromProcessAndStepsAsync(
+                    processRecord,
+                    blueprintDefinitionId,
+                    blueprintVersionId,
+                    processSteps,
+                    cancellationToken);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _realtimeProjectionTelemetry?.RecordFallback("repair_failed");
+            }
+        }
 
         var versionMetadata = await _dbContext.BlueprintVersions
             .AsNoTracking()
@@ -249,6 +312,117 @@ public sealed class ProcessProjectionService
 
                 var nodeDeltas = deltaTasks
                     .Select(blueprintNode => BuildNodeDelta(blueprintNode, processStepsByBlueprintNodeId))
+                    .Where(delta => delta is not null)
+                    .Cast<ProcessStepDelta>()
+                    .ToList();
+
+                if (nodeDeltas.Count > 0)
+                {
+                    batch.NodeUpdates.Add(new ProcessStepsUpdatedEvent
+                    {
+                        ProcessId = processId,
+                        BlueprintDefinitionId = blueprintDefinitionId,
+                        BlueprintVersionId = blueprintVersionId,
+                        Nodes = nodeDeltas,
+                    });
+                }
+            }
+        }
+
+        return batch.Summaries.Count == 0 && batch.NodeUpdates.Count == 0
+            ? null
+            : batch;
+    }
+
+    private async Task<ProcessRealtimeBatch?> TryBuildRealtimeBatchFromProjectionsAsync(
+        int blueprintVersionId,
+        int blueprintDefinitionId,
+        Guid processId,
+        IReadOnlyCollection<Guid> changedBlueprintNodeIds,
+        bool includeSummary,
+        bool includeNodeUpdates,
+        CancellationToken cancellationToken)
+    {
+        var versionMetadata = await _dbContext.BlueprintVersions
+            .AsNoTracking()
+            .Where(version => version.Id == blueprintVersionId)
+            .Select(version => new
+            {
+                version.Id,
+                version.Version,
+                BlueprintName = version.BlueprintDefinition.DisplayName,
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (versionMetadata is null)
+        {
+            throw new EntityNotFoundException<BlueprintVersionViewModel>(blueprintVersionId);
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        ProcessRealtimeSummaryProjectionRecord? summaryProjection = null;
+        if (includeSummary)
+        {
+            summaryProjection = await _processRealtimeProjectionService!.GetSummaryAsync(
+                processId,
+                cancellationToken);
+        }
+
+        IReadOnlyList<ProcessNodeRealtimeProjectionRecord> nodeProjections = [];
+        if (includeNodeUpdates && changedBlueprintNodeIds.Count > 0)
+        {
+            nodeProjections = await _processRealtimeProjectionService!.GetNodeProjectionsAsync(
+                processId,
+                changedBlueprintNodeIds,
+                cancellationToken);
+        }
+
+        stopwatch.Stop();
+        _realtimeProjectionTelemetry?.RecordReadLatency(
+            stopwatch.Elapsed,
+            includeSummary && includeNodeUpdates ? "summary_and_nodes" : includeSummary ? "summary" : "nodes");
+
+        if (includeSummary && summaryProjection is null)
+        {
+            _realtimeProjectionTelemetry?.RecordMissing("summary");
+            return null;
+        }
+
+        if (includeNodeUpdates &&
+            changedBlueprintNodeIds.Count > 0 &&
+            nodeProjections.Count < changedBlueprintNodeIds.Distinct().Count())
+        {
+            _realtimeProjectionTelemetry?.RecordMissing("node");
+            return null;
+        }
+
+        var batch = new ProcessRealtimeBatch();
+        if (includeSummary && summaryProjection is not null)
+        {
+            batch.Summaries.Add(BuildSummaryEvent(
+                blueprintDefinitionId,
+                versionMetadata.BlueprintName,
+                versionMetadata.Id,
+                versionMetadata.Version,
+                summaryProjection));
+        }
+
+        if (includeNodeUpdates && changedBlueprintNodeIds.Count > 0)
+        {
+            var deltaTasks = await LoadBlueprintNodesForDeltasAsync(
+                blueprintVersionId,
+                changedBlueprintNodeIds,
+                cancellationToken);
+
+            if (deltaTasks.Count > 0)
+            {
+                var projectionByNodeId = nodeProjections.ToDictionary(
+                    projection => Guid.Parse(projection.BlueprintNodeId),
+                    projection => projection);
+
+                var nodeDeltas = deltaTasks
+                    .Where(blueprintNode => projectionByNodeId.ContainsKey(blueprintNode.Id))
+                    .Select(blueprintNode => BuildNodeDelta(blueprintNode, projectionByNodeId[blueprintNode.Id]))
                     .Where(delta => delta is not null)
                     .Cast<ProcessStepDelta>()
                     .ToList();
@@ -571,6 +745,28 @@ public sealed class ProcessProjectionService
             PendingTaskCount = processSteps.Count(task => task.Status == ProcessStepStatus.Pending),
         };
 
+    private static ProcessSummaryUpdatedEvent BuildSummaryEvent(
+        int blueprintDefinitionId,
+        string blueprintName,
+        int blueprintVersionId,
+        int blueprintVersionNumber,
+        ProcessRealtimeSummaryProjectionRecord projection) =>
+        new()
+        {
+            ProcessId = Guid.Parse(projection.ProcessId),
+            BlueprintDefinitionId = blueprintDefinitionId,
+            BlueprintName = blueprintName,
+            BlueprintVersionId = blueprintVersionId,
+            BlueprintVersionNumber = blueprintVersionNumber,
+            Status = projection.Status.ToString(),
+            CreatedAt = projection.CreatedAt,
+            UpdatedAt = projection.UpdatedAt,
+            CompletedTaskCount = projection.CompletedStepCount,
+            FailedTaskCount = projection.FailedStepCount,
+            InProgressTaskCount = projection.InProgressStepCount,
+            PendingTaskCount = projection.PendingStepCount,
+        };
+
     private static ProcessStepViewModel BuildNodeViewModel(
         BlueprintNode blueprintNode,
         IReadOnlyDictionary<Guid, IReadOnlyList<ProcessStepRecord>> processStepsByBlueprintNodeId)
@@ -652,6 +848,32 @@ public sealed class ProcessProjectionService
             FailedAt = taskStates.Where(step => step.FailedAt.HasValue).Max(step => step.FailedAt),
             FailureMessage = taskStates.FirstOrDefault(step => step.Status == ProcessStepStatus.Failed)?.ErrorMessage,
             UpdatedAt = taskStates.Where(step => step.UpdatedAt.HasValue).Max(step => step.UpdatedAt),
+        };
+    }
+
+    private static ProcessStepDelta? BuildNodeDelta(
+        BlueprintNode blueprintNode,
+        ProcessNodeRealtimeProjectionRecord projection)
+    {
+        if (!Guid.TryParse(projection.LatestProcessStepId, out var latestProcessStepId))
+        {
+            return null;
+        }
+
+        var actualResolvedVersion = ResolveActualVersion(blueprintNode, projection);
+
+        return new ProcessStepDelta
+        {
+            InstanceId = blueprintNode.Id,
+            BlueprintNodeId = latestProcessStepId,
+            Status = MapAggregateStatus(projection.AggregateStatus),
+            ResolvedVersionId = projection.ResolvedTaskVersionId ?? actualResolvedVersion?.Id ?? 0,
+            ResolvedVersion = projection.ResolvedTaskVersion ?? actualResolvedVersion?.Version.ToString() ?? "Native",
+            StartedAt = projection.StartedAt,
+            CompletedAt = projection.CompletedAt,
+            FailedAt = projection.FailedAt,
+            FailureMessage = projection.FailureSummary?.Message,
+            UpdatedAt = projection.UpdatedAt,
         };
     }
 
@@ -754,6 +976,15 @@ public sealed class ProcessProjectionService
             : "Pending";
     }
 
+    private static string MapAggregateStatus(ProcessStepStatus status) =>
+        status switch
+        {
+            ProcessStepStatus.Completed => "Completed",
+            ProcessStepStatus.InProgress => "InProgress",
+            ProcessStepStatus.Failed => "Failed",
+            _ => "Pending",
+        };
+
     private static DateTimeOffset? CalculateAggregateStartedAt(IReadOnlyList<ProcessStepRecord>? taskStates) =>
         taskStates?
             .Where(step => step.StartedAt.HasValue)
@@ -839,6 +1070,22 @@ public sealed class ProcessProjectionService
 
         _ = requireActive;
         return laneVersions.First();
+    }
+
+    private static TaskVersion? ResolveActualVersion(
+        BlueprintNode blueprintNode,
+        ProcessNodeRealtimeProjectionRecord projection)
+    {
+        if (blueprintNode.NodeKind is BlueprintNodeKind.CollectionIterator)
+        {
+            return null;
+        }
+
+        var fallbackResolvedVersion = ResolveConcreteVersion(blueprintNode, requireActive: false);
+        return projection.ResolvedTaskVersionId is int resolvedTaskVersionId
+            ? blueprintNode.TaskDefinition?.Versions.FirstOrDefault(version => version.Id == resolvedTaskVersionId)
+                ?? fallbackResolvedVersion
+            : fallbackResolvedVersion;
     }
 
     private sealed record ProcessProjectionContext(

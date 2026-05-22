@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Backend.Services.ProcessStepQueue;
 
-public sealed class ProcessStepDispatchService
+public sealed class ProcessStepDispatchService : IProcessStepDispatcher
 {
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IProcessStepDispatchIntentRepository _dispatchIntentRepository;
@@ -44,11 +44,21 @@ public sealed class ProcessStepDispatchService
             NextAttemptAt = timestamp
         };
 
+    public void EnsureDispatchAvailableForExecution()
+    {
+        if (!_options.Enabled)
+        {
+            throw new ProcessStepDispatchDisabledException();
+        }
+    }
+
     public async Task<ProcessStepDispatchIntentRecord> EnsureDispatchIntentAsync(
         ProcessStepRecord step,
         DateTimeOffset timestamp,
         CancellationToken cancellationToken)
     {
+        EnsureDispatchAvailableForExecution();
+
         if (step.Status is not ProcessStepStatus.Pending)
         {
             throw new InvalidOperationException(
@@ -81,10 +91,7 @@ public sealed class ProcessStepDispatchService
         int maxItemCount,
         CancellationToken cancellationToken)
     {
-        if (!_options.Enabled)
-        {
-            return 0;
-        }
+        EnsureDispatchAvailableForExecution();
 
         var now = DateTimeOffset.UtcNow;
         var shardCount = EffectiveShardCount;
@@ -156,7 +163,9 @@ public sealed class ProcessStepDispatchService
         ProcessStepRecord step,
         CancellationToken cancellationToken)
     {
-        if (!_options.Enabled || step.Status is not ProcessStepStatus.Pending)
+        EnsureDispatchAvailableForExecution();
+
+        if (step.Status is not ProcessStepStatus.Pending)
         {
             return false;
         }

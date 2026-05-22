@@ -36,6 +36,13 @@ public interface IProcessInstanceRepository<TGlobalState>
         IReadOnlyCollection<ProcessStatus>? statuses,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<ProcessInstanceRecord<TGlobalState>>> GetRecentProcessStatesForReconciliationAsync(
+        DateTimeOffset createdFrom,
+        int maxItemCount,
+        IReadOnlyCollection<ProcessStatus> statuses,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
     Task<ProcessInstanceRecord<TGlobalState>> UpdateProcessState(
         ProcessInstanceRecord<TGlobalState> state,
         CancellationToken cancellationToken);

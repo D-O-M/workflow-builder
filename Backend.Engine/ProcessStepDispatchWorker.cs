@@ -20,11 +20,7 @@ public sealed class ProcessStepDispatchWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_options.Enabled)
-        {
-            _logger.LogInformation("Process-step dispatch worker is disabled.");
-            return;
-        }
+        _dispatchService.EnsureDispatchAvailableForExecution();
 
         _logger.LogInformation("Process-step dispatch worker starting.");
 

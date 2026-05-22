@@ -274,6 +274,8 @@ internal class Program
             .WithEnvironment(WorkflowBuilderTopology.Realtime.CosmosDatabaseNameEnvironmentVariable, cosmosDatabaseName)
             .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessesContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.Processes.Name)
             .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessStepsContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name)
+            .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessRealtimeSummariesContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessRealtimeSummaries.Name)
+            .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessNodeRealtimeContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessNodeRealtime.Name)
             .WithEnvironment(WorkflowBuilderTopology.Realtime.LeaseContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessStepProgressLeases.Name);
         WaitForObservability(progressBroadcaster, observability);
         if (integrationTestsEnabled)

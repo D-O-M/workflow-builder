@@ -1,6 +1,7 @@
 using Backend.Database.Relational;
 using Backend.Functions.ProgressBroadcaster.Services;
 using Backend.Repositories;
+using Backend.Repositories.Processes;
 using Backend.Topology;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Functions.Worker.Builder;
@@ -8,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using OpenTelemetry.Metrics;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
@@ -17,6 +19,9 @@ builder.Configuration
 
 builder.AddServiceDefaults();
 WorkflowBuilderTopologyValidator.ValidateProgressBroadcaster(builder.Configuration);
+
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics => metrics.AddMeter(ProcessRealtimeProjectionTelemetry.MeterName));
 
 var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(
     builder.Configuration,
@@ -42,6 +47,8 @@ builder.Services.AddRelationalDataRepositories();
 builder.Services.AddProcessState(
     databaseName: builder.Configuration[WorkflowBuilderTopology.Realtime.CosmosDatabaseNameKey]!,
     processesContainerName: builder.Configuration[WorkflowBuilderTopology.Realtime.ProcessesContainerNameKey]!,
+    processRealtimeSummariesContainerName: builder.Configuration[WorkflowBuilderTopology.Realtime.ProcessRealtimeSummariesContainerNameKey]!,
+    processNodeRealtimeContainerName: builder.Configuration[WorkflowBuilderTopology.Realtime.ProcessNodeRealtimeContainerNameKey]!,
     tasksContainerName: builder.Configuration[WorkflowBuilderTopology.Realtime.ProcessStepsContainerNameKey]!);
 
 var signalRBaseUrl = builder.Configuration[WorkflowBuilderTopology.Realtime.SignalRBaseUrlKey]

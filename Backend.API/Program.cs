@@ -28,6 +28,7 @@ public class Program
             .WithMetrics(metrics => metrics
                 .AddMeter(ProcessStepDispatchTelemetry.MeterName)
                 .AddMeter("WorkflowBuilder.Cosmos")
+                .AddMeter(Backend.Repositories.Processes.ProcessRealtimeProjectionTelemetry.MeterName)
                 .AddMeter("WorkflowBuilder.API.ProcessStart"));
 
         // Add services to the container.
@@ -76,6 +77,8 @@ public class Program
             ?? new ProcessStepDispatchOptions());
         builder.Services.AddSingleton<ProcessStepDispatchTelemetry>();
         builder.Services.AddSingleton<ProcessStepDispatchService>();
+        builder.Services.AddSingleton<IProcessStepDispatcher>(provider =>
+            provider.GetRequiredService<ProcessStepDispatchService>());
         builder.Services.AddScoped<BlueprintProcessService>();
         builder.Services.AddScoped<PhasedBlueprintProcessService>();
         builder.Services.AddScoped<BlueprintPortabilityService>();

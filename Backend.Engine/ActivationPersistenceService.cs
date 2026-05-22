@@ -13,19 +13,22 @@ public sealed class ActivationPersistenceService
     private const int MaxJoinStateUpdateAttempts = 10;
 
     private readonly INodeJoinStateRepository _nodeJoinStateRepository;
-    private readonly ProcessStepDispatchService _processStepDispatchService;
+    private readonly IProcessStepDispatcher _processStepDispatcher;
     private readonly IProcessStepRepository _processStepRepository;
+    private readonly IProcessRealtimeProjectionService? _processRealtimeProjectionService;
     private readonly ILogger<ActivationPersistenceService> _logger;
 
     public ActivationPersistenceService(
         INodeJoinStateRepository nodeJoinStateRepository,
-        ProcessStepDispatchService processStepDispatchService,
+        IProcessStepDispatcher processStepDispatcher,
         IProcessStepRepository processStepRepository,
-        ILogger<ActivationPersistenceService> logger)
+        ILogger<ActivationPersistenceService> logger,
+        IProcessRealtimeProjectionService? processRealtimeProjectionService = null)
     {
         _nodeJoinStateRepository = nodeJoinStateRepository;
-        _processStepDispatchService = processStepDispatchService;
+        _processStepDispatcher = processStepDispatcher;
         _processStepRepository = processStepRepository;
+        _processRealtimeProjectionService = processRealtimeProjectionService;
         _logger = logger;
     }
 
@@ -62,6 +65,8 @@ public sealed class ActivationPersistenceService
         {
             return new ActivationPersistenceResult(0);
         }
+
+        _processStepDispatcher.EnsureDispatchAvailableForExecution();
 
         var scheduledCount = 0;
         var effectiveBatchSize = Math.Max(1, batchSize);
@@ -202,10 +207,24 @@ public sealed class ActivationPersistenceService
 
         foreach (var step in scheduledSteps)
         {
-            await _processStepDispatchService.EnsureDispatchIntentAsync(
+            await _processStepDispatcher.EnsureDispatchIntentAsync(
                 step,
                 timestamp,
                 cancellationToken);
+        }
+
+        foreach (var step in scheduledSteps)
+        {
+            var activation = activations.FirstOrDefault(candidate =>
+                candidate.ProcessStepId.ToString().Equals(step.Id, StringComparison.Ordinal));
+            if (activation is not null)
+            {
+                await TryProjectRealtimeStepAsync(
+                    step,
+                    activation.BlueprintDefinitionId,
+                    activation.ExecutableBlueprintId,
+                    cancellationToken);
+            }
         }
 
         foreach (var step in scheduledSteps)
@@ -215,7 +234,7 @@ public sealed class ActivationPersistenceService
                 continue;
             }
 
-            await MarkJoinStepEnqueuedAsync(
+            await MarkJoinActivationMaterializedAsync(
                 joinState.ProcessId,
                 joinState.JoinStateId,
                 Guid.Parse(step.Id),
@@ -225,7 +244,7 @@ public sealed class ActivationPersistenceService
 
         foreach (var step in scheduledSteps)
         {
-            await _processStepDispatchService.TryDispatchAsync(step, cancellationToken);
+            await _processStepDispatcher.TryDispatchAsync(step, cancellationToken);
         }
 
         _logger.LogInformation(
@@ -236,7 +255,36 @@ public sealed class ActivationPersistenceService
         return scheduledSteps.Count;
     }
 
-    private async Task MarkJoinStepEnqueuedAsync(
+    private async Task TryProjectRealtimeStepAsync(
+        ProcessStepRecord step,
+        int blueprintDefinitionId,
+        int blueprintVersionId,
+        CancellationToken cancellationToken)
+    {
+        if (_processRealtimeProjectionService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _processRealtimeProjectionService.UpsertFromStepAsync(
+                step,
+                blueprintDefinitionId,
+                blueprintVersionId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                exception,
+                "Realtime projection failed for materialized activation step {ProcessStepId} in process {ProcessId}.",
+                step.Id,
+                step.ProcessId);
+        }
+    }
+
+    private async Task MarkJoinActivationMaterializedAsync(
         Guid processId,
         Guid joinStateId,
         Guid processStepId,
@@ -250,20 +298,44 @@ public sealed class ActivationPersistenceService
                 joinStateId,
                 cancellationToken);
 
-            if (state is null || state.StepEnqueued)
+            if (state is null)
             {
-                return;
+                throw new InvalidOperationException(
+                    $"Could not mark join activation {joinStateId} as materialized for process {processId} because the join state was not found.");
             }
 
-            state.StepEnqueued = true;
-            state.EnqueuedProcessStepId = processStepId.ToString();
-            state.UpdatedAt = timestamp;
+            if (state.ActivationMaterialized)
+            {
+                if (string.IsNullOrWhiteSpace(state.MaterializedProcessStepId))
+                {
+                    state.MaterializedProcessStepId = processStepId.ToString();
+                    state.UpdatedAt = timestamp;
+                }
+                else if (string.Equals(state.MaterializedProcessStepId, processStepId.ToString(), StringComparison.Ordinal))
+                {
+                    return;
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        $"Join activation {joinStateId} for process {processId} is already materialized as process step {state.MaterializedProcessStepId}, not {processStepId}.");
+                }
+            }
+            else
+            {
+                state.ActivationMaterialized = true;
+                state.MaterializedProcessStepId = processStepId.ToString();
+                state.UpdatedAt = timestamp;
+            }
 
             if (await _nodeJoinStateRepository.TryUpdateJoinStateAsync(state, cancellationToken))
             {
                 return;
             }
         }
+
+        throw new InvalidOperationException(
+            $"Could not mark join activation {joinStateId} as materialized for process {processId} after {MaxJoinStateUpdateAttempts} attempts.");
     }
 
     private static JoinReadinessSnapshot ToSnapshot(NodeJoinStateRecord state) =>
@@ -277,8 +349,8 @@ public sealed class ActivationPersistenceService
                 entry => entry.Key,
                 entry => CloneSource(entry.Value),
                 StringComparer.Ordinal),
-            state.StepEnqueued,
-            Guid.TryParse(state.EnqueuedProcessStepId, out var processStepId)
+            state.ActivationMaterialized,
+            Guid.TryParse(state.MaterializedProcessStepId, out var processStepId)
                 ? processStepId
                 : null);
 

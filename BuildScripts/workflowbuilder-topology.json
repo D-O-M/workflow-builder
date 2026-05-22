@@ -20,6 +20,14 @@
         "partitionKey": "/partitionKey"
       },
       {
+        "name": "processrealtimesummaries",
+        "partitionKey": "/id"
+      },
+      {
+        "name": "processnoderealtime",
+        "partitionKey": "/processId"
+      },
+      {
         "name": "processsteps",
         "partitionKey": "/processId"
       },
@@ -115,6 +123,8 @@
     "cosmosDatabaseNameKey": "Realtime:Cosmos:DatabaseName",
     "processesContainerNameKey": "Realtime:Cosmos:ProcessesContainerName",
     "processStepsContainerNameKey": "Realtime:Cosmos:TasksContainerName",
+    "processRealtimeSummariesContainerNameKey": "Realtime:Cosmos:ProcessRealtimeSummariesContainerName",
+    "processNodeRealtimeContainerNameKey": "Realtime:Cosmos:ProcessNodeRealtimeContainerName",
     "leaseContainerNameKey": "Realtime:Cosmos:LeaseContainerName",
     "hubRoute": "/hubs/processes",
     "internalSubscriptionSnapshotRoute": "internal/subscriptions/snapshot",

@@ -20,30 +20,33 @@ public sealed record BlueprintProcessAcceptedResult(
 public sealed class BlueprintProcessService
 {
     private readonly IProcessStepRepository _processStepRepository;
-    private readonly ProcessStepDispatchService _processStepDispatchService;
+    private readonly IProcessStepDispatcher _processStepDispatcher;
     private readonly IBlueprintExecutionCache _blueprintExecutionCache;
     private readonly IBlueprintRepository _blueprintRepository;
     private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
     private readonly IProcessIndexProjectionService? _processIndexProjectionService;
+    private readonly IProcessRealtimeProjectionService? _processRealtimeProjectionService;
     private readonly ProcessStartTelemetry _processStartTelemetry;
     private readonly ILogger<BlueprintProcessService> _logger;
 
     public BlueprintProcessService(
         IProcessStepRepository processStepRepository,
-        ProcessStepDispatchService processStepDispatchService,
+        IProcessStepDispatcher processStepDispatcher,
         IBlueprintExecutionCache blueprintExecutionCache,
         IBlueprintRepository blueprintRepository,
         IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
         ProcessStartTelemetry processStartTelemetry,
         ILogger<BlueprintProcessService> logger,
-        IProcessIndexProjectionService? processIndexProjectionService = null)
+        IProcessIndexProjectionService? processIndexProjectionService = null,
+        IProcessRealtimeProjectionService? processRealtimeProjectionService = null)
     {
         _processStepRepository = processStepRepository;
-        _processStepDispatchService = processStepDispatchService;
+        _processStepDispatcher = processStepDispatcher;
         _blueprintExecutionCache = blueprintExecutionCache;
         _blueprintRepository = blueprintRepository;
         _processInstanceRepository = processInstanceRepository;
         _processIndexProjectionService = processIndexProjectionService;
+        _processRealtimeProjectionService = processRealtimeProjectionService;
         _processStartTelemetry = processStartTelemetry;
         _logger = logger;
     }
@@ -53,6 +56,8 @@ public sealed class BlueprintProcessService
         BlueprintProcessInputModel processModel,
         CancellationToken cancellationToken)
     {
+        _processStepDispatcher.EnsureDispatchAvailableForExecution();
+
         _logger.LogInformation(
             "Starting latest blueprint version for definition {BlueprintDefinitionId}.",
             blueprintDefinitionId);
@@ -123,7 +128,12 @@ public sealed class BlueprintProcessService
             {
                 TotalNodeCount = executableBlueprint.AllNodes.Count,
                 TotalStepCount = executableBlueprint.AllNodes.Count
-            }
+            },
+            Start = CreateProcessStartState(
+                executableBlueprint.InitialNode.Id,
+                initialProcessStepId,
+                initialHydrationPlan,
+                acceptedAt)
         };
 
         var initialStepState = new ProcessStepRecord
@@ -168,12 +178,19 @@ public sealed class BlueprintProcessService
 
         using (_processStartTelemetry.StartEnqueueInitialStep(blueprintDefinitionId))
         {
-            await _processStepDispatchService.EnsureDispatchIntentAsync(
+            await _processStepDispatcher.EnsureDispatchIntentAsync(
                 initialStepState,
                 acceptedAt,
                 cancellationToken);
-            await _processStepDispatchService.TryDispatchAsync(initialStepState, cancellationToken);
+            await _processStepDispatcher.TryDispatchAsync(initialStepState, cancellationToken);
         }
+
+        await TryProjectRealtimeAsync(
+            processState,
+            initialStepState,
+            executableBlueprint.DefinitionId,
+            executableBlueprint.Id,
+            cancellationToken);
 
         _logger.LogInformation(
             "Accepted process {ProcessId} for blueprint definition {BlueprintDefinitionId}.",
@@ -194,6 +211,8 @@ public sealed class BlueprintProcessService
         Guid? processIdOverride,
         CancellationToken cancellationToken)
     {
+        _processStepDispatcher.EnsureDispatchAvailableForExecution();
+
         _logger.LogInformation(
             "Starting blueprint definition {BlueprintDefinitionId} at version {BlueprintVersionId}.",
             blueprintDefinitionId,
@@ -258,7 +277,12 @@ public sealed class BlueprintProcessService
             {
                 TotalNodeCount = executableBlueprint.AllNodes.Count,
                 TotalStepCount = executableBlueprint.AllNodes.Count
-            }
+            },
+            Start = CreateProcessStartState(
+                executableBlueprint.InitialNode.Id,
+                initialProcessStepId,
+                initialHydrationPlan,
+                acceptedAt)
         };
 
         var initialStepState = new ProcessStepRecord
@@ -303,12 +327,19 @@ public sealed class BlueprintProcessService
 
         using (_processStartTelemetry.StartEnqueueInitialStep(blueprintDefinitionId))
         {
-            await _processStepDispatchService.EnsureDispatchIntentAsync(
+            await _processStepDispatcher.EnsureDispatchIntentAsync(
                 initialStepState,
                 acceptedAt,
                 cancellationToken);
-            await _processStepDispatchService.TryDispatchAsync(initialStepState, cancellationToken);
+            await _processStepDispatcher.TryDispatchAsync(initialStepState, cancellationToken);
         }
+
+        await TryProjectRealtimeAsync(
+            processState,
+            initialStepState,
+            executableBlueprint.DefinitionId,
+            executableBlueprint.Id,
+            cancellationToken);
 
         _logger.LogInformation(
             "Accepted process {ProcessId} for blueprint definition {BlueprintDefinitionId}.",
@@ -345,6 +376,40 @@ public sealed class BlueprintProcessService
             _logger.LogWarning(
                 exception,
                 "Process index projection failed for process {ProcessId}; opt-in backfill can repair the projection.",
+                process.ProcessId);
+        }
+    }
+
+    private async Task TryProjectRealtimeAsync(
+        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessStepRecord initialStep,
+        int blueprintDefinitionId,
+        int blueprintVersionId,
+        CancellationToken cancellationToken)
+    {
+        if (_processRealtimeProjectionService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _processRealtimeProjectionService.UpsertFromProcessAsync(
+                process,
+                blueprintDefinitionId,
+                blueprintVersionId,
+                cancellationToken);
+            await _processRealtimeProjectionService.UpsertFromStepAsync(
+                initialStep,
+                blueprintDefinitionId,
+                blueprintVersionId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                exception,
+                "Realtime process projection failed for accepted process {ProcessId}; change-feed repair can rebuild the projection.",
                 process.ProcessId);
         }
     }
@@ -408,6 +473,45 @@ public sealed class BlueprintProcessService
             RuntimeInputOverrides = CloneJsonMap(runtimeOverrides)
         };
     }
+
+    private static ProcessStartState CreateProcessStartState(
+        Guid initialBlueprintNodeId,
+        Guid initialProcessStepId,
+        InputHydrationPlan initialHydrationPlan,
+        DateTimeOffset createdAt) =>
+        new()
+        {
+            InitialBlueprintNodeId = initialBlueprintNodeId.ToString(),
+            InitialProcessStepId = initialProcessStepId.ToString(),
+            InitialInputHydrationPlan = CloneInputHydrationPlan(initialHydrationPlan),
+            CreatedAt = createdAt
+        };
+
+    private static InputHydrationPlan CloneInputHydrationPlan(InputHydrationPlan source) =>
+        new()
+        {
+            InputChannelName = source.InputChannelName,
+            InitialInput = CloneJsonMap(source.InitialInput),
+            DesignTimeInputOverrides = CloneJsonMap(source.DesignTimeInputOverrides),
+            RuntimeInputOverrides = CloneJsonMap(source.RuntimeInputOverrides),
+            Sources = source.Sources.Select(CloneInputHydrationSource).ToList()
+        };
+
+    private static InputHydrationSource CloneInputHydrationSource(InputHydrationSource source) =>
+        new()
+        {
+            BindingId = source.BindingId,
+            SourceProcessStepId = source.SourceProcessStepId,
+            SourceOutputChannelName = source.SourceOutputChannelName,
+            InlineInput = source.InlineInput is null ? null : CloneJsonMap(source.InlineInput),
+            PropertyMappings = source.PropertyMappings
+                .Select(mapping => new InputHydrationPropertyMapping
+                {
+                    SourceProperty = mapping.SourceProperty,
+                    TargetProperty = mapping.TargetProperty
+                })
+                .ToList()
+        };
 
     private static void ValidateCollectionInputValue(
         JsonElement value,

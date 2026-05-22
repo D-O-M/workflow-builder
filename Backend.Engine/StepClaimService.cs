@@ -22,6 +22,7 @@ public sealed class StepClaimService
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
     private readonly IProcessIndexProjectionService? _processIndexProjectionService;
+    private readonly IProcessRealtimeProjectionService? _processRealtimeProjectionService;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
     private readonly ILogger<StepClaimService>? _logger;
 
@@ -30,11 +31,13 @@ public sealed class StepClaimService
         IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
         IProcessIndexProjectionService? processIndexProjectionService = null,
-        ILogger<StepClaimService>? logger = null)
+        ILogger<StepClaimService>? logger = null,
+        IProcessRealtimeProjectionService? processRealtimeProjectionService = null)
     {
         _processStepRepository = processStepRepository;
         _processInstanceRepository = processInstanceRepository;
         _processIndexProjectionService = processIndexProjectionService;
+        _processRealtimeProjectionService = processRealtimeProjectionService;
         _processLifecycleTelemetry = processLifecycleTelemetry;
         _logger = logger;
     }
@@ -153,9 +156,11 @@ public sealed class StepClaimService
             process.UpdatedAt = now;
             await _processInstanceRepository.UpdateProcessState(process, cancellationToken);
             await TryProjectProcessAsync(context, process, cancellationToken);
+            await TryProjectRealtimeAsync(context, process, step, cancellationToken);
             return new StepClaimResult(true, true);
         }
 
+        await TryProjectRealtimeAsync(context, process, step, cancellationToken);
         return new StepClaimResult(true, false);
     }
 
@@ -183,6 +188,39 @@ public sealed class StepClaimService
                 exception,
                 "Process index projection failed for process {ProcessId} after step claim.",
                 context.ProcessId);
+        }
+    }
+
+    private async Task TryProjectRealtimeAsync(
+        StepExecutionContext context,
+        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessStepRecord step,
+        CancellationToken cancellationToken)
+    {
+        if (_processRealtimeProjectionService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _processRealtimeProjectionService.UpsertFromProcessAsync(
+                process,
+                context.BlueprintDefinitionId,
+                context.ExecutableBlueprintId,
+                cancellationToken);
+            await _processRealtimeProjectionService.UpsertFromStepAsync(
+                step,
+                context.BlueprintDefinitionId,
+                context.ExecutableBlueprintId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Realtime projection failed for claimed process step {ProcessStepId}.",
+                context.ProcessStepId);
         }
     }
 

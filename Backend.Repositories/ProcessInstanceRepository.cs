@@ -180,6 +180,35 @@ public class ProcessInstanceRepository<TGlobalState>
         };
     }
 
+    public async Task<IReadOnlyList<ProcessInstanceRecord<TGlobalState>>> GetRecentProcessStatesForReconciliationAsync(
+        DateTimeOffset createdFrom,
+        int maxItemCount,
+        IReadOnlyCollection<ProcessStatus> statuses,
+        CancellationToken cancellationToken)
+    {
+        var limit = Math.Clamp(maxItemCount, 1, 500);
+        var normalizedStatuses = statuses.Count > 0
+            ? statuses.Select(status => status.ToString()).ToArray()
+            : [ProcessStatus.Pending.ToString(), ProcessStatus.InProgress.ToString()];
+        var query = new QueryDefinition($"""
+            SELECT TOP {limit} *
+            FROM c
+            WHERE c.createdAt >= @createdFrom
+              AND ARRAY_CONTAINS(@statuses, c.status)
+            ORDER BY c.createdAt DESC
+            """)
+            .WithParameter("@createdFrom", createdFrom)
+            .WithParameter("@statuses", normalizedStatuses);
+
+        return await QueryToListAsync(
+            query,
+            cancellationToken,
+            new QueryRequestOptions
+            {
+                MaxItemCount = limit
+            });
+    }
+
     public async Task<ProcessInstanceRecord<TGlobalState>> UpdateProcessState(
         ProcessInstanceRecord<TGlobalState> state,
         CancellationToken cancellationToken)

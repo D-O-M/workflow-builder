@@ -27,6 +27,8 @@ public static class WorkflowBuilderTopology
             public static readonly CosmosContainer Processes = new("processes", "/blueprintId");
             public static readonly CosmosContainer ProcessDirectory = new("processdirectory", "/id");
             public static readonly CosmosContainer ProcessSummaries = new("processsummaries", "/partitionKey");
+            public static readonly CosmosContainer ProcessRealtimeSummaries = new("processrealtimesummaries", "/id");
+            public static readonly CosmosContainer ProcessNodeRealtime = new("processnoderealtime", "/processId");
             public static readonly CosmosContainer ProcessSteps = new("processsteps", "/processId");
             public static readonly CosmosContainer ProcessStepDispatches = new("processstepdispatches", "/partitionKey");
             public static readonly CosmosContainer ProcessStepFinalizations = new("processstepfinalizations", "/id");
@@ -122,6 +124,10 @@ public static class WorkflowBuilderTopology
         public const string ProcessesContainerNameEnvironmentVariable = "Realtime__Cosmos__ProcessesContainerName";
         public const string ProcessStepsContainerNameKey = "Realtime:Cosmos:TasksContainerName";
         public const string ProcessStepsContainerNameEnvironmentVariable = "Realtime__Cosmos__TasksContainerName";
+        public const string ProcessRealtimeSummariesContainerNameKey = "Realtime:Cosmos:ProcessRealtimeSummariesContainerName";
+        public const string ProcessRealtimeSummariesContainerNameEnvironmentVariable = "Realtime__Cosmos__ProcessRealtimeSummariesContainerName";
+        public const string ProcessNodeRealtimeContainerNameKey = "Realtime:Cosmos:ProcessNodeRealtimeContainerName";
+        public const string ProcessNodeRealtimeContainerNameEnvironmentVariable = "Realtime__Cosmos__ProcessNodeRealtimeContainerName";
         public const string LeaseContainerNameKey = "Realtime:Cosmos:LeaseContainerName";
         public const string LeaseContainerNameEnvironmentVariable = "Realtime__Cosmos__LeaseContainerName";
         public const string CosmosDatabaseNameBindingExpression = "%Realtime:Cosmos:DatabaseName%";
@@ -162,6 +168,8 @@ public static class WorkflowBuilderTopology
                     Cosmos.Containers.Processes,
                     Cosmos.Containers.ProcessDirectory,
                     Cosmos.Containers.ProcessSummaries,
+                    Cosmos.Containers.ProcessRealtimeSummaries,
+                    Cosmos.Containers.ProcessNodeRealtime,
                     Cosmos.Containers.ProcessSteps,
                     Cosmos.Containers.ProcessStepDispatches,
                     Cosmos.Containers.ProcessStepFinalizations,
@@ -191,6 +199,8 @@ public static class WorkflowBuilderTopology
                 CosmosDatabaseNameKey: Realtime.CosmosDatabaseNameKey,
                 ProcessesContainerNameKey: Realtime.ProcessesContainerNameKey,
                 ProcessStepsContainerNameKey: Realtime.ProcessStepsContainerNameKey,
+                ProcessRealtimeSummariesContainerNameKey: Realtime.ProcessRealtimeSummariesContainerNameKey,
+                ProcessNodeRealtimeContainerNameKey: Realtime.ProcessNodeRealtimeContainerNameKey,
                 LeaseContainerNameKey: Realtime.LeaseContainerNameKey,
                 HubRoute: Realtime.HubRoute,
                 InternalSubscriptionSnapshotRoute: Realtime.InternalSubscriptionSnapshotRoute,
@@ -279,6 +289,8 @@ public sealed record RealtimeCatalog(
     string CosmosDatabaseNameKey,
     string ProcessesContainerNameKey,
     string ProcessStepsContainerNameKey,
+    string ProcessRealtimeSummariesContainerNameKey,
+    string ProcessNodeRealtimeContainerNameKey,
     string LeaseContainerNameKey,
     string HubRoute,
     string InternalSubscriptionSnapshotRoute,

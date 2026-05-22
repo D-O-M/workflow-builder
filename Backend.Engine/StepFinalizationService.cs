@@ -72,6 +72,7 @@ public class StepFinalizationService : IStepFinalizationService
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
     private readonly IProcessIndexProjectionService? _processIndexProjectionService;
+    private readonly IProcessRealtimeProjectionService? _processRealtimeProjectionService;
     private readonly StepClaimService _stepClaimService;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
     private readonly ILogger<StepFinalizationService> _logger;
@@ -86,7 +87,8 @@ public class StepFinalizationService : IStepFinalizationService
         StepClaimService stepClaimService,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
         ILogger<StepFinalizationService> logger,
-        IProcessIndexProjectionService? processIndexProjectionService = null)
+        IProcessIndexProjectionService? processIndexProjectionService = null,
+        IProcessRealtimeProjectionService? processRealtimeProjectionService = null)
     {
         _activationPlanner = activationPlanner;
         _activationPersistenceService = activationPersistenceService;
@@ -95,6 +97,7 @@ public class StepFinalizationService : IStepFinalizationService
         _processStepRepository = processStepRepository;
         _processInstanceRepository = processInstanceRepository;
         _processIndexProjectionService = processIndexProjectionService;
+        _processRealtimeProjectionService = processRealtimeProjectionService;
         _stepClaimService = stepClaimService;
         _processLifecycleTelemetry = processLifecycleTelemetry;
         _logger = logger;
@@ -683,11 +686,23 @@ public class StepFinalizationService : IStepFinalizationService
             completedAt,
             cancellationToken);
 
-        return await UpdateProcessStateAfterSuccessAsync(
+        var completed = await UpdateProcessStateAfterSuccessAsync(
             context,
             globalState,
             completedAt,
             cancellationToken);
+
+        await TryProjectRealtimeStepAsync(
+            CreateRealtimeProjectionStep(
+                context,
+                ProcessStepStatus.Completed,
+                completedAt,
+                errorMessage: null),
+            context.BlueprintDefinitionId,
+            context.ExecutableBlueprintId,
+            cancellationToken);
+
+        return completed;
     }
 
     private async Task PersistFailedStepAsync(
@@ -710,6 +725,16 @@ public class StepFinalizationService : IStepFinalizationService
             context,
             globalState,
             failedAt,
+            cancellationToken);
+
+        await TryProjectRealtimeStepAsync(
+            CreateRealtimeProjectionStep(
+                context,
+                ProcessStepStatus.Failed,
+                failedAt,
+                errorMessage),
+            context.BlueprintDefinitionId,
+            context.ExecutableBlueprintId,
             cancellationToken);
     }
 
@@ -739,6 +764,60 @@ public class StepFinalizationService : IStepFinalizationService
                 context.ProcessId);
         }
     }
+
+    private async Task TryProjectRealtimeStepAsync(
+        ProcessStepRecord step,
+        int blueprintDefinitionId,
+        int blueprintVersionId,
+        CancellationToken cancellationToken)
+    {
+        if (_processRealtimeProjectionService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _processRealtimeProjectionService.UpsertFromStepAsync(
+                step,
+                blueprintDefinitionId,
+                blueprintVersionId,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                exception,
+                "Realtime projection failed for finalized process step {ProcessStepId}.",
+                step.Id);
+        }
+    }
+
+    private static ProcessStepRecord CreateRealtimeProjectionStep(
+        StepExecutionContext context,
+        ProcessStepStatus status,
+        DateTimeOffset timestamp,
+        string? errorMessage) =>
+        new()
+        {
+            Id = context.ProcessStepId.ToString(),
+            BlueprintNodeId = context.BlueprintNodeId.ToString(),
+            TaskDefinitionId = context.TaskDefinitionId,
+            AllowedMajor = context.AllowedMajor,
+            AllowedMinor = context.AllowedMinor,
+            ResolvedTaskVersionId = context.ResolvedTaskVersionId,
+            ResolvedTaskVersion = context.BlueprintNode.ResolvedVersion.ToString(),
+            ProcessId = context.ProcessId.ToString(),
+            BlueprintId = context.ExecutableBlueprintId.ToString(),
+            CreatedAt = context.StartedAt ?? timestamp,
+            UpdatedAt = timestamp,
+            StartedAt = context.StartedAt,
+            CompletedAt = status is ProcessStepStatus.Completed ? timestamp : null,
+            FailedAt = status is ProcessStepStatus.Failed ? timestamp : null,
+            ErrorMessage = errorMessage,
+            Status = status,
+            IterationContext = context.IterationContext
+        };
 
     private async Task<bool> IsProcessCompletedAsync(
         StepExecutionContext context,

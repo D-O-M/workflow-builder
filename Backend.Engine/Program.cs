@@ -28,9 +28,11 @@ builder.Services.AddOpenTelemetry()
     .WithMetrics(metrics => metrics
         .AddMeter("WorkflowBuilder.Engine.Processes")
         .AddMeter("WorkflowBuilder.Cosmos")
+        .AddMeter(Backend.Repositories.Processes.ProcessRealtimeProjectionTelemetry.MeterName)
         .AddMeter(ProcessStepDispatchTelemetry.MeterName)
         .AddMeter(PluginResultFinalizationTelemetry.MeterName)
         .AddMeter(PluginRuntimeAgentTelemetry.MeterName)
+        .AddMeter(ProcessStartReconciliationTelemetry.MeterName)
         .AddMeter(StepFinalizationRecoveryTelemetry.MeterName));
 
 builder.Services.AddControllers();
@@ -51,6 +53,11 @@ builder.Services.AddSingleton(sp =>
         .GetSection("FinalizationRecovery")
         .Get<StepFinalizationRecoveryOptions>()
     ?? new StepFinalizationRecoveryOptions());
+builder.Services.AddSingleton(sp =>
+    sp.GetRequiredService<IConfiguration>()
+        .GetSection("ProcessStartReconciliation")
+        .Get<ProcessStartReconciliationOptions>()
+    ?? new ProcessStartReconciliationOptions());
 
 var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(
     builder.Configuration,
@@ -196,8 +203,12 @@ builder.Services.AddSingleton<ProcessStepDispatchTelemetry>();
 builder.Services.AddSingleton<PluginResultFinalizationTelemetry>();
 builder.Services.AddSingleton<PluginRuntimeAgentTelemetry>();
 builder.Services.AddSingleton<StepFinalizationRecoveryTelemetry>();
+builder.Services.AddSingleton<ProcessStartReconciliationTelemetry>();
 builder.Services.AddSingleton<ProcessStepDispatchService>();
+builder.Services.AddSingleton<IProcessStepDispatcher>(provider =>
+    provider.GetRequiredService<ProcessStepDispatchService>());
 builder.Services.AddTransient<StepFinalizationRecoveryService>();
+builder.Services.AddTransient<ProcessStartReconciliationService>();
 builder.Services.AddSingleton<StepExecutionService>();
 builder.Services.AddSingleton<IStepExecutionService>(provider => provider.GetRequiredService<StepExecutionService>());
 builder.Services.AddSingleton<IPluginAgentFailureHandler>(provider => provider.GetRequiredService<StepExecutionService>());
@@ -208,6 +219,7 @@ builder.Services.AddSingleton<PluginResultFinalizationQueue>();
 builder.Services.AddHostedService<PluginResultFinalizationWorker>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
 builder.Services.AddHostedService<QueueConsumer>();
+builder.Services.AddHostedService<ProcessStartReconciliationWorker>();
 builder.Services.AddHostedService<ProcessStepDispatchWorker>();
 builder.Services.AddHostedService<StepFinalizationRecoveryWorker>();
 builder.Services.AddHostedService<PluginReloadConsumer>();

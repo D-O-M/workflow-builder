@@ -132,6 +132,24 @@ public class ProcessInstanceRecord<TGlobalState>
 
     [JsonPropertyName("phase")]
     public ProcessPhaseMetadata? Phase { get; set; }
+
+    [JsonPropertyName("start")]
+    public ProcessStartState? Start { get; set; }
+}
+
+public sealed class ProcessStartState
+{
+    [JsonPropertyName("initialBlueprintNodeId")]
+    public required string InitialBlueprintNodeId { get; init; }
+
+    [JsonPropertyName("initialProcessStepId")]
+    public required string InitialProcessStepId { get; init; }
+
+    [JsonPropertyName("initialInputHydrationPlan")]
+    public required InputHydrationPlan InitialInputHydrationPlan { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
 }
 
 public sealed class ProcessDirectoryRecord
@@ -260,6 +278,198 @@ public sealed class ProcessSummaryProjectionRecord
 
     [JsonPropertyName("indexedAt")]
     public required DateTimeOffset IndexedAt { get; init; }
+}
+
+public sealed class ProcessRealtimeSummaryProjectionRecord
+{
+    private string _id = null!;
+
+    [JsonPropertyName("id")]
+    public required string id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonIgnore]
+    public string Id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonPropertyName("_etag")]
+    public string? ETag { get; set; }
+
+    [JsonPropertyName("processId")]
+    public required string ProcessId { get; init; }
+
+    [JsonPropertyName("blueprintDefinitionId")]
+    public required int BlueprintDefinitionId { get; set; }
+
+    [JsonPropertyName("blueprintVersionId")]
+    public required int BlueprintVersionId { get; set; }
+
+    [JsonPropertyName("status")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public required ProcessStatus Status { get; set; }
+
+    [JsonPropertyName("totalStepCount")]
+    public int TotalStepCount { get; set; }
+
+    [JsonPropertyName("pendingStepCount")]
+    public int PendingStepCount { get; set; }
+
+    [JsonPropertyName("inProgressStepCount")]
+    public int InProgressStepCount { get; set; }
+
+    [JsonPropertyName("completedStepCount")]
+    public int CompletedStepCount { get; set; }
+
+    [JsonPropertyName("failedStepCount")]
+    public int FailedStepCount { get; set; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; set; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; set; }
+
+    [JsonPropertyName("indexedAt")]
+    public DateTimeOffset? IndexedAt { get; set; }
+
+    [JsonPropertyName("stepStatusContributions")]
+    public Dictionary<string, ProcessRealtimeStepStatusContribution> StepStatusContributions { get; set; } = new(StringComparer.Ordinal);
+}
+
+public sealed class ProcessNodeRealtimeProjectionRecord
+{
+    private string _id = null!;
+
+    [JsonPropertyName("id")]
+    public required string id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonIgnore]
+    public string Id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonPropertyName("_etag")]
+    public string? ETag { get; set; }
+
+    [JsonPropertyName("processId")]
+    public required string ProcessId { get; init; }
+
+    [JsonPropertyName("blueprintNodeId")]
+    public required string BlueprintNodeId { get; init; }
+
+    [JsonPropertyName("aggregateStatus")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ProcessStepStatus AggregateStatus { get; set; }
+
+    [JsonPropertyName("runtimeStepCount")]
+    public int RuntimeStepCount { get; set; }
+
+    [JsonPropertyName("latestProcessStepId")]
+    public string? LatestProcessStepId { get; set; }
+
+    [JsonPropertyName("resolvedTaskVersionId")]
+    public int? ResolvedTaskVersionId { get; set; }
+
+    [JsonPropertyName("resolvedTaskVersion")]
+    public string? ResolvedTaskVersion { get; set; }
+
+    [JsonPropertyName("startedAt")]
+    public DateTimeOffset? StartedAt { get; set; }
+
+    [JsonPropertyName("completedAt")]
+    public DateTimeOffset? CompletedAt { get; set; }
+
+    [JsonPropertyName("failedAt")]
+    public DateTimeOffset? FailedAt { get; set; }
+
+    [JsonPropertyName("failureSummary")]
+    public ProcessNodeRealtimeFailureSummary? FailureSummary { get; set; }
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset CreatedAt { get; set; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; set; }
+
+    [JsonPropertyName("indexedAt")]
+    public DateTimeOffset? IndexedAt { get; set; }
+
+    [JsonPropertyName("stepContributions")]
+    public Dictionary<string, ProcessNodeRealtimeStepContribution> StepContributions { get; set; } = new(StringComparer.Ordinal);
+}
+
+public sealed class ProcessRealtimeStepStatusContribution
+{
+    [JsonPropertyName("processStepId")]
+    public required string ProcessStepId { get; init; }
+
+    [JsonPropertyName("status")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public required ProcessStepStatus Status { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; init; }
+}
+
+public sealed class ProcessNodeRealtimeStepContribution
+{
+    [JsonPropertyName("processStepId")]
+    public required string ProcessStepId { get; init; }
+
+    [JsonPropertyName("status")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public required ProcessStepStatus Status { get; init; }
+
+    [JsonPropertyName("resolvedTaskVersionId")]
+    public int? ResolvedTaskVersionId { get; init; }
+
+    [JsonPropertyName("resolvedTaskVersion")]
+    public string? ResolvedTaskVersion { get; init; }
+
+    [JsonPropertyName("startedAt")]
+    public DateTimeOffset? StartedAt { get; init; }
+
+    [JsonPropertyName("completedAt")]
+    public DateTimeOffset? CompletedAt { get; init; }
+
+    [JsonPropertyName("failedAt")]
+    public DateTimeOffset? FailedAt { get; init; }
+
+    [JsonPropertyName("errorMessage")]
+    public string? ErrorMessage { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; init; }
+}
+
+public sealed class ProcessNodeRealtimeFailureSummary
+{
+    [JsonPropertyName("processStepId")]
+    public required string ProcessStepId { get; init; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; init; }
+
+    [JsonPropertyName("failedAt")]
+    public DateTimeOffset? FailedAt { get; init; }
 }
 
 public class ProcessStepRecord
@@ -937,11 +1147,42 @@ public sealed class NodeJoinStateRecord
     [JsonPropertyName("receivedSources")]
     public Dictionary<string, InputHydrationSource> ReceivedSources { get; set; } = new(StringComparer.Ordinal);
 
-    [JsonPropertyName("stepEnqueued")]
-    public bool StepEnqueued { get; set; }
+    [JsonPropertyName("activationMaterialized")]
+    public bool ActivationMaterialized { get; set; }
 
+    [JsonPropertyName("materializedProcessStepId")]
+    public string? MaterializedProcessStepId { get; set; }
+
+    [Obsolete("Use ActivationMaterialized. This property only reads legacy Cosmos records.")]
+    [JsonPropertyName("stepEnqueued")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool LegacyStepEnqueued
+    {
+        get => false;
+        set
+        {
+            if (value)
+            {
+                ActivationMaterialized = true;
+            }
+        }
+    }
+
+    [Obsolete("Use MaterializedProcessStepId. This property only reads legacy Cosmos records.")]
     [JsonPropertyName("enqueuedProcessStepId")]
-    public string? EnqueuedProcessStepId { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public string? LegacyEnqueuedProcessStepId
+    {
+        get => null;
+        set
+        {
+            if (!string.IsNullOrWhiteSpace(value) &&
+                string.IsNullOrWhiteSpace(MaterializedProcessStepId))
+            {
+                MaterializedProcessStepId = value;
+            }
+        }
+    }
 
     [JsonPropertyName("createdAt")]
     public DateTimeOffset CreatedAt { get; init; }

@@ -100,6 +100,14 @@ internal sealed class DatabaseMigrationWorker(
             cancellationToken);
         await EnsureContainerAsync(
             databaseResponse.Database,
+            WorkflowBuilderTopology.Cosmos.Containers.ProcessRealtimeSummaries,
+            cancellationToken);
+        await EnsureContainerAsync(
+            databaseResponse.Database,
+            WorkflowBuilderTopology.Cosmos.Containers.ProcessNodeRealtime,
+            cancellationToken);
+        await EnsureContainerAsync(
+            databaseResponse.Database,
             WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps,
             cancellationToken);
         await EnsureContainerAsync(

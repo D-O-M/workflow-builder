@@ -33,6 +33,7 @@ public sealed record ActivationPlan(
 
 public sealed record ActivationIntent(
     Guid ProcessId,
+    int BlueprintDefinitionId,
     int ExecutableBlueprintId,
     Guid ProcessStepId,
     ExecutableBlueprintNode DestinationNode,
@@ -55,8 +56,8 @@ public sealed record JoinReadinessSnapshot(
     Guid DestinationBlueprintNodeId,
     IReadOnlyCollection<string> RequiredBindingIds,
     IReadOnlyDictionary<string, InputHydrationSource> ReceivedSources,
-    bool StepEnqueued,
-    Guid? EnqueuedProcessStepId);
+    bool ActivationMaterialized,
+    Guid? MaterializedProcessStepId);
 
 public sealed class ActivationPlanner
 {
@@ -83,6 +84,7 @@ public sealed class ActivationPlanner
                 }
 
                 AddActivation(
+                    request.ExecutableBlueprint.DefinitionId,
                     request.ExecutableBlueprint.Id,
                     request.ProcessId,
                     request.SourceProcessStepId,
@@ -142,6 +144,7 @@ public sealed class ActivationPlanner
                 };
 
                 AddActivation(
+                    request.ExecutableBlueprint.DefinitionId,
                     request.ExecutableBlueprint.Id,
                     request.ProcessId,
                     request.SourceProcessStepId,
@@ -165,6 +168,7 @@ public sealed class ActivationPlanner
     }
 
     private static void AddActivation(
+        int blueprintDefinitionId,
         int executableBlueprintId,
         Guid processId,
         Guid sourceProcessStepId,
@@ -188,6 +192,7 @@ public sealed class ActivationPlanner
         {
             intents.Add(CreateIntent(
                 processId,
+                blueprintDefinitionId,
                 executableBlueprintId,
                 destinationNode,
                 [source],
@@ -210,8 +215,13 @@ public sealed class ActivationPlanner
             source));
 
         if (joinReadinessSnapshots is null ||
-            !joinReadinessSnapshots.TryGetValue(joinStateId, out var snapshot) ||
-            snapshot.StepEnqueued)
+            !joinReadinessSnapshots.TryGetValue(joinStateId, out var snapshot))
+        {
+            return;
+        }
+
+        if (snapshot.ActivationMaterialized &&
+            snapshot.MaterializedProcessStepId.HasValue)
         {
             return;
         }
@@ -230,6 +240,7 @@ public sealed class ActivationPlanner
 
         intents.Add(CreateIntent(
             processId,
+            blueprintDefinitionId,
             executableBlueprintId,
             destinationNode,
             requiredBindingIds
@@ -243,6 +254,7 @@ public sealed class ActivationPlanner
 
     private static ActivationIntent CreateIntent(
         Guid processId,
+        int blueprintDefinitionId,
         int executableBlueprintId,
         ExecutableBlueprintNode destinationNode,
         IReadOnlyList<InputHydrationSource> sources,
@@ -254,6 +266,7 @@ public sealed class ActivationPlanner
 
         return new ActivationIntent(
             processId,
+            blueprintDefinitionId,
             executableBlueprintId,
             CreateScopedRuntimeIdentity(processId, destinationNode.Id, iterationContext),
             destinationNode,
