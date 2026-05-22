@@ -8,7 +8,7 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e201",
       "taskDefinitionName": "AirportOperationWindow",
       "allowedMajor": 0,
-      "allowedMinor": 2,
+      "allowedMinor": 3,
       "position": {
         "x": 120,
         "y": 320
@@ -123,7 +123,7 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e202",
       "taskDefinitionName": "AirportStationLookup",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 2,
       "position": {
         "x": 560,
         "y": 320
@@ -229,7 +229,7 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e203",
       "taskDefinitionName": "AirportMetarSnapshot",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 2,
       "position": {
         "x": 1000,
         "y": 20
@@ -266,7 +266,7 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e204",
       "taskDefinitionName": "AirportTafOutlook",
       "allowedMajor": 0,
-      "allowedMinor": 2,
+      "allowedMinor": 3,
       "position": {
         "x": 1000,
         "y": 320
@@ -303,7 +303,7 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e205",
       "taskDefinitionName": "AirportAdvisorySnapshot",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 2,
       "position": {
         "x": 1000,
         "y": 620
@@ -332,7 +332,7 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e206",
       "taskDefinitionName": "AirportTrafficSnapshot",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 2,
       "position": {
         "x": 1440,
         "y": 20
@@ -365,7 +365,7 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e207",
       "taskDefinitionName": "PublicDaylightWindow",
       "allowedMajor": 0,
-      "allowedMinor": 2,
+      "allowedMinor": 3,
       "position": {
         "x": 1440,
         "y": 620
@@ -394,7 +394,7 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e208",
       "taskDefinitionName": "AirportWeatherRisk",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 2,
       "position": {
         "x": 1440,
         "y": 320
@@ -423,7 +423,7 @@
       "taskKey": "8cf36d86-4f75-4274-8d8f-7049f0a4e209",
       "taskDefinitionName": "AirportDisruptionAdvisor",
       "allowedMajor": 0,
-      "allowedMinor": 1,
+      "allowedMinor": 2,
       "position": {
         "x": 1880,
         "y": 320

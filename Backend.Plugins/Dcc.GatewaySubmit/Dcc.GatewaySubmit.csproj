@@ -1,23 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <Version>0.1.0</Version>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <TrimMode>full</TrimMode>
-    <IlcTrimMetadata>true</IlcTrimMetadata>
-    <DebugType>none</DebugType>
-    <InvariantGlobalization>true</InvariantGlobalization>
-  </PropertyGroup>
-  <ItemGroup>
-    <Content Include="manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="schemas\**\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\Backend.Plugins.Configuration\Dcc\Backend.Plugins.Configuration.Dcc.csproj" />
-    <ProjectReference Include="..\..\Backend.Plugins.Harness\Backend.Plugins.Harness.csproj" />
-    <ProjectReference Include="..\Dcc.Common\Dcc.Common.csproj" />
-  </ItemGroup>
+    <PropertyGroup>
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Version>0.2.0</Version>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <TrimMode>full</TrimMode>
+        <IlcTrimMetadata>true</IlcTrimMetadata>
+        <DebugType>none</DebugType>
+        <InvariantGlobalization>true</InvariantGlobalization>
+    </PropertyGroup>
+    <ItemGroup>
+        <Content Include="manifest.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <Content Include="schemas\**\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\..\Backend.Plugins.Configuration\Dcc\Backend.Plugins.Configuration.Dcc.csproj" />
+        <ProjectReference Include="..\..\Backend.Plugins.Harness\Backend.Plugins.Harness.csproj" />
+        <ProjectReference Include="..\Dcc.Common\Dcc.Common.csproj" />
+    </ItemGroup>
 </Project>

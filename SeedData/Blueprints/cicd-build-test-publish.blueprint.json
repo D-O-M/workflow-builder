@@ -8,8 +8,11 @@
       "taskKey": "aaaaaaaa-0000-0000-0000-000000000101",
       "taskDefinitionName": "CiCd.GitCheckout",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 120, "y": 140 },
+      "allowedMinor": 2,
+      "position": {
+        "x": 120,
+        "y": 140
+      },
       "designTimeInputOverrides": {
         "BuildId": "",
         "RepositoryUrl": "",
@@ -25,8 +28,14 @@
           "side": "left",
           "position": 62,
           "propertyMappings": [
-            { "sourceProperty": "BuildId", "targetProperty": "BuildId" },
-            { "sourceProperty": "WorkspacePath", "targetProperty": "WorkspacePath" }
+            {
+              "sourceProperty": "BuildId",
+              "targetProperty": "BuildId"
+            },
+            {
+              "sourceProperty": "WorkspacePath",
+              "targetProperty": "WorkspacePath"
+            }
           ]
         }
       ]
@@ -35,9 +44,14 @@
       "taskKey": "aaaaaaaa-0000-0000-0000-000000000102",
       "taskDefinitionName": "CiCd.DotNetRestore",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 520, "y": 140 },
-      "designTimeInputOverrides": { "SolutionPath": "Backend.slnx" },
+      "allowedMinor": 2,
+      "position": {
+        "x": 520,
+        "y": 140
+      },
+      "designTimeInputOverrides": {
+        "SolutionPath": "Backend.slnx"
+      },
       "outgoingConnections": [
         {
           "channelName": "Result",
@@ -46,9 +60,18 @@
           "side": "left",
           "position": 62,
           "propertyMappings": [
-            { "sourceProperty": "BuildId", "targetProperty": "BuildId" },
-            { "sourceProperty": "WorkspacePath", "targetProperty": "WorkspacePath" },
-            { "sourceProperty": "SolutionPath", "targetProperty": "SolutionPath" }
+            {
+              "sourceProperty": "BuildId",
+              "targetProperty": "BuildId"
+            },
+            {
+              "sourceProperty": "WorkspacePath",
+              "targetProperty": "WorkspacePath"
+            },
+            {
+              "sourceProperty": "SolutionPath",
+              "targetProperty": "SolutionPath"
+            }
           ]
         }
       ]
@@ -57,9 +80,14 @@
       "taskKey": "aaaaaaaa-0000-0000-0000-000000000103",
       "taskDefinitionName": "CiCd.DotNetBuild",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 920, "y": 140 },
-      "designTimeInputOverrides": { "Configuration": "Release" },
+      "allowedMinor": 2,
+      "position": {
+        "x": 920,
+        "y": 140
+      },
+      "designTimeInputOverrides": {
+        "Configuration": "Release"
+      },
       "outgoingConnections": [
         {
           "channelName": "Result",
@@ -68,8 +96,14 @@
           "side": "left",
           "position": 62,
           "propertyMappings": [
-            { "sourceProperty": "BuildId", "targetProperty": "BuildId" },
-            { "sourceProperty": "WorkspacePath", "targetProperty": "WorkspacePath" }
+            {
+              "sourceProperty": "BuildId",
+              "targetProperty": "BuildId"
+            },
+            {
+              "sourceProperty": "WorkspacePath",
+              "targetProperty": "WorkspacePath"
+            }
           ]
         }
       ]
@@ -78,9 +112,14 @@
       "taskKey": "aaaaaaaa-0000-0000-0000-000000000104",
       "taskDefinitionName": "CiCd.UiDependencyInstall",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 1320, "y": 140 },
-      "designTimeInputOverrides": { "UiPath": "UI" },
+      "allowedMinor": 2,
+      "position": {
+        "x": 1320,
+        "y": 140
+      },
+      "designTimeInputOverrides": {
+        "UiPath": "UI"
+      },
       "outgoingConnections": [
         {
           "channelName": "Result",
@@ -89,9 +128,18 @@
           "side": "left",
           "position": 62,
           "propertyMappings": [
-            { "sourceProperty": "BuildId", "targetProperty": "BuildId" },
-            { "sourceProperty": "WorkspacePath", "targetProperty": "WorkspacePath" },
-            { "sourceProperty": "UiPath", "targetProperty": "UiPath" }
+            {
+              "sourceProperty": "BuildId",
+              "targetProperty": "BuildId"
+            },
+            {
+              "sourceProperty": "WorkspacePath",
+              "targetProperty": "WorkspacePath"
+            },
+            {
+              "sourceProperty": "UiPath",
+              "targetProperty": "UiPath"
+            }
           ]
         }
       ]
@@ -100,8 +148,11 @@
       "taskKey": "aaaaaaaa-0000-0000-0000-000000000105",
       "taskDefinitionName": "CiCd.UiBuild",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 1720, "y": 140 },
+      "allowedMinor": 2,
+      "position": {
+        "x": 1720,
+        "y": 140
+      },
       "outgoingConnections": [
         {
           "channelName": "Result",
@@ -110,9 +161,18 @@
           "side": "left",
           "position": 62,
           "propertyMappings": [
-            { "sourceProperty": "BuildId", "targetProperty": "BuildId" },
-            { "sourceProperty": "WorkspacePath", "targetProperty": "WorkspacePath" },
-            { "sourceProperty": "UiPath", "targetProperty": "UiPath" }
+            {
+              "sourceProperty": "BuildId",
+              "targetProperty": "BuildId"
+            },
+            {
+              "sourceProperty": "WorkspacePath",
+              "targetProperty": "WorkspacePath"
+            },
+            {
+              "sourceProperty": "UiPath",
+              "targetProperty": "UiPath"
+            }
           ]
         }
       ]
@@ -121,8 +181,11 @@
       "taskKey": "aaaaaaaa-0000-0000-0000-000000000106",
       "taskDefinitionName": "CiCd.UiUnitTest",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 2120, "y": 140 },
+      "allowedMinor": 2,
+      "position": {
+        "x": 2120,
+        "y": 140
+      },
       "outgoingConnections": [
         {
           "channelName": "Result",
@@ -131,8 +194,14 @@
           "side": "left",
           "position": 62,
           "propertyMappings": [
-            { "sourceProperty": "BuildId", "targetProperty": "BuildId" },
-            { "sourceProperty": "WorkspacePath", "targetProperty": "WorkspacePath" }
+            {
+              "sourceProperty": "BuildId",
+              "targetProperty": "BuildId"
+            },
+            {
+              "sourceProperty": "WorkspacePath",
+              "targetProperty": "WorkspacePath"
+            }
           ]
         }
       ]
@@ -141,8 +210,11 @@
       "taskKey": "aaaaaaaa-0000-0000-0000-000000000107",
       "taskDefinitionName": "CiCd.PluginBundleBuild",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 2520, "y": 140 },
+      "allowedMinor": 2,
+      "position": {
+        "x": 2520,
+        "y": 140
+      },
       "designTimeInputOverrides": {
         "PluginsRoot": "Backend.Plugins",
         "BundleOutputPath": "Backend.Plugins/_bundles",
@@ -157,8 +229,14 @@
           "side": "left",
           "position": 62,
           "propertyMappings": [
-            { "sourceProperty": "BuildId", "targetProperty": "BuildId" },
-            { "sourceProperty": "WorkspacePath", "targetProperty": "WorkspacePath" }
+            {
+              "sourceProperty": "BuildId",
+              "targetProperty": "BuildId"
+            },
+            {
+              "sourceProperty": "WorkspacePath",
+              "targetProperty": "WorkspacePath"
+            }
           ]
         }
       ]
@@ -167,8 +245,11 @@
       "taskKey": "aaaaaaaa-0000-0000-0000-000000000108",
       "taskDefinitionName": "CiCd.DotNetTest",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 2920, "y": 140 },
+      "allowedMinor": 2,
+      "position": {
+        "x": 2920,
+        "y": 140
+      },
       "designTimeInputOverrides": {
         "TestProjectList": "Backend.API.Tests/Backend.API.Tests.csproj;Backend.Dcc.Tests/Backend.Dcc.Tests.csproj;Backend.Engine.Tests/Backend.Engine.Tests.csproj;Backend.Plugins.Harness.Tests/Backend.Plugins.Harness.Tests.csproj;Backend.ShowcaseTown.Tests/Backend.ShowcaseTown.Tests.csproj",
         "Configuration": "Release",
@@ -182,8 +263,14 @@
           "side": "left",
           "position": 62,
           "propertyMappings": [
-            { "sourceProperty": "BuildId", "targetProperty": "BuildId" },
-            { "sourceProperty": "WorkspacePath", "targetProperty": "WorkspacePath" }
+            {
+              "sourceProperty": "BuildId",
+              "targetProperty": "BuildId"
+            },
+            {
+              "sourceProperty": "WorkspacePath",
+              "targetProperty": "WorkspacePath"
+            }
           ]
         }
       ]
@@ -192,8 +279,11 @@
       "taskKey": "aaaaaaaa-0000-0000-0000-000000000109",
       "taskDefinitionName": "CiCd.PublishArtifacts",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 3320, "y": 140 },
+      "allowedMinor": 2,
+      "position": {
+        "x": 3320,
+        "y": 140
+      },
       "designTimeInputOverrides": {
         "ArtifactName": "workflow-builder-cicd",
         "ArtifactPathList": "",
@@ -207,12 +297,30 @@
           "side": "left",
           "position": 62,
           "propertyMappings": [
-            { "sourceProperty": "BuildId", "targetProperty": "BuildId" },
-            { "sourceProperty": "ArtifactContainerName", "targetProperty": "ArtifactContainerName" },
-            { "sourceProperty": "ArtifactPackageBlobName", "targetProperty": "ArtifactPackageBlobName" },
-            { "sourceProperty": "ArtifactManifestBlobName", "targetProperty": "ArtifactManifestBlobName" },
-            { "sourceProperty": "ArtifactPackageUri", "targetProperty": "ArtifactPackageUri" },
-            { "sourceProperty": "ArtifactManifestUri", "targetProperty": "ArtifactManifestUri" }
+            {
+              "sourceProperty": "BuildId",
+              "targetProperty": "BuildId"
+            },
+            {
+              "sourceProperty": "ArtifactContainerName",
+              "targetProperty": "ArtifactContainerName"
+            },
+            {
+              "sourceProperty": "ArtifactPackageBlobName",
+              "targetProperty": "ArtifactPackageBlobName"
+            },
+            {
+              "sourceProperty": "ArtifactManifestBlobName",
+              "targetProperty": "ArtifactManifestBlobName"
+            },
+            {
+              "sourceProperty": "ArtifactPackageUri",
+              "targetProperty": "ArtifactPackageUri"
+            },
+            {
+              "sourceProperty": "ArtifactManifestUri",
+              "targetProperty": "ArtifactManifestUri"
+            }
           ]
         }
       ]
@@ -221,8 +329,11 @@
       "taskKey": "aaaaaaaa-0000-0000-0000-000000000110",
       "taskDefinitionName": "CiCd.SendPhaseTriggerEmail",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 3720, "y": 140 },
+      "allowedMinor": 2,
+      "position": {
+        "x": 3720,
+        "y": 140
+      },
       "designTimeInputOverrides": {
         "ApprovalEmailAddress": "release.approver@example.invalid",
         "PhaseSeriesKey": "cicd-phase-series-demo",

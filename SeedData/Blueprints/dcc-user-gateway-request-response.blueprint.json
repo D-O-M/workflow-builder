@@ -8,8 +8,11 @@
       "taskKey": "dcc00000-0000-0000-0000-000000000101",
       "taskDefinitionName": "Dcc.DuisServiceRequestWriter",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 120, "y": 140 },
+      "allowedMinor": 2,
+      "position": {
+        "x": 120,
+        "y": 140
+      },
       "designTimeInputOverrides": {
         "RequestId": "00-00-00-00-00-00-00-01:00-00-00-00-00-00-00-02:10001",
         "FirstInSequence": false,
@@ -38,12 +41,30 @@
           "side": "left",
           "position": 62,
           "propertyMappings": [
-            { "sourceProperty": "RequestId", "targetProperty": "RequestId" },
-            { "sourceProperty": "ServiceReference", "targetProperty": "ServiceReference" },
-            { "sourceProperty": "ServiceReferenceVariant", "targetProperty": "ServiceReferenceVariant" },
-            { "sourceProperty": "CommandVariant", "targetProperty": "CommandVariant" },
-            { "sourceProperty": "XmlContainerName", "targetProperty": "XmlContainerName" },
-            { "sourceProperty": "XmlBlobName", "targetProperty": "XmlBlobName" }
+            {
+              "sourceProperty": "RequestId",
+              "targetProperty": "RequestId"
+            },
+            {
+              "sourceProperty": "ServiceReference",
+              "targetProperty": "ServiceReference"
+            },
+            {
+              "sourceProperty": "ServiceReferenceVariant",
+              "targetProperty": "ServiceReferenceVariant"
+            },
+            {
+              "sourceProperty": "CommandVariant",
+              "targetProperty": "CommandVariant"
+            },
+            {
+              "sourceProperty": "XmlContainerName",
+              "targetProperty": "XmlContainerName"
+            },
+            {
+              "sourceProperty": "XmlBlobName",
+              "targetProperty": "XmlBlobName"
+            }
           ]
         }
       ]
@@ -52,8 +73,11 @@
       "taskKey": "dcc00000-0000-0000-0000-000000000102",
       "taskDefinitionName": "Dcc.GatewaySubmit",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 560, "y": 140 },
+      "allowedMinor": 2,
+      "position": {
+        "x": 560,
+        "y": 140
+      },
       "designTimeInputOverrides": {
         "ResponseXmlBlobName": "",
         "EndpointUrl": "",
@@ -69,12 +93,30 @@
           "side": "left",
           "position": 62,
           "propertyMappings": [
-            { "sourceProperty": "RequestId", "targetProperty": "ExpectedRequestId" },
-            { "sourceProperty": "ServiceReference", "targetProperty": "ExpectedServiceReference" },
-            { "sourceProperty": "ServiceReferenceVariant", "targetProperty": "ExpectedServiceReferenceVariant" },
-            { "sourceProperty": "CommandVariant", "targetProperty": "ExpectedCommandVariant" },
-            { "sourceProperty": "XmlContainerName", "targetProperty": "XmlContainerName" },
-            { "sourceProperty": "ResponseXmlBlobName", "targetProperty": "XmlBlobName" }
+            {
+              "sourceProperty": "RequestId",
+              "targetProperty": "ExpectedRequestId"
+            },
+            {
+              "sourceProperty": "ServiceReference",
+              "targetProperty": "ExpectedServiceReference"
+            },
+            {
+              "sourceProperty": "ServiceReferenceVariant",
+              "targetProperty": "ExpectedServiceReferenceVariant"
+            },
+            {
+              "sourceProperty": "CommandVariant",
+              "targetProperty": "ExpectedCommandVariant"
+            },
+            {
+              "sourceProperty": "XmlContainerName",
+              "targetProperty": "XmlContainerName"
+            },
+            {
+              "sourceProperty": "ResponseXmlBlobName",
+              "targetProperty": "XmlBlobName"
+            }
           ]
         }
       ]
@@ -83,8 +125,11 @@
       "taskKey": "dcc00000-0000-0000-0000-000000000103",
       "taskDefinitionName": "Dcc.DuisResponseReader",
       "allowedMajor": 0,
-      "allowedMinor": 1,
-      "position": { "x": 1000, "y": 140 },
+      "allowedMinor": 2,
+      "position": {
+        "x": 1000,
+        "y": 140
+      },
       "designTimeInputOverrides": {
         "XsdPathList": ""
       },
