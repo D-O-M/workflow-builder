@@ -189,6 +189,146 @@ public sealed class BlueprintProcessServiceTests
     }
 
     [Test]
+    public async Task StartLatestVersionAsync_fails_before_creating_process_when_dispatch_is_disabled()
+    {
+        var initialNodeId = Guid.NewGuid();
+        var repository = new BlueprintRepositoryStub(CreateBlueprintViewModel(), CreateExecutableBlueprint(initialNodeId));
+        var processSteps = new ProcessStepRepositorySpy();
+        var processInstances = new ProcessInstanceRepositorySpy();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var service = new BlueprintProcessService(
+            processSteps,
+            CreateDispatchService(processSteps, queueWriter, enabled: false),
+            new BlueprintExecutionCacheStub(CreateExecutableBlueprint(initialNodeId)),
+            repository,
+            processInstances,
+            new ProcessStartTelemetry(),
+            NullLogger<BlueprintProcessService>.Instance);
+
+        var ex = await Should.ThrowAsync<ProcessStepDispatchDisabledException>(() =>
+            service.StartLatestVersionAsync(
+                7,
+                new BlueprintProcessInputModel(),
+                CancellationToken.None));
+
+        ex.Message.ShouldContain("dispatch is disabled");
+        processInstances.CreatedState.ShouldBeNull();
+        processSteps.CreatedStep.ShouldBeNull();
+        queueWriter.Messages.Count.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task StartLatestVersionAsync_can_use_explicit_test_noop_dispatcher()
+    {
+        var initialNodeId = Guid.NewGuid();
+        var repository = new BlueprintRepositoryStub(CreateBlueprintViewModel(), CreateExecutableBlueprint(initialNodeId));
+        var processSteps = new ProcessStepRepositorySpy();
+        var processInstances = new ProcessInstanceRepositorySpy();
+        var dispatcher = new TestNoOpProcessStepDispatcher();
+        var service = new BlueprintProcessService(
+            processSteps,
+            dispatcher,
+            new BlueprintExecutionCacheStub(CreateExecutableBlueprint(initialNodeId)),
+            repository,
+            processInstances,
+            new ProcessStartTelemetry(),
+            NullLogger<BlueprintProcessService>.Instance);
+
+        var accepted = await service.StartLatestVersionAsync(
+            7,
+            new BlueprintProcessInputModel(),
+            CancellationToken.None);
+
+        accepted.BlueprintId.ShouldBe(7);
+        processInstances.CreatedState.ShouldNotBeNull();
+        processSteps.CreatedStep.ShouldNotBeNull();
+        dispatcher.EnsureAvailableCalls.ShouldBe(1);
+        dispatcher.EnsureIntentCalls.ShouldBe(1);
+        dispatcher.TryDispatchCalls.ShouldBe(1);
+    }
+
+    [Test]
+    public async Task StartLatestVersionAsync_persists_start_snapshot_for_initial_step_reconciliation()
+    {
+        var initialNodeId = Guid.NewGuid();
+        var executableBlueprint = CreateExecutableBlueprint(initialNodeId);
+        var repository = new BlueprintRepositoryStub(CreateBlueprintViewModel(), executableBlueprint);
+        var processSteps = new ProcessStepRepositorySpy();
+        var processInstances = new ProcessInstanceRepositorySpy();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var service = new BlueprintProcessService(
+            processSteps,
+            CreateDispatchService(processSteps, queueWriter),
+            new BlueprintExecutionCacheStub(executableBlueprint),
+            repository,
+            processInstances,
+            new ProcessStartTelemetry(),
+            NullLogger<BlueprintProcessService>.Instance);
+
+        var accepted = await service.StartLatestVersionAsync(
+            7,
+            new BlueprintProcessInputModel
+            {
+                InitialTaskInput = new Dictionary<string, JsonElement>
+                {
+                    ["town"] = Json("input"),
+                    ["country"] = Json("uk")
+                },
+                NodeOverrides = new Dictionary<Guid, Dictionary<string, JsonElement>>
+                {
+                    [initialNodeId] = new()
+                    {
+                        ["town"] = Json("runtime")
+                    }
+                }
+            },
+            CancellationToken.None);
+
+        processInstances.CreatedState.ShouldNotBeNull();
+        processInstances.CreatedState.Start.ShouldNotBeNull();
+        processInstances.CreatedState.Start.InitialBlueprintNodeId.ShouldBe(initialNodeId.ToString());
+        processInstances.CreatedState.Start.InitialProcessStepId.ShouldBe(
+            ProcessStepIdentity.Create(accepted.ProcessId, initialNodeId).ToString());
+        processInstances.CreatedState.Start.InitialInputHydrationPlan.InputChannelName.ShouldBe("Input");
+        processInstances.CreatedState.Start.InitialInputHydrationPlan.InitialInput["town"].GetString().ShouldBe("input");
+        processInstances.CreatedState.Start.InitialInputHydrationPlan.InitialInput["country"].GetString().ShouldBe("uk");
+        processInstances.CreatedState.Start.InitialInputHydrationPlan.DesignTimeInputOverrides["town"].GetString().ShouldBe("design-time");
+        processInstances.CreatedState.Start.InitialInputHydrationPlan.RuntimeInputOverrides["town"].GetString().ShouldBe("runtime");
+    }
+
+    [Test]
+    public async Task StartLatestVersionAsync_keeps_start_snapshot_when_initial_step_creation_fails()
+    {
+        var initialNodeId = Guid.NewGuid();
+        var executableBlueprint = CreateExecutableBlueprint(initialNodeId);
+        var repository = new BlueprintRepositoryStub(CreateBlueprintViewModel(), executableBlueprint);
+        var processSteps = new ProcessStepRepositorySpy { ThrowOnCreateProcessStep = true };
+        var processInstances = new ProcessInstanceRepositorySpy();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var service = new BlueprintProcessService(
+            processSteps,
+            CreateDispatchService(processSteps, queueWriter),
+            new BlueprintExecutionCacheStub(executableBlueprint),
+            repository,
+            processInstances,
+            new ProcessStartTelemetry(),
+            NullLogger<BlueprintProcessService>.Instance);
+
+        await Should.ThrowAsync<InvalidOperationException>(() => service.StartLatestVersionAsync(
+            7,
+            new BlueprintProcessInputModel(),
+            CancellationToken.None));
+
+        processInstances.CreatedState.ShouldNotBeNull();
+        processInstances.CreatedState.Start.ShouldNotBeNull();
+        processInstances.CreatedState.Start.InitialBlueprintNodeId.ShouldBe(initialNodeId.ToString());
+        Guid.Parse(processInstances.CreatedState.Start.InitialProcessStepId).ShouldBe(
+            ProcessStepIdentity.Create(Guid.Parse(processInstances.CreatedState.ProcessId), initialNodeId));
+        processSteps.CreatedStep.ShouldBeNull();
+        queueWriter.Messages.Count.ShouldBe(0);
+    }
+
+    [Test]
     public async Task StartLatestVersionAsync_projects_process_directory_and_summaries_after_source_process_is_created()
     {
         var initialNodeId = Guid.NewGuid();
@@ -220,13 +360,15 @@ public sealed class BlueprintProcessServiceTests
 
     private static ProcessStepDispatchService CreateDispatchService(
         ProcessStepRepositorySpy processSteps,
-        ProcessStepQueueWriterSpy queueWriter) =>
+        ProcessStepQueueWriterSpy queueWriter,
+        bool enabled = true) =>
         new(
             processSteps,
             new ProcessStepDispatchIntentRepositorySpy(),
             queueWriter,
             new ProcessStepDispatchOptions
             {
+                Enabled = enabled,
                 RetryBaseDelay = TimeSpan.FromMilliseconds(1),
                 RetryMaxDelay = TimeSpan.FromMilliseconds(10),
                 DueBucketDuration = TimeSpan.FromMilliseconds(1)
@@ -347,9 +489,15 @@ public sealed class BlueprintProcessServiceTests
     private sealed class ProcessStepRepositorySpy : IProcessStepRepository
     {
         public ProcessStepRecord? CreatedStep { get; private set; }
+        public bool ThrowOnCreateProcessStep { get; init; }
 
         public Task<ProcessStepRecord> CreateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken)
         {
+            if (ThrowOnCreateProcessStep)
+            {
+                throw new InvalidOperationException("Initial process step creation failed.");
+            }
+
             CreatedStep = state;
             return Task.FromResult(state);
         }
@@ -745,6 +893,60 @@ public sealed class BlueprintProcessServiceTests
             record.Status is ProcessStepDispatchStatus.Dispatching &&
                 record.LockedUntil.HasValue &&
                 record.LockedUntil.Value <= now;
+    }
+
+    private sealed class TestNoOpProcessStepDispatcher : IProcessStepDispatcher
+    {
+        public int EnsureAvailableCalls { get; private set; }
+        public int EnsureIntentCalls { get; private set; }
+        public int TryDispatchCalls { get; private set; }
+
+        public void EnsureDispatchAvailableForExecution()
+        {
+            EnsureAvailableCalls++;
+        }
+
+        public Task<ProcessStepDispatchIntentRecord> EnsureDispatchIntentAsync(
+            ProcessStepRecord step,
+            DateTimeOffset timestamp,
+            CancellationToken cancellationToken)
+        {
+            EnsureIntentCalls++;
+            var dueBucket = ProcessStepDispatchService.CalculateDueBucket(timestamp, TimeSpan.FromSeconds(5));
+            var shard = ProcessStepDispatchService.CalculateShard(step.Id, 1);
+            return Task.FromResult(new ProcessStepDispatchIntentRecord
+            {
+                id = ProcessStepDispatchService.CreateIntentId(step.Id, dueBucket, 0),
+                PartitionKey = ProcessStepDispatchIntentKeys.CreateDuePartitionKey(dueBucket, shard),
+                ProcessStepId = step.Id,
+                ProcessId = step.ProcessId,
+                BlueprintId = step.BlueprintId,
+                BlueprintNodeId = step.BlueprintNodeId,
+                Status = ProcessStepDispatchStatus.Pending,
+                DueBucket = dueBucket,
+                Shard = shard,
+                NextAttemptAt = timestamp,
+                AttemptCount = 0,
+                CreatedAt = timestamp,
+                UpdatedAt = timestamp
+            });
+        }
+
+        public Task<bool> TryDispatchAsync(
+            ProcessStepRecord step,
+            CancellationToken cancellationToken)
+        {
+            TryDispatchCalls++;
+            return Task.FromResult(false);
+        }
+
+        public Task<int> DrainDueDispatchesAsync(
+            int maxItemCount,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(0);
+
+        public Task RefreshBacklogMetricsAsync(CancellationToken cancellationToken) =>
+            Task.CompletedTask;
     }
 
     private sealed class ProcessInstanceRepositorySpy : IProcessInstanceRepository<Dictionary<string, JsonElement>>

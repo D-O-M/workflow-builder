@@ -80,6 +80,42 @@ public sealed class ActivationPersistenceServiceTests
     }
 
     [Test]
+    public async Task Disabled_dispatch_fails_before_downstream_steps_are_created()
+    {
+        var processId = Guid.NewGuid();
+        var sourceNodeId = Guid.NewGuid();
+        var destinationNodeId = Guid.NewGuid();
+        var blueprint = CreateSingleInboundBlueprint(sourceNodeId, destinationNodeId, "source-to-destination");
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(
+            processId,
+            blueprint,
+            new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal)));
+        var context = await CreateClaimedContextAsync(
+            processId,
+            sourceNodeId,
+            blueprint,
+            stepRepository,
+            processRepository);
+        var service = new ActivationPersistenceService(
+            new InMemoryNodeJoinStateRepository(),
+            CreateDispatchService(stepRepository, new ProcessStepQueueWriterSpy(), enabled: false),
+            stepRepository,
+            NullLogger<ActivationPersistenceService>.Instance);
+        var result = CreateResult(context, "Out");
+        var plan = PlanReadyActivations(context, result);
+
+        await Should.ThrowAsync<ProcessStepDispatchDisabledException>(() =>
+            service.PersistReadyActivationsAsync(
+                plan,
+                result.CompletedAt,
+                batchSize: int.MaxValue,
+                CancellationToken.None));
+
+        stepRepository.CreatedSteps.Count.ShouldBe(0);
+    }
+
+    [Test]
     public async Task Multi_inbound_join_waits_for_all_bindings_then_enqueues_once_with_source_references()
     {
         var processId = Guid.NewGuid();
@@ -154,8 +190,8 @@ public sealed class ActivationPersistenceServiceTests
         ]);
         createdStep.InputHydrationPlan.Sources[0].SourceProcessStepId.ShouldBe(leftContext.ProcessStepId.ToString());
         createdStep.InputHydrationPlan.Sources[1].SourceProcessStepId.ShouldBe(rightContext.ProcessStepId.ToString());
-        joinRepository.States[(processId, joinNodeId)].StepEnqueued.ShouldBeTrue();
-        joinRepository.States[(processId, joinNodeId)].EnqueuedProcessStepId.ShouldBe(createdStep.Id);
+        joinRepository.States[(processId, joinNodeId)].ActivationMaterialized.ShouldBeTrue();
+        joinRepository.States[(processId, joinNodeId)].MaterializedProcessStepId.ShouldBe(createdStep.Id);
         stepRepository.ProcessStepListFetchCount.ShouldBe(0);
 
         var duplicatePlan = PlanReadyActivations(rightContext, rightResult);
@@ -172,6 +208,155 @@ public sealed class ActivationPersistenceServiceTests
 
         stepRepository.CreatedSteps.Count.ShouldBe(1);
         queueWriter.Messages.Count.ShouldBe(1);
+    }
+
+    [Test]
+    public async Task Join_activation_materialization_failure_throws_after_retries()
+    {
+        var processId = Guid.NewGuid();
+        var leftNodeId = Guid.NewGuid();
+        var rightNodeId = Guid.NewGuid();
+        var joinNodeId = Guid.NewGuid();
+        var blueprint = CreateJoinBlueprint(leftNodeId, rightNodeId, joinNodeId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(
+            processId,
+            blueprint,
+            new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal)));
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var joinRepository = new InMemoryNodeJoinStateRepository();
+        var service = new ActivationPersistenceService(
+            joinRepository,
+            CreateDispatchService(stepRepository, queueWriter),
+            stepRepository,
+            NullLogger<ActivationPersistenceService>.Instance);
+
+        var leftContext = await CreateClaimedContextAsync(
+            processId,
+            leftNodeId,
+            blueprint,
+            stepRepository,
+            processRepository);
+        var leftResult = CreateResult(leftContext, "LeftOut");
+        var leftPlan = PlanReadyActivations(leftContext, leftResult);
+        await service.RecordJoinSourceObservationsAsync(leftPlan, leftResult.CompletedAt, CancellationToken.None);
+
+        var rightContext = await CreateClaimedContextAsync(
+            processId,
+            rightNodeId,
+            blueprint,
+            stepRepository,
+            processRepository);
+        var rightResult = CreateResult(rightContext, "RightOut");
+        var rightPlan = PlanReadyActivations(rightContext, rightResult);
+        var snapshots = await service.RecordJoinSourceObservationsAsync(
+            rightPlan,
+            rightResult.CompletedAt,
+            CancellationToken.None);
+        var readyPlan = PlanReadyActivations(rightContext, rightResult, snapshots);
+        joinRepository.FailUpdateAttempts = 10;
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(() =>
+            service.PersistReadyActivationsAsync(
+                readyPlan,
+                rightResult.CompletedAt,
+                batchSize: int.MaxValue,
+                CancellationToken.None));
+
+        ex.Message.ShouldContain("materialized");
+        stepRepository.CreatedSteps.Count.ShouldBe(1);
+        joinRepository.States[(processId, joinNodeId)].ActivationMaterialized.ShouldBeFalse();
+    }
+
+    [Test]
+    public async Task Materialized_join_marker_missing_step_id_is_repaired_without_duplicate_step()
+    {
+        var processId = Guid.NewGuid();
+        var leftNodeId = Guid.NewGuid();
+        var rightNodeId = Guid.NewGuid();
+        var joinNodeId = Guid.NewGuid();
+        var blueprint = CreateJoinBlueprint(leftNodeId, rightNodeId, joinNodeId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(
+            processId,
+            blueprint,
+            new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal)));
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var joinRepository = new InMemoryNodeJoinStateRepository();
+        var service = new ActivationPersistenceService(
+            joinRepository,
+            CreateDispatchService(stepRepository, queueWriter),
+            stepRepository,
+            NullLogger<ActivationPersistenceService>.Instance);
+
+        var leftContext = await CreateClaimedContextAsync(
+            processId,
+            leftNodeId,
+            blueprint,
+            stepRepository,
+            processRepository);
+        var leftResult = CreateResult(leftContext, "LeftOut");
+        var leftPlan = PlanReadyActivations(leftContext, leftResult);
+        await service.RecordJoinSourceObservationsAsync(leftPlan, leftResult.CompletedAt, CancellationToken.None);
+
+        var rightContext = await CreateClaimedContextAsync(
+            processId,
+            rightNodeId,
+            blueprint,
+            stepRepository,
+            processRepository);
+        var rightResult = CreateResult(rightContext, "RightOut");
+        var rightPlan = PlanReadyActivations(rightContext, rightResult);
+        var snapshots = await service.RecordJoinSourceObservationsAsync(
+            rightPlan,
+            rightResult.CompletedAt,
+            CancellationToken.None);
+        var readyPlan = PlanReadyActivations(rightContext, rightResult, snapshots);
+        var joinState = joinRepository.States[(processId, joinNodeId)];
+        joinState.ActivationMaterialized = true;
+        joinState.MaterializedProcessStepId = null;
+
+        await service.PersistReadyActivationsAsync(
+            readyPlan,
+            rightResult.CompletedAt,
+            batchSize: int.MaxValue,
+            CancellationToken.None);
+
+        stepRepository.CreatedSteps.Count.ShouldBe(1);
+        var repairedJoinState = joinRepository.States[(processId, joinNodeId)];
+        repairedJoinState.ActivationMaterialized.ShouldBeTrue();
+        repairedJoinState.MaterializedProcessStepId.ShouldBe(stepRepository.CreatedSteps.Single().Id);
+        queueWriter.Messages.Count.ShouldBe(1);
+    }
+
+    [Test]
+    public void Legacy_join_state_json_deserializes_materialization_fields()
+    {
+        var materializedStepId = Guid.NewGuid();
+        var json = $$"""
+        {
+          "id": "{{Guid.NewGuid()}}",
+          "processId": "{{Guid.NewGuid()}}",
+          "blueprintId": "101",
+          "blueprintNodeId": "{{Guid.NewGuid()}}",
+          "requiredBindingIds": [],
+          "receivedSources": {},
+          "stepEnqueued": true,
+          "enqueuedProcessStepId": "{{materializedStepId}}",
+          "createdAt": "2026-05-22T00:00:00+00:00"
+        }
+        """;
+
+        var record = JsonSerializer.Deserialize<NodeJoinStateRecord>(json, JsonSerializerOptions.Web);
+
+        record.ShouldNotBeNull();
+        record.ActivationMaterialized.ShouldBeTrue();
+        record.MaterializedProcessStepId.ShouldBe(materializedStepId.ToString());
+        var serialized = JsonSerializer.Serialize(record, JsonSerializerOptions.Web);
+        serialized.ShouldContain("activationMaterialized");
+        serialized.ShouldContain("materializedProcessStepId");
+        serialized.ShouldNotContain("stepEnqueued");
+        serialized.ShouldNotContain("enqueuedProcessStepId");
     }
 
     [Test]
@@ -277,13 +462,15 @@ public sealed class ActivationPersistenceServiceTests
 
     private static ProcessStepDispatchService CreateDispatchService(
         InMemoryProcessStepRepository stepRepository,
-        ProcessStepQueueWriterSpy queueWriter) =>
+        ProcessStepQueueWriterSpy queueWriter,
+        bool enabled = true) =>
         new(
             stepRepository,
             new InMemoryProcessStepDispatchIntentRepository(),
             queueWriter,
             new ProcessStepDispatchOptions
             {
+                Enabled = enabled,
                 RetryBaseDelay = TimeSpan.FromMilliseconds(1),
                 RetryMaxDelay = TimeSpan.FromMilliseconds(10)
             },
@@ -920,13 +1107,15 @@ public sealed class ActivationPersistenceServiceTests
     {
         public Dictionary<(Guid ProcessId, Guid JoinStateId), NodeJoinStateRecord> States { get; } = new();
 
+        public int FailUpdateAttempts { get; set; }
+
         public Task<NodeJoinStateRecord?> GetJoinStateAsync(
             Guid processId,
             Guid blueprintNodeId,
             CancellationToken cancellationToken)
         {
             States.TryGetValue((processId, blueprintNodeId), out var state);
-            return Task.FromResult(state);
+            return Task.FromResult(state is null ? null : Clone(state));
         }
 
         public Task<(bool Created, NodeJoinStateRecord State)> CreateJoinStateIfNotExistsAsync(
@@ -936,20 +1125,31 @@ public sealed class ActivationPersistenceServiceTests
             var key = (Guid.Parse(state.ProcessId), Guid.Parse(state.Id));
             if (States.TryGetValue(key, out var existing))
             {
-                return Task.FromResult((false, existing));
+                return Task.FromResult((false, Clone(existing)));
             }
 
-            States[key] = state;
-            return Task.FromResult((true, state));
+            States[key] = Clone(state);
+            return Task.FromResult((true, Clone(state)));
         }
 
         public Task<bool> TryUpdateJoinStateAsync(
             NodeJoinStateRecord state,
             CancellationToken cancellationToken)
         {
-            States[(Guid.Parse(state.ProcessId), Guid.Parse(state.Id))] = state;
+            if (FailUpdateAttempts > 0)
+            {
+                FailUpdateAttempts--;
+                return Task.FromResult(false);
+            }
+
+            States[(Guid.Parse(state.ProcessId), Guid.Parse(state.Id))] = Clone(state);
             return Task.FromResult(true);
         }
+
+        private static NodeJoinStateRecord Clone(NodeJoinStateRecord state) =>
+            JsonSerializer.Deserialize<NodeJoinStateRecord>(
+                JsonSerializer.Serialize(state, JsonSerializerOptions.Web),
+                JsonSerializerOptions.Web)!;
     }
 
     private sealed class ProcessStepQueueWriterSpy : IProcessStepQueueWriter

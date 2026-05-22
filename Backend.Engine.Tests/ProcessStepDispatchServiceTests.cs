@@ -10,6 +10,7 @@ using Backend.Interfaces.Repositories;
 using Backend.Models;
 using Backend.Plugins.Communication;
 using Backend.Services.ProcessStepQueue;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 
@@ -179,16 +180,64 @@ public sealed class ProcessStepDispatchServiceTests
         dispatchIntentRepository.DueQueries.ShouldAllBe(query => query.Shard >= 0 && query.Shard < 4);
     }
 
+    [Test]
+    public async Task Disabled_production_dispatcher_throws_instead_of_silent_noop()
+    {
+        var repository = new InMemoryProcessStepRepository();
+        var dispatchIntentRepository = new InMemoryProcessStepDispatchIntentRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var service = CreateService(
+            repository,
+            dispatchIntentRepository,
+            queueWriter,
+            enabled: false);
+        var step = CreateStep();
+        repository.States[Guid.Parse(step.Id)] = step;
+
+        Should.Throw<ProcessStepDispatchDisabledException>(service.EnsureDispatchAvailableForExecution);
+        await Should.ThrowAsync<ProcessStepDispatchDisabledException>(() =>
+            service.EnsureDispatchIntentAsync(step, step.CreatedAt, CancellationToken.None));
+        await Should.ThrowAsync<ProcessStepDispatchDisabledException>(() =>
+            service.TryDispatchAsync(step, CancellationToken.None));
+        await Should.ThrowAsync<ProcessStepDispatchDisabledException>(() =>
+            service.DrainDueDispatchesAsync(10, CancellationToken.None));
+
+        queueWriter.Messages.Count.ShouldBe(0);
+        dispatchIntentRepository.Intents.Count.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task Worker_fails_loudly_when_dispatch_is_disabled()
+    {
+        var service = CreateService(
+            new InMemoryProcessStepRepository(),
+            new InMemoryProcessStepDispatchIntentRepository(),
+            new ProcessStepQueueWriterSpy(),
+            enabled: false);
+        var worker = new ProcessStepDispatchWorker(
+            service,
+            new ProcessStepDispatchOptions { Enabled = false },
+            NullLogger<ProcessStepDispatchWorker>.Instance);
+
+        await ((IHostedService)worker).StartAsync(CancellationToken.None);
+
+        var executeTask = worker.ExecuteTask ??
+            throw new InvalidOperationException("Expected dispatch worker to expose an execution task.");
+        await Should.ThrowAsync<ProcessStepDispatchDisabledException>(async () => await executeTask);
+    }
+
     private static ProcessStepDispatchService CreateService(
         InMemoryProcessStepRepository repository,
         InMemoryProcessStepDispatchIntentRepository dispatchIntentRepository,
-        ProcessStepQueueWriterSpy queueWriter) =>
+        ProcessStepQueueWriterSpy queueWriter,
+        bool enabled = true) =>
         new(
             repository,
             dispatchIntentRepository,
             queueWriter,
             new ProcessStepDispatchOptions
             {
+                Enabled = enabled,
                 RetryBaseDelay = TimeSpan.FromMilliseconds(1),
                 RetryMaxDelay = TimeSpan.FromMilliseconds(10),
                 LeaseDuration = TimeSpan.FromSeconds(30),

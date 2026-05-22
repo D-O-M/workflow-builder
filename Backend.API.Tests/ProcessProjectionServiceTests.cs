@@ -271,6 +271,249 @@ public sealed class ProcessProjectionServiceTests
         processRepository.RequestedBlueprintVersionIds.ShouldBe([created.Versions[0].BlueprintVersionId]);
     }
 
+    [Test]
+    public async Task BuildRealtimeBatchAsync_uses_realtime_projections_without_loading_all_process_steps()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var taskDefinition = await SeedTaskDefinitionWithChannelsAsync(
+            database.Context,
+            "Realtime Step",
+            new Dictionary<string, WorkflowPropertyKind>());
+        var repository = new BlueprintRepository(database.Context);
+        var nodeId = Guid.NewGuid();
+        var created = await repository.CreateBlueprint(
+            new BlueprintInputModel
+            {
+                Name = "Realtime Blueprint",
+                StartingBlueprintNodeId = nodeId,
+                Tasks =
+                [
+                    new BlueprintNodeInputModel
+                    {
+                        InstanceId = nodeId,
+                        TaskDefinitionId = taskDefinition.Id,
+                        AllowedMajor = 1,
+                        AllowedMinor = 0,
+                        Position = new CoordinatesViewModel { X = 120, Y = 80 },
+                    }
+                ],
+            },
+            CancellationToken.None);
+
+        var processId = Guid.NewGuid();
+        var processStepId = Backend.Models.ProcessStepIdentity.Create(processId, nodeId);
+        var processRecord = CreateProcessRecord(processId, created.Versions[0].BlueprintVersionId, ProcessStatus.Completed);
+        var stepRepository = new ProcessStepRepositoryStub([])
+        {
+            ThrowOnGetProcessStepsForProcess = true
+        };
+        var realtimeProjection = new ProcessRealtimeProjectionServiceStub
+        {
+            Summary = new ProcessRealtimeSummaryProjectionRecord
+            {
+                id = processId.ToString(),
+                ProcessId = processId.ToString(),
+                BlueprintDefinitionId = created.Id,
+                BlueprintVersionId = created.Versions[0].BlueprintVersionId,
+                Status = ProcessStatus.Completed,
+                TotalStepCount = 1,
+                CompletedStepCount = 1,
+                CreatedAt = DateTimeOffset.Parse("2026-04-21T00:10:00Z"),
+                UpdatedAt = DateTimeOffset.Parse("2026-04-21T00:12:00Z")
+            },
+            Nodes =
+            [
+                new ProcessNodeRealtimeProjectionRecord
+                {
+                    id = nodeId.ToString(),
+                    ProcessId = processId.ToString(),
+                    BlueprintNodeId = nodeId.ToString(),
+                    AggregateStatus = ProcessStepStatus.Completed,
+                    RuntimeStepCount = 1,
+                    LatestProcessStepId = processStepId.ToString(),
+                    ResolvedTaskVersionId = taskDefinition.Versions.Single().Id,
+                    ResolvedTaskVersion = "1.0.0",
+                    StartedAt = DateTimeOffset.Parse("2026-04-21T00:11:00Z"),
+                    CompletedAt = DateTimeOffset.Parse("2026-04-21T00:12:00Z"),
+                    CreatedAt = DateTimeOffset.Parse("2026-04-21T00:10:00Z"),
+                    UpdatedAt = DateTimeOffset.Parse("2026-04-21T00:12:00Z")
+                }
+            ]
+        };
+
+        var service = new ProcessProjectionService(
+            database.Context,
+            stepRepository,
+            new ProcessInstanceRepositoryStub(created.Versions[0].BlueprintVersionId, processRecord),
+            processRealtimeProjectionService: realtimeProjection);
+
+        var batch = await service.BuildRealtimeBatchAsync(
+            created.Versions[0].BlueprintVersionId,
+            created.Id,
+            processId,
+            [nodeId],
+            includeSummary: true,
+            includeNodeUpdates: true,
+            CancellationToken.None);
+
+        batch.ShouldNotBeNull();
+        batch.Summaries.Single().CompletedTaskCount.ShouldBe(1);
+        batch.NodeUpdates.Single().Nodes.Single().BlueprintNodeId.ShouldBe(processStepId);
+        stepRepository.GetProcessStepsForProcessCallCount.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task BuildRealtimeBatchAsync_falls_back_and_repairs_when_projection_is_missing()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var taskDefinition = await SeedTaskDefinitionWithChannelsAsync(
+            database.Context,
+            "Fallback Step",
+            new Dictionary<string, WorkflowPropertyKind>());
+        var repository = new BlueprintRepository(database.Context);
+        var nodeId = Guid.NewGuid();
+        var created = await repository.CreateBlueprint(
+            new BlueprintInputModel
+            {
+                Name = "Fallback Blueprint",
+                StartingBlueprintNodeId = nodeId,
+                Tasks =
+                [
+                    new BlueprintNodeInputModel
+                    {
+                        InstanceId = nodeId,
+                        TaskDefinitionId = taskDefinition.Id,
+                        AllowedMajor = 1,
+                        AllowedMinor = 0,
+                        Position = new CoordinatesViewModel { X = 120, Y = 80 },
+                    }
+                ],
+            },
+            CancellationToken.None);
+
+        var processId = Guid.NewGuid();
+        var processStepId = Backend.Models.ProcessStepIdentity.Create(processId, nodeId);
+        var processRecord = CreateProcessRecord(processId, created.Versions[0].BlueprintVersionId, ProcessStatus.Completed);
+        var steps = new List<ProcessStepRecord>
+        {
+            new()
+            {
+                Id = processStepId.ToString(),
+                ProcessId = processId.ToString(),
+                BlueprintId = created.Versions[0].BlueprintVersionId.ToString(),
+                BlueprintNodeId = nodeId.ToString(),
+                TaskDefinitionId = taskDefinition.Id,
+                ResolvedTaskVersionId = taskDefinition.Versions.Single().Id,
+                ResolvedTaskVersion = "1.0.0",
+                CreatedAt = DateTimeOffset.Parse("2026-04-21T00:10:00Z"),
+                UpdatedAt = DateTimeOffset.Parse("2026-04-21T00:12:00Z"),
+                StartedAt = DateTimeOffset.Parse("2026-04-21T00:11:00Z"),
+                CompletedAt = DateTimeOffset.Parse("2026-04-21T00:12:00Z"),
+                Status = ProcessStepStatus.Completed
+            }
+        };
+        var stepRepository = new ProcessStepRepositoryStub(steps);
+        var realtimeProjection = new ProcessRealtimeProjectionServiceStub();
+
+        var service = new ProcessProjectionService(
+            database.Context,
+            stepRepository,
+            new ProcessInstanceRepositoryStub(created.Versions[0].BlueprintVersionId, processRecord),
+            processRealtimeProjectionService: realtimeProjection);
+
+        var batch = await service.BuildRealtimeBatchAsync(
+            created.Versions[0].BlueprintVersionId,
+            created.Id,
+            processId,
+            [nodeId],
+            includeSummary: true,
+            includeNodeUpdates: true,
+            CancellationToken.None);
+
+        batch.ShouldNotBeNull();
+        stepRepository.GetProcessStepsForProcessCallCount.ShouldBe(1);
+        realtimeProjection.RepairCallCount.ShouldBe(1);
+    }
+
+    [Test]
+    public async Task ProcessRealtimeProjectionService_updates_summary_and_node_idempotently()
+    {
+        var repository = new InMemoryProcessRealtimeProjectionRepository();
+        var service = new ProcessRealtimeProjectionService(repository);
+        var processId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+        var stepId = Backend.Models.ProcessStepIdentity.Create(processId, nodeId);
+        var step = new ProcessStepRecord
+        {
+            Id = stepId.ToString(),
+            ProcessId = processId.ToString(),
+            BlueprintId = "7",
+            BlueprintNodeId = nodeId.ToString(),
+            CreatedAt = DateTimeOffset.Parse("2026-04-21T00:10:00Z"),
+            UpdatedAt = DateTimeOffset.Parse("2026-04-21T00:11:00Z"),
+            StartedAt = DateTimeOffset.Parse("2026-04-21T00:11:00Z"),
+            Status = ProcessStepStatus.InProgress
+        };
+
+        await service.UpsertFromStepAsync(step, blueprintDefinitionId: 3, blueprintVersionId: 7, CancellationToken.None);
+        await service.UpsertFromStepAsync(step, blueprintDefinitionId: 3, blueprintVersionId: 7, CancellationToken.None);
+
+        var summary = await service.GetSummaryAsync(processId, CancellationToken.None);
+        summary.ShouldNotBeNull();
+        summary.TotalStepCount.ShouldBe(1);
+        summary.InProgressStepCount.ShouldBe(1);
+
+        var node = (await service.GetNodeProjectionsAsync(processId, [nodeId], CancellationToken.None)).Single();
+        node.RuntimeStepCount.ShouldBe(1);
+        node.AggregateStatus.ShouldBe(ProcessStepStatus.InProgress);
+    }
+
+    [Test]
+    public async Task ProcessRealtimeProjectionService_aggregates_fan_out_runtime_steps()
+    {
+        var repository = new InMemoryProcessRealtimeProjectionRepository();
+        var service = new ProcessRealtimeProjectionService(repository);
+        var processId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+
+        for (var index = 0; index < 3; index++)
+        {
+            await service.UpsertFromStepAsync(
+                new ProcessStepRecord
+                {
+                    Id = Backend.Models.ProcessStepIdentity.Create(processId, nodeId, $"item-{index}").ToString(),
+                    ProcessId = processId.ToString(),
+                    BlueprintId = "7",
+                    BlueprintNodeId = nodeId.ToString(),
+                    CreatedAt = DateTimeOffset.Parse("2026-04-21T00:10:00Z").AddSeconds(index),
+                    UpdatedAt = DateTimeOffset.Parse("2026-04-21T00:12:00Z").AddSeconds(index),
+                    StartedAt = DateTimeOffset.Parse("2026-04-21T00:11:00Z").AddSeconds(index),
+                    CompletedAt = DateTimeOffset.Parse("2026-04-21T00:12:00Z").AddSeconds(index),
+                    Status = ProcessStepStatus.Completed,
+                    IterationContext = new ProcessStepIterationContext
+                    {
+                        SourceIteratorStepId = Guid.NewGuid().ToString(),
+                        SourceIteratorBlueprintNodeId = Guid.NewGuid().ToString(),
+                        ItemIndex = index,
+                        ItemKey = $"item-{index}"
+                    }
+                },
+                blueprintDefinitionId: 3,
+                blueprintVersionId: 7,
+                CancellationToken.None);
+        }
+
+        var summary = await service.GetSummaryAsync(processId, CancellationToken.None);
+        summary.ShouldNotBeNull();
+        summary.TotalStepCount.ShouldBe(3);
+        summary.CompletedStepCount.ShouldBe(3);
+
+        var node = (await service.GetNodeProjectionsAsync(processId, [nodeId], CancellationToken.None)).Single();
+        node.RuntimeStepCount.ShouldBe(3);
+        node.AggregateStatus.ShouldBe(ProcessStepStatus.Completed);
+        node.CompletedAt.ShouldBe(DateTimeOffset.Parse("2026-04-21T00:12:02Z"));
+    }
+
     private static async Task<TaskDefinition> SeedTaskDefinitionWithChannelsAsync(
         Backend.Database.Relational.BlueprintDbContext context,
         string name,
@@ -296,6 +539,20 @@ public sealed class ProcessProjectionServiceTests
         await context.SaveChangesAsync();
         return taskDefinition;
     }
+
+    private static ProcessInstanceRecord<Dictionary<string, JsonElement>> CreateProcessRecord(
+        Guid processId,
+        int blueprintVersionId,
+        ProcessStatus status) =>
+        new()
+        {
+            id = processId.ToString(),
+            BlueprintId = blueprintVersionId.ToString(),
+            CreatedAt = DateTimeOffset.Parse("2026-04-21T00:10:00Z"),
+            UpdatedAt = DateTimeOffset.Parse("2026-04-21T00:12:00Z"),
+            Status = status,
+            GlobalState = new Dictionary<string, JsonElement>(),
+        };
 
     private sealed class ProcessInstanceRepositoryStub : IProcessInstanceRepository<Dictionary<string, JsonElement>>
     {
@@ -378,6 +635,10 @@ public sealed class ProcessProjectionServiceTests
             _records = records;
         }
 
+        public int GetProcessStepsForProcessCallCount { get; private set; }
+
+        public bool ThrowOnGetProcessStepsForProcess { get; init; }
+
         public Task<ProcessStepRecord> CreateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
@@ -392,8 +653,16 @@ public sealed class ProcessProjectionServiceTests
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<List<ProcessStepRecord>> GetProcessStepsForProcess(Guid processId, CancellationToken cancellationToken) =>
-            Task.FromResult(_records);
+        public Task<List<ProcessStepRecord>> GetProcessStepsForProcess(Guid processId, CancellationToken cancellationToken)
+        {
+            GetProcessStepsForProcessCallCount++;
+            if (ThrowOnGetProcessStepsForProcess)
+            {
+                throw new InvalidOperationException("Full process-step load should not be used on the realtime projection hot path.");
+            }
+
+            return Task.FromResult(_records);
+        }
 
         public Task<ProcessStepRecord> UpdateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
@@ -475,6 +744,124 @@ public sealed class ProcessProjectionServiceTests
             IReadOnlyCollection<ProcessStatus>? statuses,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class ProcessRealtimeProjectionServiceStub : IProcessRealtimeProjectionService
+    {
+        public ProcessRealtimeSummaryProjectionRecord? Summary { get; init; }
+
+        public IReadOnlyList<ProcessNodeRealtimeProjectionRecord> Nodes { get; init; } = [];
+
+        public int RepairCallCount { get; private set; }
+
+        public Task UpsertFromProcessAsync(
+            ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task UpsertFromStepAsync(
+            ProcessStepRecord step,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task UpsertFromProcessAndStepsAsync(
+            ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            IReadOnlyCollection<ProcessStepRecord> steps,
+            CancellationToken cancellationToken)
+        {
+            RepairCallCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task<ProcessRealtimeSummaryProjectionRecord?> GetSummaryAsync(
+            Guid processId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(
+                Summary is not null && Summary.ProcessId == processId.ToString()
+                    ? Summary
+                    : null);
+
+        public Task<IReadOnlyList<ProcessNodeRealtimeProjectionRecord>> GetNodeProjectionsAsync(
+            Guid processId,
+            IReadOnlyCollection<Guid> blueprintNodeIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ProcessNodeRealtimeProjectionRecord>>(
+                Nodes
+                    .Where(node =>
+                        node.ProcessId == processId.ToString() &&
+                        Guid.TryParse(node.BlueprintNodeId, out var parsedNodeId) &&
+                        blueprintNodeIds.Contains(parsedNodeId))
+                    .ToList());
+    }
+
+    private sealed class InMemoryProcessRealtimeProjectionRepository : IProcessRealtimeProjectionRepository
+    {
+        private readonly Dictionary<string, ProcessRealtimeSummaryProjectionRecord> _summaries = new(StringComparer.Ordinal);
+        private readonly Dictionary<(string ProcessId, string NodeId), ProcessNodeRealtimeProjectionRecord> _nodes = new();
+
+        public Task<ProcessRealtimeSummaryProjectionRecord?> GetSummaryAsync(
+            Guid processId,
+            CancellationToken cancellationToken)
+        {
+            _summaries.TryGetValue(processId.ToString(), out var summary);
+            return Task.FromResult(summary);
+        }
+
+        public Task<ProcessRealtimeSummaryProjectionRecord> UpsertSummaryAsync(
+            ProcessRealtimeSummaryProjectionRecord record,
+            CancellationToken cancellationToken)
+        {
+            _summaries[record.Id] = record;
+            return Task.FromResult(record);
+        }
+
+        public Task<ProcessNodeRealtimeProjectionRecord?> GetNodeAsync(
+            Guid processId,
+            Guid blueprintNodeId,
+            CancellationToken cancellationToken)
+        {
+            _nodes.TryGetValue((processId.ToString(), blueprintNodeId.ToString()), out var node);
+            return Task.FromResult(node);
+        }
+
+        public Task<IReadOnlyList<ProcessNodeRealtimeProjectionRecord>> GetNodesAsync(
+            Guid processId,
+            IReadOnlyCollection<Guid> blueprintNodeIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ProcessNodeRealtimeProjectionRecord>>(
+                blueprintNodeIds
+                    .Select(nodeId => _nodes.TryGetValue((processId.ToString(), nodeId.ToString()), out var node) ? node : null)
+                    .Where(node => node is not null)
+                    .Cast<ProcessNodeRealtimeProjectionRecord>()
+                    .ToList());
+
+        public Task<(bool Created, ProcessNodeRealtimeProjectionRecord Record)> CreateNodeIfNotExistsAsync(
+            ProcessNodeRealtimeProjectionRecord record,
+            CancellationToken cancellationToken)
+        {
+            var key = (record.ProcessId, record.BlueprintNodeId);
+            if (_nodes.TryGetValue(key, out var existing))
+            {
+                return Task.FromResult((false, existing));
+            }
+
+            _nodes[key] = record;
+            return Task.FromResult((true, record));
+        }
+
+        public Task<bool> TryUpdateNodeAsync(
+            ProcessNodeRealtimeProjectionRecord record,
+            CancellationToken cancellationToken)
+        {
+            _nodes[(record.ProcessId, record.BlueprintNodeId)] = record;
+            return Task.FromResult(true);
+        }
     }
 
     private static List<Channel> BuildChannels(

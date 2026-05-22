@@ -104,6 +104,74 @@ public sealed class StepFinalizationServiceTests
     }
 
     [Test]
+    public async Task Join_materialization_failure_is_retryable_and_resume_repairs_marker()
+    {
+        var processId = Guid.NewGuid();
+        var leftNodeId = Guid.NewGuid();
+        var rightNodeId = Guid.NewGuid();
+        var joinNodeId = Guid.NewGuid();
+        var blueprint = CreateJoinBlueprint(leftNodeId, rightNodeId, joinNodeId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var dispatchService = CreateDispatchService(stepRepository, queueWriter);
+        var joinRepository = new InMemoryNodeJoinStateRepository();
+        var service = CreateService(
+            stepRepository,
+            processRepository,
+            finalizationRepository,
+            dispatchService,
+            nodeJoinStateRepository: joinRepository);
+
+        var leftContext = await CreateContextAsync(processId, leftNodeId, blueprint, stepRepository, processRepository);
+        await service.FinalizeSucceededStepAsync(
+            leftContext,
+            CreateSuccessResult(leftContext, "Out"),
+            CancellationToken.None);
+        stepRepository.CreatedSteps.Count.ShouldBe(0);
+
+        var rightContext = await CreateContextAsync(processId, rightNodeId, blueprint, stepRepository, processRepository);
+        joinRepository.FailMaterializationUpdateAttempts = 10;
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            service.FinalizeSucceededStepAsync(
+                rightContext,
+                CreateSuccessResult(rightContext, "Out"),
+                CancellationToken.None));
+
+        var failedRecord = await finalizationRepository.GetRequiredAsync(rightContext.ProcessStepId);
+        failedRecord.Stage.ShouldBe(ProcessStepFinalizationStage.OutputsPersisted);
+        failedRecord.LastErrorKind.ShouldBe(ProcessStepFinalizationErrorKind.RetryableFinalizationError);
+        stepRepository.CreatedSteps.Count.ShouldBe(1);
+        var materializedStep = stepRepository.CreatedSteps.Single();
+        queueWriter.Messages.Count.ShouldBe(0);
+        joinRepository.States[(processId, joinNodeId)].ActivationMaterialized.ShouldBeFalse();
+
+        joinRepository.FailMaterializationUpdateAttempts = 0;
+        var retryContext = await CreateContextAsync(
+            processId,
+            rightNodeId,
+            blueprint,
+            stepRepository,
+            processRepository,
+            claim: false);
+
+        await service.ResumeStepFinalizationAsync(retryContext, failedRecord, CancellationToken.None);
+
+        var completedRecord = await finalizationRepository.GetRequiredAsync(rightContext.ProcessStepId);
+        completedRecord.Stage.ShouldBe(ProcessStepFinalizationStage.QueueMessageCompletionPrepared);
+        completedRecord.LastErrorKind.ShouldBeNull();
+        stepRepository.CreatedSteps.Count.ShouldBe(1);
+        queueWriter.Messages.Count.ShouldBe(1);
+        queueWriter.Messages.Single().ProcessStepId.ShouldBe(Guid.Parse(materializedStep.Id));
+        var joinState = joinRepository.States[(processId, joinNodeId)];
+        joinState.ActivationMaterialized.ShouldBeTrue();
+        joinState.MaterializedProcessStepId.ShouldBe(materializedStep.Id);
+        retryContext.QueueMessage.CompleteCount.ShouldBe(1);
+    }
+
+    [Test]
     public async Task Failure_finalization_can_retry_without_rewriting_failed_step()
     {
         var processId = Guid.NewGuid();
@@ -602,7 +670,8 @@ public sealed class StepFinalizationServiceTests
         InMemoryProcessInstanceRepository processRepository,
         InMemoryProcessStepFinalizationRepository finalizationRepository,
         ProcessStepDispatchService dispatchService,
-        IProcessIndexProjectionService? processIndexProjectionService = null)
+        IProcessIndexProjectionService? processIndexProjectionService = null,
+        INodeJoinStateRepository? nodeJoinStateRepository = null)
     {
         var telemetry = new ProcessLifecycleTelemetry(NullLogger<ProcessLifecycleTelemetry>.Instance);
         var stepClaimService = new StepClaimService(
@@ -612,7 +681,7 @@ public sealed class StepFinalizationServiceTests
             processIndexProjectionService,
             NullLogger<StepClaimService>.Instance);
         var activationPersistenceService = new ActivationPersistenceService(
-            new InMemoryNodeJoinStateRepository(),
+            nodeJoinStateRepository ?? new InMemoryNodeJoinStateRepository(),
             dispatchService,
             stepRepository,
             NullLogger<ActivationPersistenceService>.Instance);
@@ -901,6 +970,48 @@ public sealed class StepFinalizationServiceTests
         var source = CreateNode(sourceNodeId, "SourceInput", "Out", [binding]);
         var destination = CreateNode(destinationNodeId, "DestinationInput", null, [], [binding]);
         return CreateBlueprint(source, [source, destination]);
+    }
+
+    private static ExecutableBlueprint CreateJoinBlueprint(
+        Guid leftNodeId,
+        Guid rightNodeId,
+        Guid joinNodeId)
+    {
+        var leftBinding = new ExecutableBlueprintBinding
+        {
+            Id = "left-to-join",
+            SourceBlueprintNodeId = leftNodeId,
+            SourceChannelName = "Out",
+            DestinationBlueprintNodeId = joinNodeId,
+            PropertyMappings =
+            [
+                new ExecutableBlueprintPropertyMapping
+                {
+                    SourceProperty = "Message",
+                    TargetProperty = "LeftText"
+                }
+            ]
+        };
+        var rightBinding = new ExecutableBlueprintBinding
+        {
+            Id = "right-to-join",
+            SourceBlueprintNodeId = rightNodeId,
+            SourceChannelName = "Out",
+            DestinationBlueprintNodeId = joinNodeId,
+            PropertyMappings =
+            [
+                new ExecutableBlueprintPropertyMapping
+                {
+                    SourceProperty = "Message",
+                    TargetProperty = "RightText"
+                }
+            ]
+        };
+
+        var left = CreateNode(leftNodeId, "LeftInput", "Out", [leftBinding]);
+        var right = CreateNode(rightNodeId, "RightInput", "Out", [rightBinding]);
+        var join = CreateNode(joinNodeId, "JoinInput", null, [], [leftBinding, rightBinding]);
+        return CreateBlueprint(left, [left, right, join]);
     }
 
     private static ExecutableBlueprint CreateTerminalBlueprint(Guid nodeId)
@@ -1556,21 +1667,60 @@ public sealed class StepFinalizationServiceTests
 
     private sealed class InMemoryNodeJoinStateRepository : INodeJoinStateRepository
     {
+        public Dictionary<(Guid ProcessId, Guid JoinStateId), NodeJoinStateRecord> States { get; } = [];
+
+        public int FailUpdateAttempts { get; set; }
+
+        public int FailMaterializationUpdateAttempts { get; set; }
+
         public Task<NodeJoinStateRecord?> GetJoinStateAsync(
             Guid processId,
             Guid blueprintNodeId,
-            CancellationToken cancellationToken) =>
-            Task.FromResult<NodeJoinStateRecord?>(null);
+            CancellationToken cancellationToken)
+        {
+            States.TryGetValue((processId, blueprintNodeId), out var state);
+            return Task.FromResult(state is null ? null : Clone(state));
+        }
 
         public Task<(bool Created, NodeJoinStateRecord State)> CreateJoinStateIfNotExistsAsync(
             NodeJoinStateRecord state,
-            CancellationToken cancellationToken) =>
-            Task.FromResult((true, state));
+            CancellationToken cancellationToken)
+        {
+            var key = (Guid.Parse(state.ProcessId), Guid.Parse(state.Id));
+            if (States.TryGetValue(key, out var existing))
+            {
+                return Task.FromResult((false, Clone(existing)));
+            }
+
+            States[key] = Clone(state);
+            return Task.FromResult((true, Clone(state)));
+        }
 
         public Task<bool> TryUpdateJoinStateAsync(
             NodeJoinStateRecord state,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(true);
+            CancellationToken cancellationToken)
+        {
+            if ((state.ActivationMaterialized || state.MaterializedProcessStepId is not null) &&
+                FailMaterializationUpdateAttempts > 0)
+            {
+                FailMaterializationUpdateAttempts--;
+                return Task.FromResult(false);
+            }
+
+            if (FailUpdateAttempts > 0)
+            {
+                FailUpdateAttempts--;
+                return Task.FromResult(false);
+            }
+
+            States[(Guid.Parse(state.ProcessId), Guid.Parse(state.Id))] = Clone(state);
+            return Task.FromResult(true);
+        }
+
+        private static NodeJoinStateRecord Clone(NodeJoinStateRecord state) =>
+            JsonSerializer.Deserialize<NodeJoinStateRecord>(
+                JsonSerializer.Serialize(state, JsonSerializerOptions.Web),
+                JsonSerializerOptions.Web)!;
     }
 
     private sealed class ProcessStepQueueWriterSpy : IProcessStepQueueWriter

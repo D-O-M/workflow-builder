@@ -100,8 +100,8 @@ public sealed class ActivationPlannerTests
             {
                 ["left-to-join"] = leftPlan.JoinSourceObservations.Single().Source
             },
-            StepEnqueued: false,
-            EnqueuedProcessStepId: null);
+            ActivationMaterialized: false,
+            MaterializedProcessStepId: null);
 
         var plan = PlanReadyActivations(
             blueprint,
@@ -122,7 +122,7 @@ public sealed class ActivationPlannerTests
     }
 
     [Test]
-    public void Enqueued_join_snapshot_produces_no_duplicate_activation()
+    public void Materialized_join_snapshot_produces_no_duplicate_activation()
     {
         var processId = Guid.NewGuid();
         var leftNodeId = Guid.NewGuid();
@@ -137,8 +137,8 @@ public sealed class ActivationPlannerTests
             joinNodeId,
             ["left-to-join", "right-to-join"],
             new Dictionary<string, InputHydrationSource>(StringComparer.Ordinal),
-            StepEnqueued: true,
-            EnqueuedProcessStepId: ProcessStepIdentity.Create(processId, joinNodeId));
+            ActivationMaterialized: true,
+            MaterializedProcessStepId: ProcessStepIdentity.Create(processId, joinNodeId));
 
         var plan = PlanReadyActivations(
             blueprint,

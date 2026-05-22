@@ -20,6 +20,12 @@ public sealed class WorkflowBuilderTopologyValidatorTests
             container.Name == WorkflowBuilderTopology.Cosmos.Containers.ProcessSummaries.Name &&
             container.PartitionKey == "/partitionKey");
         catalog.Cosmos.Containers.ShouldContain(container =>
+            container.Name == WorkflowBuilderTopology.Cosmos.Containers.ProcessRealtimeSummaries.Name &&
+            container.PartitionKey == "/id");
+        catalog.Cosmos.Containers.ShouldContain(container =>
+            container.Name == WorkflowBuilderTopology.Cosmos.Containers.ProcessNodeRealtime.Name &&
+            container.PartitionKey == "/processId");
+        catalog.Cosmos.Containers.ShouldContain(container =>
             container.Name == WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name &&
             container.PartitionKey == "/processId");
         catalog.Cosmos.Containers.ShouldContain(container =>
@@ -54,6 +60,36 @@ public sealed class WorkflowBuilderTopologyValidatorTests
     public void ValidateApi_accepts_complete_configuration()
     {
         Should.NotThrow(() => WorkflowBuilderTopologyValidator.ValidateApi(ApiConfiguration()));
+    }
+
+    [Test]
+    public void ValidateApi_accepts_missing_dispatch_enabled_setting()
+    {
+        Should.NotThrow(() => WorkflowBuilderTopologyValidator.ValidateApi(ApiConfiguration()));
+    }
+
+    [Test]
+    public void ValidateApi_rejects_disabled_process_step_dispatch()
+    {
+        var ex = Should.Throw<WorkflowBuilderTopologyValidationException>(() =>
+            WorkflowBuilderTopologyValidator.ValidateApi(ApiConfiguration(overrides: new()
+            {
+                ["ProcessStepDispatch:Enabled"] = "false"
+            })));
+
+        ex.Errors.ShouldContain(error => error.Contains("ProcessStepDispatch:Enabled", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public void ValidateApi_rejects_invalid_dispatch_enabled_value()
+    {
+        var ex = Should.Throw<WorkflowBuilderTopologyValidationException>(() =>
+            WorkflowBuilderTopologyValidator.ValidateApi(ApiConfiguration(overrides: new()
+            {
+                ["ProcessStepDispatch:Enabled"] = "maybe"
+            })));
+
+        ex.Errors.ShouldContain(error => error.Contains("ProcessStepDispatch:Enabled", StringComparison.Ordinal));
     }
 
     [Test]
@@ -99,6 +135,30 @@ public sealed class WorkflowBuilderTopologyValidatorTests
     public void ValidateEngine_accepts_complete_configuration()
     {
         Should.NotThrow(() => WorkflowBuilderTopologyValidator.ValidateEngine(EngineConfiguration()));
+    }
+
+    [Test]
+    public void ValidateEngine_rejects_disabled_process_step_dispatch()
+    {
+        var ex = Should.Throw<WorkflowBuilderTopologyValidationException>(() =>
+            WorkflowBuilderTopologyValidator.ValidateEngine(EngineConfiguration(overrides: new()
+            {
+                ["ProcessStepDispatch:Enabled"] = "false"
+            })));
+
+        ex.Errors.ShouldContain(error => error.Contains("ProcessStepDispatch:Enabled", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public void ValidateEngine_rejects_invalid_dispatch_enabled_value()
+    {
+        var ex = Should.Throw<WorkflowBuilderTopologyValidationException>(() =>
+            WorkflowBuilderTopologyValidator.ValidateEngine(EngineConfiguration(overrides: new()
+            {
+                ["ProcessStepDispatch:Enabled"] = "<dispatch-enabled>"
+            })));
+
+        ex.Errors.ShouldContain(error => error.Contains("ProcessStepDispatch:Enabled", StringComparison.Ordinal));
     }
 
     [Test]
@@ -207,6 +267,15 @@ public sealed class WorkflowBuilderTopologyValidatorTests
     }
 
     [Test]
+    public void ValidateProgressBroadcaster_rejects_missing_realtime_projection_container_names()
+    {
+        var ex = Should.Throw<WorkflowBuilderTopologyValidationException>(() =>
+            WorkflowBuilderTopologyValidator.ValidateProgressBroadcaster(ProgressBroadcasterConfiguration(remove: WorkflowBuilderTopology.Realtime.ProcessRealtimeSummariesContainerNameKey)));
+
+        ex.Errors.ShouldContain(error => error.Contains(WorkflowBuilderTopology.Realtime.ProcessRealtimeSummariesContainerNameKey, StringComparison.Ordinal));
+    }
+
+    [Test]
     public void ValidateSignalR_accepts_static_topology()
     {
         Should.NotThrow(WorkflowBuilderTopologyValidator.ValidateSignalR);
@@ -255,6 +324,8 @@ public sealed class WorkflowBuilderTopologyValidatorTests
         values[WorkflowBuilderTopology.Realtime.CosmosDatabaseNameKey] = WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
         values[WorkflowBuilderTopology.Realtime.ProcessesContainerNameKey] = WorkflowBuilderTopology.Cosmos.Containers.Processes.Name;
         values[WorkflowBuilderTopology.Realtime.ProcessStepsContainerNameKey] = WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name;
+        values[WorkflowBuilderTopology.Realtime.ProcessRealtimeSummariesContainerNameKey] = WorkflowBuilderTopology.Cosmos.Containers.ProcessRealtimeSummaries.Name;
+        values[WorkflowBuilderTopology.Realtime.ProcessNodeRealtimeContainerNameKey] = WorkflowBuilderTopology.Cosmos.Containers.ProcessNodeRealtime.Name;
         values[WorkflowBuilderTopology.Realtime.LeaseContainerNameKey] = WorkflowBuilderTopology.Cosmos.Containers.ProcessStepProgressLeases.Name;
         return BuildConfiguration(Apply(values, overrides, remove));
     }

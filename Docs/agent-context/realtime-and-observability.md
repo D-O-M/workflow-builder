@@ -19,7 +19,7 @@ If execution succeeds but the UI stays stale, treat that as a real product issue
 1. The API creates or updates process and process-step records.
 2. The engine updates Cosmos `processsteps` documents as execution advances.
 3. `ProgressBroadcasterFunction` listens to the Cosmos `processsteps` container.
-4. The broadcaster builds `ProcessRealtimeBatch` payloads from changed steps.
+4. The broadcaster builds `ProcessRealtimeBatch` payloads from lightweight realtime projections.
 5. The broadcaster publishes to `Backend.SignalR`.
 6. The frontend connects to `/hubs/processes`.
 7. `process-realtime.service.ts` subscribes to blueprint/process groups.
@@ -40,7 +40,8 @@ For a healthy end-to-end path:
 
 - `Backend.Functions.ProgressBroadcaster/ProgressBroadcasterFunction.cs`
   - Cosmos trigger over `processsteps`
-  - projects changed steps into realtime batches
+  - projects changed steps into realtime batches from `processrealtimesummaries` and `processnoderealtime`
+  - falls back to source process/process-step loading only to repair missing projections
 - `Backend.SignalR/Hubs/ProcessProgressHub.cs`
   - subscription groups by blueprint and process
 - `UI/src/app/domain/process-realtime.service.ts`

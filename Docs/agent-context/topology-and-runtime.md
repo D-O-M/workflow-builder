@@ -11,6 +11,8 @@ Key runtime resources wired there:
   - `processes`
   - `processdirectory`
   - `processsummaries`
+  - `processrealtimesummaries`
+  - `processnoderealtime`
   - `processsteps`
   - `processstepdispatches`
   - `processstepfinalizations`
@@ -88,7 +90,7 @@ flowchart LR
 10. The plugin hydrates its required input/global state from Cosmos using the invocation envelope identifiers.
 11. The plugin emits framed process-protocol stdout messages; result frames enter bounded finalization, then the engine updates process-step state and durably schedules downstream work as needed.
 12. Cosmos changes in `processsteps` are observed by `ProgressBroadcaster`.
-13. `ProgressBroadcaster` builds realtime batches and publishes them to SignalR subscribers.
+13. `ProgressBroadcaster` builds realtime batches from lightweight realtime projections and publishes them to SignalR subscribers.
 14. The UI receives `processSummaryUpdated` and `processStepsUpdated` events and refreshes the process explorer state.
 
 ## Process Index And Query Model
@@ -104,13 +106,32 @@ The summary projection is the query seed for recent-process and dashboard paths.
 
 Existing deployments can opt into projection repair by running the migration service with `ProcessIndexBackfill:Enabled=true`. The backfill enumerates SQL blueprint versions, pages the existing `processes` partitions, and idempotently upserts directory and summary rows. It is safe to rerun and can be throttled with `ProcessIndexBackfill:BatchSize`.
 
+## Realtime Projection Model
+
+Realtime broadcasting uses lightweight projections so change-feed batches do not reload every process step for the changed process.
+
+- `processrealtimesummaries`, partitioned by `/id`, stores one row per process with blueprint identity, aggregate process status, runtime step counts, and compact per-step status contributions for idempotent updates.
+- `processnoderealtime`, partitioned by `/processId`, stores one row per process node with aggregate runtime-step status, latest runtime step id, timestamps, failure summary, and compact per-runtime-step contributions for fan-out and Collection Iterator aggregation.
+
+API process start, Engine step claim/finalization, and downstream activation update these projections best-effort after durable source state changes. The `processes` and `processsteps` containers remain authoritative: process detail pages still load full source state, and `ProgressBroadcaster` falls back to a full source load only when a realtime projection is missing, then repairs the projection for later batches. Projection write failures are observable through realtime projection metrics and should not fail process execution.
+
 ## Step Dispatch Guarantee
 
 Process-step scheduling is at-least-once. Every new pending `ProcessStepRecord` carries an embedded `dispatch` projection for display/debugging, and the authoritative queue-dispatch intent is written to `processstepdispatches` before process start is accepted or downstream finalization advances.
 
+Durable dispatch is a normal-execution invariant. API and Engine startup reject `ProcessStepDispatch:Enabled=false`, and production dispatch services throw before process or downstream step creation can strand pending work; tests that intentionally bypass dispatch must use an explicit test dispatcher.
+
 `processstepdispatches` is partitioned by `/partitionKey`, using absolute due-bucket and shard keys for dispatch attempts plus cursor records per shard. API process start and Engine downstream activation may attempt immediate Service Bus dispatch, but enqueue failure does not strand the step once the intent exists. `Backend.Engine` runs a dispatch worker that advances shard cursors through due buckets, queries exact bucket/shard partitions, claims pending or expired dispatching intents with a short lease, sends the deterministic process-step message, and marks the intent and step projection as dispatched only after Service Bus send succeeds. Retryable failures create a new future-bucket attempt record and update the step projection with the active intent id, bucket, shard, and retry metadata.
 
+Join state uses materialization language. For multi-input joins, `nodejoinstates.activationMaterialized` means the joined activation has been durably materialized as a deterministic process step with dispatch intent; it does not mean Service Bus delivery has happened. New records write `activationMaterialized` and `materializedProcessStepId`; legacy `stepEnqueued` and `enqueuedProcessStepId` records are read into the same semantics. If marking materialization fails, finalization remains retryable and resume repairs the marker before downstream activation is considered complete.
+
 Duplicate Service Bus messages are safe: process-step queue messages use the process step id as the deterministic message id for diagnostics and future broker duplicate detection, while the real correctness guard remains the idempotent step claim, which only transitions `Pending` steps to `InProgress`. Legacy completed or failed steps without dispatch metadata are treated as settled; legacy pending steps can be reconciled into `processstepdispatches` by running the migration service with `ProcessStepDispatchBackfill:Enabled=true`.
+
+## Process Start Reconciliation
+
+New process records include a `start` snapshot with the deterministic initial step id, initial blueprint node id, and initial input hydration plan. This lets the Engine repair the narrow partial-failure window where the `processes` record was created but the initial `processsteps` record was not.
+
+`ProcessStartReconciliationWorker` is disabled by default and can be enabled with `ProcessStartReconciliation:Enabled=true`. It scans recent `Pending`/`InProgress` processes from `processsummaries` plus a bounded fallback over `processes`, skips terminal source records, recreates a missing initial step only for `Pending` processes with a valid start snapshot, and repairs missing initial-step dispatch intent through the durable dispatch scheduler.
 
 ## Step Finalization Guarantee
 
