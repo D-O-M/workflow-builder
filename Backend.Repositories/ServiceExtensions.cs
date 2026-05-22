@@ -33,6 +33,8 @@ public static class ServiceExtensions
         string? tasksContainerName = null,
         string? stepDispatchesContainerName = null,
         string? stepFinalizationsContainerName = null,
+        string? pluginIngestionStatusesContainerName = null,
+        string? pluginTaskVersionRuntimeStatusesContainerName = null,
         string? activationsContainerName = null,
         string? joinStatesContainerName = null,
         string? phasedProcessesContainerName = null,
@@ -47,6 +49,8 @@ public static class ServiceExtensions
         tasksContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name;
         stepDispatchesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessStepDispatches.Name;
         stepFinalizationsContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.ProcessStepFinalizations.Name;
+        pluginIngestionStatusesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.PluginIngestionStatuses.Name;
+        pluginTaskVersionRuntimeStatusesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.PluginTaskVersionRuntimeStatuses.Name;
         activationsContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.NodeActivations.Name;
         joinStatesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.NodeJoinStates.Name;
         phasedProcessesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.PhasedProcesses.Name;
@@ -63,6 +67,8 @@ public static class ServiceExtensions
             TasksContainerName = tasksContainerName,
             StepDispatchesContainerName = stepDispatchesContainerName,
             StepFinalizationsContainerName = stepFinalizationsContainerName,
+            PluginIngestionStatusesContainerName = pluginIngestionStatusesContainerName,
+            PluginTaskVersionRuntimeStatusesContainerName = pluginTaskVersionRuntimeStatusesContainerName,
             ActivationsContainerName = activationsContainerName,
             JoinStatesContainerName = joinStatesContainerName,
             PhasedProcessesContainerName = phasedProcessesContainerName,
@@ -88,6 +94,14 @@ public static class ServiceExtensions
             return new ProcessStepDispatchIntentRepository(
                 client.GetContainer(databaseName, stepDispatchesContainerName));
         });
+
+        services.AddPluginIngestionStatusStore(
+            databaseName,
+            pluginIngestionStatusesContainerName);
+
+        services.AddPluginTaskVersionRuntimeStatusStore(
+            databaseName,
+            pluginTaskVersionRuntimeStatusesContainerName);
 
         services.AddSingleton<INodeActivationRepository>(sp =>
         {
@@ -145,6 +159,42 @@ public static class ServiceExtensions
         {
             var client = sp.GetRequiredService<CosmosClient>();
             return new PhaseCorrelationRepository(client.GetContainer(databaseName, phaseCorrelationsContainerName));
+        });
+
+        return services;
+    }
+
+    public static IServiceCollection AddPluginIngestionStatusStore(
+        this IServiceCollection services,
+        string? databaseName = null,
+        string? pluginIngestionStatusesContainerName = null)
+    {
+        databaseName ??= WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
+        pluginIngestionStatusesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.PluginIngestionStatuses.Name;
+
+        services.AddSingleton<IPluginIngestionStatusStore>(sp =>
+        {
+            var client = sp.GetRequiredService<CosmosClient>();
+            return new PluginIngestionStatusRepository(
+                client.GetContainer(databaseName, pluginIngestionStatusesContainerName));
+        });
+
+        return services;
+    }
+
+    public static IServiceCollection AddPluginTaskVersionRuntimeStatusStore(
+        this IServiceCollection services,
+        string? databaseName = null,
+        string? pluginTaskVersionRuntimeStatusesContainerName = null)
+    {
+        databaseName ??= WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
+        pluginTaskVersionRuntimeStatusesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.PluginTaskVersionRuntimeStatuses.Name;
+
+        services.AddSingleton<IPluginTaskVersionRuntimeStatusStore>(sp =>
+        {
+            var client = sp.GetRequiredService<CosmosClient>();
+            return new PluginTaskVersionRuntimeStatusRepository(
+                client.GetContainer(databaseName, pluginTaskVersionRuntimeStatusesContainerName));
         });
 
         return services;

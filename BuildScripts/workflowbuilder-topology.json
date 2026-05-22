@@ -40,6 +40,14 @@
         "partitionKey": "/id"
       },
       {
+        "name": "pluginingestionstatuses",
+        "partitionKey": "/id"
+      },
+      {
+        "name": "plugintaskversionruntimestatuses",
+        "partitionKey": "/taskVersionId"
+      },
+      {
         "name": "nodeactivations",
         "partitionKey": "/processId"
       },

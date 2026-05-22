@@ -55,6 +55,8 @@ public static class WorkflowBuilderTopologyValidator
     {
         var errors = new List<string>();
         RequireSql(errors, configuration);
+        RequireCosmos(errors, configuration);
+        RequireCosmosDatabase(errors, configuration, WorkflowBuilderTopology.Cosmos.DatabaseNameKey);
         RequireConfigurationValue(errors, configuration, WorkflowBuilderTopology.Storage.AzureWebJobsStorageKey);
         RequireBlobContainer(errors, configuration, WorkflowBuilderTopology.Storage.BlobContainers.Plugins);
         RequireAliasMatch(

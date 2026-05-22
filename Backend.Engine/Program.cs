@@ -11,6 +11,7 @@ using Backend.Repositories;
 using Backend.Services.PluginReloadQueue;
 using Backend.Services.PluginBundles;
 using Backend.Services.ProcessStepQueue;
+using Backend.Services.PluginRuntimeStatus;
 using Backend.Topology;
 using Backend.Utilities;
 using Backend.Interfaces.Repositories;
@@ -29,6 +30,7 @@ builder.Services.AddOpenTelemetry()
         .AddMeter("WorkflowBuilder.Engine.Processes")
         .AddMeter("WorkflowBuilder.Cosmos")
         .AddMeter(Backend.Repositories.Processes.ProcessRealtimeProjectionTelemetry.MeterName)
+        .AddMeter(Backend.Repositories.Processes.ProcessSummaryProjectionTelemetry.MeterName)
         .AddMeter(ProcessStepDispatchTelemetry.MeterName)
         .AddMeter(PluginResultFinalizationTelemetry.MeterName)
         .AddMeter(PluginRuntimeAgentTelemetry.MeterName)
@@ -116,6 +118,13 @@ builder.Services.AddSingleton(sp =>
     options.Validate();
     return options;
 });
+builder.Services.AddSingleton(sp =>
+    sp.GetRequiredService<IConfiguration>()
+        .GetSection("PluginRuntimeStatus")
+        .Get<PluginRuntimeStatusOptions>()
+    ?? new PluginRuntimeStatusOptions());
+builder.Services.AddSingleton<EngineInstanceInfo>();
+builder.Services.AddSingleton<PluginTaskVersionRuntimeStatusPublisher>();
 builder.Services.AddSingleton<PluginRuntimeCatalog>();
 builder.Services.AddSingleton<PluginRuntimeOrchestrator>();
 builder.Services.AddSingleton<IPluginRuntimeReloader>(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
@@ -218,6 +227,7 @@ builder.Services.AddSingleton<PluginResultFinalizationQueue>();
 
 builder.Services.AddHostedService<PluginResultFinalizationWorker>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
+builder.Services.AddHostedService<PluginRuntimeStatusHeartbeatWorker>();
 builder.Services.AddHostedService<QueueConsumer>();
 builder.Services.AddHostedService<ProcessStartReconciliationWorker>();
 builder.Services.AddHostedService<ProcessStepDispatchWorker>();

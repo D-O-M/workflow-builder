@@ -31,6 +31,12 @@ public sealed class WorkflowBuilderTopologyValidatorTests
         catalog.Cosmos.Containers.ShouldContain(container =>
             container.Name == WorkflowBuilderTopology.Cosmos.Containers.ProcessStepDispatches.Name &&
             container.PartitionKey == "/partitionKey");
+        catalog.Cosmos.Containers.ShouldContain(container =>
+            container.Name == WorkflowBuilderTopology.Cosmos.Containers.PluginIngestionStatuses.Name &&
+            container.PartitionKey == "/id");
+        catalog.Cosmos.Containers.ShouldContain(container =>
+            container.Name == WorkflowBuilderTopology.Cosmos.Containers.PluginTaskVersionRuntimeStatuses.Name &&
+            container.PartitionKey == "/taskVersionId");
         catalog.Storage.Plugins.ContainerName.ShouldBe("plugins");
         catalog.ServiceBus.ProcessStepQueue.QueueName.ShouldBe("processsteps");
         catalog.Realtime.HubRoute.ShouldBe("/hubs/processes");
@@ -204,6 +210,15 @@ public sealed class WorkflowBuilderTopologyValidatorTests
             WorkflowBuilderTopologyValidator.ValidatePluginDetector(PluginDetectorConfiguration(remove: WorkflowBuilderTopology.Storage.AzureWebJobsStorageKey)));
 
         ex.Errors.ShouldContain(error => error.Contains(WorkflowBuilderTopology.Storage.AzureWebJobsStorageKey, StringComparison.Ordinal));
+    }
+
+    [Test]
+    public void ValidatePluginDetector_rejects_missing_cosmos()
+    {
+        var ex = Should.Throw<WorkflowBuilderTopologyValidationException>(() =>
+            WorkflowBuilderTopologyValidator.ValidatePluginDetector(PluginDetectorConfiguration(remove: $"ConnectionStrings:{WorkflowBuilderTopology.Cosmos.DefaultDatabaseName}")));
+
+        ex.Errors.ShouldContain(error => error.Contains("Missing Cosmos connection", StringComparison.Ordinal));
     }
 
     [Test]

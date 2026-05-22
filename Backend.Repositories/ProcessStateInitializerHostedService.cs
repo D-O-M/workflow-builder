@@ -55,7 +55,19 @@ public sealed class ProcessStateInitializerHostedService : IHostedService
             cancellationToken: cancellationToken);
 
         await databaseResponse.Database.CreateContainerIfNotExistsAsync(
+            new ContainerProperties(_options.StepDispatchesContainerName, "/partitionKey"),
+            cancellationToken: cancellationToken);
+
+        await databaseResponse.Database.CreateContainerIfNotExistsAsync(
             new ContainerProperties(_options.StepFinalizationsContainerName, "/id"),
+            cancellationToken: cancellationToken);
+
+        await databaseResponse.Database.CreateContainerIfNotExistsAsync(
+            new ContainerProperties(_options.PluginIngestionStatusesContainerName, "/id"),
+            cancellationToken: cancellationToken);
+
+        await databaseResponse.Database.CreateContainerIfNotExistsAsync(
+            new ContainerProperties(_options.PluginTaskVersionRuntimeStatusesContainerName, "/taskVersionId"),
             cancellationToken: cancellationToken);
 
         await databaseResponse.Database.CreateContainerIfNotExistsAsync(

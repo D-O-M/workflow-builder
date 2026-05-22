@@ -10,6 +10,13 @@ public enum CapabilityValidationStatus
     Unsupported
 }
 
+public enum CapabilityValidationFailureCategory
+{
+    None,
+    MissingCapability,
+    MissingConfiguration
+}
+
 public sealed record CapabilityRequirementDescriptor
 {
     public string Id { get; init; } = "";
@@ -43,6 +50,7 @@ public sealed record CapabilityValidationResult
     public string Kind { get; init; } = "";
     public bool Required { get; init; } = true;
     public CapabilityValidationStatus Status { get; init; }
+    public CapabilityValidationFailureCategory FailureCategory { get; init; } = CapabilityValidationFailureCategory.None;
     public string? Message { get; init; }
     public string? Remediation { get; init; }
 }

@@ -11,6 +11,7 @@ using Backend.Models;
 using Backend.Models.DomainModels;
 using Backend.PluginAbi;
 using Backend.Services;
+using Backend.Services.PluginIngestion;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -160,6 +161,7 @@ public sealed class PluginBundleProcessingServiceGlobalStateTests
             manifestParser.Object,
             schemaAggregator.Object,
             reloadQueue.Object,
+            new InMemoryPluginIngestionStatusStore(),
             new PluginAbiCompatibilityService(),
             scopeFactory,
             NullLogger<PluginBundleProcessingService>.Instance);

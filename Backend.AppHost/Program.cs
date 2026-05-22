@@ -243,6 +243,8 @@ internal class Program
         var pluginDetector = builder.AddAzureFunctionsProject<Projects.Backend_Functions_PluginDetector>("plugin-detector")
             .WithHostStorage(storage)
             .WaitFor(pluginsBlobContainer)
+            .WithReference(cosmos, connectionName: cosmosConnectionName)
+            .WaitFor(cosmosDb)
             .WithReference(serviceBus, connectionName: WorkflowBuilderTopology.ServiceBus.SharedConnectionName)
             .WithReference(pluginControlQueue, connectionName: pluginControlQueueConnectionName)
             .WaitFor(serviceBus)
@@ -253,6 +255,9 @@ internal class Program
         WaitForObservability(pluginDetector, observability);
         pluginDetector.WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameEnvironmentVariable, pluginsBlobContainerName)
             .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.LegacyAliasKey!, pluginsBlobContainerName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
             .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionNameEnvironmentVariable, pluginControlQueueConnectionName)
             .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueNameEnvironmentVariable, pluginControlQueueName);
         ConfigureTelemetryAndObservability(

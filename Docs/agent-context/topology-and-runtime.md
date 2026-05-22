@@ -16,6 +16,8 @@ Key runtime resources wired there:
   - `processsteps`
   - `processstepdispatches`
   - `processstepfinalizations`
+  - `pluginingestionstatuses`
+  - `plugintaskversionruntimestatuses`
   - `nodeactivations`
   - `nodejoinstates`
   - `phasedprocesses`
@@ -192,8 +194,17 @@ Phase handoff mappings are design-time SQL data. Runtime phase correlation and f
 ## Plugin Ingestion Path
 
 1. Canonical bundle ZIPs are uploaded to the plugin blob container.
-2. `PluginDetector` extracts the bundle, reads `manifest.json` and schemas, validates capability/configuration metadata, and registers or updates task versions in SQL.
-3. The detector emits a plugin reload request so the engine refreshes its in-memory runtime catalog.
+2. `PluginDetector` records durable ingestion status in `pluginingestionstatuses`, extracts the bundle, reads `manifest.json` and schemas, validates capability/configuration metadata, and registers or updates task versions in SQL.
+3. Missing/invalid manifests, ABI incompatibility, schema failures, and capability/configuration metadata failures append sanitized failure events and quarantine the bundle in status metadata. Quarantined bundles remain in blob storage, but detector reconciliation skips them until an admin unquarantine operation clears the gate.
+4. Duplicate bundles are recorded as `DuplicateIgnored`; successful bundles are recorded as `Registered`.
+5. Runtime loading failures and stale ABI metadata append operational status for the task version without writing into the SQL task catalog.
+6. The detector emits a plugin reload request so the engine refreshes its in-memory runtime catalog.
+
+## Plugin Runtime Availability
+
+SQL task-version records mean a plugin version is registered, not that the current Engine fleet can run it. Engine instances publish per-task-version runtime observations to `plugintaskversionruntimestatuses`, partitioned by `/taskVersionId`, with the reporting engine instance id, current runtime status, sanitized failure message, compact capability issues, and `lastSeenAt`.
+
+`GET /Tasks` enriches SQL task versions with fleet-aggregated runtime availability. Fresh observations are counted only within `PluginRuntimeStatus:StaleAfterSeconds`; if any fresh engine reports `Runnable`, the task version is exposed as runnable. ABI incompatibility, missing software/network capabilities, missing required configuration, startup failures, and intentional unloads remain visible as operational runtime state outside the canonical SQL catalog.
 
 ## Important Runtime Invariants
 

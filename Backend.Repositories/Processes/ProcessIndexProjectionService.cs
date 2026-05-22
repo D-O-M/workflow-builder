@@ -1,7 +1,3 @@
-using System.Globalization;
-using System.Buffers.Binary;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Backend.Database.State.Objects;
 using Backend.Interfaces.Repositories;
@@ -11,8 +7,8 @@ namespace Backend.Repositories.Processes;
 
 public sealed class ProcessIndexProjectionService : IProcessIndexProjectionService
 {
-    public const string DefaultTenantId = "default";
-    public const int DefaultShardCount = 32;
+    public const string DefaultTenantId = ProcessSummaryProjectionKeys.DefaultTenantId;
+    public const int DefaultShardCount = ProcessSummaryProjectionKeys.DefaultShardCount;
 
     private readonly IProcessDirectoryRepository _directoryRepository;
     private readonly IProcessSummaryProjectionRepository _summaryRepository;
@@ -102,20 +98,10 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
             cancellationToken);
 
     public static int CalculateShard(Guid processId, int shardCount = DefaultShardCount)
-    {
-        if (shardCount <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(shardCount), "Shard count must be positive.");
-        }
-
-        Span<byte> hash = stackalloc byte[32];
-        SHA256.HashData(Encoding.UTF8.GetBytes(processId.ToString("D")), hash);
-        var value = BinaryPrimitives.ReadUInt32BigEndian(hash[..4]);
-        return (int)(value % (uint)shardCount);
-    }
+        => ProcessSummaryProjectionKeys.CalculateShard(processId, shardCount);
 
     public static string CreateTimeBucket(DateTimeOffset createdAt) =>
-        createdAt.ToUniversalTime().ToString("yyyyMM", CultureInfo.InvariantCulture);
+        ProcessSummaryProjectionKeys.CreateTimeBucket(createdAt);
 
     public static string CreatePartitionKey(
         string tenantId,
@@ -123,7 +109,7 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
         string scopeId,
         string timeBucket,
         int shard) =>
-        $"{tenantId}:{scope}:{scopeId}:{timeBucket}:{shard.ToString("D2", CultureInfo.InvariantCulture)}";
+        ProcessSummaryProjectionKeys.CreatePartitionKey(tenantId, scope, scopeId, timeBucket, shard);
 
     private static ProcessDirectoryRecord CreateDirectoryRecord(
         ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
@@ -166,7 +152,7 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
             blueprintDefinitionId,
             blueprintVersionId,
             ProcessSummaryProjectionScope.Tenant,
-            "all",
+            ProcessSummaryProjectionKeys.TenantScopeId,
             shard,
             timeBucket,
             terminalAt,
@@ -177,7 +163,7 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
             blueprintDefinitionId,
             blueprintVersionId,
             ProcessSummaryProjectionScope.BlueprintVersion,
-            blueprintVersionId.ToString(CultureInfo.InvariantCulture),
+            blueprintVersionId.ToString(System.Globalization.CultureInfo.InvariantCulture),
             shard,
             timeBucket,
             terminalAt,

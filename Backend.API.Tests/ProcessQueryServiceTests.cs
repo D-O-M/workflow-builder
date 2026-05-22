@@ -105,6 +105,47 @@ public sealed class ProcessQueryServiceTests
     }
 
     [Test]
+    public async Task GetProcessHistoryAsync_advances_empty_projection_pages()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var definition = new BlueprintDefinition
+        {
+            Key = "sparse-indexed-intake",
+            DisplayName = "Sparse Indexed Intake Blueprint",
+            Versions =
+            [
+                new BlueprintVersion { Version = 5 }
+            ]
+        };
+
+        database.Context.BlueprintDefinitions.Add(definition);
+        await database.Context.SaveChangesAsync();
+
+        var processId = Guid.NewGuid();
+        var index = new ProcessIndexProjectionServiceStub(
+            tenantSummaries: [],
+            blueprintSummaries:
+            [
+                CreateProjectionSummary(
+                    processId,
+                    definition.Id,
+                    definition.Versions[0].Id,
+                    "2026-04-21T12:00:00Z",
+                    ProcessStatus.Completed,
+                    ProcessSummaryProjectionScope.BlueprintVersion)
+            ],
+            blueprintEmptyPagesBeforeItems: 1);
+        var processRepository = new ProcessInstanceRepositoryStub(new Dictionary<int, IReadOnlyList<ProcessStateSummary>>());
+        var service = CreateService(database, processRepository, new ProcessStepRepositoryStub(), index);
+
+        var page = await service.GetProcessHistoryAsync(definition.Id, 25, null, CancellationToken.None);
+
+        page.Items.Select(item => item.ProcessId).ShouldBe([processId]);
+        index.BlueprintQueryCount.ShouldBe(2);
+        processRepository.SummaryPageFetchCount.ShouldBe(0);
+    }
+
+    [Test]
     public async Task SearchProcessesAsync_pages_results_without_hydrating_process_or_step_documents()
     {
         await using var database = await SqliteBlueprintDb.CreateAsync();
@@ -504,6 +545,54 @@ public sealed class ProcessQueryServiceTests
     }
 
     [Test]
+    public async Task SearchProcessesAsync_advances_empty_projection_pages_before_fallback()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var definition = new BlueprintDefinition
+        {
+            Key = "sparse-indexed-search",
+            DisplayName = "Sparse Indexed Search",
+            Versions = [new BlueprintVersion { Version = 1 }]
+        };
+
+        database.Context.BlueprintDefinitions.Add(definition);
+        await database.Context.SaveChangesAsync();
+
+        var processId = Guid.NewGuid();
+        var index = new ProcessIndexProjectionServiceStub(
+            tenantSummaries:
+            [
+                CreateProjectionSummary(
+                    processId,
+                    definition.Id,
+                    definition.Versions[0].Id,
+                    "2026-04-21T11:58:00Z",
+                    ProcessStatus.Completed,
+                    ProcessSummaryProjectionScope.Tenant)
+            ],
+            blueprintSummaries: [],
+            tenantEmptyPagesBeforeItems: 1);
+        var processRepository = new ProcessInstanceRepositoryStub(new Dictionary<int, IReadOnlyList<ProcessStateSummary>>());
+        var stepRepository = new ProcessStepRepositoryStub();
+        var service = CreateService(database, processRepository, stepRepository, index);
+
+        var page = await service.SearchProcessesAsync(
+            new ProcessSearchRequestInputModel
+            {
+                CreatedFrom = DateTimeOffset.Parse("2026-04-21T11:40:00Z"),
+                CreatedTo = DateTimeOffset.Parse("2026-04-21T12:00:00Z"),
+                Limit = 25,
+            },
+            CancellationToken.None);
+
+        page.Items.Select(item => item.ProcessId).ShouldBe([processId]);
+        index.TenantQueryCount.ShouldBe(2);
+        processRepository.SummaryPageFetchCount.ShouldBe(0);
+        processRepository.ProcessStateFetchCount.ShouldBe(0);
+        stepRepository.StepFetchCount.ShouldBe(0);
+    }
+
+    [Test]
     public async Task GetProcessBlueprintActivitiesAsync_uses_summary_projection_for_recent_counts()
     {
         await using var database = await SqliteBlueprintDb.CreateAsync();
@@ -717,14 +806,24 @@ public sealed class ProcessQueryServiceTests
     {
         private readonly IReadOnlyList<ProcessSummaryProjectionRecord> _tenantSummaries;
         private readonly IReadOnlyList<ProcessSummaryProjectionRecord> _blueprintSummaries;
+        private int _tenantEmptyPagesBeforeItems;
+        private int _blueprintEmptyPagesBeforeItems;
 
         public ProcessIndexProjectionServiceStub(
             IReadOnlyList<ProcessSummaryProjectionRecord> tenantSummaries,
-            IReadOnlyList<ProcessSummaryProjectionRecord> blueprintSummaries)
+            IReadOnlyList<ProcessSummaryProjectionRecord> blueprintSummaries,
+            int tenantEmptyPagesBeforeItems = 0,
+            int blueprintEmptyPagesBeforeItems = 0)
         {
             _tenantSummaries = tenantSummaries;
             _blueprintSummaries = blueprintSummaries;
+            _tenantEmptyPagesBeforeItems = tenantEmptyPagesBeforeItems;
+            _blueprintEmptyPagesBeforeItems = blueprintEmptyPagesBeforeItems;
         }
+
+        public int TenantQueryCount { get; private set; }
+
+        public int BlueprintQueryCount { get; private set; }
 
         public Task UpsertFromProcessAsync(
             ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
@@ -744,8 +843,20 @@ public sealed class ProcessQueryServiceTests
             DateTimeOffset? createdFrom,
             DateTimeOffset? createdTo,
             IReadOnlyCollection<ProcessStatus>? statuses,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(CreatePage(
+            CancellationToken cancellationToken)
+        {
+            TenantQueryCount++;
+            if (_tenantEmptyPagesBeforeItems > 0)
+            {
+                _tenantEmptyPagesBeforeItems--;
+                return Task.FromResult(new ProcessSummaryProjectionPage
+                {
+                    Items = [],
+                    ContinuationToken = "0",
+                });
+            }
+
+            return Task.FromResult(CreatePage(
                 _tenantSummaries,
                 continuationToken,
                 maxItemCount,
@@ -754,6 +865,7 @@ public sealed class ProcessQueryServiceTests
                 statuses,
                 blueprintDefinitionId: null,
                 blueprintVersionIds: null));
+        }
 
         public Task<ProcessSummaryProjectionPage> GetRecentBlueprintSummariesAsync(
             int blueprintDefinitionId,
@@ -763,8 +875,20 @@ public sealed class ProcessQueryServiceTests
             DateTimeOffset? createdFrom,
             DateTimeOffset? createdTo,
             IReadOnlyCollection<ProcessStatus>? statuses,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(CreatePage(
+            CancellationToken cancellationToken)
+        {
+            BlueprintQueryCount++;
+            if (_blueprintEmptyPagesBeforeItems > 0)
+            {
+                _blueprintEmptyPagesBeforeItems--;
+                return Task.FromResult(new ProcessSummaryProjectionPage
+                {
+                    Items = [],
+                    ContinuationToken = "0",
+                });
+            }
+
+            return Task.FromResult(CreatePage(
                 _blueprintSummaries,
                 continuationToken,
                 maxItemCount,
@@ -773,6 +897,7 @@ public sealed class ProcessQueryServiceTests
                 statuses,
                 blueprintDefinitionId,
                 blueprintVersionIds));
+        }
 
         private static ProcessSummaryProjectionPage CreatePage(
             IReadOnlyList<ProcessSummaryProjectionRecord> source,

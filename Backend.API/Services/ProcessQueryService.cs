@@ -22,6 +22,7 @@ public sealed class ProcessQueryService
     private const int DefaultRankingWindowHours = 24;
     private const int ActivityInspectionPageSize = 25;
     private const int ActivityInspectionCapPerVersion = 100;
+    private const int IndexProjectionEmptyPageAdvanceLimit = 12;
     private const string BlueprintProcessActivityCacheKey = "process-activity-index-v1";
     private static readonly JsonSerializerOptions CursorSerializerOptions = new(JsonSerializerDefaults.Web);
 
@@ -382,6 +383,7 @@ public sealed class ProcessQueryService
         var processStepsCache = new Dictionary<string, IReadOnlyDictionary<string, ProcessStepRecord>>(StringComparer.Ordinal);
         var pageSize = Math.Clamp(normalizedRequest.Limit * 2, 10, 100);
         var sawProjectionRows = false;
+        var emptyPageAdvances = 0;
 
         while (items.Count < normalizedRequest.Limit)
         {
@@ -396,9 +398,16 @@ public sealed class ProcessQueryService
             continuationToken = page.ContinuationToken;
             if (page.Items.Count == 0)
             {
-                break;
+                if (string.IsNullOrWhiteSpace(continuationToken) ||
+                    ++emptyPageAdvances >= IndexProjectionEmptyPageAdvanceLimit)
+                {
+                    break;
+                }
+
+                continue;
             }
 
+            emptyPageAdvances = 0;
             sawProjectionRows = true;
             foreach (var summary in page.Items.OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.ProcessId, StringComparer.Ordinal))
             {
@@ -473,25 +482,42 @@ public sealed class ProcessQueryService
         CancellationToken cancellationToken)
     {
         var versionsById = definition.Versions.ToDictionary(version => version.Id);
-        var page = await _processIndexProjectionService!.GetRecentBlueprintSummariesAsync(
-            definition.Id,
-            versionsById.Keys.ToArray(),
-            cursor,
-            limit,
-            createdFrom: null,
-            createdTo: null,
-            statuses: null,
-            cancellationToken);
+        var continuationToken = cursor;
+        var items = new List<BlueprintProcessHistoryEntryViewModel>(limit);
+        var emptyPageAdvances = 0;
 
-        var items = page.Items
-            .Where(item => versionsById.ContainsKey(item.BlueprintVersionId))
-            .OrderByDescending(item => item.CreatedAt)
-            .ThenByDescending(item => item.ProcessId, StringComparer.Ordinal)
-            .Take(limit)
-            .Select(item =>
+        while (items.Count < limit)
+        {
+            var page = await _processIndexProjectionService!.GetRecentBlueprintSummariesAsync(
+                definition.Id,
+                versionsById.Keys.ToArray(),
+                continuationToken,
+                limit,
+                createdFrom: null,
+                createdTo: null,
+                statuses: null,
+                cancellationToken);
+
+            continuationToken = page.ContinuationToken;
+            if (page.Items.Count == 0)
+            {
+                if (string.IsNullOrWhiteSpace(continuationToken) ||
+                    ++emptyPageAdvances >= IndexProjectionEmptyPageAdvanceLimit)
+                {
+                    break;
+                }
+
+                continue;
+            }
+
+            emptyPageAdvances = 0;
+            foreach (var item in page.Items
+                .Where(item => versionsById.ContainsKey(item.BlueprintVersionId))
+                .OrderByDescending(item => item.CreatedAt)
+                .ThenByDescending(item => item.ProcessId, StringComparer.Ordinal))
             {
                 var version = versionsById[item.BlueprintVersionId];
-                return new BlueprintProcessHistoryEntryViewModel
+                items.Add(new BlueprintProcessHistoryEntryViewModel
                 {
                     ProcessId = Guid.Parse(item.ProcessId),
                     BlueprintDefinitionId = definition.Id,
@@ -501,15 +527,25 @@ public sealed class ProcessQueryService
                     Status = item.Status.ToString(),
                     CreatedAt = item.CreatedAt,
                     UpdatedAt = item.UpdatedAt,
-                };
-            })
-            .ToList();
+                });
+
+                if (items.Count >= limit)
+                {
+                    break;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(continuationToken))
+            {
+                break;
+            }
+        }
 
         return new BlueprintProcessHistoryPageViewModel
         {
             Items = items,
-            HasMore = !string.IsNullOrWhiteSpace(page.ContinuationToken),
-            NextCursor = page.ContinuationToken,
+            HasMore = !string.IsNullOrWhiteSpace(continuationToken),
+            NextCursor = continuationToken,
         };
     }
 

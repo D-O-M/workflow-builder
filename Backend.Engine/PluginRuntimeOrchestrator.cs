@@ -1,5 +1,6 @@
 using Backend.Database.Relational.Entities;
 using Backend.Engine.Capabilities;
+using Backend.Database.State.Objects;
 using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
 using Backend.Models;
@@ -17,18 +18,23 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
     private readonly IAgentManager _agentManager;
     private readonly IPluginRuntimeCapabilityService _capabilityService;
     private readonly PluginAbiCompatibilityService _abiCompatibilityService;
+    private readonly IPluginIngestionStatusStore _pluginIngestionStatusStore;
+    private readonly PluginTaskVersionRuntimeStatusPublisher _runtimeStatusPublisher;
     private readonly PluginRuntimeCatalog _pluginRuntimeCatalog;
     private readonly ILogger _logger;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly Lock _sync = new();
 
     private readonly Dictionary<int, PluginRuntimeAgent> _agents = [];
+    private readonly Dictionary<int, TaskDefinitionInfo> _knownTaskInfos = [];
     private readonly SemaphoreSlim _reloadGate = new(1, 1);
 
     public PluginRuntimeOrchestrator(
         IAgentManager agentManager,
         IPluginRuntimeCapabilityService capabilityService,
         PluginAbiCompatibilityService abiCompatibilityService,
+        IPluginIngestionStatusStore pluginIngestionStatusStore,
+        PluginTaskVersionRuntimeStatusPublisher runtimeStatusPublisher,
         PluginRuntimeCatalog pluginRuntimeCatalog,
         ILogger<PluginRuntimeOrchestrator> logger,
         IServiceScopeFactory serviceScopeFactory)
@@ -36,6 +42,8 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
         _agentManager = agentManager;
         _capabilityService = capabilityService;
         _abiCompatibilityService = abiCompatibilityService;
+        _pluginIngestionStatusStore = pluginIngestionStatusStore;
+        _runtimeStatusPublisher = runtimeStatusPublisher;
         _pluginRuntimeCatalog = pluginRuntimeCatalog;
         _logger = logger;
         _serviceScopeFactory = serviceScopeFactory;
@@ -83,6 +91,14 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
         var taskDefinitionRepository = scope.ServiceProvider.GetRequiredService<ITaskDefinitionRepository>();
 
         var allVersions = await taskDefinitionRepository.GetAll(cancellationToken);
+        lock (_sync)
+        {
+            _knownTaskInfos.Clear();
+            foreach (var version in allVersions)
+            {
+                _knownTaskInfos[version.Id] = version;
+            }
+        }
 
         var desiredVersionIds = new HashSet<int>();
         var desiredRoutes = new Dictionary<PluginRuntimeLane, TaskDefinitionInfo>();
@@ -102,9 +118,9 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
             TaskDefinitionInfo? routedVersion = null;
             foreach (var candidate in ordered)
             {
-                if (!IsRuntimeAbiCompatible(candidate))
+                if (!await IsRuntimeAbiCompatibleAsync(candidate, cancellationToken))
                 {
-                    await StopAgentIfIdleAsync(candidate.Id, cancellationToken);
+                    await StopAgentIfIdleAsync(candidate, cancellationToken);
                     continue;
                 }
 
@@ -149,7 +165,7 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
 
             foreach (var staleVersion in ordered.Where(version => version.Id != routedVersion.Id))
             {
-                await StopAgentIfIdleAsync(staleVersion.Id, cancellationToken);
+                await StopAgentIfIdleAsync(staleVersion, cancellationToken);
             }
         }
 
@@ -163,11 +179,26 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
 
         foreach (var staleAgentId in staleAgentIds)
         {
-            await StopAgentIfIdleAsync(staleAgentId, cancellationToken);
+            TaskDefinitionInfo? staleTaskInfo;
+            lock (_sync)
+            {
+                _knownTaskInfos.TryGetValue(staleAgentId, out staleTaskInfo);
+            }
+
+            if (staleTaskInfo is not null)
+            {
+                await StopAgentIfIdleAsync(staleTaskInfo, cancellationToken);
+            }
+            else
+            {
+                await StopAgentIfIdleAsync(staleAgentId, cancellationToken);
+            }
         }
     }
 
-    private bool IsRuntimeAbiCompatible(TaskDefinitionInfo taskInfo)
+    private async Task<bool> IsRuntimeAbiCompatibleAsync(
+        TaskDefinitionInfo taskInfo,
+        CancellationToken cancellationToken)
     {
         var result = _abiCompatibilityService.Evaluate(taskInfo.Abi);
         if (result.IsCompatible)
@@ -182,6 +213,18 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
             taskInfo.Version,
             string.Join("; ", result.Issues.Select(issue => $"{issue.Code}: {issue.Message}")));
 
+        await RecordRuntimeStatusAsync(
+            taskInfo,
+            PluginIngestionStatus.AbiInvalid,
+            string.Join("; ", result.Issues.Select(issue => $"{issue.Code}: {issue.Message}")),
+            cancellationToken);
+        await _runtimeStatusPublisher.PublishAsync(
+            taskInfo,
+            PluginTaskVersionRuntimeStatus.UnrunnableAbiIncompatible,
+            string.Join("; ", result.Issues.Select(issue => $"{issue.Code}: {issue.Message}")),
+            [],
+            cancellationToken);
+
         return false;
     }
 
@@ -192,6 +235,12 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
     {
         if (_agentManager.AgentExists(taskInfo.Id))
         {
+            await _runtimeStatusPublisher.PublishAsync(
+                taskInfo,
+                PluginTaskVersionRuntimeStatus.Runnable,
+                "Plugin agent is registered with this engine.",
+                [],
+                cancellationToken);
             return true;
         }
 
@@ -205,6 +254,12 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
     {
         if (_agentManager.AgentExists(taskInfo.Id))
         {
+            await _runtimeStatusPublisher.PublishAsync(
+                taskInfo,
+                PluginTaskVersionRuntimeStatus.Runnable,
+                "Plugin agent is registered with this engine.",
+                [],
+                cancellationToken);
             return true;
         }
 
@@ -223,6 +278,21 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
                 cancellationToken);
             if (!capabilityReport.Succeeded)
             {
+                var requiredFailures = capabilityReport.Results
+                    .Where(result => result.Required && result.Status != CapabilityValidationStatus.Satisfied)
+                    .ToArray();
+                var runtimeStatus = DetermineCapabilityRuntimeStatus(requiredFailures);
+                await RecordRuntimeStatusAsync(
+                    taskInfo,
+                    PluginIngestionStatus.RuntimeLoadFailed,
+                    $"{capabilityReport.Results.Count(result => result.Status != CapabilityValidationStatus.Satisfied)} required capability check(s) failed.",
+                    cancellationToken);
+                await _runtimeStatusPublisher.PublishAsync(
+                    taskInfo,
+                    runtimeStatus,
+                    $"{requiredFailures.Length} required capability check(s) failed.",
+                    requiredFailures,
+                    cancellationToken);
                 _logger.LogWarning(
                     "Task version {TaskVersionId} ({TaskName} {Version}) is not runnable because {FailureCount} required capability check(s) failed.",
                     taskInfo.Id,
@@ -252,11 +322,28 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
                 taskInfo.Id,
                 taskInfo.Name,
                 taskInfo.Version);
+            await _runtimeStatusPublisher.PublishAsync(
+                taskInfo,
+                PluginTaskVersionRuntimeStatus.Runnable,
+                "Plugin agent is ready.",
+                [],
+                cancellationToken);
 
             return true;
         }
         catch (Exception ex)
         {
+            await RecordRuntimeStatusAsync(
+                taskInfo,
+                PluginIngestionStatus.RuntimeLoadFailed,
+                ex.Message,
+                cancellationToken);
+            await _runtimeStatusPublisher.PublishAsync(
+                taskInfo,
+                PluginTaskVersionRuntimeStatus.RuntimeLoadFailed,
+                ex.Message,
+                [],
+                cancellationToken);
             _logger.LogError(
                 ex,
                 "Failed to start agent for task version {TaskVersionId} ({TaskName} {Version}).",
@@ -265,6 +352,46 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
                 taskInfo.Version);
             return false;
         }
+    }
+
+    private async Task RecordRuntimeStatusAsync(
+        TaskDefinitionInfo taskInfo,
+        PluginIngestionStatus status,
+        string? message,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _pluginIngestionStatusStore.AppendEventAsync(
+                PluginIngestionStatusUpdate.FromPlugin(
+                    $"{taskInfo.Name}_{taskInfo.Version}.zip",
+                    taskInfo.Name,
+                    taskInfo.Version,
+                    status,
+                    message,
+                    taskInfo.Id),
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Unable to record runtime plugin ingestion status {Status} for task version {TaskVersionId}.",
+                status,
+                taskInfo.Id);
+        }
+    }
+
+    private static PluginTaskVersionRuntimeStatus DetermineCapabilityRuntimeStatus(
+        IReadOnlyCollection<CapabilityValidationResult> requiredFailures)
+    {
+        if (requiredFailures.Any(result =>
+                result.FailureCategory == CapabilityValidationFailureCategory.MissingConfiguration))
+        {
+            return PluginTaskVersionRuntimeStatus.UnrunnableMissingConfiguration;
+        }
+
+        return PluginTaskVersionRuntimeStatus.UnrunnableMissingCapability;
     }
 
     private async Task<FileInfo> DownloadPlugin(
@@ -302,6 +429,41 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
         return new FileInfo(Path.Combine(workspaceDirectory, entryPoint));
     }
 
+    private async Task StopAgentIfIdleAsync(TaskDefinitionInfo taskInfo, CancellationToken cancellationToken)
+    {
+        if (!_agentManager.AgentExists(taskInfo.Id) || _agentManager.GetActiveStepCount(taskInfo.Id) > 0)
+        {
+            return;
+        }
+
+        PluginRuntimeAgent? agent = null;
+        lock (_sync)
+        {
+            if (!_agents.TryGetValue(taskInfo.Id, out agent!))
+            {
+                _agentManager.UnregisterAgent(taskInfo.Id);
+            }
+            else
+            {
+                _agents.Remove(taskInfo.Id);
+                _agentManager.UnregisterAgent(taskInfo.Id);
+            }
+        }
+
+        await _runtimeStatusPublisher.PublishAsync(
+            taskInfo,
+            PluginTaskVersionRuntimeStatus.UnknownNotLoaded,
+            "Plugin agent is not loaded by this engine.",
+            [],
+            cancellationToken);
+
+        if (agent is not null)
+        {
+            _logger.LogInformation("Stopping drained plugin agent {AgentName}.", agent.Name);
+            await agent.StopAsync(cancellationToken);
+        }
+    }
+
     private async Task StopAgentIfIdleAsync(int taskVersionId, CancellationToken cancellationToken)
     {
         if (!_agentManager.AgentExists(taskVersionId) || _agentManager.GetActiveStepCount(taskVersionId) > 0)
@@ -309,21 +471,22 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
             return;
         }
 
-        PluginRuntimeAgent agent;
+        PluginRuntimeAgent? agent = null;
         lock (_sync)
         {
-            if (!_agents.TryGetValue(taskVersionId, out agent!))
+            if (_agents.TryGetValue(taskVersionId, out agent!))
             {
-                _agentManager.UnregisterAgent(taskVersionId);
-                return;
+                _agents.Remove(taskVersionId);
             }
 
-            _agents.Remove(taskVersionId);
             _agentManager.UnregisterAgent(taskVersionId);
         }
 
-        _logger.LogInformation("Stopping drained plugin agent {AgentName}.", agent.Name);
-        await agent.StopAsync(cancellationToken);
+        if (agent is not null)
+        {
+            _logger.LogInformation("Stopping drained plugin agent {AgentName}.", agent.Name);
+            await agent.StopAsync(cancellationToken);
+        }
     }
 
     private async Task StopAgentsAsync(CancellationToken cancellationToken)
@@ -342,6 +505,22 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
             _agentManager.UnregisterAgent(taskVersionId);
             _logger.LogInformation("Stopping plugin agent {AgentName}.", agent.Name);
             await agent.StopAsync(cancellationToken);
+
+            TaskDefinitionInfo? taskInfo;
+            lock (_sync)
+            {
+                _knownTaskInfos.TryGetValue(taskVersionId, out taskInfo);
+            }
+
+            if (taskInfo is not null && !cancellationToken.IsCancellationRequested)
+            {
+                await _runtimeStatusPublisher.PublishAsync(
+                    taskInfo,
+                    PluginTaskVersionRuntimeStatus.UnknownNotLoaded,
+                    "Plugin agent stopped on this engine.",
+                    [],
+                    cancellationToken);
+            }
         }
     }
 }

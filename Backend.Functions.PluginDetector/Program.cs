@@ -19,6 +19,7 @@ using Backend.PluginLoader.Services;
 using Backend.Functions.PluginDetector;
 using Backend.PluginAbi;
 using Backend.Topology;
+using Microsoft.Azure.Cosmos;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
@@ -32,6 +33,20 @@ WorkflowBuilderTopologyValidator.ValidatePluginDetector(builder.Configuration);
 var sqlConnectionString = builder.Configuration.GetConnectionString(WorkflowBuilderTopology.Sql.TasksDbConnectionName);
 builder.Services.AddDbContextPool<BlueprintDbContext>(options =>
     options.UseSqlServer(sqlConnectionString));
+
+builder.Services.AddSingleton(sp => new CosmosClient(
+    LocalDevelopmentResourceSettings.GetCosmosConnectionString(
+        sp.GetRequiredService<IConfiguration>(),
+        sp.GetRequiredService<IHostEnvironment>()),
+    new CosmosClientOptions
+    {
+        ConnectionMode = ConnectionMode.Gateway,
+        LimitToEndpoint = sp.GetRequiredService<IHostEnvironment>().IsDevelopment(),
+        RequestTimeout = TimeSpan.FromSeconds(10),
+        UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
+    }));
+builder.Services.AddPluginIngestionStatusStore(
+    databaseName: builder.Configuration[WorkflowBuilderTopology.Cosmos.DatabaseNameKey]!);
 
 builder.Services.AddSingleton(_ =>
 {

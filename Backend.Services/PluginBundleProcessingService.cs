@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Backend.Database.Relational.Entities;
+using Backend.Database.State.Objects;
 using Backend.Interfaces.Queues;
 using Backend.Models;
 using Backend.Models.DomainModels;
@@ -24,6 +26,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
     private readonly IPluginManifestParsingUtility _manifestParser;
     private readonly IPluginSchemaAggregationUtility _schemaAggregator;
     private readonly IPluginReloadQueueWriter _pluginReloadQueueWriter;
+    private readonly IPluginIngestionStatusStore _pluginIngestionStatusStore;
     private readonly PluginAbiCompatibilityService _abiCompatibilityService;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PluginBundleProcessingService> _logger;
@@ -34,6 +37,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         IPluginManifestParsingUtility manifestReader,
         IPluginSchemaAggregationUtility schemaAggregator,
         IPluginReloadQueueWriter pluginReloadQueueWriter,
+        IPluginIngestionStatusStore pluginIngestionStatusStore,
         PluginAbiCompatibilityService abiCompatibilityService,
         IServiceScopeFactory scopeFactory,
         ILogger<PluginBundleProcessingService> logger)
@@ -43,6 +47,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         _manifestParser = manifestReader;
         _schemaAggregator = schemaAggregator;
         _pluginReloadQueueWriter = pluginReloadQueueWriter;
+        _pluginIngestionStatusStore = pluginIngestionStatusStore;
         _abiCompatibilityService = abiCompatibilityService;
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -52,6 +57,16 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
     {
         _logger.LogInformation("Processing plugin {Plugin} ({Version}) from blob {BlobName}", pluginInfo.PluginName, pluginInfo.Version, pluginInfo.BlobName);
 
+        if (await IsQuarantinedAsync(pluginInfo, cancellationToken))
+        {
+            _logger.LogWarning(
+                "Skipping quarantined plugin bundle {BlobName} for plugin {Plugin} ({Version}).",
+                pluginInfo.BlobName,
+                pluginInfo.PluginName,
+                pluginInfo.Version);
+            return;
+        }
+
         var pluginGate = _pluginProcessingGates.GetOrAdd(
             pluginInfo.PluginName,
             static _ => new SemaphoreSlim(1, 1));
@@ -59,6 +74,12 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         await pluginGate.WaitAsync(cancellationToken);
         try
         {
+            await RecordStatusAsync(
+                pluginInfo,
+                PluginIngestionStatus.Extracting,
+                "Plugin bundle extraction started.",
+                cancellationToken);
+
             using var serviceScope = _scopeFactory.CreateScope();
             var taskDefinitionRepository = serviceScope.ServiceProvider.GetRequiredService<ITaskDefinitionRepository>();
             var existingTasks = await taskDefinitionRepository.GetAll(cancellationToken);
@@ -72,6 +93,11 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                     "Plugin {Plugin} ({Version}) already registered; skipping processing.",
                     pluginInfo.PluginName,
                     pluginInfo.Version);
+                await RecordStatusAsync(
+                    pluginInfo,
+                    PluginIngestionStatus.DuplicateIgnored,
+                    "Plugin version is already registered.",
+                    cancellationToken);
                 return;
             }
 
@@ -79,38 +105,114 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
 
             await _pluginBundleSource.ExtractBundleAsync(pluginInfo, workspaceDirectory, cancellationToken);
 
-            var manifest = await _manifestParser.ReadAsync(workspaceDirectory, cancellationToken);
+            ManifestFile? manifest;
+            try
+            {
+                manifest = await _manifestParser.ReadAsync(workspaceDirectory, cancellationToken);
+            }
+            catch (JsonException ex)
+            {
+                await RecordInvalidAndQuarantineAsync(
+                    pluginInfo,
+                    PluginIngestionStatus.ManifestInvalid,
+                    ex.Message,
+                    cancellationToken);
+                throw;
+            }
+
             if (manifest is null)
             {
                 _logger.LogWarning("Manifest not found for plugin {Plugin} ({Version}). Processing aborted.", pluginInfo.PluginName, pluginInfo.Version);
+                await RecordInvalidAndQuarantineAsync(
+                    pluginInfo,
+                    PluginIngestionStatus.ManifestMissing,
+                    "manifest.json was not found in the plugin bundle.",
+                    cancellationToken);
                 return;
             }
-            ValidateAbi(pluginInfo, manifest);
-            ValidateCapabilityRequirements(pluginInfo, manifest);
-            ValidateConfigurationRequirements(pluginInfo, manifest);
 
-            var schemas = await _schemaAggregator.LoadAsync(workspaceDirectory, cancellationToken);
-            LogProcessingSummary(pluginInfo, manifest, schemas);
-
-            if (schemas is null) throw new Exception();
-
-            var entryPoint = FindEntryPoint(workspaceDirectory, pluginInfo.PluginName);
-
-            var version = new TaskVersionDomainModel
+            try
             {
-                Name = pluginInfo.PluginName,
-                DisplayName = manifest.DisplayName,
-                Version = pluginInfo.Version,
-                WorkspaceEntryPointPath = entryPoint,
-                Abi = manifest.Abi!,
-                RequiredGlobalState = GetGlobalStateRequirements(pluginInfo, manifest, schemas),
-                InputChannelDefinition = GetInputChannelDefinition(pluginInfo, manifest, schemas),
-                OutputChannelDefinitions = GetOutputChannelDefinitions(pluginInfo, manifest, schemas)
-            };
+                ValidateAbi(pluginInfo, manifest);
+            }
+            catch (PluginAbiCompatibilityException ex)
+            {
+                await RecordInvalidAndQuarantineAsync(
+                    pluginInfo,
+                    PluginIngestionStatus.AbiInvalid,
+                    ex.Message,
+                    cancellationToken);
+                throw;
+            }
+
+            try
+            {
+                ValidateCapabilityRequirements(pluginInfo, manifest);
+            }
+            catch (InvalidDataException ex)
+            {
+                await RecordInvalidAndQuarantineAsync(
+                    pluginInfo,
+                    PluginIngestionStatus.CapabilityMetadataInvalid,
+                    ex.Message,
+                    cancellationToken);
+                throw;
+            }
+
+            try
+            {
+                ValidateConfigurationRequirements(pluginInfo, manifest);
+            }
+            catch (InvalidDataException ex)
+            {
+                await RecordInvalidAndQuarantineAsync(
+                    pluginInfo,
+                    PluginIngestionStatus.ConfigurationMetadataInvalid,
+                    ex.Message,
+                    cancellationToken);
+                throw;
+            }
+
+            TaskVersionDomainModel version;
+            try
+            {
+                var loadedSchemas = await _schemaAggregator.LoadAsync(workspaceDirectory, cancellationToken);
+                LogProcessingSummary(pluginInfo, manifest, loadedSchemas);
+                var schemas = loadedSchemas ?? throw new InvalidDataException("Plugin schema metadata is missing.");
+
+                var entryPoint = FindEntryPoint(workspaceDirectory, pluginInfo.PluginName);
+
+                version = new TaskVersionDomainModel
+                {
+                    Name = pluginInfo.PluginName,
+                    DisplayName = manifest.DisplayName,
+                    Version = pluginInfo.Version,
+                    WorkspaceEntryPointPath = entryPoint,
+                    Abi = manifest.Abi!,
+                    RequiredGlobalState = GetGlobalStateRequirements(pluginInfo, manifest, schemas),
+                    InputChannelDefinition = GetInputChannelDefinition(pluginInfo, manifest, schemas),
+                    OutputChannelDefinitions = GetOutputChannelDefinitions(pluginInfo, manifest, schemas)
+                };
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                await RecordInvalidAndQuarantineAsync(
+                    pluginInfo,
+                    PluginIngestionStatus.SchemaInvalid,
+                    ex.Message,
+                    cancellationToken);
+                throw;
+            }
 
             try
             {
                 var registrationResult = await taskDefinitionRepository.CreateVersion(version, cancellationToken);
+                await RecordStatusAsync(
+                    pluginInfo,
+                    PluginIngestionStatus.Registered,
+                    "Plugin version registered.",
+                    cancellationToken,
+                    registrationResult.TaskVersionId);
                 await _pluginReloadQueueWriter.EnqueueAsync(
                     new PluginReloadRequestMessage
                     {
@@ -129,6 +231,11 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                     "Plugin {Plugin} ({Version}) was registered by another concurrent detector invocation; skipping duplicate registration.",
                     pluginInfo.PluginName,
                     pluginInfo.Version);
+                await RecordStatusAsync(
+                    pluginInfo,
+                    PluginIngestionStatus.DuplicateIgnored,
+                    "Plugin version was registered by another detector invocation.",
+                    cancellationToken);
             }
             catch (Exception ex)
             {
@@ -141,6 +248,73 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         finally
         {
             pluginGate.Release();
+        }
+    }
+
+    private async Task<bool> IsQuarantinedAsync(
+        PluginBlobInfo pluginInfo,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _pluginIngestionStatusStore.IsQuarantinedAsync(pluginInfo.BlobName, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Unable to read ingestion quarantine status for plugin {Plugin} ({Version}). Continuing processing.",
+                pluginInfo.PluginName,
+                pluginInfo.Version);
+            return false;
+        }
+    }
+
+    private async Task RecordInvalidAndQuarantineAsync(
+        PluginBlobInfo pluginInfo,
+        PluginIngestionStatus status,
+        string? message,
+        CancellationToken cancellationToken)
+    {
+        await RecordStatusAsync(
+            pluginInfo,
+            status,
+            message,
+            cancellationToken);
+        await RecordStatusAsync(
+            pluginInfo,
+            PluginIngestionStatus.Quarantined,
+            message,
+            cancellationToken);
+    }
+
+    private async Task RecordStatusAsync(
+        PluginBlobInfo pluginInfo,
+        PluginIngestionStatus status,
+        string? message,
+        CancellationToken cancellationToken,
+        int? taskVersionId = null)
+    {
+        try
+        {
+            await _pluginIngestionStatusStore.AppendEventAsync(
+                PluginIngestionStatusUpdate.FromPlugin(
+                    pluginInfo.BlobName,
+                    pluginInfo.PluginName,
+                    pluginInfo.Version,
+                    status,
+                    message,
+                    taskVersionId),
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Unable to record plugin ingestion status {Status} for plugin {Plugin} ({Version}).",
+                status,
+                pluginInfo.PluginName,
+                pluginInfo.Version);
         }
     }
 

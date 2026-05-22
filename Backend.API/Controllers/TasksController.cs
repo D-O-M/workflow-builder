@@ -1,4 +1,4 @@
-using Backend.Interfaces.Repositories;
+using Backend.API.Services;
 using Backend.Models.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 
@@ -8,11 +8,11 @@ namespace Backend.API.Controllers;
 [Route("[controller]")]
 public class TasksController : ControllerBase
 {
-    private readonly ITaskDefinitionRepository _taskDefinitionRepository;
+    private readonly TaskCatalogQueryService _taskCatalogQueryService;
 
-    public TasksController(ITaskDefinitionRepository taskDefinitionRepository)
+    public TasksController(TaskCatalogQueryService taskCatalogQueryService)
     {
-        _taskDefinitionRepository = taskDefinitionRepository;
+        _taskCatalogQueryService = taskCatalogQueryService;
     }
 
     private static readonly TaskCatalogEntry[] Tasks = new[]
@@ -31,5 +31,5 @@ public class TasksController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<List<TaskDefinitionViewModel>>> Get(CancellationToken cancellationToken) =>
-        await _taskDefinitionRepository.GetAllTaskDefinitionViewModels(cancellationToken);
+        await _taskCatalogQueryService.GetTaskCatalogAsync(cancellationToken);
 }

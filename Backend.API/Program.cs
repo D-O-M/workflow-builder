@@ -7,6 +7,7 @@ using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Repositories;
 using Backend.Services.ProcessStepQueue;
+using Backend.Services.PluginRuntimeStatus;
 using Backend.Topology;
 using Microsoft.Azure.Cosmos;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +30,7 @@ public class Program
                 .AddMeter(ProcessStepDispatchTelemetry.MeterName)
                 .AddMeter("WorkflowBuilder.Cosmos")
                 .AddMeter(Backend.Repositories.Processes.ProcessRealtimeProjectionTelemetry.MeterName)
+                .AddMeter(Backend.Repositories.Processes.ProcessSummaryProjectionTelemetry.MeterName)
                 .AddMeter("WorkflowBuilder.API.ProcessStart"));
 
         // Add services to the container.
@@ -75,12 +77,18 @@ public class Program
                 .GetSection("ProcessStepDispatch")
                 .Get<ProcessStepDispatchOptions>()
             ?? new ProcessStepDispatchOptions());
+        builder.Services.AddSingleton(sp =>
+            sp.GetRequiredService<IConfiguration>()
+                .GetSection("PluginRuntimeStatus")
+                .Get<PluginRuntimeStatusOptions>()
+            ?? new PluginRuntimeStatusOptions());
         builder.Services.AddSingleton<ProcessStepDispatchTelemetry>();
         builder.Services.AddSingleton<ProcessStepDispatchService>();
         builder.Services.AddSingleton<IProcessStepDispatcher>(provider =>
             provider.GetRequiredService<ProcessStepDispatchService>());
         builder.Services.AddScoped<BlueprintProcessService>();
         builder.Services.AddScoped<PhasedBlueprintProcessService>();
+        builder.Services.AddScoped<TaskCatalogQueryService>();
         builder.Services.AddScoped<BlueprintPortabilityService>();
         builder.Services.AddScoped<ProcessQueryService>();
         builder.Services.AddScoped<ObservabilityQueryService>();

@@ -10,6 +10,7 @@ using Backend.Interfaces.Utilities;
 using Backend.Models;
 using Backend.PluginAbi;
 using Backend.Services;
+using Backend.Services.PluginIngestion;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -178,6 +179,7 @@ public sealed class PluginBundleProcessingServiceConfigurationTests
             manifestParser.Object,
             schemaAggregator.Object,
             reloadQueue.Object,
+            new InMemoryPluginIngestionStatusStore(),
             new PluginAbiCompatibilityService(),
             services.GetRequiredService<IServiceScopeFactory>(),
             NullLogger<PluginBundleProcessingService>.Instance);

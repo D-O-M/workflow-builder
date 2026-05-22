@@ -8,6 +8,8 @@ using Backend.Engine.Capabilities;
 using Backend.Interfaces.Repositories;
 using Backend.Models;
 using Backend.PluginAbi;
+using Backend.Services.PluginIngestion;
+using Backend.Services.PluginRuntimeStatus;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -124,6 +126,11 @@ public sealed class PluginRuntimeOrchestratorAbiTests
             agentManager,
             Mock.Of<IPluginRuntimeCapabilityService>(),
             new PluginAbiCompatibilityService(),
+            new InMemoryPluginIngestionStatusStore(),
+            new PluginTaskVersionRuntimeStatusPublisher(
+                new InMemoryPluginTaskVersionRuntimeStatusStore(),
+                new EngineInstanceInfo(),
+                NullLogger<PluginTaskVersionRuntimeStatusPublisher>.Instance),
             catalog,
             NullLogger<PluginRuntimeOrchestrator>.Instance,
             services.GetRequiredService<IServiceScopeFactory>());

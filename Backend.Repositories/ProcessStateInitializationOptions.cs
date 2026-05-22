@@ -22,6 +22,10 @@ public sealed class ProcessStateInitializationOptions
 
     public string StepFinalizationsContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.ProcessStepFinalizations.Name;
 
+    public string PluginIngestionStatusesContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.PluginIngestionStatuses.Name;
+
+    public string PluginTaskVersionRuntimeStatusesContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.PluginTaskVersionRuntimeStatuses.Name;
+
     public string ActivationsContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.NodeActivations.Name;
 
     public string JoinStatesContainerName { get; init; } = WorkflowBuilderTopology.Cosmos.Containers.NodeJoinStates.Name;

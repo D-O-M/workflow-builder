@@ -108,7 +108,8 @@ public sealed class CapabilityValidationService : ICapabilityValidationService
             {
                 return Missing(
                     capability,
-                    $"Required engine configuration value '{engineKey}' was not supplied.");
+                    $"Required engine configuration value '{engineKey}' was not supplied.",
+                    CapabilityValidationFailureCategory.MissingConfiguration);
             }
         }
 
@@ -118,14 +119,16 @@ public sealed class CapabilityValidationService : ICapabilityValidationService
             {
                 return Failed(
                     capability,
-                    $"Capability '{capability.Id}' references configuration key '{key}', but the manifest does not describe that key.");
+                    $"Capability '{capability.Id}' references configuration key '{key}', but the manifest does not describe that key.",
+                    CapabilityValidationFailureCategory.MissingConfiguration);
             }
 
             if (requirement.Required && !HasValue(key))
             {
                 return Missing(
                     capability,
-                    $"Required plugin configuration value '{key}' was not supplied.");
+                    $"Required plugin configuration value '{key}' was not supplied.",
+                    CapabilityValidationFailureCategory.MissingConfiguration);
             }
         }
 
@@ -138,7 +141,10 @@ public sealed class CapabilityValidationService : ICapabilityValidationService
     {
         if (string.IsNullOrWhiteSpace(capability.Command))
         {
-            return Unsupported(capability, "Software capability does not declare a command probe.");
+            return Unsupported(
+                capability,
+                "Software capability does not declare a command probe.",
+                CapabilityValidationFailureCategory.MissingCapability);
         }
 
         var probe = await _commandProbe.ProbeAsync(
@@ -153,7 +159,8 @@ public sealed class CapabilityValidationService : ICapabilityValidationService
                 capability,
                 string.IsNullOrWhiteSpace(probe.Error)
                     ? $"Command '{capability.Command}' is not available."
-                    : probe.Error);
+                    : probe.Error,
+                CapabilityValidationFailureCategory.MissingCapability);
         }
 
         return Satisfied(capability, $"Command '{capability.Command}' is available.");
@@ -178,7 +185,8 @@ public sealed class CapabilityValidationService : ICapabilityValidationService
         {
             return Failed(
                 capability,
-                $"Endpoint configuration '{capability.EndpointConfigKey}' is not a valid absolute URI.");
+                $"Endpoint configuration '{capability.EndpointConfigKey}' is not a valid absolute URI.",
+                CapabilityValidationFailureCategory.MissingConfiguration);
         }
 
         var timeout = TimeSpan.FromSeconds(Math.Max(1, capability.TimeoutSeconds ?? 5));
@@ -187,7 +195,8 @@ public sealed class CapabilityValidationService : ICapabilityValidationService
         {
             return Missing(
                 capability,
-                $"Endpoint '{RedactUri(endpoint)}' is not reachable. {probe.Message}".Trim());
+                $"Endpoint '{RedactUri(endpoint)}' is not reachable. {probe.Message}".Trim(),
+                CapabilityValidationFailureCategory.MissingCapability);
         }
 
         return Satisfied(capability, $"Endpoint '{RedactUri(endpoint)}' is reachable.");
@@ -202,27 +211,31 @@ public sealed class CapabilityValidationService : ICapabilityValidationService
     private static CapabilityValidationResult Satisfied(
         CapabilityRequirementDescriptor capability,
         string message) =>
-        Result(capability, CapabilityValidationStatus.Satisfied, message);
+        Result(capability, CapabilityValidationStatus.Satisfied, message, CapabilityValidationFailureCategory.None);
 
     private static CapabilityValidationResult Missing(
         CapabilityRequirementDescriptor capability,
-        string message) =>
-        Result(capability, CapabilityValidationStatus.Missing, message);
+        string message,
+        CapabilityValidationFailureCategory failureCategory) =>
+        Result(capability, CapabilityValidationStatus.Missing, message, failureCategory);
 
     private static CapabilityValidationResult Failed(
         CapabilityRequirementDescriptor capability,
-        string message) =>
-        Result(capability, CapabilityValidationStatus.Failed, message);
+        string message,
+        CapabilityValidationFailureCategory failureCategory) =>
+        Result(capability, CapabilityValidationStatus.Failed, message, failureCategory);
 
     private static CapabilityValidationResult Unsupported(
         CapabilityRequirementDescriptor capability,
-        string message) =>
-        Result(capability, CapabilityValidationStatus.Unsupported, message);
+        string message,
+        CapabilityValidationFailureCategory failureCategory = CapabilityValidationFailureCategory.MissingCapability) =>
+        Result(capability, CapabilityValidationStatus.Unsupported, message, failureCategory);
 
     private static CapabilityValidationResult Result(
         CapabilityRequirementDescriptor capability,
         CapabilityValidationStatus status,
-        string message) =>
+        string message,
+        CapabilityValidationFailureCategory failureCategory) =>
         new()
         {
             CapabilityId = capability.Id,
@@ -230,6 +243,7 @@ public sealed class CapabilityValidationService : ICapabilityValidationService
             Kind = capability.Kind,
             Required = capability.Required,
             Status = status,
+            FailureCategory = failureCategory,
             Message = message,
             Remediation = capability.Remediation
         };

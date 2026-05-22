@@ -80,6 +80,141 @@ public enum ProcessSummaryProjectionScope
     BlueprintVersion
 }
 
+public enum PluginIngestionStatus
+{
+    Detected,
+    Extracting,
+    ManifestMissing,
+    ManifestInvalid,
+    AbiInvalid,
+    SchemaInvalid,
+    CapabilityMetadataInvalid,
+    ConfigurationMetadataInvalid,
+    Registered,
+    DuplicateIgnored,
+    RuntimeLoadFailed,
+    Quarantined,
+    BundleNameInvalid
+}
+
+public enum PluginTaskVersionRuntimeStatus
+{
+    Registered,
+    Runnable,
+    UnrunnableAbiIncompatible,
+    UnrunnableMissingCapability,
+    UnrunnableMissingConfiguration,
+    RuntimeLoadFailed,
+    UnknownNotLoaded
+}
+
+public sealed class PluginTaskVersionRuntimeStatusRecord
+{
+    private string _id = null!;
+
+    [JsonPropertyName("id")]
+    public required string id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonIgnore]
+    public string Id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonPropertyName("_etag")]
+    public string? ETag { get; set; }
+
+    [JsonPropertyName("taskVersionId")]
+    public required int TaskVersionId { get; init; }
+
+    [JsonPropertyName("taskDefinitionId")]
+    public required int TaskDefinitionId { get; set; }
+
+    [JsonPropertyName("pluginName")]
+    public required string PluginName { get; set; }
+
+    [JsonPropertyName("pluginVersion")]
+    public required string PluginVersion { get; set; }
+
+    [JsonPropertyName("engineInstanceId")]
+    public required string EngineInstanceId { get; init; }
+
+    [JsonPropertyName("currentStatus")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public required PluginTaskVersionRuntimeStatus CurrentStatus { get; set; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+
+    [JsonPropertyName("issues")]
+    public List<PluginTaskVersionRuntimeIssueRecord> Issues { get; set; } = [];
+
+    [JsonPropertyName("createdAt")]
+    public required DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public required DateTimeOffset UpdatedAt { get; set; }
+
+    [JsonPropertyName("lastSeenAt")]
+    public required DateTimeOffset LastSeenAt { get; set; }
+
+    [JsonPropertyName("loadedAt")]
+    public DateTimeOffset? LoadedAt { get; set; }
+
+    [JsonPropertyName("unloadedAt")]
+    public DateTimeOffset? UnloadedAt { get; set; }
+}
+
+public sealed class PluginTaskVersionRuntimeIssueRecord
+{
+    [JsonPropertyName("capabilityId")]
+    public string? CapabilityId { get; init; }
+
+    [JsonPropertyName("displayName")]
+    public string? DisplayName { get; init; }
+
+    [JsonPropertyName("kind")]
+    public string? Kind { get; init; }
+
+    [JsonPropertyName("status")]
+    public string? Status { get; init; }
+
+    [JsonPropertyName("category")]
+    public string? Category { get; init; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; init; }
+
+    [JsonPropertyName("remediation")]
+    public string? Remediation { get; init; }
+}
+
+public sealed record PluginTaskVersionRuntimeStatusUpdate
+{
+    public required int TaskVersionId { get; init; }
+
+    public required int TaskDefinitionId { get; init; }
+
+    public required string PluginName { get; init; }
+
+    public required Version PluginVersion { get; init; }
+
+    public required string EngineInstanceId { get; init; }
+
+    public required PluginTaskVersionRuntimeStatus Status { get; init; }
+
+    public string? Message { get; init; }
+
+    public IReadOnlyList<PluginTaskVersionRuntimeIssueRecord> Issues { get; init; } = [];
+
+    public DateTimeOffset? OccurredAt { get; init; }
+}
+
 public class ProcessInstanceRecord<TGlobalState>
 {
     private string _id = null!;
@@ -279,6 +414,149 @@ public sealed class ProcessSummaryProjectionRecord
     [JsonPropertyName("indexedAt")]
     public required DateTimeOffset IndexedAt { get; init; }
 }
+
+public sealed class PluginIngestionStatusRecord
+{
+    public const int MaxEventCount = 50;
+
+    private string _id = null!;
+
+    [JsonPropertyName("id")]
+    public required string id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonIgnore]
+    public string Id
+    {
+        get => _id;
+        init => _id = value;
+    }
+
+    [JsonPropertyName("_etag")]
+    public string? ETag { get; set; }
+
+    [JsonPropertyName("blobName")]
+    public required string BlobName { get; set; }
+
+    [JsonPropertyName("pluginName")]
+    public string? PluginName { get; set; }
+
+    [JsonPropertyName("pluginVersion")]
+    public string? PluginVersion { get; set; }
+
+    [JsonPropertyName("taskVersionId")]
+    public int? TaskVersionId { get; set; }
+
+    [JsonPropertyName("currentStatus")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public PluginIngestionStatus CurrentStatus { get; set; }
+
+    [JsonPropertyName("lastFailureCategory")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public PluginIngestionStatus? LastFailureCategory { get; set; }
+
+    [JsonPropertyName("lastFailureMessage")]
+    public string? LastFailureMessage { get; set; }
+
+    [JsonPropertyName("quarantined")]
+    public bool Quarantined { get; set; }
+
+    [JsonPropertyName("quarantineReason")]
+    public string? QuarantineReason { get; set; }
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    [JsonPropertyName("lastStatusAt")]
+    public DateTimeOffset LastStatusAt { get; set; }
+
+    [JsonPropertyName("registeredAt")]
+    public DateTimeOffset? RegisteredAt { get; set; }
+
+    [JsonPropertyName("quarantinedAt")]
+    public DateTimeOffset? QuarantinedAt { get; set; }
+
+    [JsonPropertyName("unquarantinedAt")]
+    public DateTimeOffset? UnquarantinedAt { get; set; }
+
+    [JsonPropertyName("events")]
+    public List<PluginIngestionStatusEventRecord> Events { get; set; } = [];
+}
+
+public sealed class PluginIngestionStatusEventRecord
+{
+    [JsonPropertyName("status")]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public required PluginIngestionStatus Status { get; init; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; init; }
+
+    [JsonPropertyName("taskVersionId")]
+    public int? TaskVersionId { get; init; }
+
+    [JsonPropertyName("occurredAt")]
+    public required DateTimeOffset OccurredAt { get; init; }
+}
+
+public sealed record PluginIngestionStatusUpdate
+{
+    public required string BlobName { get; init; }
+
+    public string? PluginName { get; init; }
+
+    public Version? PluginVersion { get; init; }
+
+    public int? TaskVersionId { get; init; }
+
+    public required PluginIngestionStatus Status { get; init; }
+
+    public string? Message { get; init; }
+
+    public DateTimeOffset? OccurredAt { get; init; }
+
+    public static PluginIngestionStatusUpdate FromPlugin(
+        string blobName,
+        string pluginName,
+        Version pluginVersion,
+        PluginIngestionStatus status,
+        string? message = null,
+        int? taskVersionId = null,
+        DateTimeOffset? occurredAt = null) =>
+        new()
+        {
+            BlobName = blobName,
+            PluginName = pluginName,
+            PluginVersion = pluginVersion,
+            TaskVersionId = taskVersionId,
+            Status = status,
+            Message = message,
+            OccurredAt = occurredAt
+        };
+}
+
+public sealed record PluginIngestionStatusQuery
+{
+    public string? PluginName { get; init; }
+
+    public PluginIngestionStatus? Status { get; init; }
+
+    public bool? Quarantined { get; init; }
+
+    public string? ContinuationToken { get; init; }
+
+    public int PageSize { get; init; } = 50;
+}
+
+public sealed record PluginIngestionStatusPage(
+    IReadOnlyList<PluginIngestionStatusRecord> Items,
+    string? ContinuationToken);
 
 public sealed class ProcessRealtimeSummaryProjectionRecord
 {

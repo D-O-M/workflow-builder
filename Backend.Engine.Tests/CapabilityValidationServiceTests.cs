@@ -36,6 +36,7 @@ public sealed class CapabilityValidationServiceTests
 
         report.Succeeded.ShouldBeFalse();
         report.Results.Single().Status.ShouldBe(CapabilityValidationStatus.Missing);
+        report.Results.Single().FailureCategory.ShouldBe(CapabilityValidationFailureCategory.MissingConfiguration);
         report.Results.Single().Message.ShouldNotBeNull();
         report.Results.Single().Message!.ShouldContain("Tests:Required:Name");
     }
@@ -113,6 +114,7 @@ public sealed class CapabilityValidationServiceTests
 
         report.Succeeded.ShouldBeTrue();
         report.Results.Single().Status.ShouldBe(CapabilityValidationStatus.Missing);
+        report.Results.Single().FailureCategory.ShouldBe(CapabilityValidationFailureCategory.MissingCapability);
         report.Results.Single().Required.ShouldBeFalse();
     }
 
