@@ -103,6 +103,10 @@ export class MockWorkflowApi {
     return this.blueprints.at(-1) ?? null;
   }
 
+  addBlueprints(blueprints: readonly BlueprintViewModel[]): void {
+    this.blueprints.push(...structuredClone(blueprints));
+  }
+
   private async dispatch(route: Route): Promise<void> {
     const request = route.request();
     const method = request.method().toUpperCase() as HttpMethod;

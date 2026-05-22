@@ -443,6 +443,22 @@ describe('StartProcessPageComponent', () => {
     expect((component as any).pickerDisplayName()).toBe('Showcase Town Weekend Recommendation');
   });
 
+  it('resolves picker selections from stable targets when autocomplete rewrites the search value', async () => {
+    (component as any).blueprintSearch.setValue('blueprint:2');
+    await flushSignals();
+
+    (component as any).onBlueprintSuggestionSelected({
+      option: {
+        value: 'blueprint:2',
+      },
+    });
+    await flushSignals();
+
+    expect(component.form.controls.blueprintId.value).toBe(2);
+    expect((component as any).pickerMode()).toBe('selected');
+    expect((component as any).pickerDisplayName()).toBe('Showcase Town Weekend Recommendation');
+  });
+
   it('starts a selected phase series through the phased process API', async () => {
     (component as any).onBlueprintSuggestionSelected({
       option: {

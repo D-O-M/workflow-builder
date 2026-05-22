@@ -11,7 +11,7 @@ export class StartProcessPage {
 
   async selectBlueprint(name: string): Promise<void> {
     await this.page.getByTestId('start-process-search-input').fill(name);
-    await this.page.getByRole('option', { name: new RegExp(name) }).click();
+    await this.page.getByRole('option', { name: `${name} Blueprint` }).click();
     await expect(this.page.getByTestId('start-process-picker-trigger')).toContainText(name);
   }
 

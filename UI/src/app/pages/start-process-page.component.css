@@ -498,7 +498,11 @@
   --mat-option-focus-state-layer-color: rgba(0, 92, 187, 0.08);
   --mat-pseudo-checkbox-minimal-selected-checkmark-color: var(--app-status-info);
 
-  overflow: hidden;
+  max-height: min(24rem, calc(100vh - 8rem));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   border: 1px solid var(--app-outline);
   border-radius: var(--app-radius-medium);
   background: var(--app-surface);

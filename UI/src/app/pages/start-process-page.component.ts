@@ -70,6 +70,9 @@ interface BlueprintPickerSuggestion {
   kind: 'blueprint' | 'phaseSeries';
   definitionId: number;
   firstPhaseBlueprintId: number;
+}
+
+interface BlueprintPickerSuggestionViewModel extends BlueprintPickerSuggestion {
   isActive: boolean;
 }
 
@@ -321,33 +324,34 @@ export class StartProcessPageComponent {
   protected readonly pickerDisplayName = computed(() =>
     this.selectedPhaseSeriesSummary()?.name ?? this.selectedBlueprintSummary()?.name ?? 'Select a blueprint',
   );
-  protected readonly pickerSuggestions = computed<BlueprintPickerSuggestion[]>(() => {
+  private readonly pickerTargets = computed<BlueprintPickerSuggestion[]>(() => [
+    ...this.blueprints().map((blueprint) => ({
+      id: `blueprint:${blueprint.id}`,
+      label: blueprint.name,
+      support: 'Blueprint',
+      kind: 'blueprint' as const,
+      definitionId: blueprint.id,
+      firstPhaseBlueprintId: blueprint.id,
+    })),
+    ...this.phasedBlueprints().flatMap((phaseSeries) => {
+      const version = this.latestPhasedVersion(phaseSeries);
+      const firstPhase = version?.phases.find((phase) => phase.phaseIndex === 0) ?? null;
+      return firstPhase
+        ? [{
+            id: `phaseSeries:${phaseSeries.id}`,
+            label: phaseSeries.name,
+            support: `${version?.phases.length ?? 0} phase series`,
+            kind: 'phaseSeries' as const,
+            definitionId: phaseSeries.id,
+            firstPhaseBlueprintId: firstPhase.blueprintDefinitionId,
+          }]
+        : [];
+    }),
+  ]);
+
+  protected readonly pickerSuggestions = computed<BlueprintPickerSuggestionViewModel[]>(() => {
     const query = this.blueprintSearchQuery();
-    const launchTargets = [
-      ...this.blueprints().map((blueprint) => ({
-        id: `blueprint:${blueprint.id}`,
-        label: blueprint.name,
-        support: 'Blueprint',
-        kind: 'blueprint' as const,
-        definitionId: blueprint.id,
-        firstPhaseBlueprintId: blueprint.id,
-      })),
-      ...this.phasedBlueprints().flatMap((phaseSeries) => {
-        const version = this.latestPhasedVersion(phaseSeries);
-        const firstPhase = version?.phases.find((phase) => phase.phaseIndex === 0) ?? null;
-        return firstPhase
-          ? [{
-              id: `phaseSeries:${phaseSeries.id}`,
-              label: phaseSeries.name,
-              support: `${version?.phases.length ?? 0} phase series`,
-              kind: 'phaseSeries' as const,
-              definitionId: phaseSeries.id,
-              firstPhaseBlueprintId: firstPhase.blueprintDefinitionId,
-            }]
-          : [];
-      }),
-    ];
-    const filteredTargets = filterBlueprintSuggestions(launchTargets, query);
+    const filteredTargets = filterBlueprintSuggestions(this.pickerTargets(), query);
     const activeBlueprintId = this.selectedBlueprintId();
     const activePhaseSeriesId = this.selectedPhaseSeriesId();
     if (activeBlueprintId === null && activePhaseSeriesId === null) {
@@ -681,7 +685,7 @@ export class StartProcessPageComponent {
       return;
     }
 
-    const suggestion = this.pickerSuggestions().find((candidate) => candidate.id === value) ?? null;
+    const suggestion = this.pickerTargets().find((candidate) => candidate.id === value) ?? null;
     if (!suggestion) {
       return;
     }
