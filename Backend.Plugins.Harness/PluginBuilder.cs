@@ -30,6 +30,7 @@ public class PluginBuilder<TPlugin>
     private IPluginGlobalStateSerializer<TPlugin>? _globalStateSerializer;
     private readonly Dictionary<string, PluginChannel> _inputChannels = new();
     private readonly Dictionary<string, IPluginOutputChannel<TPlugin>> _outputChannels = new();
+    private readonly List<IPluginHydrationStepDescriptor<TPlugin>> _hydrationStepDescriptors = [];
     private readonly HashSet<Type> _capabilityTypes = [];
     private readonly HashSet<Type> _configurationTypes = [];
     private readonly HostApplicationBuilder _hostAppBuilder;
@@ -90,9 +91,8 @@ public class PluginBuilder<TPlugin>
         _inputChannels.Add(name,
             new PluginChannel(name, typeof(TChannelType)));
 
-        // Register setter utility
-        _hostAppBuilder.Services.AddSingleton(
-            new PropertySetterUtility<TPlugin, TChannelType>(propertySelector));
+        var setter = new PropertySetterUtility<TPlugin, TChannelType>(propertySelector);
+        _hostAppBuilder.Services.AddSingleton(setter);
 
         EnsureTaskDocumentStoreRegistered();
 
@@ -100,16 +100,10 @@ public class PluginBuilder<TPlugin>
             new InputChannelHydrationService<TChannelType>(
                 sp.GetRequiredService<IPluginDocumentStore<ProcessStepRecord>>()));
 
-        _hostAppBuilder.Services.AddSingleton<IPluginHydrationStep<TPlugin>>(sp =>
-        {
-            var hydrator = sp.GetRequiredService<InputChannelHydrationService<TChannelType>>();
-            var setter = sp.GetRequiredService<PropertySetterUtility<TPlugin, TChannelType>>();
-
-            return new InputChannelHydrationStep<TPlugin, TChannelType>(
+        _hydrationStepDescriptors.Add(
+            new InputChannelHydrationDescriptor<TPlugin, TChannelType>(
                 name,
-                hydrator,
-                setter);
-        });
+                setter));
 
         return this;
     }
@@ -179,8 +173,8 @@ public class PluginBuilder<TPlugin>
                 _jsonSerializerContext,
                 "global state"));
 
-        _hostAppBuilder.Services.AddSingleton(
-            new PropertySetterUtility<TPlugin, TGlobalState>(propertySelector));
+        var setter = new PropertySetterUtility<TPlugin, TGlobalState>(propertySelector);
+        _hostAppBuilder.Services.AddSingleton(setter);
 
         EnsureWorkflowDocumentStoreRegistered<TGlobalState>();
 
@@ -189,27 +183,20 @@ public class PluginBuilder<TPlugin>
                 sp.GetRequiredService<IPluginDocumentStore<ProcessInstanceRecord<TGlobalState>>>(),
                 (workflow, _) => workflow.GlobalState));
 
-        _hostAppBuilder.Services.AddSingleton<IPluginHydrationStep<TPlugin>>(sp =>
-        {
-            var hydrator = sp.GetRequiredService<PluginPropertyHydrationService<ProcessInstanceRecord<TGlobalState>, TGlobalState>>();
-            var setter = sp.GetRequiredService<PropertySetterUtility<TPlugin, TGlobalState>>();
-            Func<InvocationEnvelope, string> documentIdSelector =
-                env => env.ProcessId.ToString();
-            Func<InvocationEnvelope, string> partitionKeySelector =
-                env => env.ExecutableBlueprintId.ToString();
-
-            return new GlobalStateHydrationStep<TPlugin, ProcessInstanceRecord<TGlobalState>, TGlobalState>(
-                hydrator,
+        _hydrationStepDescriptors.Add(
+            new GlobalStateHydrationDescriptor<TPlugin, ProcessInstanceRecord<TGlobalState>, TGlobalState>(
                 setter,
-                documentIdSelector,
-                partitionKeySelector);
-        });
+                env => env.ProcessId.ToString(),
+                env => env.ExecutableBlueprintId.ToString()));
 
         return this;
     }
 
     public Plugin<TPlugin> Build()
     {
+        _hostAppBuilder.Services.AddSingleton(
+            new PluginHydrationPlan<TPlugin>(_hydrationStepDescriptors.ToArray()));
+
         _hostAppBuilder.Services.AddSingleton(
             new PluginExecutionResultFactory<TPlugin>(
                 _outputChannels.Values.ToList(),
@@ -430,40 +417,4 @@ public class PluginBuilder<TPlugin>
         }
     }
 
-    /// <summary>
-     /// Global state hydration step that always runs.
-     /// </summary>
-    private sealed class GlobalStateHydrationStep<TP, TDoc, TProp> : IPluginHydrationStep<TP>
-        where TP : class, IPlugin
-        where TDoc : class
-    {
-        private readonly PluginPropertyHydrationService<TDoc, TProp> _hydrator;
-        private readonly PropertySetterUtility<TP, TProp> _setter;
-        private readonly Func<InvocationEnvelope, string> _documentIdSelector;
-        private readonly Func<InvocationEnvelope, string> _partitionKeySelector;
-
-        public GlobalStateHydrationStep(
-            PluginPropertyHydrationService<TDoc, TProp> hydrator,
-            PropertySetterUtility<TP, TProp> setter,
-            Func<InvocationEnvelope, string> documentIdSelector,
-            Func<InvocationEnvelope, string> partitionKeySelector)
-        {
-            _hydrator = hydrator;
-            _setter = setter;
-            _documentIdSelector = documentIdSelector;
-            _partitionKeySelector = partitionKeySelector;
-        }
-
-        public Task HydrateAsync(
-            TP plugin,
-            InvocationEnvelope envelope,
-            PluginHydrationContext context,
-            CancellationToken cancellationToken)
-            => _hydrator.HydratePluginProperty(
-                value => _setter.Set(plugin, value),
-                _documentIdSelector(envelope),
-                _partitionKeySelector(envelope),
-                outputChannelName: string.Empty,
-                cancellationToken);
-    }
 }

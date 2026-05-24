@@ -9,7 +9,13 @@ namespace Backend.Plugins.Harness;
 internal sealed class EventHandler<TPlugin> : BackgroundService
     where TPlugin : class, IPlugin
 {
+    private static readonly ObjectFactory PluginFactory =
+        ActivatorUtilities.CreateFactory(typeof(TPlugin), Type.EmptyTypes);
+    private static readonly object?[] EmptyConstructorArguments = [];
+
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly PluginHydrationPlan<TPlugin> _hydrationPlan;
+    private readonly PluginExecutionResultFactory<TPlugin> _resultFactory;
     private readonly ILogger<EventHandler<TPlugin>> _logger;
     private readonly bool _diagnosticsEnabled;
     private readonly TimeSpan? _heartbeatInterval;
@@ -18,9 +24,13 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
 
     public EventHandler(
         IServiceScopeFactory scopeFactory,
+        PluginHydrationPlan<TPlugin> hydrationPlan,
+        PluginExecutionResultFactory<TPlugin> resultFactory,
         ILogger<EventHandler<TPlugin>> logger)
     {
         _scopeFactory = scopeFactory;
+        _hydrationPlan = hydrationPlan;
+        _resultFactory = resultFactory;
         _logger = logger;
         _diagnosticsEnabled = string.Equals(
             Environment.GetEnvironmentVariable("PluginRuntime__Diagnostics"),
@@ -122,9 +132,16 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
             return;
         }
 
+        var result = await ProcessEnvelopeAsync(envelope, stoppingToken).ConfigureAwait(false);
+        await WriteResultAsync(result, stoppingToken).ConfigureAwait(false);
+    }
+
+    internal async Task<PluginExecutionResult> ProcessEnvelopeAsync(
+        InvocationEnvelope envelope,
+        CancellationToken stoppingToken)
+    {
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var plugin = ActivatorUtilities.CreateInstance<TPlugin>(scope.ServiceProvider);
-        var resultFactory = scope.ServiceProvider.GetRequiredService<PluginExecutionResultFactory<TPlugin>>();
+        var plugin = CreatePlugin(scope.ServiceProvider);
         var hydrationContext = new PluginHydrationContext();
 
         var startedAt = DateTimeOffset.UtcNow;
@@ -142,11 +159,16 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
                 envelope.ProcessStepId);
             WriteDiagnostic($"Hydrating plugin state for step {envelope.ProcessStepId}.");
             var hydrationStopwatch = Stopwatch.StartNew();
-            await PopulateStateAsync(scope.ServiceProvider, plugin, envelope, hydrationContext, stoppingToken);
+            await _hydrationPlan.HydrateAsync(
+                scope.ServiceProvider,
+                plugin,
+                envelope,
+                hydrationContext,
+                stoppingToken).ConfigureAwait(false);
             hydrationStopwatch.Stop();
             WriteDiagnostic($"Executing plugin for step {envelope.ProcessStepId}.");
             var executeStopwatch = Stopwatch.StartNew();
-            await plugin.Execute();
+            await plugin.Execute().ConfigureAwait(false);
             executeStopwatch.Stop();
 
             var completedAt = DateTimeOffset.UtcNow;
@@ -163,15 +185,14 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
                 (completedAt - startedAt).TotalMilliseconds,
                 timingsMs["hydrationMs"],
                 timingsMs["executeMs"]);
-            await WriteResultAsync(
-                resultFactory.CreateSuccess(
-                    plugin,
-                    envelope,
-                    startedAt,
-                    completedAt,
-                    timingsMs,
-                    hydrationContext.EffectiveInputData),
-                stoppingToken);
+
+            return _resultFactory.CreateSuccess(
+                plugin,
+                envelope,
+                startedAt,
+                completedAt,
+                timingsMs,
+                hydrationContext.EffectiveInputData);
         }
         catch (Exception ex)
         {
@@ -184,15 +205,14 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
                 "Plugin execution failed for process {ProcessId} task {ProcessStepId}.",
                 envelope.ProcessId,
                 envelope.ProcessStepId);
-            await WriteResultAsync(
-                resultFactory.CreateFailure(
-                    plugin,
-                    envelope,
-                    startedAt,
-                    completedAt,
-                    ex,
-                    hydrationContext.EffectiveInputData),
-                stoppingToken);
+
+            return _resultFactory.CreateFailure(
+                plugin,
+                envelope,
+                startedAt,
+                completedAt,
+                ex,
+                hydrationContext.EffectiveInputData);
         }
     }
 
@@ -237,21 +257,6 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
         Console.SetOut(new PluginProcessLogTextWriter(protocolWriter));
     }
 
-    private static async Task PopulateStateAsync(
-        IServiceProvider services,
-        TPlugin plugin,
-        InvocationEnvelope envelope,
-        PluginHydrationContext context,
-        CancellationToken cancellationToken)
-    {
-        var steps = services.GetServices<IPluginHydrationStep<TPlugin>>();
-
-        foreach (var step in steps)
-        {
-            await step.HydrateAsync(plugin, envelope, context, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
     private void WriteDiagnostic(string message)
     {
         if (!_diagnosticsEnabled)
@@ -272,4 +277,7 @@ internal sealed class EventHandler<TPlugin> : BackgroundService
 
         return TimeSpan.FromSeconds(seconds);
     }
+
+    private static TPlugin CreatePlugin(IServiceProvider serviceProvider) =>
+        (TPlugin)PluginFactory(serviceProvider, EmptyConstructorArguments);
 }
