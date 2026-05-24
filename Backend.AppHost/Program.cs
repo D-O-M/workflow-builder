@@ -14,6 +14,26 @@ internal class Program
         var observabilityRoot = GetObservabilityRootPath(repositoryRoot);
         var integrationTestsEnabled = builder.Configuration.GetValue("IntegrationTests:Enabled", false);
         var nftEnabled = builder.Configuration.GetValue("Nft:Enabled", false);
+        var nftMinimalServices = builder.Configuration.GetValue("Nft:MinimalServices", nftEnabled);
+        var frontendEnabled = builder.Configuration.GetValue("Frontend:Enabled", true);
+        var signalREnabled = builder.Configuration.GetValue("SignalR:Enabled", !nftMinimalServices || frontendEnabled);
+        var dispatcherEnabled = builder.Configuration.GetValue("Dispatcher:Enabled", true);
+        var projectionWorkerEnabled = builder.Configuration.GetValue("ProjectionWorker:Enabled", !nftMinimalServices);
+        var maintenanceEnabled = builder.Configuration.GetValue("Maintenance:Enabled", !nftMinimalServices);
+        var pluginDetectorEnabled = builder.Configuration.GetValue("PluginDetector:Enabled", !nftMinimalServices);
+        var progressBroadcasterEnabled = builder.Configuration.GetValue(
+            "ProgressBroadcaster:Enabled",
+            signalREnabled && !nftMinimalServices);
+        if (progressBroadcasterEnabled && !signalREnabled)
+        {
+            throw new InvalidOperationException("ProgressBroadcaster requires SignalR. Enable SignalR or disable ProgressBroadcaster.");
+        }
+
+        if (frontendEnabled && !signalREnabled)
+        {
+            throw new InvalidOperationException("Frontend requires SignalR. Enable SignalR or disable Frontend.");
+        }
+
         var pluginRuntimeMaxConcurrentResultFinalizations = builder.Configuration.GetValue(
             "Nft:PluginRuntime:MaxConcurrentResultFinalizations",
             nftEnabled ? Environment.ProcessorCount * 4 : Environment.ProcessorCount * 2);
@@ -148,18 +168,31 @@ internal class Program
             .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
             .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
 
-        var signalR = builder.AddProject<Projects.Backend_SignalR>(
-                "backend-signalr",
-                launchProfileName: "aspire")
-            .WithHttpEndpoint(
-                name: "http",
-                env: "ASPNETCORE_HTTP_PORTS")
-            .WithExternalHttpEndpoints();
-        WaitForObservability(signalR, observability);
-        var signalRHttpEndpoint = signalR.GetEndpoint("http");
+        IResourceBuilder<ProjectResource>? signalR = null;
+        EndpointReference? signalRHttpEndpoint = null;
+        if (signalREnabled)
+        {
+            signalR = builder.AddProject<Projects.Backend_SignalR>(
+                    "backend-signalr",
+                    launchProfileName: "aspire")
+                .WithHttpEndpoint(
+                    name: "http",
+                    env: "ASPNETCORE_HTTP_PORTS")
+                .WithExternalHttpEndpoints();
+            WaitForObservability(signalR, observability);
+            signalRHttpEndpoint = signalR.GetEndpoint("http");
+        }
 
-        api.WithEnvironment(WorkflowBuilderTopology.ClientConfig.ApiBaseUrlEnvironmentVariable, api.GetEndpoint("http"))
-            .WithEnvironment(WorkflowBuilderTopology.ClientConfig.SignalRBaseUrlEnvironmentVariable, signalRHttpEndpoint);
+        api.WithEnvironment(WorkflowBuilderTopology.ClientConfig.ApiBaseUrlEnvironmentVariable, api.GetEndpoint("http"));
+        if (signalRHttpEndpoint is not null)
+        {
+            api.WithEnvironment(WorkflowBuilderTopology.ClientConfig.SignalRBaseUrlEnvironmentVariable, signalRHttpEndpoint);
+        }
+        else
+        {
+            api.WithEnvironment(WorkflowBuilderTopology.ClientConfig.SignalRBaseUrlEnvironmentVariable, "http://127.0.0.1:9");
+        }
+
         if (observability.Enabled)
         {
             api.WithEnvironment(WorkflowBuilderTopology.ClientConfig.GrafanaBaseUrlEnvironmentVariable, observability.GrafanaHttpEndpoint!);
@@ -172,9 +205,12 @@ internal class Program
         ConfigureTelemetryAndObservability(
             api,
             observability);
-        ConfigureTelemetryAndObservability(
-            signalR,
-            observability);
+        if (signalR is not null)
+        {
+            ConfigureTelemetryAndObservability(
+                signalR,
+                observability);
+        }
 
         var engine = builder.AddProject<Projects.Backend_Engine>(
                 "backend-engine",
@@ -232,56 +268,65 @@ internal class Program
             engine,
             observability);
 
-        var dispatcher = builder.AddProject<Projects.Backend_Dispatcher>(
-                "backend-dispatcher")
-            .WithReference(cosmos, connectionName: cosmosConnectionName)
-            .WaitFor(cosmosDb)
-            .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
-            .WaitFor(serviceBus)
-            .WaitForCompletion(migrations)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
-            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
-            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
-        WaitForObservability(dispatcher, observability);
-        ConfigureTelemetryAndObservability(
-            dispatcher,
-            observability);
+        if (dispatcherEnabled)
+        {
+            var dispatcher = builder.AddProject<Projects.Backend_Dispatcher>(
+                    "backend-dispatcher")
+                .WithReference(cosmos, connectionName: cosmosConnectionName)
+                .WaitFor(cosmosDb)
+                .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
+                .WaitFor(serviceBus)
+                .WaitForCompletion(migrations)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
+                .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
+                .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
+            WaitForObservability(dispatcher, observability);
+            ConfigureTelemetryAndObservability(
+                dispatcher,
+                observability);
+        }
 
-        var projectionWorker = builder.AddProject<Projects.Backend_ProjectionWorker>(
-                "backend-projection-worker")
-            .WithReference(cosmos, connectionName: cosmosConnectionName)
-            .WaitFor(cosmosDb)
-            .WithReference(sqlDb)
-            .WaitFor(sqlDb)
-            .WaitForCompletion(migrations)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName);
-        WaitForObservability(projectionWorker, observability);
-        ConfigureTelemetryAndObservability(
-            projectionWorker,
-            observability);
+        if (projectionWorkerEnabled)
+        {
+            var projectionWorker = builder.AddProject<Projects.Backend_ProjectionWorker>(
+                    "backend-projection-worker")
+                .WithReference(cosmos, connectionName: cosmosConnectionName)
+                .WaitFor(cosmosDb)
+                .WithReference(sqlDb)
+                .WaitFor(sqlDb)
+                .WaitForCompletion(migrations)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName);
+            WaitForObservability(projectionWorker, observability);
+            ConfigureTelemetryAndObservability(
+                projectionWorker,
+                observability);
+        }
 
-        var maintenance = builder.AddProject<Projects.Backend_Maintenance>(
-                "backend-maintenance")
-            .WithReference(cosmos, connectionName: cosmosConnectionName)
-            .WaitFor(cosmosDb)
-            .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
-            .WaitFor(serviceBus)
-            .WithReference(sqlDb)
-            .WaitFor(sqlDb)
-            .WaitForCompletion(migrations)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
-            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
-            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
-        WaitForObservability(maintenance, observability);
-        ConfigureTelemetryAndObservability(
-            maintenance,
-            observability);
+        if (maintenanceEnabled)
+        {
+            var maintenance = builder.AddProject<Projects.Backend_Maintenance>(
+                    "backend-maintenance")
+                .WithReference(cosmos, connectionName: cosmosConnectionName)
+                .WaitFor(cosmosDb)
+                .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
+                .WaitFor(serviceBus)
+                .WithReference(sqlDb)
+                .WaitFor(sqlDb)
+                .WaitForCompletion(migrations)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
+                .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
+                .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
+            WaitForObservability(maintenance, observability);
+            ConfigureTelemetryAndObservability(
+                maintenance,
+                observability);
+        }
 
         /*builder.AddProject<Projects.Backend_PluginLoader>("plugin-loader")
             .WithReference(blobs)
@@ -291,57 +336,63 @@ internal class Program
             .WithReference(sqlDb)
             .WaitFor(sqlDb);*/
 
-        var pluginDetector = builder.AddAzureFunctionsProject<Projects.Backend_Functions_PluginDetector>("plugin-detector")
-            .WithHostStorage(storage)
-            .WaitFor(pluginsBlobContainer)
-            .WithReference(cosmos, connectionName: cosmosConnectionName)
-            .WaitFor(cosmosDb)
-            .WithReference(serviceBus, connectionName: WorkflowBuilderTopology.ServiceBus.SharedConnectionName)
-            .WithReference(pluginControlQueue, connectionName: pluginControlQueueConnectionName)
-            .WaitFor(serviceBus)
-            .WithReference(sqlDb)
-            .WaitFor(sqlDb)
-            .WaitForCompletion(migrations)
-            ;
-        WaitForObservability(pluginDetector, observability);
-        pluginDetector.WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameEnvironmentVariable, pluginsBlobContainerName)
-            .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.LegacyAliasKey!, pluginsBlobContainerName)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
-            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionNameEnvironmentVariable, pluginControlQueueConnectionName)
-            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueNameEnvironmentVariable, pluginControlQueueName);
-        ConfigureTelemetryAndObservability(
-            pluginDetector,
-            observability);
-
-        var progressBroadcaster = builder.AddAzureFunctionsProject<Projects.Backend_Functions_ProgressBroadcaster>("progress-broadcaster")
-            .WithHostStorage(storage)
-            .WithReference(cosmos, connectionName: cosmosConnectionName)
-            .WithReference(cosmos, connectionName: WorkflowBuilderTopology.Realtime.RealtimeCosmosConnectionName)
-            .WaitFor(cosmosDb)
-            .WithReference(sqlDb)
-            .WaitFor(sqlDb)
-            .WaitForCompletion(migrations)
-            .WaitFor(signalR)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
-            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
-            .WithEnvironment(WorkflowBuilderTopology.Realtime.SignalRBaseUrlEnvironmentVariable, signalRHttpEndpoint)
-            .WithEnvironment(WorkflowBuilderTopology.Realtime.CosmosDatabaseNameEnvironmentVariable, cosmosDatabaseName)
-            .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessesContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.Processes.Name)
-            .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessStepsContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name)
-            .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessRealtimeSummariesContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessRealtimeSummaries.Name)
-            .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessNodeRealtimeContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessNodeRealtime.Name)
-            .WithEnvironment(WorkflowBuilderTopology.Realtime.LeaseContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessStepProgressLeases.Name);
-        WaitForObservability(progressBroadcaster, observability);
-        if (integrationTestsEnabled)
+        if (pluginDetectorEnabled)
         {
-            progressBroadcaster.WithEnvironment(WorkflowBuilderTopology.Realtime.UseHostedChangeFeedEnvironmentVariable, "true");
+            var pluginDetector = builder.AddAzureFunctionsProject<Projects.Backend_Functions_PluginDetector>("plugin-detector")
+                .WithHostStorage(storage)
+                .WaitFor(pluginsBlobContainer)
+                .WithReference(cosmos, connectionName: cosmosConnectionName)
+                .WaitFor(cosmosDb)
+                .WithReference(serviceBus, connectionName: WorkflowBuilderTopology.ServiceBus.SharedConnectionName)
+                .WithReference(pluginControlQueue, connectionName: pluginControlQueueConnectionName)
+                .WaitFor(serviceBus)
+                .WithReference(sqlDb)
+                .WaitFor(sqlDb)
+                .WaitForCompletion(migrations)
+                ;
+            WaitForObservability(pluginDetector, observability);
+            pluginDetector.WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameEnvironmentVariable, pluginsBlobContainerName)
+                .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.LegacyAliasKey!, pluginsBlobContainerName)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
+                .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionNameEnvironmentVariable, pluginControlQueueConnectionName)
+                .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueNameEnvironmentVariable, pluginControlQueueName);
+            ConfigureTelemetryAndObservability(
+                pluginDetector,
+                observability);
         }
 
-        ConfigureTelemetryAndObservability(
-            progressBroadcaster,
-            observability);
+        if (progressBroadcasterEnabled && signalR is not null && signalRHttpEndpoint is not null)
+        {
+            var progressBroadcaster = builder.AddAzureFunctionsProject<Projects.Backend_Functions_ProgressBroadcaster>("progress-broadcaster")
+                .WithHostStorage(storage)
+                .WithReference(cosmos, connectionName: cosmosConnectionName)
+                .WithReference(cosmos, connectionName: WorkflowBuilderTopology.Realtime.RealtimeCosmosConnectionName)
+                .WaitFor(cosmosDb)
+                .WithReference(sqlDb)
+                .WaitFor(sqlDb)
+                .WaitForCompletion(migrations)
+                .WaitFor(signalR)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+                .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+                .WithEnvironment(WorkflowBuilderTopology.Realtime.SignalRBaseUrlEnvironmentVariable, signalRHttpEndpoint)
+                .WithEnvironment(WorkflowBuilderTopology.Realtime.CosmosDatabaseNameEnvironmentVariable, cosmosDatabaseName)
+                .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessesContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.Processes.Name)
+                .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessStepsContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name)
+                .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessRealtimeSummariesContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessRealtimeSummaries.Name)
+                .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessNodeRealtimeContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessNodeRealtime.Name)
+                .WithEnvironment(WorkflowBuilderTopology.Realtime.LeaseContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessStepProgressLeases.Name);
+            WaitForObservability(progressBroadcaster, observability);
+            if (integrationTestsEnabled)
+            {
+                progressBroadcaster.WithEnvironment(WorkflowBuilderTopology.Realtime.UseHostedChangeFeedEnvironmentVariable, "true");
+            }
+
+            ConfigureTelemetryAndObservability(
+                progressBroadcaster,
+                observability);
+        }
 
         IResourceBuilder<ProjectResource>? pluginSeeder = null;
         if (GetPluginSeedingEnabled(builder))
@@ -357,7 +408,6 @@ internal class Program
                 .WaitFor(sqlDb)
                 .WaitFor(api)
                 .WaitFor(engine)
-                .WaitFor(signalR)
                 .WaitForCompletion(migrations)
                 .WithEnvironment("PluginSeeding__Enabled", "true")
                 .WithEnvironment("PluginSeeding__BundlesRoot", pluginSeedingBundlesRoot)
@@ -368,6 +418,11 @@ internal class Program
                 .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueNameEnvironmentVariable, pluginControlQueueName)
                 .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.LegacyAliasKey!, pluginsBlobContainerName)
                 .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameEnvironmentVariable, pluginsBlobContainerName);
+            if (signalR is not null)
+            {
+                pluginSeeder.WaitFor(signalR);
+            }
+
             WaitForObservability(pluginSeeder, observability);
         }
 
@@ -376,11 +431,15 @@ internal class Program
             var blueprintSeeder = builder.AddProject<Projects.Backend_BlueprintSeeder>("backend-blueprint-seeder")
                 .WaitFor(api)
                 .WaitFor(engine)
-                .WaitFor(signalR)
                 .WaitForCompletion(migrations)
                 .WithEnvironment("BlueprintSeeding__Enabled", "true")
                 .WithEnvironment("BlueprintSeeding__BlueprintsRoot", blueprintSeedingRoot)
                 .WithEnvironment("BlueprintSeeding__ApiBaseUrl", api.GetEndpoint("http"));
+            if (signalR is not null)
+            {
+                blueprintSeeder.WaitFor(signalR);
+            }
+
             WaitForObservability(blueprintSeeder, observability);
 
             if (pluginSeeder is not null)
@@ -389,9 +448,9 @@ internal class Program
             }
         }
 
-        if (builder.Configuration.GetValue("Frontend:Enabled", true))
+        if (frontendEnabled)
         {
-            AddFrontend(builder, api, signalR, repositoryRoot);
+            AddFrontend(builder, api, signalR!, repositoryRoot);
         }
 
         builder.Build().Run();

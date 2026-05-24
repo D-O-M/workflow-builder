@@ -477,12 +477,20 @@ function Start-AppHost {
     "Frontend__Enabled" = "false"
     "Observability__Enabled" = if ($IncludeObservability) { "true" } else { "false" }
     "Nft__Enabled" = "true"
+    "Nft__MinimalServices" = "true"
     "Nft__PluginRuntime__MaxConcurrentResultFinalizations" = $PluginRuntimeMaxConcurrentResultFinalizations.ToString()
     "Nft__PluginRuntime__ResultFinalizationQueueCapacity" = $PluginRuntimeResultFinalizationQueueCapacity.ToString()
     "Nft__PluginRuntime__ResultFinalizationQueueFullMode" = $PluginRuntimeResultFinalizationQueueFullMode
     "Nft__ProcessStepQueue__MaxConcurrentMessages" = $ProcessStepQueueMaxConcurrentMessages.ToString()
     "Nft__ProcessStepQueue__PrefetchCount" = $ProcessStepQueuePrefetchCount.ToString()
     "Nft__ProcessStepQueue__MaxAutoLockRenewalMinutes" = $ProcessStepQueueMaxAutoLockRenewalMinutes.ToString()
+    "SignalR__Enabled" = "false"
+    "ProgressBroadcaster__Enabled" = "false"
+    "Dispatcher__Enabled" = "true"
+    "ProjectionWorker__Enabled" = "false"
+    "Maintenance__Enabled" = "false"
+    "PluginDetector__Enabled" = "false"
+    "Projections__SynchronousEngineUpdatesEnabled" = "true"
     "PluginSeeding__Enabled" = "true"
     "PluginSeeding__BundlesRoot" = $bundleRoot
     "BlueprintSeeding__Enabled" = "true"
@@ -744,6 +752,14 @@ function Write-RunConfig {
     lane = $Lane
     nftBlueprintKey = $nftBlueprintKey
     includeObservability = [bool] $IncludeObservability
+    minimalServices = $true
+    disabledAppHostServices = @(
+      "backend-signalr",
+      "progress-broadcaster",
+      "backend-projection-worker",
+      "backend-maintenance",
+      "plugin-detector"
+    )
     apiBaseUrl = $apiBaseUrl
     gitSha = (& git rev-parse HEAD)
     dotnet = (& dotnet --version)
