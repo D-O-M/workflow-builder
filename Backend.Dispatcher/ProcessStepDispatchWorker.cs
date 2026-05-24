@@ -1,6 +1,6 @@
 using Backend.Services.ProcessStepQueue;
 
-namespace Backend.Engine;
+namespace Backend.Dispatcher;
 
 public sealed class ProcessStepDispatchWorker : BackgroundService
 {

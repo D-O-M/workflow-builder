@@ -1,15 +1,15 @@
-namespace Backend.Engine;
+namespace Backend.Maintenance;
 
-public sealed class StepFinalizationRecoveryWorker : BackgroundService
+public sealed class ProcessStartReconciliationWorker : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly StepFinalizationRecoveryOptions _options;
-    private readonly ILogger<StepFinalizationRecoveryWorker> _logger;
+    private readonly ProcessStartReconciliationOptions _options;
+    private readonly ILogger<ProcessStartReconciliationWorker> _logger;
 
-    public StepFinalizationRecoveryWorker(
+    public ProcessStartReconciliationWorker(
         IServiceScopeFactory scopeFactory,
-        StepFinalizationRecoveryOptions options,
-        ILogger<StepFinalizationRecoveryWorker> logger)
+        ProcessStartReconciliationOptions options,
+        ILogger<ProcessStartReconciliationWorker> logger)
     {
         _scopeFactory = scopeFactory;
         _options = options;
@@ -20,19 +20,19 @@ public sealed class StepFinalizationRecoveryWorker : BackgroundService
     {
         if (!_options.Enabled)
         {
-            _logger.LogInformation("Step finalization recovery worker is disabled.");
+            _logger.LogInformation("Process-start reconciliation worker is disabled.");
             return;
         }
 
-        _logger.LogInformation("Step finalization recovery worker starting.");
+        _logger.LogInformation("Process-start reconciliation worker starting.");
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 await using var scope = _scopeFactory.CreateAsyncScope();
-                var service = scope.ServiceProvider.GetRequiredService<StepFinalizationRecoveryService>();
-                await service.RecoverDueFinalizationsAsync(_options, stoppingToken);
+                var service = scope.ServiceProvider.GetRequiredService<ProcessStartReconciliationService>();
+                await service.ReconcileOnceAsync(_options, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -42,7 +42,7 @@ public sealed class StepFinalizationRecoveryWorker : BackgroundService
             {
                 _logger.LogError(
                     exception,
-                    "Step finalization recovery worker failed while recovering due finalizations.");
+                    "Process-start reconciliation worker failed while repairing process starts.");
             }
 
             try

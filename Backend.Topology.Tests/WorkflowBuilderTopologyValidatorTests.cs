@@ -32,6 +32,9 @@ public sealed class WorkflowBuilderTopologyValidatorTests
             container.Name == WorkflowBuilderTopology.Cosmos.Containers.ProcessStepDispatches.Name &&
             container.PartitionKey == "/partitionKey");
         catalog.Cosmos.Containers.ShouldContain(container =>
+            container.Name == WorkflowBuilderTopology.Cosmos.Containers.ProcessProjectionLeases.Name &&
+            container.PartitionKey == "/id");
+        catalog.Cosmos.Containers.ShouldContain(container =>
             container.Name == WorkflowBuilderTopology.Cosmos.Containers.PluginIngestionStatuses.Name &&
             container.PartitionKey == "/id");
         catalog.Cosmos.Containers.ShouldContain(container =>
@@ -198,6 +201,54 @@ public sealed class WorkflowBuilderTopologyValidatorTests
     }
 
     [Test]
+    public void ValidateDispatcher_accepts_complete_configuration()
+    {
+        Should.NotThrow(() => WorkflowBuilderTopologyValidator.ValidateDispatcher(BaseServiceConfiguration()));
+    }
+
+    [Test]
+    public void ValidateDispatcher_rejects_missing_process_step_queue()
+    {
+        var ex = Should.Throw<WorkflowBuilderTopologyValidationException>(() =>
+            WorkflowBuilderTopologyValidator.ValidateDispatcher(BaseServiceConfiguration(remove: WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameKey)));
+
+        ex.Errors.ShouldContain(error => error.Contains("ProcessStepQueue", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public void ValidateProjectionWorker_accepts_complete_configuration()
+    {
+        Should.NotThrow(() => WorkflowBuilderTopologyValidator.ValidateProjectionWorker(BaseServiceConfiguration(includeProcessStepQueue: false)));
+    }
+
+    [Test]
+    public void ValidateProjectionWorker_rejects_missing_sql()
+    {
+        var ex = Should.Throw<WorkflowBuilderTopologyValidationException>(() =>
+            WorkflowBuilderTopologyValidator.ValidateProjectionWorker(BaseServiceConfiguration(includeProcessStepQueue: false, remove: $"ConnectionStrings:{WorkflowBuilderTopology.Sql.TasksDbConnectionName}")));
+
+        ex.Errors.ShouldContain(error => error.Contains("Missing SQL connection string", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public void ValidateMaintenance_accepts_complete_configuration()
+    {
+        Should.NotThrow(() => WorkflowBuilderTopologyValidator.ValidateMaintenance(BaseServiceConfiguration()));
+    }
+
+    [Test]
+    public void ValidateMaintenance_rejects_disabled_process_step_dispatch()
+    {
+        var ex = Should.Throw<WorkflowBuilderTopologyValidationException>(() =>
+            WorkflowBuilderTopologyValidator.ValidateMaintenance(BaseServiceConfiguration(overrides: new()
+            {
+                ["ProcessStepDispatch:Enabled"] = "false"
+            })));
+
+        ex.Errors.ShouldContain(error => error.Contains("ProcessStepDispatch:Enabled", StringComparison.Ordinal));
+    }
+
+    [Test]
     public void ValidatePluginDetector_accepts_complete_configuration()
     {
         Should.NotThrow(() => WorkflowBuilderTopologyValidator.ValidatePluginDetector(PluginDetectorConfiguration()));
@@ -314,6 +365,15 @@ public sealed class WorkflowBuilderTopologyValidatorTests
         values[WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueNameKey] = WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueName;
         return BuildConfiguration(Apply(values, overrides, remove));
     }
+
+    private static IConfiguration BaseServiceConfiguration(
+        Dictionary<string, string?>? overrides = null,
+        string? remove = null,
+        bool includeProcessStepQueue = true) =>
+        BuildConfiguration(Apply(
+            BaseConfiguration(includeClientConfig: false, includeProcessStepQueue: includeProcessStepQueue),
+            overrides,
+            remove));
 
     private static IConfiguration PluginDetectorConfiguration(
         Dictionary<string, string?>? overrides = null,

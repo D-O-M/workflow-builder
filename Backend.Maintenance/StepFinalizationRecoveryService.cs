@@ -2,11 +2,12 @@ using System.Text.Json;
 using Backend.Database.State.Objects;
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
+using Backend.Engine;
 using Backend.Models;
 using Backend.Plugins.Communication;
 using Backend.Repositories;
 
-namespace Backend.Engine;
+namespace Backend.Maintenance;
 
 public sealed class StepFinalizationRecoveryService
 {

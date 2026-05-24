@@ -51,6 +51,36 @@ public static class WorkflowBuilderTopologyValidator
         ThrowIfAny("Engine", errors);
     }
 
+    public static void ValidateDispatcher(IConfiguration configuration)
+    {
+        var errors = new List<string>();
+        RequireCosmos(errors, configuration);
+        RequireCosmosDatabase(errors, configuration, WorkflowBuilderTopology.Cosmos.DatabaseNameKey);
+        RequireQueue(errors, configuration, WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep);
+        RequireProcessStepDispatchEnabled(errors, configuration);
+        ThrowIfAny("Dispatcher", errors);
+    }
+
+    public static void ValidateProjectionWorker(IConfiguration configuration)
+    {
+        var errors = new List<string>();
+        RequireSql(errors, configuration);
+        RequireCosmos(errors, configuration);
+        RequireCosmosDatabase(errors, configuration, WorkflowBuilderTopology.Cosmos.DatabaseNameKey);
+        ThrowIfAny("ProjectionWorker", errors);
+    }
+
+    public static void ValidateMaintenance(IConfiguration configuration)
+    {
+        var errors = new List<string>();
+        RequireSql(errors, configuration);
+        RequireCosmos(errors, configuration);
+        RequireCosmosDatabase(errors, configuration, WorkflowBuilderTopology.Cosmos.DatabaseNameKey);
+        RequireQueue(errors, configuration, WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep);
+        RequireProcessStepDispatchEnabled(errors, configuration);
+        ThrowIfAny("Maintenance", errors);
+    }
+
     public static void ValidatePluginDetector(IConfiguration configuration)
     {
         var errors = new List<string>();

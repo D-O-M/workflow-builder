@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 
 namespace Backend.Repositories;
+
 public static class ServiceExtensions
 {
     public static IServiceCollection AddRelationalDataRepositories(this IServiceCollection services)
@@ -38,7 +39,8 @@ public static class ServiceExtensions
         string? activationsContainerName = null,
         string? joinStatesContainerName = null,
         string? phasedProcessesContainerName = null,
-        string? phaseCorrelationsContainerName = null)
+        string? phaseCorrelationsContainerName = null,
+        bool registerProjectionServices = true)
     {
         databaseName ??= WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
         processesContainerName ??= WorkflowBuilderTopology.Cosmos.Containers.Processes.Name;
@@ -145,9 +147,11 @@ public static class ServiceExtensions
         });
 
         services.AddSingleton<ProcessRealtimeProjectionTelemetry>();
-        services.AddSingleton<IProcessRealtimeProjectionService, ProcessRealtimeProjectionService>();
-
-        services.AddSingleton<IProcessIndexProjectionService, ProcessIndexProjectionService>();
+        if (registerProjectionServices)
+        {
+            services.AddSingleton<IProcessRealtimeProjectionService, ProcessRealtimeProjectionService>();
+            services.AddSingleton<IProcessIndexProjectionService, ProcessIndexProjectionService>();
+        }
 
         services.AddSingleton<IPhasedProcessRepository>(sp =>
         {

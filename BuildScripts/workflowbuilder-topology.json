@@ -66,6 +66,10 @@
       {
         "name": "processstepprogressleases",
         "partitionKey": "/id"
+      },
+      {
+        "name": "processprojectionleases",
+        "partitionKey": "/id"
       }
     ]
   },

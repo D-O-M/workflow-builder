@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 
-namespace Backend.Engine;
+namespace Backend.Maintenance;
 
 public sealed class ProcessStartReconciliationTelemetry
 {

@@ -18,12 +18,13 @@ If execution succeeds but the UI stays stale, treat that as a real product issue
 
 1. The API creates or updates process and process-step records.
 2. The engine updates Cosmos `processsteps` documents as execution advances.
-3. `ProgressBroadcasterFunction` listens to the Cosmos `processsteps` container.
-4. The broadcaster builds `ProcessRealtimeBatch` payloads from lightweight realtime projections.
-5. The broadcaster publishes to `Backend.SignalR`.
-6. The frontend connects to `/hubs/processes`.
-7. `process-realtime.service.ts` subscribes to blueprint/process groups.
-8. The UI receives:
+3. `Backend.ProjectionWorker` maintains lightweight realtime projections from canonical process/process-step changes. Engine synchronous projection writes may also run when `Projections:SynchronousEngineUpdatesEnabled=true`.
+4. `ProgressBroadcasterFunction` listens to the Cosmos `processsteps` container.
+5. The broadcaster builds `ProcessRealtimeBatch` payloads from lightweight realtime projections.
+6. The broadcaster publishes to `Backend.SignalR`.
+7. The frontend connects to `/hubs/processes`.
+8. `process-realtime.service.ts` subscribes to blueprint/process groups.
+9. The UI receives:
    - `processSummaryUpdated`
    - `processStepsUpdated`
 
@@ -42,6 +43,10 @@ For a healthy end-to-end path:
   - Cosmos trigger over `processsteps`
   - projects changed steps into realtime batches from `processrealtimesummaries` and `processnoderealtime`
   - falls back to source process/process-step loading only to repair missing projections
+- `Backend.ProjectionWorker`
+  - Cosmos change feed over `processes` and `processsteps`
+  - updates `processdirectory`, `processsummaries`, `processrealtimesummaries`, and `processnoderealtime`
+  - stores change-feed leases in `processprojectionleases`
 - `Backend.SignalR/Hubs/ProcessProgressHub.cs`
   - subscription groups by blueprint and process
 - `UI/src/app/domain/process-realtime.service.ts`
@@ -61,6 +66,10 @@ For a healthy end-to-end path:
 ### Broadcaster binding config
 
 The function depends on the Cosmos trigger binding resolving correctly at startup. If the broadcaster is disabled or never indexes cleanly, execution can still succeed while live updates fail.
+
+### Projection worker health
+
+`Backend.ProjectionWorker` is the async owner for projection maintenance. If it is stopped while `Projections:SynchronousEngineUpdatesEnabled=false`, canonical process execution can keep moving but dashboard, process summary, and live graph data may lag until the worker catches up. The worker requires the `processprojectionleases` container.
 
 ### Process-step queue naming
 
@@ -93,6 +102,8 @@ When diagnosing a process-progress problem, classify it as one of:
   - process itself is failing before state advances
 - broadcaster only
   - execution succeeds, Cosmos changes exist, but realtime events are not published
+- projection worker only
+  - execution succeeds and broadcaster is running, but lightweight projection records lag or are missing
 - SignalR or client-config only
   - broadcaster publishes, but the browser is not subscribed correctly
 - end-to-end realtime path breakage
@@ -101,6 +112,7 @@ When diagnosing a process-progress problem, classify it as one of:
 Start narrow:
 
 1. verify the process is actually advancing in backend state
-2. verify the broadcaster is running and bound
-3. verify SignalR subscriptions are live
-4. verify the UI is listening for the correct event names
+2. verify ProjectionWorker is running or synchronous engine projection updates are enabled
+3. verify the broadcaster is running and bound
+4. verify SignalR subscriptions are live
+5. verify the UI is listening for the correct event names

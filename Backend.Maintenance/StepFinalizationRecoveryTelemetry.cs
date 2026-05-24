@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using Backend.Interfaces.Repositories;
 
-namespace Backend.Engine;
+namespace Backend.Maintenance;
 
 public sealed class StepFinalizationRecoveryTelemetry
 {

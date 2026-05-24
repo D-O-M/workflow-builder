@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Backend.Database.State.Objects;
+using Backend.Dispatcher;
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Models;

@@ -232,6 +232,57 @@ internal class Program
             engine,
             observability);
 
+        var dispatcher = builder.AddProject<Projects.Backend_Dispatcher>(
+                "backend-dispatcher")
+            .WithReference(cosmos, connectionName: cosmosConnectionName)
+            .WaitFor(cosmosDb)
+            .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
+            .WaitFor(serviceBus)
+            .WaitForCompletion(migrations)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
+            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
+        WaitForObservability(dispatcher, observability);
+        ConfigureTelemetryAndObservability(
+            dispatcher,
+            observability);
+
+        var projectionWorker = builder.AddProject<Projects.Backend_ProjectionWorker>(
+                "backend-projection-worker")
+            .WithReference(cosmos, connectionName: cosmosConnectionName)
+            .WaitFor(cosmosDb)
+            .WithReference(sqlDb)
+            .WaitFor(sqlDb)
+            .WaitForCompletion(migrations)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName);
+        WaitForObservability(projectionWorker, observability);
+        ConfigureTelemetryAndObservability(
+            projectionWorker,
+            observability);
+
+        var maintenance = builder.AddProject<Projects.Backend_Maintenance>(
+                "backend-maintenance")
+            .WithReference(cosmos, connectionName: cosmosConnectionName)
+            .WaitFor(cosmosDb)
+            .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
+            .WaitFor(serviceBus)
+            .WithReference(sqlDb)
+            .WaitFor(sqlDb)
+            .WaitForCompletion(migrations)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+            .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
+            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
+            .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
+        WaitForObservability(maintenance, observability);
+        ConfigureTelemetryAndObservability(
+            maintenance,
+            observability);
+
         /*builder.AddProject<Projects.Backend_PluginLoader>("plugin-loader")
             .WithReference(blobs)
             .WaitFor(blobContainer)

@@ -18,7 +18,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Backend.Topology\Backend.Topology.csproj" IsAspireProjectResource="false" />
     <ProjectReference Include="..\..\Backend.API\Backend.API.csproj" />
+    <ProjectReference Include="..\..\Backend.Dispatcher\Backend.Dispatcher.csproj" />
     <ProjectReference Include="..\..\Backend.Engine\Backend.Engine.csproj" />
+    <ProjectReference Include="..\..\Backend.Maintenance\Backend.Maintenance.csproj" />
+    <ProjectReference Include="..\..\Backend.ProjectionWorker\Backend.ProjectionWorker.csproj" />
     <ProjectReference Include="..\..\Backend.Functions.PluginDetector\Backend.Functions.PluginDetector.csproj" />
     <ProjectReference Include="..\..\Backend.SignalR\Backend.SignalR.csproj" />
   </ItemGroup>

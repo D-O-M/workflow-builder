@@ -39,6 +39,7 @@ public static class WorkflowBuilderTopology
             public static readonly CosmosContainer PhasedProcesses = new("phasedprocesses", "/phasedBlueprintDefinitionId");
             public static readonly CosmosContainer PhaseCorrelations = new("phasecorrelations", "/targetPhaseKey");
             public static readonly CosmosContainer ProcessStepProgressLeases = new("processstepprogressleases", "/id");
+            public static readonly CosmosContainer ProcessProjectionLeases = new("processprojectionleases", "/id");
         }
     }
 
@@ -181,7 +182,8 @@ public static class WorkflowBuilderTopology
                     Cosmos.Containers.NodeJoinStates,
                     Cosmos.Containers.PhasedProcesses,
                     Cosmos.Containers.PhaseCorrelations,
-                    Cosmos.Containers.ProcessStepProgressLeases
+                    Cosmos.Containers.ProcessStepProgressLeases,
+                    Cosmos.Containers.ProcessProjectionLeases
                 ]),
             Storage: new StorageCatalog(
                 ResourceNameKey: Storage.ResourceNameKey,

@@ -13,7 +13,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Backend.Dispatcher\Backend.Dispatcher.csproj" />
     <ProjectReference Include="..\Backend.Engine\Backend.Engine.csproj" />
+    <ProjectReference Include="..\Backend.Maintenance\Backend.Maintenance.csproj" />
     <ProjectReference Include="..\Backend.PluginAbi\Backend.PluginAbi.csproj" />
+    <ProjectReference Include="..\Backend.ProjectionWorker\Backend.ProjectionWorker.csproj" />
   </ItemGroup>
 </Project>

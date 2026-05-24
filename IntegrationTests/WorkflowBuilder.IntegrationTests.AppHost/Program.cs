@@ -86,6 +86,39 @@ if (startEngine)
         .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName)
         .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.ConnectionNameEnvironmentVariable, pluginControlQueueConnectionName)
         .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.PluginControl.QueueNameEnvironmentVariable, pluginControlQueueName);
+
+    builder.AddProject<Projects.Backend_Dispatcher>("backend-dispatcher")
+        .WithReference(cosmos, connectionName: cosmosConnectionName)
+        .WaitFor(cosmosDb)
+        .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
+        .WaitFor(serviceBus)
+        .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+        .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+        .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
+        .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
+        .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
+
+    builder.AddProject<Projects.Backend_ProjectionWorker>("backend-projection-worker")
+        .WithReference(cosmos, connectionName: cosmosConnectionName)
+        .WaitFor(cosmosDb)
+        .WithReference(sqlDatabase)
+        .WaitFor(sqlDatabase)
+        .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+        .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+        .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName);
+
+    builder.AddProject<Projects.Backend_Maintenance>("backend-maintenance")
+        .WithReference(cosmos, connectionName: cosmosConnectionName)
+        .WaitFor(cosmosDb)
+        .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)
+        .WaitFor(serviceBus)
+        .WithReference(sqlDatabase)
+        .WaitFor(sqlDatabase)
+        .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+        .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
+        .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
+        .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
+        .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
 }
 
 builder.AddAzureFunctionsProject<Projects.Backend_Functions_PluginDetector>("plugin-detector")
