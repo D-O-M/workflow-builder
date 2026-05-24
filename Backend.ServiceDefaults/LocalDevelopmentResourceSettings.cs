@@ -291,7 +291,7 @@ public static class LocalDevelopmentResourceSettings
 
         return mappedPort is null
             ? null
-            : $"AccountEndpoint=http://127.0.0.1:{mappedPort}/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==;";
+            : $"AccountEndpoint=https://localhost:{mappedPort}/;AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==;";
     }
 
     private static string? NormalizeLocalBlobConnectionString(
@@ -351,10 +351,15 @@ public static class LocalDevelopmentResourceSettings
             return configuredConnectionString;
         }
 
-        // The Aspire preview Cosmos emulator exposes the gateway over plain HTTP on
-        // the Docker-mapped host port, even when a fallback/configured development
-        // connection string uses the legacy HTTPS emulator shape.
-        var normalizedEndpoint = $"http://127.0.0.1:{mappedPort.Value}/";
+        // The Aspire preview Cosmos emulator exposes the gateway over HTTPS. The
+        // generated connection string may name the container port rather than the
+        // Docker-mapped host port, so preserve the scheme and use localhost for
+        // the development certificate while correcting only the port.
+        var normalizedEndpoint = new UriBuilder(endpointUri)
+        {
+            Host = "localhost",
+            Port = mappedPort.Value
+        }.Uri.ToString();
         return ReplaceConnectionStringSegment(
             configuredConnectionString,
             "AccountEndpoint",

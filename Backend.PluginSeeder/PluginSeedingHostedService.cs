@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Azure;
 using Azure.Storage.Blobs;
 using Backend.Interfaces.Utilities;
+using Backend.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -12,6 +13,7 @@ internal sealed partial class PluginSeedingHostedService : BackgroundService
 {
     private readonly BlobContainerClient _blobContainerClient;
     private readonly IPluginBlobNameParsingUtility _blobNameParser;
+    private readonly IPluginBundleProcessingService _bundleProcessingService;
     private readonly PluginSeedingOptions _options;
     private readonly IHostApplicationLifetime _applicationLifetime;
     private readonly ILogger<PluginSeedingHostedService> _logger;
@@ -19,12 +21,14 @@ internal sealed partial class PluginSeedingHostedService : BackgroundService
     public PluginSeedingHostedService(
         BlobContainerClient blobContainerClient,
         IPluginBlobNameParsingUtility blobNameParser,
+        IPluginBundleProcessingService bundleProcessingService,
         IOptions<PluginSeedingOptions> options,
         IHostApplicationLifetime applicationLifetime,
         ILogger<PluginSeedingHostedService> logger)
     {
         _blobContainerClient = blobContainerClient;
         _blobNameParser = blobNameParser;
+        _bundleProcessingService = bundleProcessingService;
         _options = options.Value;
         _applicationLifetime = applicationLifetime;
         _logger = logger;
@@ -63,6 +67,7 @@ internal sealed partial class PluginSeedingHostedService : BackgroundService
             var skippedExistingCount = 0;
             var skippedInvalidCount = 0;
             var failedCount = 0;
+            var processedCount = 0;
             var seenBlobNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var bundlePath in Directory.EnumerateFiles(
@@ -103,17 +108,21 @@ internal sealed partial class PluginSeedingHostedService : BackgroundService
                         _logger.LogInformation(
                             "Plugin bundle {BlobName} already exists in blob storage; skipping upload.",
                             pluginInfo.BlobName);
-                        continue;
+                    }
+                    else
+                    {
+                        await using var stream = File.OpenRead(bundlePath);
+                        await blobClient.UploadAsync(stream, overwrite: false, cancellationToken: stoppingToken);
+                        uploadedCount++;
+
+                        _logger.LogInformation(
+                            "Uploaded plugin bundle {BlobName} from {BundlePath}.",
+                            pluginInfo.BlobName,
+                            bundlePath);
                     }
 
-                    await using var stream = File.OpenRead(bundlePath);
-                    await blobClient.UploadAsync(stream, overwrite: false, cancellationToken: stoppingToken);
-                    uploadedCount++;
-
-                    _logger.LogInformation(
-                        "Uploaded plugin bundle {BlobName} from {BundlePath}.",
-                        pluginInfo.BlobName,
-                        bundlePath);
+                    await _bundleProcessingService.ProcessAsync(pluginInfo, stoppingToken);
+                    processedCount++;
                 }
                 catch (FormatException ex)
                 {
@@ -141,9 +150,10 @@ internal sealed partial class PluginSeedingHostedService : BackgroundService
             }
 
             _logger.LogInformation(
-                "Plugin seeding finished. Uploaded: {UploadedCount}, existing: {SkippedExistingCount}, invalid: {SkippedInvalidCount}, failed: {FailedCount}.",
+                "Plugin seeding finished. Uploaded: {UploadedCount}, existing: {SkippedExistingCount}, processed: {ProcessedCount}, invalid: {SkippedInvalidCount}, failed: {FailedCount}.",
                 uploadedCount,
                 skippedExistingCount,
+                processedCount,
                 skippedInvalidCount,
                 failedCount);
         }

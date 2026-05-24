@@ -15,6 +15,11 @@ public interface IProcessStepDispatcher
         ProcessStepRecord step,
         CancellationToken cancellationToken);
 
+    Task<bool> TryDispatchAsync(
+        ProcessStepRecord step,
+        ProcessStepDispatchIntentRecord intent,
+        CancellationToken cancellationToken);
+
     Task<int> DrainDueDispatchesAsync(
         int maxItemCount,
         CancellationToken cancellationToken);

@@ -23,6 +23,8 @@ param(
   [string] $BaselinePath = "",
   [switch] $IncludeObservability,
   [switch] $NoBuild,
+  [switch] $RebuildBundles,
+  [string] $BundleCacheRoot = "",
   [switch] $BuildProductBundles,
   [switch] $KeepAppHost,
   [switch] $CompletionOnly,
@@ -54,6 +56,9 @@ $appHostPath = Join-Path $repoRoot "Backend.AppHost\Backend.AppHost.csproj"
 $probeProjectPath = Join-Path $repoRoot "PerformanceTests\WorkflowBuilder.PerformanceProbe\WorkflowBuilder.PerformanceProbe.csproj"
 $scoreboardManifestPath = Join-Path $repoRoot "PerformanceTests\scoreboard-scenarios.json"
 $topologyCatalogPath = Join-Path $repoRoot "BuildScripts\workflowbuilder-topology.json"
+if ([string]::IsNullOrWhiteSpace($BundleCacheRoot)) {
+  $BundleCacheRoot = Join-Path $repoRoot ".artifacts\nft-bundle-cache"
+}
 $topology = Get-Content -LiteralPath $topologyCatalogPath -Raw | ConvertFrom-Json
 $nftBlueprintKey = $NftBlueprintKey
 $productBlueprintKey = "showcase-town-weekend-recommendation"
@@ -326,7 +331,92 @@ function Copy-BlueprintSeeds {
   }
 }
 
+function Get-NftBundleCacheKey {
+  $inputs = @(
+    "PerformanceTests\Plugins",
+    "Backend.Plugins.Communication",
+    "Backend.Plugins.Harness",
+    "Backend.PluginAbi",
+    "Backend.Plugins.Configuration\Abstractions",
+    "BuildScripts\bundle-plugins.ps1",
+    "Directory.Packages.props",
+    "Directory.Build.props",
+    "Directory.Build.targets",
+    "global.json"
+  )
+
+  $files = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+  foreach ($input in $inputs) {
+    $path = Join-Path $repoRoot $input
+    if (-not (Test-Path -LiteralPath $path)) {
+      continue
+    }
+
+    $item = Get-Item -LiteralPath $path
+    if ($item.PSIsContainer) {
+      Get-ChildItem -LiteralPath $item.FullName -File -Recurse |
+        Where-Object {
+          $_.FullName -notmatch "\\(bin|obj|_bundles)\\"
+        } |
+        ForEach-Object { $files.Add($_) }
+    }
+    else {
+      $files.Add($item)
+    }
+  }
+
+  $rootPrefix = (Resolve-Path $repoRoot).Path.TrimEnd("\") + "\"
+  $manifest = @($files |
+    Sort-Object FullName |
+    ForEach-Object {
+      $relativePath = $_.FullName.Substring($rootPrefix.Length).Replace("\", "/")
+      $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+      "$relativePath|$hash"
+    })
+
+  $payload = [string]::Join("`n", $manifest)
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
+  $hashBytes = [System.Security.Cryptography.SHA256]::HashData($bytes)
+  return -join ($hashBytes | ForEach-Object { $_.ToString("x2") })
+}
+
+function Copy-CachedNftBundles {
+  param(
+    [string] $CachePath,
+    [string] $CacheKey,
+    [bool] $CacheHit
+  )
+
+  $bundles = @(Get-ChildItem -LiteralPath $CachePath -Filter *.zip -File -ErrorAction SilentlyContinue)
+  if ($bundles.Count -eq 0) {
+    throw "NFT bundle cache '$CachePath' does not contain any bundle zips."
+  }
+
+  $bundles | Copy-Item -Destination $bundleRoot -Force
+  [ordered]@{
+    cacheKey = $CacheKey
+    cacheHit = $CacheHit
+    cachePath = $CachePath
+    bundleCount = $bundles.Count
+  } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $runRoot "nft-bundle-cache.json") -Encoding UTF8
+}
+
 function Build-NftBundles {
+  $cacheKey = Get-NftBundleCacheKey
+  $cachePath = Join-Path (Join-Path $BundleCacheRoot "performance") $cacheKey
+  $cachedBundles = @(Get-ChildItem -LiteralPath $cachePath -Filter *.zip -File -ErrorAction SilentlyContinue)
+
+  if (-not $RebuildBundles -and $cachedBundles.Count -gt 0) {
+    Write-Step "Using cached NFT bundles $cacheKey from $cachePath."
+    Copy-CachedNftBundles -CachePath $cachePath -CacheKey $cacheKey -CacheHit $true
+    return
+  }
+
+  Write-Step "Building NFT bundles for cache key $cacheKey."
+  New-Item -ItemType Directory -Force -Path $cachePath | Out-Null
+  Get-ChildItem -LiteralPath $cachePath -Filter *.zip -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+
   Invoke-CheckedCommand -FilePath "pwsh" -Arguments @(
     "-NoLogo",
     "-NoProfile",
@@ -335,7 +425,7 @@ function Build-NftBundles {
     "-RootDir",
     (Join-Path $repoRoot "PerformanceTests\Plugins"),
     "-OutputDir",
-    $bundleRoot,
+    $cachePath,
     "-Configuration",
     "Release",
     "-RuntimeIdentifier",
@@ -343,6 +433,8 @@ function Build-NftBundles {
     "-Overwrite",
     "-Minify"
   )
+
+  Copy-CachedNftBundles -CachePath $cachePath -CacheKey $cacheKey -CacheHit $false
 }
 
 function Copy-ProductBundles {
@@ -666,6 +758,8 @@ function Write-RunConfig {
     gateMode = $GateMode
     baselinePath = $BaselinePath
     scoreboardManifestPath = $scoreboardManifestPath
+    rebuildBundles = [bool] $RebuildBundles
+    bundleCacheRoot = $BundleCacheRoot
     ceilingCompletionCount = $CeilingCompletionCount
     ceilingCompletionConcurrency = $CeilingCompletionConcurrency
     capacityStart = $CapacityStart
@@ -1009,38 +1103,44 @@ function Invoke-ScoreboardScenario($Manifest, $Scenario) {
         $extraArguments += @("--collection-item-count", $collectionItemCount.ToString())
       }
 
-      Invoke-PerformanceProbe `
-        -Command "completion" `
-        -OutputName (Get-ScenarioArtifactName $key "process-latencies.csv") `
-        -BlueprintKey $blueprintKey `
-        -Count $count `
-        -Concurrency $concurrency `
-        -TimeoutSeconds $timeoutSeconds `
-        -ExtraArguments $extraArguments
+      & {
+        Invoke-PerformanceProbe `
+          -Command "completion" `
+          -OutputName (Get-ScenarioArtifactName $key "process-latencies.csv") `
+          -BlueprintKey $blueprintKey `
+          -Count $count `
+          -Concurrency $concurrency `
+          -TimeoutSeconds $timeoutSeconds `
+          -ExtraArguments $extraArguments
+      } | Out-Host
 
       if (-not $CompletionOnly -and $realtimeCount -gt 0) {
-        Invoke-PerformanceProbe `
-          -Command "realtime" `
-          -OutputName (Get-ScenarioArtifactName $key "realtime-latencies.csv") `
-          -BlueprintKey $blueprintKey `
-          -Count $realtimeCount `
-          -Concurrency 1 `
-          -TimeoutSeconds ([Math]::Min($timeoutSeconds, 120)) `
-          -ExtraArguments $extraArguments
+        & {
+          Invoke-PerformanceProbe `
+            -Command "realtime" `
+            -OutputName (Get-ScenarioArtifactName $key "realtime-latencies.csv") `
+            -BlueprintKey $blueprintKey `
+            -Count $realtimeCount `
+            -Concurrency 1 `
+            -TimeoutSeconds ([Math]::Min($timeoutSeconds, 120)) `
+            -ExtraArguments $extraArguments
+        } | Out-Host
       }
     }
     elseif ($mode -eq "bulk-start") {
       $admissionVus = [int] (Get-ScenarioSetting $Manifest $Scenario "admissionVus" 2)
       $admissionDuration = [string] (Get-ScenarioSetting $Manifest $Scenario "admissionDuration" "20s")
-      Invoke-K6Script `
-        -ScriptName "admission.js" `
-        -SummaryName (Get-ScenarioArtifactName $key "k6-summary-admission.json") `
-        -BlueprintKey $blueprintKey `
-        -EnvironmentOverrides @{
-          K6_VUS = $admissionVus.ToString()
-          K6_DURATION = $admissionDuration
-          K6_THINK_TIME_SECONDS = "0"
-        }
+      & {
+        Invoke-K6Script `
+          -ScriptName "admission.js" `
+          -SummaryName (Get-ScenarioArtifactName $key "k6-summary-admission.json") `
+          -BlueprintKey $blueprintKey `
+          -EnvironmentOverrides @{
+            K6_VUS = $admissionVus.ToString()
+            K6_DURATION = $admissionDuration
+            K6_THINK_TIME_SECONDS = "0"
+          }
+      } | Out-Host
     }
     else {
       throw "Unknown scoreboard scenario mode '$mode'."

@@ -19,4 +19,6 @@ public sealed class ProcessStepDispatchOptions
     public TimeSpan DueBucketDuration { get; init; } = TimeSpan.FromSeconds(5);
 
     public int MaxBucketsPerPoll { get; init; } = 12;
+
+    public TimeSpan BacklogMetricsInterval { get; init; } = TimeSpan.FromSeconds(30);
 }

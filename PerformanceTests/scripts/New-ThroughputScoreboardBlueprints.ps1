@@ -50,6 +50,14 @@ function New-Connection(
   }
 }
 
+function Normalize-Connections([object[]] $OutgoingConnections) {
+  if ($null -eq $OutgoingConnections) {
+    return @()
+  }
+
+  return @($OutgoingConnections | Where-Object { $null -ne $_ })
+}
+
 function New-PluginNode(
   [Guid] $TaskKey,
   [string] $TaskDefinitionName,
@@ -69,7 +77,7 @@ function New-PluginNode(
     $node.designTimeInputOverrides = $DesignTimeInputOverrides
   }
 
-  $node.outgoingConnections = @($OutgoingConnections)
+  $node.outgoingConnections = @(Normalize-Connections $OutgoingConnections)
   return $node
 }
 
@@ -85,7 +93,7 @@ function New-CollectionIteratorNode(
     allowedMajor = 0
     allowedMinor = 0
     position = [ordered]@{ x = $X; y = $Y }
-    outgoingConnections = @($OutgoingConnections)
+    outgoingConnections = @(Normalize-Connections $OutgoingConnections)
   }
 }
 

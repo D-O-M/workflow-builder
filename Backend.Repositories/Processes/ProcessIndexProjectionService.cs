@@ -31,25 +31,20 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
         CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
-        var processId = Guid.Parse(process.ProcessId);
-        var existingDirectory = await _directoryRepository.GetByProcessIdAsync(processId, cancellationToken);
-        var directory = Merge(
-            existingDirectory,
-            CreateDirectoryRecord(process, blueprintDefinitionId, blueprintVersionId, now));
+        var directoryTask = UpsertDirectoryAsync(
+            process,
+            blueprintDefinitionId,
+            blueprintVersionId,
+            now,
+            cancellationToken);
+        var summaryTasks = CreateSummaryRecords(
+                process,
+                blueprintDefinitionId,
+                blueprintVersionId,
+                now)
+            .Select(summary => UpsertSummaryAsync(summary, cancellationToken));
 
-        await _directoryRepository.UpsertAsync(directory, cancellationToken);
-
-        foreach (var summary in CreateSummaryRecords(process, blueprintDefinitionId, blueprintVersionId, now))
-        {
-            var existingSummary = await _summaryRepository.GetByIdAsync(
-                summary.Id,
-                summary.PartitionKey,
-                cancellationToken);
-
-            await _summaryRepository.UpsertAsync(
-                Merge(existingSummary, summary),
-                cancellationToken);
-        }
+        await Task.WhenAll(summaryTasks.Append(directoryTask));
     }
 
     public Task<ProcessDirectoryRecord?> GetDirectoryByProcessIdAsync(
@@ -133,6 +128,36 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
             FailedAt = process.Status is ProcessStatus.Failed ? terminalAt : null,
             IndexedAt = indexedAt,
         };
+    }
+
+    private async Task UpsertDirectoryAsync(
+        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        int blueprintDefinitionId,
+        int blueprintVersionId,
+        DateTimeOffset indexedAt,
+        CancellationToken cancellationToken)
+    {
+        var processId = Guid.Parse(process.ProcessId);
+        var existingDirectory = await _directoryRepository.GetByProcessIdAsync(processId, cancellationToken);
+        var directory = Merge(
+            existingDirectory,
+            CreateDirectoryRecord(process, blueprintDefinitionId, blueprintVersionId, indexedAt));
+
+        await _directoryRepository.UpsertAsync(directory, cancellationToken);
+    }
+
+    private async Task UpsertSummaryAsync(
+        ProcessSummaryProjectionRecord summary,
+        CancellationToken cancellationToken)
+    {
+        var existingSummary = await _summaryRepository.GetByIdAsync(
+            summary.Id,
+            summary.PartitionKey,
+            cancellationToken);
+
+        await _summaryRepository.UpsertAsync(
+            Merge(existingSummary, summary),
+            cancellationToken);
     }
 
     private static IReadOnlyList<ProcessSummaryProjectionRecord> CreateSummaryRecords(

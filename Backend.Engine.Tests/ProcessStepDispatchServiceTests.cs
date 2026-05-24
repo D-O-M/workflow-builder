@@ -95,6 +95,45 @@ public sealed class ProcessStepDispatchServiceTests
     }
 
     [Test]
+    public async Task Immediate_dispatch_uses_known_step_without_reloading_process_step()
+    {
+        var repository = new InMemoryProcessStepRepository();
+        var dispatchIntentRepository = new InMemoryProcessStepDispatchIntentRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var service = CreateService(repository, dispatchIntentRepository, queueWriter);
+        var step = CreateStep();
+        repository.States[Guid.Parse(step.Id)] = step;
+
+        var intent = await service.EnsureDispatchIntentAsync(step, step.CreatedAt, CancellationToken.None);
+        repository.GetProcessStepByIdCalls = 0;
+
+        var dispatched = await service.TryDispatchAsync(step, intent, CancellationToken.None);
+
+        dispatched.ShouldBeTrue();
+        queueWriter.Messages.Count.ShouldBe(1);
+        repository.GetProcessStepByIdCalls.ShouldBe(0);
+    }
+
+    [Test]
+    public async Task Drain_due_dispatches_throttles_cross_partition_backlog_metrics()
+    {
+        var repository = new InMemoryProcessStepRepository();
+        var dispatchIntentRepository = new InMemoryProcessStepDispatchIntentRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var service = CreateService(repository, dispatchIntentRepository, queueWriter);
+        var step = CreateStep();
+        repository.States[Guid.Parse(step.Id)] = step;
+
+        await service.EnsureDispatchIntentAsync(step, step.CreatedAt, CancellationToken.None);
+        await Task.Delay(20);
+
+        await service.DrainDueDispatchesAsync(10, CancellationToken.None);
+        await service.DrainDueDispatchesAsync(10, CancellationToken.None);
+
+        dispatchIntentRepository.BacklogSnapshotCalls.ShouldBe(1);
+    }
+
+    [Test]
     public async Task Terminal_steps_are_not_dispatched()
     {
         var repository = new InMemoryProcessStepRepository();
@@ -279,6 +318,8 @@ public sealed class ProcessStepDispatchServiceTests
 
         public int DueStepDispatchScanCalls { get; private set; }
 
+        public int GetProcessStepByIdCalls { get; set; }
+
         public Task<IReadOnlyList<ProcessStepRecord>> GetDueStepDispatchesAsync(
             DateTimeOffset now,
             int maxItemCount,
@@ -415,6 +456,7 @@ public sealed class ProcessStepDispatchServiceTests
         {
             lock (_gate)
             {
+                GetProcessStepByIdCalls++;
                 if (States.TryGetValue(taskInstanceId, out var state) &&
                     string.Equals(state.ProcessId, processId.ToString(), StringComparison.Ordinal))
                 {

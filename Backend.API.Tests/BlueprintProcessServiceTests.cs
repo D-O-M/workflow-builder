@@ -940,6 +940,15 @@ public sealed class BlueprintProcessServiceTests
             return Task.FromResult(false);
         }
 
+        public Task<bool> TryDispatchAsync(
+            ProcessStepRecord step,
+            ProcessStepDispatchIntentRecord intent,
+            CancellationToken cancellationToken)
+        {
+            TryDispatchCalls++;
+            return Task.FromResult(false);
+        }
+
         public Task<int> DrainDueDispatchesAsync(
             int maxItemCount,
             CancellationToken cancellationToken) =>

@@ -77,17 +77,20 @@ public sealed class ProcessIndexProjectionServiceTests
 
     private sealed class InMemoryProcessDirectoryRepository : IProcessDirectoryRepository
     {
-        private readonly Dictionary<string, ProcessDirectoryRecord> _records = new(StringComparer.Ordinal);
+        public Dictionary<string, ProcessDirectoryRecord> Records { get; } = new(StringComparer.Ordinal);
+
+        public int GetByProcessIdCalls { get; private set; }
 
         public Task<ProcessDirectoryRecord?> GetByProcessIdAsync(Guid processId, CancellationToken cancellationToken)
         {
-            _records.TryGetValue(processId.ToString(), out var record);
+            GetByProcessIdCalls++;
+            Records.TryGetValue(processId.ToString(), out var record);
             return Task.FromResult(record);
         }
 
         public Task<ProcessDirectoryRecord> UpsertAsync(ProcessDirectoryRecord record, CancellationToken cancellationToken)
         {
-            _records[record.Id] = record;
+            Records[record.Id] = record;
             return Task.FromResult(record);
         }
     }
@@ -96,11 +99,14 @@ public sealed class ProcessIndexProjectionServiceTests
     {
         public Dictionary<(string PartitionKey, string Id), ProcessSummaryProjectionRecord> Records { get; } = [];
 
+        public int GetByIdCalls { get; private set; }
+
         public Task<ProcessSummaryProjectionRecord?> GetByIdAsync(
             string id,
             string partitionKey,
             CancellationToken cancellationToken)
         {
+            GetByIdCalls++;
             Records.TryGetValue((partitionKey, id), out var record);
             return Task.FromResult(record);
         }

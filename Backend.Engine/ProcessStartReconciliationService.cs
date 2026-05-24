@@ -310,7 +310,7 @@ public sealed class ProcessStartReconciliationService
         {
             var previousActiveIntentId = initialStep.Dispatch?.ActiveIntentId;
             var hadActiveIntentProjection = HasActiveIntentProjection(initialStep);
-            await _processStepDispatcher.EnsureDispatchIntentAsync(
+            var dispatchIntent = await _processStepDispatcher.EnsureDispatchIntentAsync(
                 initialStep,
                 initialStep.CreatedAt,
                 cancellationToken);
@@ -322,7 +322,10 @@ public sealed class ProcessStartReconciliationService
                 _telemetry.RecordDispatchIntentRepaired();
             }
 
-            await _processStepDispatcher.TryDispatchAsync(initialStep, cancellationToken);
+            await _processStepDispatcher.TryDispatchAsync(
+                initialStep,
+                dispatchIntent,
+                cancellationToken);
         }
 
         return new ProcessRepairResult(

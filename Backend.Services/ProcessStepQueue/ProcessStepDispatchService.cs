@@ -16,6 +16,7 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
     private readonly ProcessStepDispatchOptions _options;
     private readonly ProcessStepDispatchTelemetry _telemetry;
     private readonly ILogger<ProcessStepDispatchService> _logger;
+    private long _lastBacklogMetricsRefreshTicks;
 
     public ProcessStepDispatchService(
         IProcessStepRepository processStepRepository,
@@ -124,7 +125,11 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
                 foreach (var intent in dueIntents)
                 {
                     remaining--;
-                    if (await TryDispatchIntentAsync(intent, cancellationToken))
+                    if (await TryDispatchIntentAsync(
+                            intent,
+                            knownStep: null,
+                            validatePersistedStep: true,
+                            cancellationToken))
                     {
                         dispatchedCount++;
                     }
@@ -155,7 +160,7 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
             }
         }
 
-        await RefreshBacklogMetricsAsync(cancellationToken);
+        await RefreshBacklogMetricsIfDueAsync(cancellationToken);
         return dispatchedCount;
     }
 
@@ -187,7 +192,42 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
             throw;
         }
 
-        return await TryDispatchIntentAsync(intent, cancellationToken);
+        return await TryDispatchIntentAsync(
+            intent,
+            step,
+            validatePersistedStep: false,
+            cancellationToken);
+    }
+
+    public async Task<bool> TryDispatchAsync(
+        ProcessStepRecord step,
+        ProcessStepDispatchIntentRecord intent,
+        CancellationToken cancellationToken)
+    {
+        EnsureDispatchAvailableForExecution();
+
+        if (step.Status is not ProcessStepStatus.Pending)
+        {
+            return false;
+        }
+
+        if (!string.Equals(intent.ProcessStepId, step.Id, StringComparison.Ordinal) ||
+            !string.Equals(intent.ProcessId, step.ProcessId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Dispatch intent {intent.Id} does not belong to process step {step.Id}.");
+        }
+
+        if (!IsActiveIntent(step, intent))
+        {
+            return false;
+        }
+
+        return await TryDispatchIntentAsync(
+            intent,
+            step,
+            validatePersistedStep: false,
+            cancellationToken);
     }
 
     public async Task RefreshBacklogMetricsAsync(CancellationToken cancellationToken)
@@ -197,6 +237,32 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
             now,
             cancellationToken);
         _telemetry.RecordBacklog(snapshot, now);
+    }
+
+    private async Task RefreshBacklogMetricsIfDueAsync(CancellationToken cancellationToken)
+    {
+        var interval = EffectiveBacklogMetricsInterval;
+        if (interval == Timeout.InfiniteTimeSpan)
+        {
+            return;
+        }
+
+        var nowTicks = DateTimeOffset.UtcNow.UtcTicks;
+        var lastTicks = Interlocked.Read(ref _lastBacklogMetricsRefreshTicks);
+        if (lastTicks != 0 && nowTicks - lastTicks < interval.Ticks)
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(
+                ref _lastBacklogMetricsRefreshTicks,
+                nowTicks,
+                lastTicks) != lastTicks)
+        {
+            return;
+        }
+
+        await RefreshBacklogMetricsAsync(cancellationToken);
     }
 
     public static long CalculateDueBucket(DateTimeOffset timestamp, TimeSpan dueBucketDuration)
@@ -213,6 +279,8 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
 
     private async Task<bool> TryDispatchIntentAsync(
         ProcessStepDispatchIntentRecord intent,
+        ProcessStepRecord? knownStep,
+        bool validatePersistedStep,
         CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
@@ -243,19 +311,26 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
 
         var claimedIntent = claimedDispatch.record;
         ProcessStepRecord step;
-        try
+        if (validatePersistedStep || knownStep is null)
         {
-            step = await _processStepRepository.GetProcessStepById(
-                Guid.Parse(claimedIntent.ProcessStepId),
-                Guid.Parse(claimedIntent.ProcessId),
-                cancellationToken);
+            try
+            {
+                step = await _processStepRepository.GetProcessStepById(
+                    Guid.Parse(claimedIntent.ProcessStepId),
+                    Guid.Parse(claimedIntent.ProcessId),
+                    cancellationToken);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested &&
+                                             (exception is KeyNotFoundException ||
+                                              exception.GetType().Name.StartsWith("EntityNotFoundException", StringComparison.Ordinal)))
+            {
+                await MarkIntentSkippedAsync(claimedIntent, leaseId, cancellationToken);
+                return false;
+            }
         }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested &&
-                                         (exception is KeyNotFoundException ||
-                                          exception.GetType().Name.StartsWith("EntityNotFoundException", StringComparison.Ordinal)))
+        else
         {
-            await MarkIntentSkippedAsync(claimedIntent, leaseId, cancellationToken);
-            return false;
+            step = knownStep;
         }
 
         if (step.Status is not ProcessStepStatus.Pending ||
@@ -498,6 +573,11 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
 
     private int EffectiveMaxBucketsPerPoll =>
         Math.Clamp(_options.MaxBucketsPerPoll, 1, 1024);
+
+    private TimeSpan EffectiveBacklogMetricsInterval =>
+        _options.BacklogMetricsInterval > TimeSpan.Zero
+            ? _options.BacklogMetricsInterval
+            : Timeout.InfiniteTimeSpan;
 
     private DateTimeOffset CalculateNextAttemptAt(
         int attemptCount,

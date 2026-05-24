@@ -161,12 +161,6 @@ public sealed class BlueprintProcessService
             await _processInstanceRepository.CreateProcessState(processState, cancellationToken);
         }
 
-        await TryProjectProcessAsync(
-            processState,
-            executableBlueprint.DefinitionId,
-            executableBlueprint.Id,
-            cancellationToken);
-
         _logger.LogInformation(
             "Creating initial process step {InitialBlueprintNodeId} for process {ProcessId}.",
             initialProcessStepId,
@@ -178,19 +172,28 @@ public sealed class BlueprintProcessService
 
         using (_processStartTelemetry.StartEnqueueInitialStep(blueprintDefinitionId))
         {
-            await _processStepDispatcher.EnsureDispatchIntentAsync(
+            var dispatchIntent = await _processStepDispatcher.EnsureDispatchIntentAsync(
                 initialStepState,
                 acceptedAt,
                 cancellationToken);
-            await _processStepDispatcher.TryDispatchAsync(initialStepState, cancellationToken);
+            await _processStepDispatcher.TryDispatchAsync(
+                initialStepState,
+                dispatchIntent,
+                cancellationToken);
         }
 
-        await TryProjectRealtimeAsync(
-            processState,
-            initialStepState,
-            executableBlueprint.DefinitionId,
-            executableBlueprint.Id,
-            cancellationToken);
+        await Task.WhenAll(
+            TryProjectProcessAsync(
+                processState,
+                executableBlueprint.DefinitionId,
+                executableBlueprint.Id,
+                cancellationToken),
+            TryProjectRealtimeAsync(
+                processState,
+                initialStepState,
+                executableBlueprint.DefinitionId,
+                executableBlueprint.Id,
+                cancellationToken));
 
         _logger.LogInformation(
             "Accepted process {ProcessId} for blueprint definition {BlueprintDefinitionId}.",
@@ -310,12 +313,6 @@ public sealed class BlueprintProcessService
             await _processInstanceRepository.CreateProcessState(processState, cancellationToken);
         }
 
-        await TryProjectProcessAsync(
-            processState,
-            executableBlueprint.DefinitionId,
-            executableBlueprint.Id,
-            cancellationToken);
-
         _logger.LogInformation(
             "Creating initial process step {InitialBlueprintNodeId} for process {ProcessId}.",
             initialProcessStepId,
@@ -327,19 +324,28 @@ public sealed class BlueprintProcessService
 
         using (_processStartTelemetry.StartEnqueueInitialStep(blueprintDefinitionId))
         {
-            await _processStepDispatcher.EnsureDispatchIntentAsync(
+            var dispatchIntent = await _processStepDispatcher.EnsureDispatchIntentAsync(
                 initialStepState,
                 acceptedAt,
                 cancellationToken);
-            await _processStepDispatcher.TryDispatchAsync(initialStepState, cancellationToken);
+            await _processStepDispatcher.TryDispatchAsync(
+                initialStepState,
+                dispatchIntent,
+                cancellationToken);
         }
 
-        await TryProjectRealtimeAsync(
-            processState,
-            initialStepState,
-            executableBlueprint.DefinitionId,
-            executableBlueprint.Id,
-            cancellationToken);
+        await Task.WhenAll(
+            TryProjectProcessAsync(
+                processState,
+                executableBlueprint.DefinitionId,
+                executableBlueprint.Id,
+                cancellationToken),
+            TryProjectRealtimeAsync(
+                processState,
+                initialStepState,
+                executableBlueprint.DefinitionId,
+                executableBlueprint.Id,
+                cancellationToken));
 
         _logger.LogInformation(
             "Accepted process {ProcessId} for blueprint definition {BlueprintDefinitionId}.",

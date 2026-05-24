@@ -16,6 +16,8 @@ internal sealed class InMemoryProcessStepDispatchIntentRepository : IProcessStep
 
     public List<(long DueBucket, int Shard, int MaxItemCount)> DueQueries { get; } = [];
 
+    public int BacklogSnapshotCalls { get; private set; }
+
     public IReadOnlyCollection<ProcessStepDispatchIntentRecord> Intents
     {
         get
@@ -265,6 +267,7 @@ internal sealed class InMemoryProcessStepDispatchIntentRepository : IProcessStep
     {
         lock (_gate)
         {
+            BacklogSnapshotCalls++;
             var active = _intents.Values
                 .Where(record => record.Status is ProcessStepDispatchStatus.Pending
                     or ProcessStepDispatchStatus.RetryableDispatchError

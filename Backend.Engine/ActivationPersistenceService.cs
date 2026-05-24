@@ -205,26 +205,16 @@ public sealed class ActivationPersistenceService
             return 0;
         }
 
+        var dispatchIntentsByStepId = new Dictionary<string, ProcessStepDispatchIntentRecord>(
+            scheduledSteps.Count,
+            StringComparer.Ordinal);
         foreach (var step in scheduledSteps)
         {
-            await _processStepDispatcher.EnsureDispatchIntentAsync(
+            var dispatchIntent = await _processStepDispatcher.EnsureDispatchIntentAsync(
                 step,
                 timestamp,
                 cancellationToken);
-        }
-
-        foreach (var step in scheduledSteps)
-        {
-            var activation = activations.FirstOrDefault(candidate =>
-                candidate.ProcessStepId.ToString().Equals(step.Id, StringComparison.Ordinal));
-            if (activation is not null)
-            {
-                await TryProjectRealtimeStepAsync(
-                    step,
-                    activation.BlueprintDefinitionId,
-                    activation.ExecutableBlueprintId,
-                    cancellationToken);
-            }
+            dispatchIntentsByStepId[step.Id] = dispatchIntent;
         }
 
         foreach (var step in scheduledSteps)
@@ -244,8 +234,23 @@ public sealed class ActivationPersistenceService
 
         foreach (var step in scheduledSteps)
         {
-            await _processStepDispatcher.TryDispatchAsync(step, cancellationToken);
+            await _processStepDispatcher.TryDispatchAsync(
+                step,
+                dispatchIntentsByStepId[step.Id],
+                cancellationToken);
         }
+
+        var activationsByStepId = activations.ToDictionary(
+            activation => activation.ProcessStepId.ToString(),
+            StringComparer.Ordinal);
+        await Task.WhenAll(scheduledSteps.Select(step =>
+            activationsByStepId.TryGetValue(step.Id, out var activation)
+                ? TryProjectRealtimeStepAsync(
+                    step,
+                    activation.BlueprintDefinitionId,
+                    activation.ExecutableBlueprintId,
+                    cancellationToken)
+                : Task.CompletedTask));
 
         _logger.LogInformation(
             "Scheduled {StepCount} downstream step(s) for process {ProcessId} after receiving required inbound bindings.",
