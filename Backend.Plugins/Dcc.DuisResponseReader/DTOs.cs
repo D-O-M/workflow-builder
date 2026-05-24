@@ -11,6 +11,7 @@ public sealed class DuisResponseReaderInput
     public string XsdPathList { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DuisResponseReaderResult
 {
     public string RequestId { get; set; } = "";

@@ -5,6 +5,7 @@ public sealed class AirportStationLookupInput
     public string AirportCode { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportStationLookupResult
 {
     public string AirportCode { get; set; } = "";

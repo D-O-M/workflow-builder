@@ -11,6 +11,7 @@ public sealed class DeployArtifactInput
     public string ReleaseName { get; set; } = "workflow-builder-demo";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DeployArtifactResult
 {
     public string BuildId { get; set; } = "";

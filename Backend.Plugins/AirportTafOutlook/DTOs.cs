@@ -7,6 +7,7 @@ public sealed class AirportTafInput
     public DateOnly WindowEndIsoDate { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportTafResult
 {
     public string StationCode { get; set; } = "";

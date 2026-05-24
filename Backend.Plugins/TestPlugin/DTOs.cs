@@ -2,6 +2,7 @@ using Backend.Plugins.Harness;
 
 namespace TestPlugin;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public class State : IGlobalState
 {
     public int PlayerId { get; set; }
@@ -15,6 +16,7 @@ public class PlayerInput
     public string Name { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public class PlayerOutput
 {
     public int Health { get; set; }

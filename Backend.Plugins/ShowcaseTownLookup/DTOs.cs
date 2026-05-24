@@ -5,6 +5,7 @@ public sealed class TownLookupRequest
     public string RequestedTownName { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class ResolvedTown
 {
     public string RequestedTownName { get; set; } = "";

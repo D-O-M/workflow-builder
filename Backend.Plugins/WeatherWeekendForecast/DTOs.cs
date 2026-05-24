@@ -10,6 +10,7 @@ public sealed class GeoLocation
     public string CountryCode { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class WeekendForecastScore
 {
     public string Town { get; set; } = "";

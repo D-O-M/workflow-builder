@@ -17,6 +17,7 @@ public sealed class AirportDisruptionAdvisorInput
     public int MonitorThreshold { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportDisruptionAdvisorResult
 {
     public string AirportCode { get; set; } = "";

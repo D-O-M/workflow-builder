@@ -2,6 +2,7 @@ using Backend.Plugins.Harness;
 
 namespace WorkflowBuilder.PerformanceTests.Plugins;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftProcessState : IGlobalState
 {
     public string RunLabel { get; set; } = string.Empty;
@@ -28,6 +29,7 @@ public sealed class NftSeedRequest
     public int? DelayMs { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftSeedContext
 {
     public string CorrelationKey { get; set; } = string.Empty;
@@ -54,6 +56,7 @@ public sealed class NftBranchRequest
     public int? DelayMs { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftBranchResult
 {
     public string CorrelationKey { get; set; } = string.Empty;
@@ -84,6 +87,7 @@ public sealed class NftJoinRequest
     public string Mode { get; set; } = string.Empty;
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftJoinResult
 {
     public string CorrelationKey { get; set; } = string.Empty;
@@ -104,6 +108,7 @@ public sealed class NftSinkRequest
     public int ExpectedMinimumScore { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftCompletion
 {
     public string CorrelationKey { get; set; } = string.Empty;
@@ -128,6 +133,7 @@ public sealed class NftLaneRequest
     public int? DelayMs { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftLaneResult
 {
     public string CorrelationKey { get; set; } = string.Empty;
@@ -148,6 +154,7 @@ public sealed class NftCollectionSeedRequest
     public int? DelayMs { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftCollectionSeedResult
 {
     public string CorrelationKey { get; set; } = string.Empty;
@@ -162,6 +169,7 @@ public sealed class NftItemSinkRequest
     public int? DelayMs { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftItemSinkResult
 {
     public string Item { get; set; } = string.Empty;

@@ -9,6 +9,7 @@ public sealed class WindowWeatherInput
     public DateOnly WindowEndIsoDate { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class WindowWeatherResult
 {
     public string LocationLabel { get; set; } = "";

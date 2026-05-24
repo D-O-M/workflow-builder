@@ -13,4 +13,6 @@
     <None Remove="manifest.json" />
     <None Remove="schemas\**\*.json" />
   </ItemGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)..\BuildScripts\WorkflowBuilder.PluginJsonSerialization.targets" />
 </Project>

@@ -5,6 +5,7 @@ public sealed class TownInput
     public string Town { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class GeoLocation
 {
     public string Town { get; set; } = "";

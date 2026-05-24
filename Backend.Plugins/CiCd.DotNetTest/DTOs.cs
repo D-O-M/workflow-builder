@@ -9,6 +9,7 @@ public sealed class DotNetTestInput
     public bool NoBuild { get; set; } = true;
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DotNetTestResult
 {
     public string BuildId { get; set; } = "";

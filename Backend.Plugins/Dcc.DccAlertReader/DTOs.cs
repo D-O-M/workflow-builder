@@ -9,6 +9,7 @@ public sealed class DccAlertReaderInput
     public string XsdPathList { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DccAlertReaderResult
 {
     public string RequestId { get; set; } = "";

@@ -7,6 +7,7 @@ public sealed class AirportTrafficInput
     public double Longitude { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportTrafficResult
 {
     public string AirportCode { get; set; } = "";

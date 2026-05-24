@@ -23,6 +23,7 @@ public sealed class TownWeekendHolidayContext
     public string HolidaySummary { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class TownRecommendation
 {
     public string ResolvedTownName { get; set; } = "";

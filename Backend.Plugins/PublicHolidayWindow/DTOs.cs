@@ -8,6 +8,7 @@ public sealed class HolidayWindowInput
     public DateOnly WindowEndIsoDate { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class HolidayWindowResult
 {
     public string LocationLabel { get; set; } = "";

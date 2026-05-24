@@ -7,6 +7,7 @@ public sealed class UiDependencyInstallInput
     public string UiPath { get; set; } = "UI";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class UiDependencyInstallResult
 {
     public string BuildId { get; set; } = "";

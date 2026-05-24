@@ -9,6 +9,7 @@ public sealed class PublishArtifactsInput
     public string ArtifactContainerName { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class PublishArtifactsResult
 {
     public string BuildId { get; set; } = "";

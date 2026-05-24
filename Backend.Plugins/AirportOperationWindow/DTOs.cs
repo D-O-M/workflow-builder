@@ -7,6 +7,7 @@ public sealed class AirportOperationWindowInput
     public DateOnly WindowEndIsoDate { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportOperationWindowResult
 {
     public string AirportCode { get; set; } = "";

@@ -22,6 +22,7 @@ public sealed class DuisServiceRequestWriterInput
     public string XsdPathList { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DuisServiceRequestWriterResult
 {
     public string RequestId { get; set; } = "";

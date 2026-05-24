@@ -20,6 +20,8 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
     private const string SecretTypeNamespace = "Backend.Plugins.Configuration";
     private const string SecretTypeMetadataName = "Secret`1";
     private const string DescriptionAttributeMetadataName = "System.ComponentModel.DescriptionAttribute";
+    private const string PluginJsonSerializableAttributeNamespace = "Backend.Plugins.Harness";
+    private const string PluginJsonSerializableAttributeMetadataName = "PluginJsonSerializableAttribute";
 
     private static readonly SymbolDisplayFormat FullyQualifiedFormat =
         new(
@@ -54,6 +56,14 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
     private static readonly DiagnosticDescriptor UnsupportedPropertyTypeRule = new(
         id: "WBP004",
         title: "Unsupported contract property type",
+        messageFormat: "{0}",
+        category: "WorkflowBuilder.PluginContracts",
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor MissingPluginJsonSerializableAttributeRule = new(
+        id: "WBP005",
+        title: "Plugin channel DTO must be marked for JSON source generation",
         messageFormat: "{0}",
         category: "WorkflowBuilder.PluginContracts",
         DiagnosticSeverity.Error,
@@ -362,6 +372,11 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
             ? null
             : BuildChannelContract(invocation.InputChannel, isGlobalState: false, diagnostics);
 
+        foreach (var outputChannel in invocation.OutputChannels)
+        {
+            ValidatePluginJsonSerializableAttribute(outputChannel, "Output channel", diagnostics);
+        }
+
         var outputChannels = invocation.OutputChannels
             .Select(channel => BuildChannelContract(channel, isGlobalState: false, diagnostics))
             .Where(channel => channel is not null)
@@ -371,6 +386,10 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
         var globalState = invocation.GlobalState is null
             ? null
             : BuildChannelContract(invocation.GlobalState, isGlobalState: true, diagnostics);
+        if (invocation.GlobalState is not null)
+        {
+            ValidatePluginJsonSerializableAttribute(invocation.GlobalState, "Global state", diagnostics);
+        }
         var capabilityRequirements = invocation.CapabilityTypes
             .Select(capabilityType => BuildCapabilityRequirement(capabilityType, diagnostics))
             .Where(capability => capability is not null)
@@ -522,6 +541,36 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
     private static bool HasAttributeMetadataName(AttributeData attribute, string metadataName) =>
         attribute.AttributeClass?.MetadataName.Equals(metadataName, StringComparison.Ordinal) == true &&
         attribute.AttributeClass.ContainingNamespace.ToDisplayString().StartsWith(CapabilityNamespacePrefix, StringComparison.Ordinal);
+
+    private static void ValidatePluginJsonSerializableAttribute(
+        PluginChannelContract channel,
+        string contractKind,
+        ImmutableArray<Diagnostic>.Builder diagnostics)
+    {
+        if (channel.TypeSymbol is null)
+        {
+            return;
+        }
+
+        if (channel.TypeSymbol.GetAttributes().Any(IsPluginJsonSerializableAttribute))
+        {
+            return;
+        }
+
+        diagnostics.Add(Diagnostic.Create(
+            MissingPluginJsonSerializableAttributeRule,
+            channel.Location,
+            $"{contractKind} '{channel.Name}' DTO '{channel.TypeName}' must be decorated with [PluginJsonSerializable] so the plugin harness can use source-generated JSON metadata."));
+    }
+
+    private static bool IsPluginJsonSerializableAttribute(AttributeData attribute) =>
+        attribute.AttributeClass?.MetadataName.Equals(
+            PluginJsonSerializableAttributeMetadataName,
+            StringComparison.Ordinal) == true &&
+        string.Equals(
+            attribute.AttributeClass.ContainingNamespace.ToDisplayString(),
+            PluginJsonSerializableAttributeNamespace,
+            StringComparison.Ordinal);
 
     private static string? GetConstructorString(AttributeData attribute, int index)
     {

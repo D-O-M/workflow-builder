@@ -15,6 +15,7 @@ public sealed class GatewaySubmitInput
     public string CommandVariant { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class GatewaySubmitResult
 {
     public string RequestId { get; set; } = "";

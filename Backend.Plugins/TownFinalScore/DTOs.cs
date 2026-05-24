@@ -13,6 +13,7 @@ public sealed class FinalScoreInput
     public double DemandAdjustment { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class FinalTownScore
 {
     public string Town { get; set; } = "";

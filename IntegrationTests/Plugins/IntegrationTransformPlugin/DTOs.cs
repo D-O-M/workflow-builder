@@ -2,6 +2,7 @@ using Backend.Plugins.Harness;
 
 namespace WorkflowBuilder.IntegrationTests.Plugins.IntegrationTransformPlugin;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class IntegrationWorkflowState : IGlobalState
 {
     public string RunLabel { get; set; } = string.Empty;
@@ -22,6 +23,7 @@ public sealed class TransformRequest
     public int Score { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class TransformSuccess
 {
     public string Message { get; set; } = string.Empty;

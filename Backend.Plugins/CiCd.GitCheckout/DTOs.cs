@@ -9,6 +9,7 @@ public sealed class GitCheckoutInput
     public bool CleanWorkspace { get; set; } = true;
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class GitCheckoutResult
 {
     public string BuildId { get; set; } = "";

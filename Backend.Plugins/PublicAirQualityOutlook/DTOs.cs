@@ -9,6 +9,7 @@ public sealed class AirQualityWindowInput
     public DateOnly WindowEndIsoDate { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirQualityWindowResult
 {
     public string LocationLabel { get; set; } = "";

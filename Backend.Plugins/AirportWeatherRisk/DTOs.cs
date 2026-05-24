@@ -15,6 +15,7 @@ public sealed class AirportWeatherRiskInput
     public int HighestAdvisorySeverityScore { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportWeatherRiskResult
 {
     public string AirportCode { get; set; } = "";

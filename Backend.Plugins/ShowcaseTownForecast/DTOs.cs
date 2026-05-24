@@ -10,6 +10,7 @@ public sealed class ResolvedTown
     public double Longitude { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class TownWeekendForecast
 {
     public string RequestedTownName { get; set; } = "";

@@ -7,6 +7,7 @@ public sealed class UiBuildInput
     public string UiPath { get; set; } = "UI";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class UiBuildResult
 {
     public string BuildId { get; set; } = "";

@@ -1,6 +1,6 @@
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Text.Json;
+using System.Text.Json.Serialization;
 using Backend.Engine.Capabilities;
 using Backend.Database.State.Objects;
 using Backend.Plugins.Configuration;
@@ -26,9 +26,10 @@ public class PluginBuilder<TPlugin>
     private static readonly string ProcessStepsContainerName = WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name;
     private static readonly string ProcessesContainerName = WorkflowBuilderTopology.Cosmos.Containers.Processes.Name;
     private readonly string _displayName;
-    private Func<TPlugin, object?>? _globalStateGetter;
+    private readonly JsonSerializerContext? _jsonSerializerContext;
+    private IPluginGlobalStateSerializer<TPlugin>? _globalStateSerializer;
     private readonly Dictionary<string, PluginChannel> _inputChannels = new();
-    private readonly Dictionary<string, PluginChannel> _outputChannels = new();
+    private readonly Dictionary<string, IPluginOutputChannel<TPlugin>> _outputChannels = new();
     private readonly HashSet<Type> _capabilityTypes = [];
     private readonly HashSet<Type> _configurationTypes = [];
     private readonly HostApplicationBuilder _hostAppBuilder;
@@ -46,6 +47,7 @@ public class PluginBuilder<TPlugin>
         _hostAppBuilder.Services.AddHostedService<EventHandler<TPlugin>>();
 
         _hostAppBuilder.Logging.ClearProviders();
+        _jsonSerializerContext = PluginJsonSerialization.ResolveContext(typeof(TPlugin));
 
         var openTelemetry = _hostAppBuilder.Services.AddOpenTelemetry()
             .ConfigureResource(builder => builder.AddService(displayName))
@@ -86,8 +88,7 @@ public class PluginBuilder<TPlugin>
             throw new InvalidOperationException($"Input channel '{name}' is already configured.");
 
         _inputChannels.Add(name,
-            new PluginChannel<TPlugin, TChannelType>(
-                name, propertySelector.Compile()));
+            new PluginChannel(name, typeof(TChannelType)));
 
         // Register setter utility
         _hostAppBuilder.Services.AddSingleton(
@@ -148,7 +149,14 @@ public class PluginBuilder<TPlugin>
         if (_outputChannels.ContainsKey(name))
             throw new InvalidOperationException($"Output channel '{name}' is already configured.");
 
-        _outputChannels.Add(name, new PluginChannel<TPlugin, TChannelType>(name, getter));
+        _outputChannels.Add(
+            name,
+            new PluginOutputChannel<TPlugin, TChannelType>(
+                name,
+                getter,
+                PluginJsonSerialization.GetTypeInfo<TChannelType>(
+                    _jsonSerializerContext,
+                    $"output channel '{name}'")));
         return this;
     }
 
@@ -162,11 +170,14 @@ public class PluginBuilder<TPlugin>
             throw new InvalidOperationException($"Input channel '{name}' is already configured.");
 
         _inputChannels.Add(name,
-            new PluginChannel<TPlugin, TGlobalState>(
-                name, propertySelector.Compile()));
+            new PluginChannel(name, typeof(TGlobalState)));
 
         var globalStateGetter = propertySelector.Compile();
-        _globalStateGetter = plugin => globalStateGetter(plugin);
+        _globalStateSerializer = new PluginGlobalStateSerializer<TPlugin, TGlobalState>(
+            globalStateGetter,
+            PluginJsonSerialization.GetTypeInfo<TGlobalState>(
+                _jsonSerializerContext,
+                "global state"));
 
         _hostAppBuilder.Services.AddSingleton(
             new PropertySetterUtility<TPlugin, TGlobalState>(propertySelector));
@@ -202,7 +213,7 @@ public class PluginBuilder<TPlugin>
         _hostAppBuilder.Services.AddSingleton(
             new PluginExecutionResultFactory<TPlugin>(
                 _outputChannels.Values.ToList(),
-                _globalStateGetter));
+                _globalStateSerializer));
 
         host = _hostAppBuilder.Build();
 

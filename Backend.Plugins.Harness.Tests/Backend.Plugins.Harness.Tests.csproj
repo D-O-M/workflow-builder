@@ -9,6 +9,7 @@
   <ItemGroup>
     <PackageReference Include="Shouldly" />
     <PackageReference Include="TUnit" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -16,5 +17,6 @@
     <ProjectReference Include="..\Backend.Plugins.Configuration\Dcc\Backend.Plugins.Configuration.Dcc.csproj" />
     <ProjectReference Include="..\Backend.Engine.Capabilities\Backend.Engine.Capabilities.csproj" />
     <ProjectReference Include="..\Backend.Plugins.Harness\Backend.Plugins.Harness.csproj" />
+    <ProjectReference Include="..\Backend.Plugins.Harness.Generator\Backend.Plugins.Harness.Generator.csproj" Aliases="Generator" />
   </ItemGroup>
 </Project>

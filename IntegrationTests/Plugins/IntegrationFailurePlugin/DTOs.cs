@@ -2,6 +2,7 @@ using Backend.Plugins.Harness;
 
 namespace WorkflowBuilder.IntegrationTests.Plugins.IntegrationFailurePlugin;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class IntegrationWorkflowState : IGlobalState
 {
     public string RunLabel { get; set; } = string.Empty;
@@ -22,6 +23,7 @@ public sealed class FailureRequest
     public int Score { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class FailureSuccess
 {
     public string Outcome { get; set; } = string.Empty;

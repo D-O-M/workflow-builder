@@ -6,6 +6,7 @@ public sealed class EcbExchangeRateInput
     public string QuoteCurrencyCode { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class EcbExchangeRateResult
 {
     public string BaseCurrencyCode { get; set; } = "";

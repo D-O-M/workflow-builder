@@ -13,6 +13,7 @@ public sealed class DeliveryScenarioInput
     public DateOnly WindowEndIsoDate { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DeliveryScenarioResult
 {
     public string ShipmentLabel { get; set; } = "";

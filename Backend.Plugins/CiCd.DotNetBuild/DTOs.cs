@@ -8,6 +8,7 @@ public sealed class DotNetBuildInput
     public string Configuration { get; set; } = "Release";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DotNetBuildResult
 {
     public string BuildId { get; set; } = "";

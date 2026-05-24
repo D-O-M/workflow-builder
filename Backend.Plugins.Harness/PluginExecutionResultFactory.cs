@@ -6,17 +6,15 @@ namespace Backend.Plugins.Harness;
 internal sealed class PluginExecutionResultFactory<TPlugin>
     where TPlugin : class, IPlugin
 {
-    private static readonly JsonSerializerOptions ContractJsonOptions = new(JsonSerializerDefaults.General);
-
-    private readonly Func<TPlugin, object?>? _globalStateGetter;
-    private readonly IReadOnlyCollection<PluginChannel> _outputChannels;
+    private readonly IPluginGlobalStateSerializer<TPlugin>? _globalStateSerializer;
+    private readonly IReadOnlyCollection<IPluginOutputChannel<TPlugin>> _outputChannels;
 
     public PluginExecutionResultFactory(
-        IReadOnlyCollection<PluginChannel> outputChannels,
-        Func<TPlugin, object?>? globalStateGetter)
+        IReadOnlyCollection<IPluginOutputChannel<TPlugin>> outputChannels,
+        IPluginGlobalStateSerializer<TPlugin>? globalStateSerializer)
     {
         _outputChannels = outputChannels;
-        _globalStateGetter = globalStateGetter;
+        _globalStateSerializer = globalStateSerializer;
     }
 
     public PluginExecutionResult CreateSuccess(
@@ -66,16 +64,13 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
 
         foreach (var outputChannel in _outputChannels)
         {
-            var value = outputChannel.GetValue(plugin);
-            if (value is null)
+            var serialized = outputChannel.Serialize(plugin);
+            if (serialized is null)
             {
                 continue;
             }
 
-            outputData[outputChannel.Name] = JsonSerializer.SerializeToElement(
-                value,
-                value.GetType(),
-                ContractJsonOptions);
+            outputData[outputChannel.Name] = serialized.Value;
         }
 
         return outputData;
@@ -83,21 +78,12 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
 
     private Dictionary<string, JsonElement>? BuildGlobalState(TPlugin plugin)
     {
-        if (_globalStateGetter is null)
+        if (_globalStateSerializer is null)
         {
             return null;
         }
 
-        var value = _globalStateGetter(plugin);
-        if (value is null)
-        {
-            return new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        }
-
-        return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
-                   JsonSerializer.Serialize(value, value.GetType(), ContractJsonOptions),
-                   ContractJsonOptions)
-               ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        return _globalStateSerializer.Serialize(plugin);
     }
 
     private static Dictionary<string, JsonElement>? CloneEffectiveInputData(

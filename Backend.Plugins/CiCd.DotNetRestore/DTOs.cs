@@ -7,6 +7,7 @@ public sealed class DotNetRestoreInput
     public string SolutionPath { get; set; } = "Backend.slnx";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DotNetRestoreResult
 {
     public string BuildId { get; set; } = "";

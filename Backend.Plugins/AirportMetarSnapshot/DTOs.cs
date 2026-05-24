@@ -5,6 +5,7 @@ public sealed class AirportMetarInput
     public string StationCode { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportMetarResult
 {
     public string StationCode { get; set; } = "";

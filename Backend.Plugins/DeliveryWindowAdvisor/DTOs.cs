@@ -22,6 +22,7 @@ public sealed class DeliveryWindowAdvisorInput
     public int WatchThreshold { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DeliveryWindowAdvisorResult
 {
     public string ShipmentLabel { get; set; } = "";

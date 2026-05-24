@@ -15,6 +15,7 @@ public sealed class SendPhaseTriggerEmailInput
     public string OutboxRoot { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class SendPhaseTriggerEmailResult
 {
     public string BuildId { get; set; } = "";

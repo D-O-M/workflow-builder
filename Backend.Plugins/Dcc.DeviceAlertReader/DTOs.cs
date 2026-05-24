@@ -9,6 +9,7 @@ public sealed class DeviceAlertReaderInput
     public string XsdPathList { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DeviceAlertReaderResult
 {
     public string RequestId { get; set; } = "";

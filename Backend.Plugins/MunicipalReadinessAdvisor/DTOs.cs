@@ -16,6 +16,7 @@ public sealed class MunicipalReadinessInput
     public int WatchThreshold { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class MunicipalReadinessResult
 {
     public string LocationLabel { get; set; } = "";

@@ -14,6 +14,7 @@ public sealed class ParseRequestWriterInput
     public string XsdPathList { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class ParseRequestWriterResult
 {
     public string RequestId { get; set; } = "";

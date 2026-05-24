@@ -2,6 +2,7 @@ using Backend.Plugins.Harness;
 
 namespace WorkflowBuilder.IntegrationTests.Plugins.IntegrationJoinProbePlugin;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class IntegrationWorkflowState : IGlobalState
 {
     public string RunLabel { get; set; } = string.Empty;
@@ -26,6 +27,7 @@ public sealed class JoinProbeRequest
     public string Mode { get; set; } = string.Empty;
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class JoinProbeSuccess
 {
     public string Summary { get; set; } = string.Empty;

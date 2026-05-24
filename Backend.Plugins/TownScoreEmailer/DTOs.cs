@@ -17,6 +17,7 @@ public sealed class EmailSendInput
     public string SendGridApiKeyEnv { get; set; } = "SENDGRID_API_KEY";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class EmailSendResult
 {
     public bool Success { get; set; }

@@ -11,6 +11,7 @@ public sealed class HolidayDemandInput
     public DateOnly WeekendEnd { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class HolidayDemandResult
 {
     public string Town { get; set; } = "";

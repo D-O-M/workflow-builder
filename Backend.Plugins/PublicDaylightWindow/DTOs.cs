@@ -9,6 +9,7 @@ public sealed class DaylightWindowInput
     public DateOnly WindowEndIsoDate { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DaylightWindowResult
 {
     public string LocationLabel { get; set; } = "";

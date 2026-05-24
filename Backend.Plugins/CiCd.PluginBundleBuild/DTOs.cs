@@ -10,6 +10,7 @@ public sealed class PluginBundleBuildInput
     public string RuntimeIdentifier { get; set; } = "";
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class PluginBundleBuildResult
 {
     public string BuildId { get; set; } = "";
