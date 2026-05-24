@@ -1,5 +1,6 @@
 namespace PublicAirQualityOutlook;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirQualityWindowInput
 {
     public string LocationLabel { get; set; } = "";

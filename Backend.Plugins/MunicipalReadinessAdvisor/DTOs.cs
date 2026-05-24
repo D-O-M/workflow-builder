@@ -1,5 +1,6 @@
 namespace MunicipalReadinessAdvisor;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class MunicipalReadinessInput
 {
     public string LocationLabel { get; set; } = "";

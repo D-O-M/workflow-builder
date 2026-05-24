@@ -1,5 +1,6 @@
 namespace ShowcaseTownHoliday;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class TownWeekendForecast
 {
     public string RequestedTownName { get; set; } = "";

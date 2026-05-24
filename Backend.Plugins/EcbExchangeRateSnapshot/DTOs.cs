@@ -1,5 +1,6 @@
 namespace EcbExchangeRateSnapshot;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class EcbExchangeRateInput
 {
     public string BaseCurrencyCode { get; set; } = "";

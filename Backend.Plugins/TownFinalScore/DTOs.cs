@@ -1,5 +1,6 @@
 namespace TownFinalScore;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class FinalScoreInput
 {
     public string Town { get; set; } = "";

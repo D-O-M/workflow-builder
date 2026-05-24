@@ -80,7 +80,7 @@ internal sealed class InputChannelHydrationDescriptor<TPlugin, TProperty> : IPlu
             cancellationToken).ConfigureAwait(false);
 
         _setter.Set(plugin, hydrated.Value);
-        context.EffectiveInputData[_channelName] = hydrated.EffectiveInput.Clone();
+        context.EffectiveInputData[_channelName] = hydrated.EffectiveInput;
     }
 }
 

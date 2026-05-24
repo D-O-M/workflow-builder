@@ -2,6 +2,7 @@ using Backend.Plugins.Harness;
 
 namespace WeatherWeekendForecast;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class GeoLocation
 {
     public string Town { get; set; } = "";

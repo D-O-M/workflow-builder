@@ -1,5 +1,6 @@
 namespace CiCd.GitCheckout;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class GitCheckoutInput
 {
     public string BuildId { get; set; } = "";

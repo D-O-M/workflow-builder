@@ -1,5 +1,6 @@
 namespace ShowcaseTownForecast;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class ResolvedTown
 {
     public string RequestedTownName { get; set; } = "";

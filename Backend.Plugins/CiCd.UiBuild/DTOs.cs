@@ -1,5 +1,6 @@
 namespace CiCd.UiBuild;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class UiBuildInput
 {
     public string BuildId { get; set; } = "";

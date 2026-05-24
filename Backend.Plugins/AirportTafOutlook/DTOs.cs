@@ -1,5 +1,6 @@
 namespace AirportTafOutlook;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportTafInput
 {
     public string StationCode { get; set; } = "";

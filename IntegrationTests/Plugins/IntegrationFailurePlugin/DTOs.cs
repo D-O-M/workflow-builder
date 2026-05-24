@@ -16,6 +16,7 @@ public sealed class IntegrationWorkflowState : IGlobalState
     public bool ShouldFail { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class FailureRequest
 {
     public string NormalizedName { get; set; } = string.Empty;

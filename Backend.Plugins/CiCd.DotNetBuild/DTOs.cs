@@ -1,5 +1,6 @@
 namespace CiCd.DotNetBuild;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DotNetBuildInput
 {
     public string BuildId { get; set; } = "";

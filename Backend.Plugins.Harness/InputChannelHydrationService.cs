@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Backend.Database.State.Objects;
 using Backend.Plugins.Communication;
 
@@ -8,12 +9,19 @@ internal sealed class InputChannelHydrationService<TChannelType>
     where TChannelType : class
 {
     private readonly IPluginDocumentStore<ProcessStepRecord> _stepStore;
+    private readonly JsonTypeInfo<TChannelType> _jsonTypeInfo;
+    private readonly IPluginInputMaterializer<TChannelType>? _materializer;
     private readonly TimeSpan _hydrationTimeout;
     private readonly bool _diagnosticsEnabled;
 
-    public InputChannelHydrationService(IPluginDocumentStore<ProcessStepRecord> stepStore)
+    public InputChannelHydrationService(
+        IPluginDocumentStore<ProcessStepRecord> stepStore,
+        JsonTypeInfo<TChannelType> jsonTypeInfo,
+        IPluginInputMaterializer<TChannelType>? materializer = null)
     {
         _stepStore = stepStore;
+        _jsonTypeInfo = jsonTypeInfo;
+        _materializer = materializer;
         _hydrationTimeout = GetHydrationTimeout();
         _diagnosticsEnabled = string.Equals(
             Environment.GetEnvironmentVariable("PluginRuntime__Diagnostics"),
@@ -39,7 +47,7 @@ internal sealed class InputChannelHydrationService<TChannelType>
         var merged = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         foreach (var (key, value) in plan.InitialInput)
         {
-            merged[key] = value.Clone();
+            merged[key] = value;
         }
 
         foreach (var source in plan.Sources)
@@ -48,7 +56,7 @@ internal sealed class InputChannelHydrationService<TChannelType>
             {
                 foreach (var (key, value) in source.InlineInput)
                 {
-                    merged[key] = value.Clone();
+                    merged[key] = value;
                 }
 
                 continue;
@@ -71,19 +79,20 @@ internal sealed class InputChannelHydrationService<TChannelType>
                     $"Source process step '{source.SourceProcessStepId}' does not contain output channel '{source.SourceOutputChannelName}' for binding '{source.BindingId}'.");
             }
 
-            foreach (var (key, value) in MaterializePartialInput(sourcePayload, source.PropertyMappings))
-            {
-                merged[key] = value.Clone();
-            }
+            ApplySourceMappings(sourcePayload, source.PropertyMappings, merged);
         }
 
         ApplyOverrides(merged, plan.DesignTimeInputOverrides);
         ApplyOverrides(merged, plan.RuntimeInputOverrides);
 
-        var effectiveInput = JsonSerializer.SerializeToElement(merged, JsonSerializerOptions.Web);
-        var typedValue = effectiveInput.Deserialize<TChannelType>(JsonSerializerOptions.Web)
-            ?? throw new InvalidOperationException(
-                $"Unable to hydrate input channel '{channelName}' as {typeof(TChannelType).FullName}.");
+        var effectiveInput = JsonSerializer.SerializeToElement(
+            merged,
+            PluginJsonSerialization.InputJsonOptions);
+        var typedValue = _materializer is not null
+            ? _materializer.Materialize(merged)
+            : effectiveInput.Deserialize(_jsonTypeInfo)
+              ?? throw new InvalidOperationException(
+                  $"Unable to hydrate input channel '{channelName}' as {typeof(TChannelType).FullName}.");
 
         WriteDiagnostic(
             $"Hydrated {typeof(TChannelType).Name} for step {envelope.ProcessStepId}.");
@@ -93,34 +102,36 @@ internal sealed class InputChannelHydrationService<TChannelType>
             effectiveInput);
     }
 
-    private static Dictionary<string, JsonElement> MaterializePartialInput(
+    private static void ApplySourceMappings(
         JsonElement sourcePayload,
-        IReadOnlyCollection<InputHydrationPropertyMapping> mappings)
+        IReadOnlyCollection<InputHydrationPropertyMapping> mappings,
+        IDictionary<string, JsonElement> target)
     {
-        var materialized = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         if (sourcePayload.ValueKind != JsonValueKind.Object)
         {
-            return materialized;
+            return;
         }
 
-        var sourceProperties = sourcePayload.EnumerateObject().ToList();
-        var exactSourceProperties = sourceProperties
-            .ToDictionary(property => property.Name, property => property.Value, StringComparer.Ordinal);
+        List<JsonProperty>? sourceProperties = null;
 
         foreach (var mapping in mappings)
         {
-            if (exactSourceProperties.TryGetValue(mapping.SourceProperty, out var value) ||
-                TryGetCompatibleSourceProperty(sourceProperties, mapping.SourceProperty, out value))
+            if (sourcePayload.TryGetProperty(mapping.SourceProperty, out var value))
             {
-                materialized[mapping.TargetProperty] = value.Clone();
+                target[mapping.TargetProperty] = value;
+                continue;
+            }
+
+            sourceProperties ??= sourcePayload.EnumerateObject().ToList();
+            if (TryGetCompatibleSourceProperty(sourceProperties, mapping.SourceProperty, out value))
+            {
+                target[mapping.TargetProperty] = value;
                 continue;
             }
 
             throw new InvalidOperationException(
                 $"Source property '{mapping.SourceProperty}' required for target property '{mapping.TargetProperty}' was not found.");
         }
-
-        return materialized;
     }
 
     private static void ApplyOverrides(
@@ -134,7 +145,7 @@ internal sealed class InputChannelHydrationService<TChannelType>
 
         foreach (var (key, value) in overrides)
         {
-            target[key] = value.Clone();
+            target[key] = value;
         }
     }
 

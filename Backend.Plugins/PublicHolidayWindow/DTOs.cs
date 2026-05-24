@@ -1,5 +1,6 @@
 namespace PublicHolidayWindow;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class HolidayWindowInput
 {
     public string LocationLabel { get; set; } = "";

@@ -1,5 +1,6 @@
 namespace CiCd.UiUnitTest;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class UiUnitTestInput
 {
     public string BuildId { get; set; } = "";

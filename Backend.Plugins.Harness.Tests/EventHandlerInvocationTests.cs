@@ -87,7 +87,10 @@ public sealed class EventHandlerInvocationTests
                     new MemoryPluginDocumentStore<ProcessStepRecord>((_, _) => null));
                 services.AddScoped(sp =>
                     new InputChannelHydrationService<InputDto>(
-                        sp.GetRequiredService<IPluginDocumentStore<ProcessStepRecord>>()));
+                        sp.GetRequiredService<IPluginDocumentStore<ProcessStepRecord>>(),
+                        PluginJsonSerialization.RequireTypeInfo<InputDto>(
+                            EventHandlerInvocationJsonContext.Default,
+                            "test input channel")));
             });
         var handler = CreateHandler<InputHydrationPlugin>(provider);
 
@@ -502,7 +505,8 @@ public sealed class EventHandlerInvocationTests
             Task.FromResult(_resolver(documentId, partitionKey));
     }
 
-    private sealed class InputDto
+    [PluginJsonSerializable]
+    public sealed class InputDto
     {
         public string? Text { get; set; }
         public int Number { get; set; }
@@ -545,6 +549,7 @@ public sealed class EventHandlerInvocationTests
 }
 
 [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata)]
+[JsonSerializable(typeof(EventHandlerInvocationTests.InputDto))]
 [JsonSerializable(typeof(EventHandlerInvocationTests.InvocationOutput))]
 [JsonSerializable(typeof(EventHandlerInvocationTests.HydrationOutput))]
 [JsonSerializable(typeof(EventHandlerInvocationTests.GlobalStateOutput))]

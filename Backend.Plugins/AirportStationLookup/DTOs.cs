@@ -1,5 +1,6 @@
 namespace AirportStationLookup;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportStationLookupInput
 {
     public string AirportCode { get; set; } = "";

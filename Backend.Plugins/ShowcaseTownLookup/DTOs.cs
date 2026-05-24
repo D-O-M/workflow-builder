@@ -1,5 +1,6 @@
 namespace ShowcaseTownLookup;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class TownLookupRequest
 {
     public string RequestedTownName { get; set; } = "";

@@ -1,5 +1,6 @@
 namespace CiCd.DotNetRestore;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DotNetRestoreInput
 {
     public string BuildId { get; set; } = "";

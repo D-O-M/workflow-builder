@@ -1,5 +1,6 @@
 namespace DeliveryWindowAdvisor;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DeliveryWindowAdvisorInput
 {
     public string ShipmentLabel { get; set; } = "";

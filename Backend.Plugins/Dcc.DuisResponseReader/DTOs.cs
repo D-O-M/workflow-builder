@@ -1,5 +1,6 @@
 namespace Dcc.DuisResponseReader;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DuisResponseReaderInput
 {
     public string XmlContainerName { get; set; } = "";

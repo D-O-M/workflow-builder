@@ -1,5 +1,6 @@
 namespace CiCd.SendPhaseTriggerEmail;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class SendPhaseTriggerEmailInput
 {
     public string BuildId { get; set; } = "";

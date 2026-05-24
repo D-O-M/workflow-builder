@@ -1,5 +1,6 @@
 namespace Dcc.DeviceAlertReader;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DeviceAlertReaderInput
 {
     public string XmlContainerName { get; set; } = "";

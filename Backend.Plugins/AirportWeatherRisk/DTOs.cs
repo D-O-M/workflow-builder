@@ -1,5 +1,6 @@
 namespace AirportWeatherRisk;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportWeatherRiskInput
 {
     public string AirportCode { get; set; } = "";

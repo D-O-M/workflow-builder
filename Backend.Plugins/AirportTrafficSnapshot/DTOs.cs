@@ -1,5 +1,6 @@
 namespace AirportTrafficSnapshot;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportTrafficInput
 {
     public string AirportCode { get; set; } = "";

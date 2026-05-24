@@ -1,5 +1,6 @@
 namespace Dcc.GatewaySubmit;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class GatewaySubmitInput
 {
     public string XmlContainerName { get; set; } = "";

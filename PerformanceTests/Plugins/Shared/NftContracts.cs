@@ -16,6 +16,7 @@ public sealed class NftProcessState : IGlobalState
     public bool TraceEnabled { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftSeedRequest
 {
     public string CorrelationKey { get; set; } = string.Empty;
@@ -41,6 +42,7 @@ public sealed class NftSeedContext
     public string Region { get; set; } = string.Empty;
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftBranchRequest
 {
     public string CorrelationKey { get; set; } = string.Empty;
@@ -68,6 +70,7 @@ public sealed class NftBranchResult
     public string BranchDigest { get; set; } = string.Empty;
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftJoinRequest
 {
     public string CorrelationKey { get; set; } = string.Empty;
@@ -97,6 +100,7 @@ public sealed class NftJoinResult
     public string Summary { get; set; } = string.Empty;
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftSinkRequest
 {
     public string CorrelationKey { get; set; } = string.Empty;
@@ -118,6 +122,7 @@ public sealed class NftCompletion
     public string ResultCode { get; set; } = string.Empty;
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftLaneRequest
 {
     public string CorrelationKey { get; set; } = string.Empty;
@@ -145,6 +150,7 @@ public sealed class NftLaneResult
     public string LaneDigest { get; set; } = string.Empty;
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftCollectionSeedRequest
 {
     public string CorrelationKey { get; set; } = string.Empty;
@@ -162,6 +168,7 @@ public sealed class NftCollectionSeedResult
     public string[] Items { get; set; } = [];
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftItemSinkRequest
 {
     public string Item { get; set; } = string.Empty;

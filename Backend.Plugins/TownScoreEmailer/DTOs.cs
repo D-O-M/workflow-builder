@@ -1,5 +1,6 @@
 namespace TownScoreEmailer;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class EmailSendInput
 {
     public string Town { get; set; } = "";

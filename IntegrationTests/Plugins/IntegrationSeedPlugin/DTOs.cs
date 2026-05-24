@@ -16,6 +16,7 @@ public sealed class IntegrationWorkflowState : IGlobalState
     public bool ShouldFail { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class SeedRequest
 {
     public string Name { get; set; } = string.Empty;

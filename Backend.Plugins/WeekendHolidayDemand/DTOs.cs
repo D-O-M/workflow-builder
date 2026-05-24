@@ -2,6 +2,7 @@ using Backend.Plugins.Harness;
 
 namespace WeekendHolidayDemand;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class HolidayDemandInput
 {
     public string Town { get; set; } = "";

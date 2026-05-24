@@ -1,5 +1,6 @@
 namespace CiCd.PublishArtifacts;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class PublishArtifactsInput
 {
     public string BuildId { get; set; } = "";

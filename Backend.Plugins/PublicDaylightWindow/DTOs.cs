@@ -1,5 +1,6 @@
 namespace PublicDaylightWindow;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DaylightWindowInput
 {
     public string LocationLabel { get; set; } = "";

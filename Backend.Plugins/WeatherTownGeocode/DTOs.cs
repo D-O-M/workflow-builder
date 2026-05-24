@@ -1,5 +1,6 @@
 namespace WeatherTownGeocode;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class TownInput
 {
     public string Town { get; set; } = "";

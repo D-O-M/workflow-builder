@@ -1,5 +1,6 @@
 namespace CiCd.DotNetTest;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DotNetTestInput
 {
     public string BuildId { get; set; } = "";

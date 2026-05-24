@@ -1,5 +1,6 @@
 namespace Dcc.ParseRequestWriter;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class ParseRequestWriterInput
 {
     public string RequestId { get; set; } = "";

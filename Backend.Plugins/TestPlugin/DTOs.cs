@@ -9,6 +9,7 @@ public class State : IGlobalState
     public string PlayerIP { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public class PlayerInput
 {
     public int Score { get; set; }
@@ -23,4 +24,5 @@ public class PlayerOutput
     public bool Alive { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public record OtherThing(string Foo, decimal Bar);

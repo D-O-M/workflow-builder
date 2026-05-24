@@ -1,5 +1,6 @@
 namespace AirportMetarSnapshot;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportMetarInput
 {
     public string StationCode { get; set; } = "";

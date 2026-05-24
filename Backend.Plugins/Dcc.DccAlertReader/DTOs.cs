@@ -1,5 +1,6 @@
 namespace Dcc.DccAlertReader;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DccAlertReaderInput
 {
     public string XmlContainerName { get; set; } = "";

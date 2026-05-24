@@ -1,5 +1,6 @@
 namespace CiCd.PluginBundleBuild;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class PluginBundleBuildInput
 {
     public string BuildId { get; set; } = "";

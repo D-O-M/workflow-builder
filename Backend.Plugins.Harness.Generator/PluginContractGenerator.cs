@@ -10,6 +10,7 @@ namespace Backend.Plugins.Harness.Generator;
 public sealed class PluginContractGenerator : IIncrementalGenerator
 {
     private const string ContractProviderMetadataKey = "WorkflowBuilder.PluginContractProvider";
+    private const string InputMaterializerProviderMetadataKey = "WorkflowBuilder.PluginInputMaterializerProvider";
     private const string CapabilityNamespacePrefix = "Backend.Engine.Capabilities";
     private const string EngineCapabilityAttributeMetadataName = "EngineCapabilityAttribute";
     private const string CommandCapabilityAttributeMetadataName = "CommandCapabilityAttribute";
@@ -371,6 +372,10 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
         var inputChannel = invocation.InputChannel is null
             ? null
             : BuildChannelContract(invocation.InputChannel, isGlobalState: false, diagnostics);
+        if (invocation.InputChannel is not null)
+        {
+            ValidatePluginJsonSerializableAttribute(invocation.InputChannel, "Input channel", diagnostics);
+        }
 
         foreach (var outputChannel in invocation.OutputChannels)
         {
@@ -894,6 +899,11 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
         }
 
         var properties = new List<GeneratedPropertyContract>();
+        var canGenerateInputMaterializer =
+            resolvedChannelType is INamedTypeSymbol namedChannelType &&
+            namedChannelType.InstanceConstructors.Any(static constructor =>
+                constructor.Parameters.Length == 0 &&
+                constructor.DeclaredAccessibility == Accessibility.Public);
         if (resolvedChannelType is not null)
         {
             foreach (var property in resolvedChannelType
@@ -907,9 +917,20 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                 }
 
                 properties.Add(propertyContract);
+                canGenerateInputMaterializer &=
+                    property.SetMethod is { DeclaredAccessibility: Accessibility.Public } setMethod &&
+                    !setMethod.IsInitOnly &&
+                    !property.IsRequired &&
+                    !propertyContract.IsCollection &&
+                    propertyContract.Kind is not WorkflowScalarKind.Enum;
             }
         }
-        return new GeneratedChannelContract(channel.Name, channel.TypeName, properties.OrderBy(property => property.Name, StringComparer.Ordinal).ToList());
+
+        return new GeneratedChannelContract(
+            channel.Name,
+            channel.TypeName,
+            canGenerateInputMaterializer,
+            properties.OrderBy(property => property.Name, StringComparer.Ordinal).ToList());
     }
 
     private static bool TryBuildPropertyContract(
@@ -929,6 +950,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
         }
 
         var propertyType = property.Type;
+        var unwrappedPropertyType = UnwrapNullable(propertyType, out var isNullableValueType);
         if (IsDictionaryType(propertyType))
         {
             diagnostics.Add(Diagnostic.Create(
@@ -951,7 +973,8 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
             return false;
         }
 
-        if (!TryMapWorkflowScalar(property, isCollection ? elementType : propertyType, out var kind, out var isRequired, out var enumValues, out var reason))
+        var scalarType = isCollection ? elementType : unwrappedPropertyType;
+        if (!TryMapWorkflowScalar(property, scalarType, out var kind, out var isRequired, out var enumValues, out var reason))
         {
             diagnostics.Add(Diagnostic.Create(
                 UnsupportedPropertyTypeRule,
@@ -960,7 +983,15 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
             return false;
         }
 
-        contract = new GeneratedPropertyContract(property.Name, kind, isRequired, enumValues, isCollection);
+        contract = new GeneratedPropertyContract(
+            property.Name,
+            ToDisplayName(propertyType),
+            ToDisplayName(scalarType),
+            kind,
+            isRequired,
+            isNullableValueType || property.NullableAnnotation == NullableAnnotation.Annotated,
+            enumValues,
+            isCollection);
         return true;
     }
 
@@ -1126,11 +1157,23 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
 
         var escapedManifest = ToRawStringLiteral(manifestJson);
         var escapedSchemas = ToRawStringLiteral(schemasJson);
+        var materializerProviderTypeName = $"{GetProviderNamespace(providerTypeName)}.WorkflowBuilderPluginInputMaterializerProvider";
+        var materializerMetadata = contract.InputChannel is { CanGenerateInputMaterializer: true }
+            ? $$"""
+[assembly: System.Reflection.AssemblyMetadata("{{InputMaterializerProviderMetadataKey}}", "{{materializerProviderTypeName}}")]
+"""
+            : string.Empty;
+        var inputMaterializerSource = RenderInputMaterializerSource(contract);
 
         return $$"""
+#nullable enable
 using System;
+using System.Collections.Generic;
+using System.Text.Json;
+using Backend.Plugins.Harness;
 
 [assembly: System.Reflection.AssemblyMetadata("{{ContractProviderMetadataKey}}", "{{providerTypeName}}")]
+{{materializerMetadata}}
 
 namespace {{GetProviderNamespace(providerTypeName)}};
 
@@ -1139,8 +1182,122 @@ internal static class {{GetProviderClassName(providerTypeName)}}
     public static string ManifestJson => {{escapedManifest}};
     public static string SchemasJson => {{escapedSchemas}};
 }
+
+{{inputMaterializerSource}}
 """;
     }
+
+    private static string RenderInputMaterializerSource(GeneratedPluginContract contract)
+    {
+        if (contract.InputChannel is not { CanGenerateInputMaterializer: true } inputChannel)
+        {
+            return string.Empty;
+        }
+
+        var materializerClassName = $"{SanitizeIdentifier(inputChannel.Name)}InputMaterializer";
+        var inputTypeReference = ToGlobalTypeReference(inputChannel.TypeName);
+        var assignments = string.Join(
+            "\n",
+            inputChannel.Properties.Select(RenderInputMaterializerAssignment));
+
+        return $$"""
+internal sealed class WorkflowBuilderPluginInputMaterializerProvider : IPluginInputMaterializerProvider
+{
+    public static WorkflowBuilderPluginInputMaterializerProvider Default { get; } = new();
+
+    public IPluginInputMaterializer<TInput>? GetMaterializer<TInput>()
+        where TInput : class
+    {
+        return typeof(TInput) == typeof({{inputTypeReference}})
+            ? (IPluginInputMaterializer<TInput>)(object){{materializerClassName}}.Default
+            : null;
+    }
+
+    private sealed class {{materializerClassName}} : IPluginInputMaterializer<{{inputTypeReference}}>
+    {
+        public static {{materializerClassName}} Default { get; } = new();
+
+        public {{inputTypeReference}} Materialize(IReadOnlyDictionary<string, JsonElement> values)
+        {
+            var result = new {{inputTypeReference}}();
+{{assignments}}
+            return result;
+        }
+    }
+}
+""";
+    }
+
+    private static string RenderInputMaterializerAssignment(GeneratedPropertyContract property)
+    {
+        var elementVariable = $"{SanitizeIdentifier(property.Name)}Element";
+        var valueExpression = RenderInputMaterializerReadExpression(property, elementVariable);
+
+        return $$"""
+            if (PluginInputMaterializerUtilities.TryGetValue(values, "{{property.Name}}", out var {{elementVariable}}))
+            {
+                result.{{property.Name}} = {{valueExpression}};
+            }
+""";
+    }
+
+    private static string RenderInputMaterializerReadExpression(
+        GeneratedPropertyContract property,
+        string elementVariable)
+    {
+        var readExpression = RenderNonNullableInputReadExpression(property, elementVariable);
+        if (property.IsNullable && property.Kind is not WorkflowScalarKind.String)
+        {
+            return $"{elementVariable}.ValueKind == JsonValueKind.Null ? ({property.ClrTypeName})null : {readExpression}";
+        }
+
+        return property.Kind is WorkflowScalarKind.String && !property.IsNullable
+            ? $"{readExpression}!"
+            : readExpression;
+    }
+
+    private static string RenderNonNullableInputReadExpression(
+        GeneratedPropertyContract property,
+        string elementVariable)
+    {
+        return property.Kind switch
+        {
+            WorkflowScalarKind.String => $"PluginInputMaterializerUtilities.ReadString({elementVariable})",
+            WorkflowScalarKind.Boolean => $"{elementVariable}.GetBoolean()",
+            WorkflowScalarKind.Guid => $"PluginInputMaterializerUtilities.ReadGuid({elementVariable})",
+            WorkflowScalarKind.Date => $"PluginInputMaterializerUtilities.ReadDateOnly({elementVariable})",
+            WorkflowScalarKind.DateTime => property.ScalarClrTypeName switch
+            {
+                "System.DateTimeOffset" or "global::System.DateTimeOffset" => $"{elementVariable}.GetDateTimeOffset()",
+                _ => $"{elementVariable}.GetDateTime()"
+            },
+            WorkflowScalarKind.Integer => RenderIntegerReadExpression(property.ScalarClrTypeName, elementVariable),
+            WorkflowScalarKind.Decimal => RenderDecimalReadExpression(property.ScalarClrTypeName, elementVariable),
+            _ => throw new InvalidOperationException(
+                $"Input materializer generation does not support property '{property.Name}' kind '{property.Kind}'.")
+        };
+    }
+
+    private static string RenderIntegerReadExpression(string scalarTypeName, string elementVariable) =>
+        scalarTypeName switch
+        {
+            "byte" or "System.Byte" or "global::System.Byte" => $"PluginInputMaterializerUtilities.ReadByte({elementVariable})",
+            "sbyte" or "System.SByte" or "global::System.SByte" => $"PluginInputMaterializerUtilities.ReadSByte({elementVariable})",
+            "short" or "System.Int16" or "global::System.Int16" => $"PluginInputMaterializerUtilities.ReadInt16({elementVariable})",
+            "ushort" or "System.UInt16" or "global::System.UInt16" => $"PluginInputMaterializerUtilities.ReadUInt16({elementVariable})",
+            "uint" or "System.UInt32" or "global::System.UInt32" => $"PluginInputMaterializerUtilities.ReadUInt32({elementVariable})",
+            "long" or "System.Int64" or "global::System.Int64" => $"PluginInputMaterializerUtilities.ReadInt64({elementVariable})",
+            "ulong" or "System.UInt64" or "global::System.UInt64" => $"PluginInputMaterializerUtilities.ReadUInt64({elementVariable})",
+            _ => $"PluginInputMaterializerUtilities.ReadInt32({elementVariable})"
+        };
+
+    private static string RenderDecimalReadExpression(string scalarTypeName, string elementVariable) =>
+        scalarTypeName switch
+        {
+            "float" or "System.Single" or "global::System.Single" => $"PluginInputMaterializerUtilities.ReadSingle({elementVariable})",
+            "decimal" or "System.Decimal" or "global::System.Decimal" => $"PluginInputMaterializerUtilities.ReadDecimal({elementVariable})",
+            _ => $"PluginInputMaterializerUtilities.ReadDouble({elementVariable})"
+        };
 
     private static ManifestFileChannelInfo MapChannel(GeneratedChannelContract channel) =>
         new()
@@ -1361,6 +1518,11 @@ internal static class {{GetProviderClassName(providerTypeName)}}
 
         return $"{quoteSequence}{value}{quoteSequence}";
     }
+
+    private static string ToGlobalTypeReference(string typeName) =>
+        typeName.StartsWith("global::", StringComparison.Ordinal)
+            ? typeName
+            : $"global::{typeName}";
 
     private static string SerializeManifest(PluginManifestFile manifest)
     {
@@ -1643,12 +1805,16 @@ internal static class {{GetProviderClassName(providerTypeName)}}
     private sealed record GeneratedChannelContract(
         string Name,
         string TypeName,
+        bool CanGenerateInputMaterializer,
         IReadOnlyList<GeneratedPropertyContract> Properties);
 
     private sealed record GeneratedPropertyContract(
         string Name,
+        string ClrTypeName,
+        string ScalarClrTypeName,
         WorkflowScalarKind Kind,
         bool Required,
+        bool IsNullable,
         IReadOnlyList<string>? EnumValues,
         bool IsCollection);
 

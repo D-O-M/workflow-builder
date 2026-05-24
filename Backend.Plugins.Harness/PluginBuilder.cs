@@ -96,9 +96,16 @@ public class PluginBuilder<TPlugin>
 
         EnsureTaskDocumentStoreRegistered();
 
+        var jsonTypeInfo = PluginJsonSerialization.RequireTypeInfo<TChannelType>(
+            _jsonSerializerContext,
+            $"input channel '{name}'");
+        var materializer = PluginInputMaterialization.ResolveMaterializer<TChannelType>(typeof(TPlugin));
+
         _hostAppBuilder.Services.TryAddSingleton(sp =>
             new InputChannelHydrationService<TChannelType>(
-                sp.GetRequiredService<IPluginDocumentStore<ProcessStepRecord>>()));
+                sp.GetRequiredService<IPluginDocumentStore<ProcessStepRecord>>(),
+                jsonTypeInfo,
+                materializer));
 
         _hydrationStepDescriptors.Add(
             new InputChannelHydrationDescriptor<TPlugin, TChannelType>(

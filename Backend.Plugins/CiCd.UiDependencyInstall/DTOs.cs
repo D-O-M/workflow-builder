@@ -1,5 +1,6 @@
 namespace CiCd.UiDependencyInstall;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class UiDependencyInstallInput
 {
     public string BuildId { get; set; } = "";

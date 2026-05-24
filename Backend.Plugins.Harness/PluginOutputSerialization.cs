@@ -97,6 +97,7 @@ internal static class PluginJsonSerialization
     public const string ContextMetadataKey = "WorkflowBuilder.PluginJsonSerializerContext";
 
     public static readonly JsonSerializerOptions ContractJsonOptions = new(JsonSerializerDefaults.General);
+    public static readonly JsonSerializerOptions InputJsonOptions = new(JsonSerializerDefaults.Web);
 
     public static JsonSerializerContext? ResolveContext(Type pluginType)
     {
@@ -141,6 +142,26 @@ internal static class PluginJsonSerialization
             return null;
         }
 
+        return GetTypeInfoCore<TContract>(context, contractDescription);
+    }
+
+    public static JsonTypeInfo<TContract> RequireTypeInfo<TContract>(
+        JsonSerializerContext? context,
+        string contractDescription)
+    {
+        if (context is null)
+        {
+            throw new InvalidOperationException(
+                $"Plugin assembly does not declare a generated JSON serializer context. Add [PluginJsonSerializable] to the {contractDescription} DTO so the plugin harness can use source-generated JSON metadata.");
+        }
+
+        return GetTypeInfoCore<TContract>(context, contractDescription);
+    }
+
+    private static JsonTypeInfo<TContract> GetTypeInfoCore<TContract>(
+        JsonSerializerContext context,
+        string contractDescription)
+    {
         var typeInfo = context.GetTypeInfo(typeof(TContract));
         if (typeInfo is JsonTypeInfo<TContract> typedTypeInfo)
         {

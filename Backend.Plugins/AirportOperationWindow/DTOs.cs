@@ -1,5 +1,6 @@
 namespace AirportOperationWindow;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class AirportOperationWindowInput
 {
     public string AirportCode { get; set; } = "";

@@ -1,5 +1,6 @@
 namespace DeliveryScenarioNormalizer;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DeliveryScenarioInput
 {
     public string ShipmentLabel { get; set; } = "";

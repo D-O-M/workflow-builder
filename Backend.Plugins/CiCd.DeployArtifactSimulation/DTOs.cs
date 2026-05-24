@@ -1,5 +1,6 @@
 namespace CiCd.DeployArtifactSimulation;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DeployArtifactInput
 {
     public string BuildId { get; set; } = "";

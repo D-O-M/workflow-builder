@@ -1,5 +1,6 @@
 namespace WindowWeatherOutlook;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class WindowWeatherInput
 {
     public string LocationLabel { get; set; } = "";

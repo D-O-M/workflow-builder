@@ -1,5 +1,6 @@
 namespace Dcc.DuisServiceRequestWriter;
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class DuisServiceRequestWriterInput
 {
     public string RequestId { get; set; } = "";

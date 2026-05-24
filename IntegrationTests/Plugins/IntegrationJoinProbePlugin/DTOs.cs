@@ -16,6 +16,7 @@ public sealed class IntegrationWorkflowState : IGlobalState
     public bool ShouldFail { get; set; }
 }
 
+[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class JoinProbeRequest
 {
     public string LeftText { get; set; } = string.Empty;
