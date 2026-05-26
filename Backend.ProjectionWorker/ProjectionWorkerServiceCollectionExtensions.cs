@@ -36,6 +36,7 @@ public static class ProjectionWorkerServiceCollectionExtensions
         services.AddProcessState(
             databaseName: configuration[WorkflowBuilderTopology.Cosmos.DatabaseNameKey]!);
 
+        services.AddSingleton<ProjectionWorkerTelemetry>();
         services.AddSingleton<ProcessProjectionChangeHandler>();
         services.AddSingleton<ProcessProjectionRepairService>();
         services.AddHostedService<ProcessProjectionChangeFeedWorker>();

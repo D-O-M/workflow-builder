@@ -52,6 +52,68 @@ public sealed class StepClaimServiceTests
                 fixture.Context.ExecutableBlueprintId,
                 It.IsAny<CancellationToken>()),
             Times.Once);
+        fixture.ProcessRealtimeProjectionService.Verify(
+            service => service.UpsertFromProcessAsync(
+                fixture.Process,
+                fixture.Context.BlueprintDefinitionId,
+                fixture.Context.ExecutableBlueprintId,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        fixture.ProcessRealtimeProjectionService.Verify(
+            service => service.UpsertFromStepAsync(
+                fixture.Step,
+                fixture.Context.BlueprintDefinitionId,
+                fixture.Context.ExecutableBlueprintId,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Test]
+    public async Task TryClaimStepAsync_does_not_project_when_synchronous_projection_updates_are_disabled()
+    {
+        var fixture = CreateFixture(ProcessStatus.Pending, ProcessStepStatus.Pending);
+        fixture.StepRepository
+            .Setup(repository => repository.TryClaimProcessStepAsync(
+                fixture.Context.ProcessStepId,
+                fixture.Context.ProcessId,
+                fixture.Context.TaskDefinitionId,
+                fixture.Context.AllowedMajor,
+                fixture.Context.AllowedMinor,
+                fixture.Context.ResolvedTaskVersionId,
+                fixture.Context.BlueprintNode.ResolvedVersion.ToString(),
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, fixture.Step));
+        var service = CreateService(fixture, new EngineProjectionOptions
+        {
+            SynchronousEngineUpdatesEnabled = false
+        });
+
+        var result = await service.TryClaimStepAsync(fixture.Context, CancellationToken.None);
+
+        result.StepClaimed.ShouldBeTrue();
+        result.ProcessStarted.ShouldBeTrue();
+        fixture.ProcessIndexProjectionService.Verify(
+            service => service.UpsertFromProcessAsync(
+                It.IsAny<ProcessInstanceRecord>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.ProcessRealtimeProjectionService.Verify(
+            service => service.UpsertFromProcessAsync(
+                It.IsAny<ProcessInstanceRecord>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.ProcessRealtimeProjectionService.Verify(
+            service => service.UpsertFromStepAsync(
+                It.IsAny<ProcessStepRecord>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Test]
@@ -113,13 +175,17 @@ public sealed class StepClaimServiceTests
             Times.Never);
     }
 
-    private static StepClaimService CreateService(Fixture fixture) =>
+    private static StepClaimService CreateService(
+        Fixture fixture,
+        EngineProjectionOptions? projectionOptions = null) =>
         new(
             fixture.StepRepository.Object,
             fixture.ProcessRepository.Object,
             new ProcessLifecycleTelemetry(NullLogger<ProcessLifecycleTelemetry>.Instance),
             fixture.ProcessIndexProjectionService.Object,
-            NullLogger<StepClaimService>.Instance);
+            NullLogger<StepClaimService>.Instance,
+            fixture.ProcessRealtimeProjectionService.Object,
+            projectionOptions);
 
     private static Fixture CreateFixture(
         ProcessStatus processStatus,
@@ -164,12 +230,11 @@ public sealed class StepClaimServiceTests
                 ItemKey = "item-2"
             }
         };
-        var process = new ProcessInstanceRecord<Dictionary<string, JsonElement>>
+        var process = new ProcessInstanceRecord
         {
             id = processId.ToString(),
             BlueprintId = blueprint.Id.ToString(),
             Status = processStatus,
-            GlobalState = new Dictionary<string, JsonElement>(StringComparer.Ordinal),
             NodeOverrides = new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal)
         };
         var stepRepository = new Mock<IProcessStepRepository>();
@@ -179,7 +244,7 @@ public sealed class StepClaimServiceTests
         stepRepository
             .Setup(repository => repository.UpdateProcessStep(step, It.IsAny<CancellationToken>()))
             .ReturnsAsync(step);
-        var processRepository = new Mock<IProcessInstanceRepository<Dictionary<string, JsonElement>>>();
+        var processRepository = new Mock<IProcessInstanceRepository>();
         processRepository
             .Setup(repository => repository.GetProcessStateById(processId, blueprint.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(process);
@@ -190,13 +255,36 @@ public sealed class StepClaimServiceTests
         var processIndexProjectionService = new Mock<IProcessIndexProjectionService>();
         processIndexProjectionService
             .Setup(service => service.UpsertFromProcessAsync(
-                It.IsAny<ProcessInstanceRecord<Dictionary<string, JsonElement>>>(),
+                It.IsAny<ProcessInstanceRecord>(),
                 It.IsAny<int>(),
                 It.IsAny<int>(),
                 It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        return new Fixture(context, step, process, stepRepository, processRepository, processIndexProjectionService);
+        var processRealtimeProjectionService = new Mock<IProcessRealtimeProjectionService>();
+        processRealtimeProjectionService
+            .Setup(service => service.UpsertFromProcessAsync(
+                It.IsAny<ProcessInstanceRecord>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        processRealtimeProjectionService
+            .Setup(service => service.UpsertFromStepAsync(
+                It.IsAny<ProcessStepRecord>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        return new Fixture(
+            context,
+            step,
+            process,
+            stepRepository,
+            processRepository,
+            processIndexProjectionService,
+            processRealtimeProjectionService);
     }
 
     private static ExecutableBlueprint CreateBlueprint(Guid nodeId)
@@ -236,8 +324,9 @@ public sealed class StepClaimServiceTests
     private sealed record Fixture(
         StepExecutionContext Context,
         ProcessStepRecord Step,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> Process,
+        ProcessInstanceRecord Process,
         Mock<IProcessStepRepository> StepRepository,
-        Mock<IProcessInstanceRepository<Dictionary<string, JsonElement>>> ProcessRepository,
-        Mock<IProcessIndexProjectionService> ProcessIndexProjectionService);
+        Mock<IProcessInstanceRepository> ProcessRepository,
+        Mock<IProcessIndexProjectionService> ProcessIndexProjectionService,
+        Mock<IProcessRealtimeProjectionService> ProcessRealtimeProjectionService);
 }

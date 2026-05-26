@@ -87,7 +87,6 @@ public sealed class CollectionIteratorExecutionService : ICollectionIteratorExec
                 Succeeded: true,
                 EffectiveInputData: effectiveInputData,
                 OutputData: outputData,
-                GlobalState: null,
                 StartedAt: startedAt,
                 CompletedAt: completedAt,
                 TimingsMs: new Dictionary<string, double>(StringComparer.Ordinal)
@@ -138,7 +137,6 @@ public sealed class CollectionIteratorExecutionService : ICollectionIteratorExec
                 Succeeded: false,
                 EffectiveInputData: null,
                 OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-                GlobalState: null,
                 StartedAt: startedAt,
                 CompletedAt: failedAt,
                 TimingsMs: null,

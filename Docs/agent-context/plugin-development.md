@@ -68,11 +68,11 @@ Important implications:
 
 ## Plugin ABI Compatibility
 
-Plugin bundles must declare explicit ABI metadata in `manifest.json` under `abi`. ABI v1.1 covers the invocation envelope schema, result schema, hydration protocol, process stdout protocol version, harness ABI stamp, supported state-store modes, and supported property kinds.
+Plugin bundles must declare explicit ABI metadata in `manifest.json` under `abi`. ABI v2.0 covers the invocation envelope schema, result schema, hydration protocol, process stdout protocol version, harness ABI stamp, supported state-store modes, and supported property kinds. Plugin-global-state metadata and hydration are not part of ABI v2.0; plugins exchange mutable data only through explicit input and output DTOs.
 
-Newly ingested bundles without ABI metadata or with unsupported `processProtocolVersion` are rejected. Existing SQL task versions keep legacy process protocol `0` metadata, so the Engine refuses to route them until they are rebuilt and re-ingested with ABI v1.1 / process protocol v1. The Engine checks SQL ABI metadata during plugin reload and refuses to route incompatible task versions into the runtime catalog.
+Newly ingested bundles without ABI metadata or with unsupported `processProtocolVersion` metadata are rejected. Existing SQL task versions keep legacy process protocol `0` metadata, so the Engine refuses to route them until they are rebuilt and re-ingested with ABI v2.0 / process protocol v1. The Engine checks SQL ABI metadata during plugin reload and refuses to route incompatible task versions into the runtime catalog.
 
-The canonical bundle script copies `manifest.abi` into `bundle.meta.json` and fails if generated contract output omits ABI metadata or process protocol metadata. Rebuild plugin bundles after changing `Backend.Plugins.Communication`, `Backend.Plugins.Harness`, hydration behavior, state-store assumptions, process protocol behavior, or supported property kinds.
+The canonical bundle script copies `manifest.abi` into `bundle.meta.json` and fails if generated contract output omits ABI metadata or process protocol metadata. Rebuild plugin bundles after changing `Backend.Plugins.Communication`, `Backend.Plugins.Harness`, hydration behavior, state-store assumptions, process protocol behavior, supported property kinds, or any input/output DTO contract.
 
 ## Canonical Bundle Build Path
 

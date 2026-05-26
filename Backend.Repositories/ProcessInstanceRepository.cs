@@ -5,22 +5,22 @@ using System.Net;
 
 namespace Backend.Repositories;
 
-public class ProcessInstanceRepository<TGlobalState>
-    : CosmosRepository<ProcessInstanceRecord<TGlobalState>>,
-    IProcessInstanceRepository<TGlobalState>
+public class ProcessInstanceRepository
+    : CosmosRepository<ProcessInstanceRecord>,
+    IProcessInstanceRepository
 {
     public ProcessInstanceRepository(Container container)
         : base(container, wo => wo.Id, wo => new PartitionKey(wo.BlueprintId))
     {}
 
-    public async Task<ProcessInstanceRecord<TGlobalState>> CreateProcessState(
-        ProcessInstanceRecord<TGlobalState> state,
+    public async Task<ProcessInstanceRecord> CreateProcessState(
+        ProcessInstanceRecord state,
         CancellationToken cancellationToken)
     {
         return (await CreateAsync(state, cancellationToken)).Resource;
     }
 
-    public async Task<ProcessInstanceRecord<TGlobalState>> GetProcessStateById(
+    public async Task<ProcessInstanceRecord> GetProcessStateById(
         Guid processId,
         int blueprintVersionId,
         CancellationToken cancellationToken)
@@ -32,14 +32,14 @@ public class ProcessInstanceRepository<TGlobalState>
 
         if (processState is null)
         {
-            throw new EntityNotFoundException<ProcessInstanceRecord<TGlobalState>>(
+            throw new EntityNotFoundException<ProcessInstanceRecord>(
                 processId.ToString());
         }
 
         return processState;
     }
 
-    public async Task<List<ProcessInstanceRecord<TGlobalState>>> GetProcessStatesForBlueprint(
+    public async Task<List<ProcessInstanceRecord>> GetProcessStatesForBlueprint(
         int blueprintVersionId,
         CancellationToken cancellationToken)
     {
@@ -180,7 +180,7 @@ public class ProcessInstanceRepository<TGlobalState>
         };
     }
 
-    public async Task<IReadOnlyList<ProcessInstanceRecord<TGlobalState>>> GetRecentProcessStatesForReconciliationAsync(
+    public async Task<IReadOnlyList<ProcessInstanceRecord>> GetRecentProcessStatesForReconciliationAsync(
         DateTimeOffset createdFrom,
         int maxItemCount,
         IReadOnlyCollection<ProcessStatus> statuses,
@@ -209,15 +209,15 @@ public class ProcessInstanceRepository<TGlobalState>
             });
     }
 
-    public async Task<ProcessInstanceRecord<TGlobalState>> UpdateProcessState(
-        ProcessInstanceRecord<TGlobalState> state,
+    public async Task<ProcessInstanceRecord> UpdateProcessState(
+        ProcessInstanceRecord state,
         CancellationToken cancellationToken)
     {
         return (await ReplaceAsync(state, cancellationToken)).Resource;
     }
 
     public async Task<bool> TryUpdateProcessState(
-        ProcessInstanceRecord<TGlobalState> state,
+        ProcessInstanceRecord state,
         CancellationToken cancellationToken)
     {
         try

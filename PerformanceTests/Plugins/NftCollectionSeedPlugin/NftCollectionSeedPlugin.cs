@@ -4,8 +4,6 @@ namespace WorkflowBuilder.PerformanceTests.Plugins;
 
 public sealed class NftCollectionSeedPlugin : IPlugin
 {
-    public required NftProcessState State { get; set; }
-
     public required NftCollectionSeedRequest Request { get; init; }
 
     public NftCollectionSeedResult Collection { get; set; } = default!;
@@ -24,10 +22,6 @@ public sealed class NftCollectionSeedPlugin : IPlugin
         var items = Enumerable.Range(0, itemCount)
             .Select(index => $"{correlationKey}:{index:D6}")
             .ToArray();
-
-        State.StepsCompleted += 1;
-        State.TotalScore += itemCount;
-        State.LastStage = "collection-seed";
 
         Collection = new NftCollectionSeedResult
         {

@@ -10,14 +10,13 @@ namespace Backend.Engine.Tests;
 public class BlueprintInputMaterializerTests
 {
     [Test]
-    public void PluginExecutionResult_RoundTrips_null_global_state_for_no_state_plugins()
+    public void PluginExecutionResult_RoundTrips_without_global_state()
     {
         var result = new PluginExecutionResult(
             Guid.NewGuid(),
             Succeeded: true,
             EffectiveInputData: null,
             OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-            GlobalState: null,
             DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow,
             TimingsMs: null,
@@ -26,7 +25,9 @@ public class BlueprintInputMaterializerTests
         var payload = PluginExecutionResultSerializer.Serialize(result);
         var roundTripped = PluginExecutionResultSerializer.Deserialize(System.Text.Encoding.UTF8.GetBytes(payload));
 
-        roundTripped.GlobalState.ShouldBeNull();
+        payload.ShouldNotContain("global" + "State");
+        roundTripped.OutputData.ShouldNotBeNull();
+        roundTripped.OutputData.Count.ShouldBe(0);
     }
 
     [Test]

@@ -13,12 +13,12 @@ public sealed class ProcessStateWarmupHostedService : IHostedService
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);
 
     private readonly IProcessStepRepository _processStepRepository;
-    private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessInstanceRepository _processInstanceRepository;
     private readonly ILogger<ProcessStateWarmupHostedService> _logger;
 
     public ProcessStateWarmupHostedService(
         IProcessStepRepository processStepRepository,
-        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        IProcessInstanceRepository processInstanceRepository,
         ILogger<ProcessStateWarmupHostedService> logger)
     {
         _processStepRepository = processStepRepository;
@@ -71,7 +71,7 @@ public sealed class ProcessStateWarmupHostedService : IHostedService
                 blueprintVersionId: 0,
                 attemptTimeout.Token);
         }
-        catch (EntityNotFoundException<ProcessInstanceRecord<Dictionary<string, JsonElement>>>)
+        catch (EntityNotFoundException<ProcessInstanceRecord>)
         {
             // A 404 confirms that the process container is reachable and the request completed.
         }

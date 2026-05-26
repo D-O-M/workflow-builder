@@ -21,8 +21,7 @@ public sealed class ManifestGeneratorAbiTests
             var manifest = ManifestGenerator.CreateManifest(
                 "ABI manifest",
                 new KeyValuePair<string, Type>("Input", typeof(AbiInput)),
-                [new KeyValuePair<string, Type>("Success", typeof(AbiOutput))],
-                globalStateType: null);
+                [new KeyValuePair<string, Type>("Success", typeof(AbiOutput))]);
 
             var result = ManifestGenerator.EmitAll(
                 outputDirectory,

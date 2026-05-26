@@ -2,8 +2,6 @@ namespace WorkflowBuilder.PerformanceTests.Plugins;
 
 public sealed class NftSeedPlugin : Backend.Plugins.Harness.IPlugin
 {
-    public required NftProcessState State { get; set; }
-
     public required NftSeedRequest Request { get; init; }
 
     public NftSeedContext Context { get; set; } = default!;
@@ -23,10 +21,6 @@ public sealed class NftSeedPlugin : Backend.Plugins.Harness.IPlugin
             ? "local"
             : Request.Region.Trim().ToLowerInvariant();
         var score = Request.BaseScore + payloadSize % 17 + 1;
-
-        State.StepsCompleted += 1;
-        State.TotalScore += score;
-        State.LastStage = "seed";
 
         Context = new NftSeedContext
         {

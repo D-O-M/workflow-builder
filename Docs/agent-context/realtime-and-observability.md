@@ -18,7 +18,7 @@ If execution succeeds but the UI stays stale, treat that as a real product issue
 
 1. The API creates or updates process and process-step records.
 2. The engine updates Cosmos `processsteps` documents as execution advances.
-3. `Backend.ProjectionWorker` maintains lightweight realtime projections from canonical process/process-step changes. Engine synchronous projection writes may also run when `Projections:SynchronousEngineUpdatesEnabled=true`.
+3. `Backend.ProjectionWorker` maintains lightweight realtime projections from canonical process/process-step changes. Engine synchronous projection writes may also run only when `Projections:SynchronousEngineUpdatesEnabled=true`.
 4. `ProgressBroadcasterFunction` listens to the Cosmos `processsteps` container.
 5. The broadcaster builds `ProcessRealtimeBatch` payloads from lightweight realtime projections.
 6. The broadcaster publishes to `Backend.SignalR`.
@@ -70,6 +70,14 @@ The function depends on the Cosmos trigger binding resolving correctly at startu
 ### Projection worker health
 
 `Backend.ProjectionWorker` is the async owner for projection maintenance. If it is stopped while `Projections:SynchronousEngineUpdatesEnabled=false`, canonical process execution can keep moving but dashboard, process summary, and live graph data may lag until the worker catches up. The worker requires the `processprojectionleases` container.
+
+ProjectionWorker emits:
+
+- `projection_worker_processed_items_total`
+- `projection_worker_failures_total`
+- `projection_worker_lag_ms`
+
+Engine emits `engine_synchronous_projection_updates_enabled`. In production/performance mode this should report `0`, with ProjectionWorker lag staying bounded.
 
 ### Process-step queue naming
 

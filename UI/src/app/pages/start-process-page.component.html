@@ -99,13 +99,8 @@
                 <span class="start-process-form__progress-label">Initialization</span>
               </div>
               <span class="start-process-form__progress-line" [class.is-complete]="wizardStepIndex() > 0"></span>
-              <div class="start-process-form__progress-step" [class.is-active]="wizardStepIndex() === 1" [class.is-complete]="wizardStepIndex() > 1" data-testid="start-process-progress-global-state">
+              <div class="start-process-form__progress-step" [class.is-active]="wizardStepIndex() === 1" data-testid="start-process-progress-runtime-overrides">
                 <span class="start-process-form__progress-indicator">2</span>
-                <span class="start-process-form__progress-label">Global State</span>
-              </div>
-              <span class="start-process-form__progress-line" [class.is-complete]="wizardStepIndex() > 1"></span>
-              <div class="start-process-form__progress-step" [class.is-active]="wizardStepIndex() === 2" data-testid="start-process-progress-runtime-overrides">
-                <span class="start-process-form__progress-indicator">3</span>
                 <span class="start-process-form__progress-label">Runtime Overrides</span>
               </div>
             </div>
@@ -180,81 +175,6 @@
                         type="button"
                         class="start-process-form__primary-action"
                         [disabled]="!canAdvanceFromInitialisation()"
-                        (click)="goToNextWizardStep()"
-                        data-testid="start-process-continue-global-state"
-                      >
-                        Continue to Global State
-                        <mat-icon>arrow_forward</mat-icon>
-                      </button>
-                    </div>
-                  </div>
-                </section>
-              </mat-step>
-
-              <mat-step [completed]="canAdvanceFromGlobalState()" label="Global State">
-                <section class="start-process-form__step-surface" data-testid="start-process-step-global-state">
-                  <div class="start-process-form__step-banner">
-                    <div class="start-process-form__step-copy">
-                      <h3 class="start-process-form__step-heading">Prepare shared runtime context</h3>
-                      <p class="app-section-support start-process-form__step-support">
-                        Capture the shared state that every downstream step can reference during execution.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div class="start-process-form__step-body">
-                    @if (!selectedBlueprintConfigured()) {
-                      <div class="start-process-form__panel-state">
-                        <mat-icon>public</mat-icon>
-                        <p>Select a blueprint to reveal global state requirements.</p>
-                      </div>
-                    } @else if (blueprintLoading()) {
-                      <div class="start-process-form__panel-state">
-                        <mat-progress-spinner diameter="32" mode="indeterminate" />
-                        <p>Loading global state requirements...</p>
-                      </div>
-                    } @else if (globalStateFields().length === 0) {
-                      <p class="start-process-form__empty">No required global state properties.</p>
-                    } @else {
-                      <div class="start-process-form__field-grid" [formGroup]="form.controls.globalState">
-                        @for (field of globalStateFields(); track field.key) {
-                          <app-dynamic-form-field [group]="form.controls.globalState" [field]="field" testIdPrefix="start-process-global" />
-                        }
-                      </div>
-                    }
-
-                    <div class="start-process-form__insight-grid">
-                      <article class="start-process-form__insight-card">
-                        <p class="start-process-form__insight-eyebrow">Shared Context</p>
-                        <p class="start-process-form__insight-body">
-                          Global state is available to every step in the process, so keep it stable and broadly useful.
-                        </p>
-                      </article>
-
-                      <article class="start-process-form__insight-card start-process-form__insight-card--with-icon">
-                        <span class="start-process-form__insight-icon">
-                          <mat-icon>hub</mat-icon>
-                        </span>
-                        <div class="start-process-form__insight-copy">
-                          <p class="start-process-form__insight-title">Consistent keys</p>
-                          <p class="start-process-form__insight-body">
-                            Prefer concise names and durable values that downstream tasks can reliably consume.
-                          </p>
-                        </div>
-                      </article>
-                    </div>
-
-                    <div class="start-process-form__step-actions">
-                      <button mat-button type="button" class="start-process-form__secondary-action" (click)="goToPreviousWizardStep()" data-testid="start-process-back-to-initialization">
-                        <mat-icon>arrow_back</mat-icon>
-                        Back
-                      </button>
-                      <button
-                        mat-flat-button
-                        color="primary"
-                        type="button"
-                        class="start-process-form__primary-action"
-                        [disabled]="!canAdvanceFromGlobalState()"
                         (click)="goToNextWizardStep()"
                         data-testid="start-process-continue-runtime-overrides"
                       >

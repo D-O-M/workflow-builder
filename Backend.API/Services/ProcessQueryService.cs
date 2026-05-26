@@ -28,7 +28,7 @@ public sealed class ProcessQueryService
 
     private readonly ProcessProjectionService _projectionService;
     private readonly BlueprintDbContext _dbContext;
-    private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessInstanceRepository _processInstanceRepository;
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IProcessIndexProjectionService? _processIndexProjectionService;
     private readonly IMemoryCache _memoryCache;
@@ -37,7 +37,7 @@ public sealed class ProcessQueryService
     public ProcessQueryService(
         ProcessProjectionService projectionService,
         BlueprintDbContext dbContext,
-        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        IProcessInstanceRepository processInstanceRepository,
         IProcessStepRepository processStepRepository,
         IMemoryCache memoryCache,
         ObservabilityQueryService observabilityQueryService,
@@ -305,7 +305,6 @@ public sealed class ProcessQueryService
             filterSignature,
             normalizedRequest.Cursor);
         var items = new List<BlueprintProcessHistoryEntryViewModel>(normalizedRequest.Limit);
-        var processStateCache = new Dictionary<string, ProcessInstanceRecord<Dictionary<string, JsonElement>>>(StringComparer.Ordinal);
         var processStepsCache = new Dictionary<string, IReadOnlyDictionary<string, ProcessStepRecord>>(StringComparer.Ordinal);
 
         while (items.Count < normalizedRequest.Limit)
@@ -336,7 +335,6 @@ public sealed class ProcessQueryService
                 metadata,
                 nodeFilters,
                 propertyFilters,
-                processStateCache,
                 processStepsCache,
                 cancellationToken);
             if (!candidateMatches)
@@ -379,7 +377,6 @@ public sealed class ProcessQueryService
             : DecodeIndexSearchCursor(normalizedRequest.Cursor, filterSignature);
         var continuationToken = cursor?.ProjectionContinuationToken;
         var items = new List<BlueprintProcessHistoryEntryViewModel>(normalizedRequest.Limit);
-        var processStateCache = new Dictionary<string, ProcessInstanceRecord<Dictionary<string, JsonElement>>>(StringComparer.Ordinal);
         var processStepsCache = new Dictionary<string, IReadOnlyDictionary<string, ProcessStepRecord>>(StringComparer.Ordinal);
         var pageSize = Math.Clamp(normalizedRequest.Limit * 2, 10, 100);
         var sawProjectionRows = false;
@@ -431,7 +428,6 @@ public sealed class ProcessQueryService
                     metadata,
                     nodeFilters,
                     propertyFilters,
-                    processStateCache,
                     processStepsCache,
                     cancellationToken);
                 if (!candidateMatches)
@@ -948,7 +944,6 @@ public sealed class ProcessQueryService
         SearchVersionMetadata metadata,
         IReadOnlyList<SearchNodeFilterPlan> nodeFilters,
         IReadOnlyList<SearchPropertyFilterPlan> propertyFilters,
-        IDictionary<string, ProcessInstanceRecord<Dictionary<string, JsonElement>>> processStateCache,
         IDictionary<string, IReadOnlyDictionary<string, ProcessStepRecord>> processStepsCache,
         CancellationToken cancellationToken)
     {
@@ -959,30 +954,9 @@ public sealed class ProcessQueryService
         }
 
         IReadOnlyDictionary<string, ProcessStepRecord>? processSteps = null;
-        ProcessInstanceRecord<Dictionary<string, JsonElement>>? processState = null;
         var processId = Guid.Parse(summary.ProcessId);
-        var processCacheKey = $"{metadata.BlueprintVersionId}:{summary.ProcessId}";
 
-        if (propertyFilters.Any(filter => filter.Scope == SearchPropertyScope.GlobalState))
-        {
-            processState = await GetProcessStateAsync(
-                processCacheKey,
-                processId,
-                metadata.BlueprintVersionId,
-                processStateCache,
-                cancellationToken);
-
-            foreach (var filter in propertyFilters.Where(filter => filter.Scope == SearchPropertyScope.GlobalState))
-            {
-                if (!processState.GlobalState.TryGetValue(filter.PropertyKey, out var propertyValue)
-                    || !MatchesPropertyFilter(propertyValue, filter))
-                {
-                    return false;
-                }
-            }
-        }
-
-        if (nodeFilters.Count > 0 || propertyFilters.Any(filter => filter.Scope != SearchPropertyScope.GlobalState))
+        if (nodeFilters.Count > 0 || propertyFilters.Count > 0)
         {
             processSteps = await GetProcessStepsAsync(
                 summary.ProcessId,
@@ -1002,7 +976,7 @@ public sealed class ProcessQueryService
                 }
             }
 
-            foreach (var filter in propertyFilters.Where(filter => filter.Scope != SearchPropertyScope.GlobalState))
+            foreach (var filter in propertyFilters)
             {
                 if (!filter.BlueprintNodeId.HasValue
                     || !processSteps.TryGetValue(filter.BlueprintNodeId.Value.ToString(), out var step)
@@ -1015,23 +989,6 @@ public sealed class ProcessQueryService
         }
 
         return true;
-    }
-
-    private async Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> GetProcessStateAsync(
-        string cacheKey,
-        Guid processId,
-        int blueprintVersionId,
-        IDictionary<string, ProcessInstanceRecord<Dictionary<string, JsonElement>>> cache,
-        CancellationToken cancellationToken)
-    {
-        if (cache.TryGetValue(cacheKey, out var processState))
-        {
-            return processState;
-        }
-
-        processState = await _processInstanceRepository.GetProcessStateById(processId, blueprintVersionId, cancellationToken);
-        cache[cacheKey] = processState;
-        return processState;
     }
 
     private async Task<IReadOnlyDictionary<string, ProcessStepRecord>> GetProcessStepsAsync(
@@ -1856,7 +1813,6 @@ public sealed class ProcessQueryService
 
     private enum SearchPropertyScope
     {
-        GlobalState,
         NodeInput,
         NodeOutput,
     }

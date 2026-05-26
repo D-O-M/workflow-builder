@@ -8,7 +8,6 @@ public class ProcessInstanceState
     public required int ExecutableBlueprintId { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset LastUpdatedAt { get; set; }
-    public Stream? GlobalStateDataStream { get; init; }
     public required List<ProcessStepState> Tasks { get; init; }
 }
 

@@ -252,7 +252,6 @@ public sealed class ActivationPlannerTests
                     Score = 7
                 })
             },
-            GlobalState: null,
             StartedAt: DateTimeOffset.UtcNow.AddSeconds(-1),
             CompletedAt: DateTimeOffset.UtcNow,
             TimingsMs: null,

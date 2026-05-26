@@ -15,7 +15,7 @@ public sealed class ProcessProjectionService
 {
     private readonly BlueprintDbContext _dbContext;
     private readonly IProcessStepRepository _processStepRepository;
-    private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessInstanceRepository _processInstanceRepository;
     private readonly IProcessIndexProjectionService? _processIndexProjectionService;
     private readonly IProcessRealtimeProjectionService? _processRealtimeProjectionService;
     private readonly ProcessRealtimeProjectionTelemetry? _realtimeProjectionTelemetry;
@@ -23,7 +23,7 @@ public sealed class ProcessProjectionService
     public ProcessProjectionService(
         BlueprintDbContext dbContext,
         IProcessStepRepository processStepRepository,
-        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        IProcessInstanceRepository processInstanceRepository,
         IProcessIndexProjectionService? processIndexProjectionService = null,
         IProcessRealtimeProjectionService? processRealtimeProjectionService = null,
         ProcessRealtimeProjectionTelemetry? realtimeProjectionTelemetry = null)
@@ -486,7 +486,7 @@ public sealed class ProcessProjectionService
     private static ProcessDetailViewModel BuildDetail(
         BlueprintDefinition definition,
         BlueprintVersion blueprintVersionEntity,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> processRecord,
+        ProcessInstanceRecord processRecord,
         IReadOnlyCollection<ProcessStepRecord> processSteps)
     {
         var processStepsByBlueprintNodeId = GroupProcessStepsByBlueprintNodeId(processSteps);
@@ -555,7 +555,7 @@ public sealed class ProcessProjectionService
             throw new EntityNotFoundException<BlueprintViewModel>(blueprintDefinitionId);
         }
 
-        ProcessInstanceRecord<Dictionary<string, JsonElement>>? processRecord = null;
+        ProcessInstanceRecord? processRecord = null;
         BlueprintVersion? blueprintVersion = null;
 
         foreach (var version in definition.Versions.OrderByDescending(candidate => candidate.Version))
@@ -569,7 +569,7 @@ public sealed class ProcessProjectionService
                 blueprintVersion = version;
                 break;
             }
-            catch (EntityNotFoundException<ProcessInstanceRecord<Dictionary<string, JsonElement>>>)
+            catch (EntityNotFoundException<ProcessInstanceRecord>)
             {
                 // Continue searching across blueprint versions.
             }
@@ -689,7 +689,7 @@ public sealed class ProcessProjectionService
         int blueprintDefinitionId,
         string blueprintName,
         BlueprintVersion blueprintVersion,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> processRecord,
+        ProcessInstanceRecord processRecord,
         IReadOnlyCollection<ProcessStepRecord> processSteps) =>
         BuildSummary(
             blueprintDefinitionId,
@@ -704,7 +704,7 @@ public sealed class ProcessProjectionService
         string blueprintName,
         int blueprintVersionId,
         int blueprintVersionNumber,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> processRecord,
+        ProcessInstanceRecord processRecord,
         IReadOnlyCollection<ProcessStepRecord> processSteps) =>
         new()
         {
@@ -727,7 +727,7 @@ public sealed class ProcessProjectionService
         string blueprintName,
         int blueprintVersionId,
         int blueprintVersionNumber,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> processRecord,
+        ProcessInstanceRecord processRecord,
         IReadOnlyCollection<ProcessStepRecord> processSteps) =>
         new()
         {
@@ -1091,7 +1091,7 @@ public sealed class ProcessProjectionService
     private sealed record ProcessProjectionContext(
         BlueprintDefinition Definition,
         BlueprintVersion BlueprintVersion,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> ProcessRecord,
+        ProcessInstanceRecord ProcessRecord,
         IReadOnlyCollection<ProcessStepRecord> ProcessSteps,
         IReadOnlyDictionary<Guid, IReadOnlyList<ProcessStepRecord>> ProcessStepsByBlueprintNodeId);
 

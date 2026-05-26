@@ -9,12 +9,13 @@ namespace Backend.Engine;
 
 public class StepExecutionContext
 {
-    private readonly CancellationTokenSource _cts = new();
+    private readonly object _lockRenewalGate = new();
     private readonly ProcessStepInitialisationMessage _message;
     private readonly ILogger _logger;
     private readonly IProcessStepQueueMessage _queueMessage;
     private readonly ExecutableBlueprint _executableBlueprint;
     private readonly Lazy<ExecutableBlueprintNode> _blueprintNode;
+    private IAsyncDisposable? _lockRenewal;
 
     public StepExecutionContext(
         ProcessStepInitialisationMessage message,
@@ -94,7 +95,7 @@ public class StepExecutionContext
 
     public void ApplyClaimedStep(
         ProcessStepRecord step,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process)
+        ProcessInstanceRecord process)
     {
         ApplyStep(step);
         ApplyProcess(process);
@@ -102,59 +103,80 @@ public class StepExecutionContext
 
     public void ApplyFinalizationState(
         ProcessStepRecord step,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process)
+        ProcessInstanceRecord process)
     {
         ApplyStep(step);
         ApplyProcess(process);
     }
 
-    public void ApplyProcess(ProcessInstanceRecord<Dictionary<string, JsonElement>> process)
+    public void ApplyProcess(ProcessInstanceRecord process)
     {
         ProcessNodeOverrides = process.NodeOverrides;
         PhaseMetadata = process.Phase;
     }
 
-    public async Task<bool> ExtendProcessingWindow()
+    public void AttachLockRenewal(IAsyncDisposable lockRenewal)
     {
-        try
+        lock (_lockRenewalGate)
         {
-            _logger.LogInformation(
-                "Renewing lock on message {MessageId} for step {BlueprintNodeId} of process {ProcessId} of blueprint version {ExecutableBlueprintId}",
-                _queueMessage.MessageId,
-                _message.BlueprintNodeId,
-                _message.ProcessId,
-                _message.ExecutableBlueprintId);
+            if (_lockRenewal is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Process step {ProcessStepId} already has an active message lock renewal.");
+            }
 
-            await _queueMessage.RenewLockAsync(_cts.Token);
-
-            _logger.LogInformation(
-                "Successfully renewed lock on message {MessageId} for step {BlueprintNodeId} of process {ProcessId} of blueprint version {ExecutableBlueprintId}",
-                _queueMessage.MessageId,
-                _message.BlueprintNodeId,
-                _message.ProcessId,
-                _message.ExecutableBlueprintId);
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(
-                ex,
-                "Failed to renew lock on message {MessageId} for step {BlueprintNodeId} of process {ProcessId} of blueprint version {ExecutableBlueprintId}",
-                _queueMessage.MessageId,
-                _message.BlueprintNodeId,
-                _message.ProcessId,
-                _message.ExecutableBlueprintId);
-
-            return false;
+            _lockRenewal = lockRenewal;
         }
     }
 
-    public Task CompleteMessageAsync(CancellationToken cancellationToken) =>
-        _queueMessage.CompleteAsync(cancellationToken);
+    public async ValueTask StopLockRenewalAsync()
+    {
+        IAsyncDisposable? lockRenewal;
+        lock (_lockRenewalGate)
+        {
+            lockRenewal = _lockRenewal;
+            _lockRenewal = null;
+        }
 
-    public Task AbandonMessageAsync(CancellationToken cancellationToken) =>
-        _queueMessage.AbandonAsync(cancellationToken);
+        if (lockRenewal is not null)
+        {
+            await lockRenewal.DisposeAsync();
+        }
+    }
+
+    public async Task<DateTimeOffset> RenewProcessingWindowAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation(
+            "Renewing lock on message {MessageId} for step {BlueprintNodeId} of process {ProcessId} of blueprint version {ExecutableBlueprintId}",
+            _queueMessage.MessageId,
+            _message.BlueprintNodeId,
+            _message.ProcessId,
+            _message.ExecutableBlueprintId);
+
+        var lockedUntil = await _queueMessage.RenewLockAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Successfully renewed lock on message {MessageId} for step {BlueprintNodeId} of process {ProcessId} of blueprint version {ExecutableBlueprintId} until {LockedUntil}",
+            _queueMessage.MessageId,
+            _message.BlueprintNodeId,
+            _message.ProcessId,
+            _message.ExecutableBlueprintId,
+            lockedUntil);
+
+        return lockedUntil;
+    }
+
+    public async Task CompleteMessageAsync(CancellationToken cancellationToken)
+    {
+        await StopLockRenewalAsync();
+        await _queueMessage.CompleteAsync(cancellationToken);
+    }
+
+    public async Task AbandonMessageAsync(CancellationToken cancellationToken)
+    {
+        await StopLockRenewalAsync();
+        await _queueMessage.AbandonAsync(cancellationToken);
+    }
 
     private void ApplyStep(ProcessStepRecord step)
     {

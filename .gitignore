@@ -491,6 +491,7 @@ FodyWeavers.xsd
 *.msp
 
 /Backend.Plugins/_bundles/*
+/PerformanceTests/Plugins/_bundles/*
 
 # Local-only Codex and validation artifacts
 /.artifacts/

@@ -58,30 +58,6 @@ public class TaskVersion
     }
 
     [NotMapped]
-    public GlobalStateDefinition? GlobalState
-    {
-        get
-        {
-            var globalStates = Channels.OfType<GlobalStateDefinition>().ToList();
-            return globalStates.Count switch
-            {
-                0 => null,
-                1 => globalStates[0],
-                _ => throw new InvalidOperationException($"More than one GlobalStateDefinition exists for TaskVersionId {Id}.")
-            };
-        }
-        set
-        {
-            var existing = Channels.OfType<GlobalStateDefinition>().ToList();
-            foreach (var gs in existing)
-                Channels.Remove(gs);
-
-            if (value is not null)
-                Channels.Add(value);
-        }
-    }
-
-    [NotMapped]
     public IEnumerable<InputChannelDefinition> InputChannels => Channels.OfType<InputChannelDefinition>();
 
     [NotMapped]

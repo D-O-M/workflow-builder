@@ -39,6 +39,7 @@ public sealed class StepExecutionService : IStepExecutionService, IPluginAgentFa
     private readonly IPluginRuntimeReloader _pluginRuntimeReloader;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
     private readonly PluginRuntimeAgentTelemetry _pluginRuntimeAgentTelemetry;
+    private readonly ActiveStepLockRenewalService _lockRenewalService;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly StepClaimService _stepClaimService;
     private readonly ILogger<StepExecutionService> _logger;
@@ -49,6 +50,7 @@ public sealed class StepExecutionService : IStepExecutionService, IPluginAgentFa
         IPluginRuntimeReloader pluginRuntimeReloader,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
         PluginRuntimeAgentTelemetry pluginRuntimeAgentTelemetry,
+        ActiveStepLockRenewalService lockRenewalService,
         IServiceScopeFactory serviceScopeFactory,
         StepClaimService stepClaimService,
         ILogger<StepExecutionService> logger)
@@ -58,6 +60,7 @@ public sealed class StepExecutionService : IStepExecutionService, IPluginAgentFa
         _pluginRuntimeReloader = pluginRuntimeReloader;
         _processLifecycleTelemetry = processLifecycleTelemetry;
         _pluginRuntimeAgentTelemetry = pluginRuntimeAgentTelemetry;
+        _lockRenewalService = lockRenewalService;
         _serviceScopeFactory = serviceScopeFactory;
         _stepClaimService = stepClaimService;
         _logger = logger;
@@ -102,6 +105,12 @@ public sealed class StepExecutionService : IStepExecutionService, IPluginAgentFa
             throw new InvalidOperationException($"A process step with id '{context.Id}' is already active.");
         }
 
+        var lockRenewal = _lockRenewalService.Start(context);
+        if (lockRenewal is not null)
+        {
+            context.AttachLockRenewal(lockRenewal);
+        }
+
         bool queued;
         var pluginQueuedAt = DateTimeOffset.UtcNow;
         var enqueueStopwatch = Stopwatch.StartNew();
@@ -117,6 +126,7 @@ public sealed class StepExecutionService : IStepExecutionService, IPluginAgentFa
         }
         catch
         {
+            await context.StopLockRenewalAsync();
             _activeSteps.TryRemove(context.Id, out _);
             _agentManager.ReleaseStepSlot(context.ResolvedTaskVersionId);
             await _stepClaimService.ResetStepToPendingAsync(context, cancellationToken);
@@ -133,6 +143,7 @@ public sealed class StepExecutionService : IStepExecutionService, IPluginAgentFa
 
         if (!queued)
         {
+            await context.StopLockRenewalAsync();
             _activeSteps.TryRemove(context.Id, out _);
             _agentManager.ReleaseStepSlot(context.ResolvedTaskVersionId);
             await _stepClaimService.ResetStepToPendingAsync(context, cancellationToken);
@@ -244,6 +255,7 @@ public sealed class StepExecutionService : IStepExecutionService, IPluginAgentFa
         }
         finally
         {
+            await context.StopLockRenewalAsync();
             _processLifecycleTelemetry.StopStepActivity(context, executionResult, completionException);
             Activity.Current = previousActivity;
             _activeSteps.TryRemove(context.Id, out _);
@@ -323,6 +335,7 @@ public sealed class StepExecutionService : IStepExecutionService, IPluginAgentFa
             }
             finally
             {
+                await context.StopLockRenewalAsync();
                 _processLifecycleTelemetry.StopStepActivity(
                     context,
                     result: null,

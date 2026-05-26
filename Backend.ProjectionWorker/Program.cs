@@ -12,6 +12,7 @@ WorkflowBuilderTopologyValidator.ValidateProjectionWorker(builder.Configuration)
 builder.Services.AddOpenTelemetry()
     .WithMetrics(metrics => metrics
         .AddMeter("WorkflowBuilder.Cosmos")
+        .AddMeter(ProjectionWorkerTelemetry.MeterName)
         .AddMeter(ProcessSummaryProjectionTelemetry.MeterName)
         .AddMeter(ProcessRealtimeProjectionTelemetry.MeterName));
 

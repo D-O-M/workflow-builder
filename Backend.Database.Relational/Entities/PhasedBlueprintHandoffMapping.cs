@@ -2,8 +2,7 @@ namespace Backend.Database.Relational.Entities;
 
 public enum PhasedBlueprintHandoffSourceKind
 {
-    Output = 0,
-    GlobalState = 1
+    Output = 0
 }
 
 public sealed class PhasedBlueprintHandoffMapping

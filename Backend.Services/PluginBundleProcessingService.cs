@@ -189,7 +189,6 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
                     Version = pluginInfo.Version,
                     WorkspaceEntryPointPath = entryPoint,
                     Abi = manifest.Abi!,
-                    RequiredGlobalState = GetGlobalStateRequirements(pluginInfo, manifest, schemas),
                     InputChannelDefinition = GetInputChannelDefinition(pluginInfo, manifest, schemas),
                     OutputChannelDefinitions = GetOutputChannelDefinitions(pluginInfo, manifest, schemas)
                 };
@@ -386,11 +385,6 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         if (manifest.InputChannel is not null)
         {
             yield return manifest.InputChannel;
-        }
-
-        if (manifest.GlobalState is not null)
-        {
-            yield return manifest.GlobalState;
         }
 
         foreach (var outputChannel in manifest.OutputChannels)
@@ -625,67 +619,6 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         return channelDefs;
     }
 
-    private HashSet<PropertyDefinitionDomainModel>? GetGlobalStateRequirements(
-        PluginBlobInfo pluginInfo, ManifestFile manifest, PluginSchemaResult schemas)
-    {
-        var globalState = manifest.GlobalState;
-        if (globalState is null || string.IsNullOrWhiteSpace(globalState.Type))
-        {
-            _logger.LogInformation(
-                "Plugin {Plugin} ({Version}) did not declare a global state schema.",
-                pluginInfo.PluginName,
-                pluginInfo.Version);
-            return null;
-        }
-
-        if (IsLegacyGlobalStateStub(globalState, schemas))
-        {
-            _logger.LogInformation(
-                "Plugin {Plugin} ({Version}) declared the legacy GlobalStateStub schema; treating it as no global state.",
-                pluginInfo.PluginName,
-                pluginInfo.Version);
-            return null;
-        }
-
-        return BuildPropertyDefinitions(
-            pluginInfo,
-            globalState,
-            schemas,
-            "global state");
-    }
-
-    private static bool IsLegacyGlobalStateStub(ManifestFileChannelInfo globalState, PluginSchemaResult schemas)
-    {
-        if (!string.Equals(globalState.Type, "Backend.Plugins.Harness.GlobalStateStub", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var manifestProperties = globalState.Properties;
-        if (manifestProperties.Count == 1 &&
-            string.Equals(manifestProperties[0].Name, "Empty", StringComparison.Ordinal) &&
-            string.Equals(manifestProperties[0].Kind, WorkflowPropertyKind.Boolean.ToString(), StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (manifestProperties.Count > 0)
-        {
-            return false;
-        }
-
-        if (schemas.TypedSchemas?.Components?.Schemas is not null &&
-            schemas.TypedSchemas.Components.Schemas.TryGetValue(globalState.Type, out var typedSchema) &&
-            typedSchema?.Properties is not null)
-        {
-            return typedSchema.Properties.Count == 1 &&
-                   typedSchema.Properties.TryGetValue("Empty", out var property) &&
-                   ParseSchemaPropertyKind(property.Type, property.Format) == WorkflowPropertyKind.Boolean;
-        }
-
-        return false;
-    }
-
     private HashSet<PropertyDefinitionDomainModel> BuildPropertyDefinitions(
         PluginBlobInfo pluginInfo,
         ManifestFileChannelInfo manifestChannel,
@@ -732,13 +665,13 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
 
         return GetSchemaProperties(pluginInfo, schemas, manifestChannel.Type, schemaPurpose)
             .Select(property => new PropertyDefinitionDomainModel
-                {
-                    Name = property.Key,
-                    Kind = property.Value.Kind,
-                    IsCollection = property.Value.IsCollection,
-                    IsRequired = property.Value.IsRequired,
-                    EnumValues = property.Value.EnumValues
-                })
+            {
+                Name = property.Key,
+                Kind = property.Value.Kind,
+                IsCollection = property.Value.IsCollection,
+                IsRequired = property.Value.IsRequired,
+                EnumValues = property.Value.EnumValues
+            })
             .ToArray();
     }
 
@@ -997,7 +930,7 @@ public sealed class PluginBundleProcessingService : IPluginBundleProcessingServi
         {
             _logger.LogInformation("App entry: {Path}", entryPointPath);
             return Path.GetRelativePath(workspaceDirectory, entryPointPath);
-        }        
+        }
 
         _logger.LogWarning("No app entry point found in {AppDirectory}", appDir);
         throw new Exception();

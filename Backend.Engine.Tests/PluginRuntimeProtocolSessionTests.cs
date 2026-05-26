@@ -167,7 +167,6 @@ public sealed class PluginRuntimeProtocolSessionTests
             Succeeded: true,
             EffectiveInputData: null,
             OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-            GlobalState: null,
             StartedAt: DateTimeOffset.UtcNow,
             CompletedAt: DateTimeOffset.UtcNow,
             TimingsMs: null,

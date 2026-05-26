@@ -8,7 +8,6 @@ namespace Backend.Plugins.Communication;
 /// </summary>
 public enum SignalActionClass
 {
-    GlobalState,
     InputChannel,
     OutputChannel
 }
@@ -18,7 +17,7 @@ public enum SignalActionClass
 /// signal channel.
 /// </summary>
 /// <param name="Class">Logical class of data being transported.</param>
-/// <param name="Identifier">Caller-defined identifier (channel name, state key, etc.).</param>
+/// <param name="Identifier">Caller-defined channel identifier.</param>
 /// <param name="Type">Optional semantic type or model identifier.</param>
 /// <param name="ContentType">Optional MIME-type describing the binary payload.</param>
 /// <param name="Data">Opaque data bytes written to the channel.</param>

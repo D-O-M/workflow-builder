@@ -117,10 +117,10 @@ public static class ServiceExtensions
             return new NodeJoinStateRepository(client.GetContainer(databaseName, joinStatesContainerName));
         });
 
-        services.AddSingleton<IProcessInstanceRepository<Dictionary<string, JsonElement>>>(sp =>
+        services.AddSingleton<IProcessInstanceRepository>(sp =>
         {
             var client = sp.GetRequiredService<CosmosClient>();
-            return new ProcessInstanceRepository<Dictionary<string, JsonElement>>(
+            return new ProcessInstanceRepository(
                 client.GetContainer(databaseName, processesContainerName));
         });
 

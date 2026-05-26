@@ -22,7 +22,6 @@ function createTaskDefinition(
         version: '0.0.1',
         state: 'Active',
         description: `${name} description`,
-        requiredGlobalState: null,
         inputChannel: options?.inputChannelName
           ? {
             id: id * 1000 + 1,
@@ -59,7 +58,6 @@ function createVersionedTaskDefinition(): ITaskDefinition {
         version: '1.0.0',
         state: 'Active',
         description: 'Old version',
-        requiredGlobalState: null,
         inputChannel: {
           id: 4001,
           name: 'Input',
@@ -78,7 +76,6 @@ function createVersionedTaskDefinition(): ITaskDefinition {
         version: '1.0.2',
         state: 'Active',
         description: 'Patch version',
-        requiredGlobalState: null,
         inputChannel: {
           id: 4002,
           name: 'Input',
@@ -97,7 +94,6 @@ function createVersionedTaskDefinition(): ITaskDefinition {
         version: '2.0.0',
         state: 'Active',
         description: 'Major version',
-        requiredGlobalState: null,
         inputChannel: {
           id: 4003,
           name: 'Input',
@@ -125,7 +121,6 @@ function createMappingTargetTaskDefinition(): ITaskDefinition {
         version: '1.0.0',
         state: 'Active',
         description: 'Target',
-        requiredGlobalState: null,
         inputChannel: {
           id: 4101,
           name: 'Input',
@@ -147,7 +142,6 @@ function createCollectionSourceTaskDefinition(collectionKind: ITaskPropertyDefin
         version: '1.0.0',
         state: 'Active',
         description: 'Collection source',
-        requiredGlobalState: null,
         inputChannel: null,
         outputChannels: [
           {

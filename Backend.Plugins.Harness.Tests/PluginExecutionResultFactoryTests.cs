@@ -106,36 +106,6 @@ public sealed class PluginExecutionResultFactoryTests
     }
 
     [Test]
-    public void CreateSuccess_serializes_global_state_to_existing_dictionary_shape()
-    {
-        var plugin = new ResultFactoryProbePlugin
-        {
-            State = new ResultFactoryState
-            {
-                RunLabel = "source-gen",
-                StepsCompleted = 3
-            }
-        };
-        var factory = new PluginExecutionResultFactory<ResultFactoryProbePlugin>(
-            [],
-            new PluginGlobalStateSerializer<ResultFactoryProbePlugin, ResultFactoryState>(
-                p => p.State!,
-                PluginJsonSerialization.GetTypeInfo<ResultFactoryState>(ResultFactoryJsonContext.Default, "global state")));
-
-        var result = factory.CreateSuccess(
-            plugin,
-            CreateEnvelope(),
-            DateTimeOffset.UtcNow,
-            DateTimeOffset.UtcNow,
-            timingsMs: null,
-            effectiveInputData: null);
-
-        result.GlobalState.ShouldNotBeNull();
-        result.GlobalState["RunLabel"].GetString().ShouldBe("source-gen");
-        result.GlobalState["StepsCompleted"].GetInt32().ShouldBe(3);
-    }
-
-    [Test]
     public void Generated_context_metadata_is_discoverable_from_plugin_assembly()
     {
         var context = PluginJsonSerialization.ResolveContext(typeof(ResultFactoryProbePlugin));
@@ -153,9 +123,27 @@ public sealed class PluginExecutionResultFactoryTests
         source.ShouldNotContain("SerializeToElement(\r\n                value,");
     }
 
+    [Test]
+    public void Plugin_execution_result_serialization_omits_global_state()
+    {
+        var result = new PluginExecutionResult(
+            Guid.NewGuid(),
+            Succeeded: true,
+            EffectiveInputData: null,
+            OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
+            StartedAt: DateTimeOffset.UtcNow.AddSeconds(-1),
+            CompletedAt: DateTimeOffset.UtcNow,
+            TimingsMs: null,
+            ErrorMessage: null);
+
+        var json = PluginExecutionResultSerializer.Serialize(result);
+
+        json.ShouldNotContain("global" + "State");
+    }
+
     private static PluginExecutionResultFactory<ResultFactoryProbePlugin> CreateFactory(
         params IPluginOutputChannel<ResultFactoryProbePlugin>[] outputChannels) =>
-        new(outputChannels, globalStateSerializer: null);
+        new(outputChannels);
 
     private static InvocationEnvelope CreateEnvelope() =>
         new(
@@ -194,7 +182,6 @@ public sealed class PluginExecutionResultFactoryTests
     {
         public SuccessOutput? Success { get; set; }
         public DetailsOutput? Details { get; set; }
-        public ResultFactoryState? State { get; set; }
         public Task Execute() => Task.CompletedTask;
     }
 
@@ -211,18 +198,11 @@ public sealed class PluginExecutionResultFactoryTests
         public string Label { get; set; } = string.Empty;
     }
 
-    [Backend.Plugins.Harness.PluginJsonSerializable]
-    public sealed class ResultFactoryState : IGlobalState
-    {
-        public string RunLabel { get; set; } = string.Empty;
-        public int StepsCompleted { get; set; }
-    }
 }
 
 [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata)]
 [JsonSerializable(typeof(PluginExecutionResultFactoryTests.SuccessOutput))]
 [JsonSerializable(typeof(PluginExecutionResultFactoryTests.DetailsOutput))]
-[JsonSerializable(typeof(PluginExecutionResultFactoryTests.ResultFactoryState))]
 internal partial class ResultFactoryJsonContext : JsonSerializerContext
 {
 }

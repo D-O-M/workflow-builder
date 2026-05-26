@@ -4,7 +4,6 @@ namespace Backend.Models.InputModels;
 
 public sealed class BlueprintProcessInputModel
 {
-    public Dictionary<string, JsonElement> GlobalState { get; init; } = new();
     public Dictionary<string, JsonElement> InitialTaskInput { get; init; } = new();
     public Dictionary<Guid, Dictionary<string, JsonElement>> NodeOverrides { get; init; } = new();
 }

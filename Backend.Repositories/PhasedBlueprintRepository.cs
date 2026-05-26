@@ -379,7 +379,6 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
         var destinationBlueprintVersionId = await ResolveValidationBlueprintVersionIdAsync(destinationPhase, cancellationToken);
         var sourceNodes = await LoadBlueprintNodesAsync(sourceBlueprintVersionId, cancellationToken);
         var destinationNodes = await LoadBlueprintNodesAsync(destinationBlueprintVersionId, cancellationToken);
-        var globalStateProperties = GetGlobalStateProperties(sourceNodes.Values);
 
         var targetProperties = new HashSet<string>(StringComparer.Ordinal);
         var targetResultProperties = new HashSet<string>(StringComparer.Ordinal);
@@ -409,23 +408,6 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
 
             targetResultProperties.Add(mapping.TargetProperty);
             var sourceKind = ParseHandoffSourceKind(mapping.SourceKind);
-            if (sourceKind == PhasedBlueprintHandoffSourceKind.GlobalState)
-            {
-                if (!globalStateProperties.TryGetValue(mapping.SourceProperty, out var globalSourceKindName))
-                {
-                    throw new InvalidDataException($"Global state handoff source property '{mapping.SourceProperty}' does not exist.");
-                }
-
-                if (destinationInputProperties.TryGetValue(mapping.TargetProperty, out var globalTargetKindName) &&
-                    !string.Equals(globalSourceKindName, globalTargetKindName, StringComparison.Ordinal))
-                {
-                    throw new InvalidDataException(
-                        $"Global state handoff source property '{mapping.SourceProperty}' ({globalSourceKindName}) cannot map to destination property '{mapping.TargetProperty}' ({globalTargetKindName}) on node '{mapping.TargetBlueprintNodeId}'.");
-                }
-
-                continue;
-            }
-
             if (mapping.SourceBlueprintNodeId is not Guid sourceNodeId ||
                 !sourceNodes.TryGetValue(sourceNodeId, out var sourceNode))
             {
@@ -575,34 +557,6 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
             ?? [];
     }
 
-    private static Dictionary<string, string> GetGlobalStateProperties(IEnumerable<BlueprintNode> nodes)
-    {
-        var properties = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var node in nodes.Where(node => node.NodeKind != BlueprintNodeKind.CollectionIterator))
-        {
-            var version = ResolveConcreteVersion(node);
-            if (version.GlobalState is null)
-            {
-                continue;
-            }
-
-            foreach (var property in version.GlobalState.Properties)
-            {
-                var kindName = WorkflowPropertyTypeName.Format(property.Kind, property.IsCollection);
-                if (properties.TryGetValue(property.Name, out var existingKindName) &&
-                    !string.Equals(existingKindName, kindName, StringComparison.Ordinal))
-                {
-                    throw new InvalidDataException(
-                        $"Global state property '{property.Name}' has conflicting types in the source phase.");
-                }
-
-                properties[property.Name] = kindName;
-            }
-        }
-
-        return properties;
-    }
-
     private static TaskVersion ResolveConcreteVersion(BlueprintNode node)
     {
         if (node.TaskDefinition is null)
@@ -663,10 +617,17 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
             ? parsed
             : PhasedBlueprintPhaseVersionPolicy.Pinned;
 
-    private static PhasedBlueprintHandoffSourceKind ParseHandoffSourceKind(string? value) =>
-        Enum.TryParse<PhasedBlueprintHandoffSourceKind>(value, ignoreCase: true, out var parsed)
+    private static PhasedBlueprintHandoffSourceKind ParseHandoffSourceKind(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return PhasedBlueprintHandoffSourceKind.Output;
+        }
+
+        return Enum.TryParse<PhasedBlueprintHandoffSourceKind>(value, ignoreCase: true, out var parsed)
             ? parsed
-            : PhasedBlueprintHandoffSourceKind.Output;
+            : throw new InvalidDataException($"Phase handoff source kind '{value}' is not supported.");
+    }
 
     private static double NormalizeBridgePosition(double value) =>
         double.IsFinite(value)

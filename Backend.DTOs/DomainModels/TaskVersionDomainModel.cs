@@ -10,7 +10,6 @@ public class TaskVersionDomainModel
     public required Version Version { get; set; }
     public required string WorkspaceEntryPointPath { get; set; }
     public required PluginAbiMetadata Abi { get; set; }
-    public HashSet<PropertyDefinitionDomainModel>? RequiredGlobalState { get; set; }
     public ChannelDefinitionDomainModel? InputChannelDefinition { get; set; }
     public required HashSet<ChannelDefinitionDomainModel> OutputChannelDefinitions { get; set; }
 }

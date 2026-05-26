@@ -112,7 +112,6 @@ public sealed class PluginRuntimeConfigurationServiceTests
               "displayName": "DCC gateway submit",
               "inputChannel": null,
               "outputChannels": [],
-              "globalState": null,
               "configuration": {
                 "requirements": [
                   {

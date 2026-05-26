@@ -266,14 +266,6 @@ static object BuildProcessPayload(int index, string blueprintKey, CommandOptions
     {
         return new
         {
-            globalState = new
-            {
-                runLabel = "local-nft",
-                stepsCompleted = 0,
-                totalScore = 0,
-                lastStage = "",
-                traceEnabled = false
-            },
             initialTaskInput = new
             {
                 correlationKey,
@@ -291,14 +283,6 @@ static object BuildProcessPayload(int index, string blueprintKey, CommandOptions
     {
         return new
         {
-            globalState = new
-            {
-                runLabel = "local-nft",
-                stepsCompleted = 0,
-                totalScore = 0,
-                lastStage = "",
-                traceEnabled = false
-            },
             initialTaskInput = new
             {
                 correlationKey,
@@ -316,14 +300,6 @@ static object BuildProcessPayload(int index, string blueprintKey, CommandOptions
     {
         return new
         {
-            globalState = new
-            {
-                runLabel = "local-nft",
-                stepsCompleted = 0,
-                totalScore = 0,
-                lastStage = "",
-                traceEnabled = false
-            },
             initialTaskInput = new
             {
                 correlationKey,
@@ -336,14 +312,6 @@ static object BuildProcessPayload(int index, string blueprintKey, CommandOptions
 
     return new
     {
-        globalState = new
-        {
-            runLabel = "local-nft",
-            stepsCompleted = 0,
-            totalScore = 0,
-            lastStage = "",
-            traceEnabled = false
-        },
         initialTaskInput = new
         {
             correlationKey,

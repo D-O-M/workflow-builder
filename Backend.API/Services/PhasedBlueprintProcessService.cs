@@ -94,7 +94,6 @@ public sealed class PhasedBlueprintProcessService
         {
             var childInput = new BlueprintProcessInputModel
             {
-                GlobalState = CloneJsonMap(model.GlobalState),
                 InitialTaskInput = CloneJsonMap(model.InitialTaskInput),
                 NodeOverrides = CloneNodeOverrides(model.NodeOverrides)
             };
@@ -229,7 +228,6 @@ public sealed class PhasedBlueprintProcessService
                 targetBlueprintVersionId,
                 new BlueprintProcessInputModel
                 {
-                    GlobalState = CloneJsonMap(model.GlobalState),
                     InitialTaskInput = CloneJsonMap(model.TriggerInput),
                     NodeOverrides = nodeOverrides
                 },

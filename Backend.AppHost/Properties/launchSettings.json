@@ -40,10 +40,10 @@
         "SignalR__Enabled": "false",
         "ProgressBroadcaster__Enabled": "false",
         "Dispatcher__Enabled": "true",
-        "ProjectionWorker__Enabled": "false",
+        "ProjectionWorker__Enabled": "true",
         "Maintenance__Enabled": "false",
         "PluginDetector__Enabled": "false",
-        "Projections__SynchronousEngineUpdatesEnabled": "true",
+        "Projections__SynchronousEngineUpdatesEnabled": "false",
         "AzureServiceBus__Queues__PluginControlQueue__ResourceName": "plugin-control-queue",
         "AzureServiceBus__Queues__PluginControlQueue__ConnectionName": "plugin-control-queue",
         "AzureServiceBus__Queues__PluginControlQueue__Name": "pluginreloadqueue"

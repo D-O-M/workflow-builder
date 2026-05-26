@@ -20,24 +20,27 @@ public enum StepResetResult
 public sealed class StepClaimService
 {
     private readonly IProcessStepRepository _processStepRepository;
-    private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessInstanceRepository _processInstanceRepository;
     private readonly IProcessIndexProjectionService? _processIndexProjectionService;
     private readonly IProcessRealtimeProjectionService? _processRealtimeProjectionService;
+    private readonly EngineProjectionOptions _projectionOptions;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
     private readonly ILogger<StepClaimService>? _logger;
 
     public StepClaimService(
         IProcessStepRepository processStepRepository,
-        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        IProcessInstanceRepository processInstanceRepository,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
         IProcessIndexProjectionService? processIndexProjectionService = null,
         ILogger<StepClaimService>? logger = null,
-        IProcessRealtimeProjectionService? processRealtimeProjectionService = null)
+        IProcessRealtimeProjectionService? processRealtimeProjectionService = null,
+        EngineProjectionOptions? projectionOptions = null)
     {
         _processStepRepository = processStepRepository;
         _processInstanceRepository = processInstanceRepository;
         _processIndexProjectionService = processIndexProjectionService;
         _processRealtimeProjectionService = processRealtimeProjectionService;
+        _projectionOptions = projectionOptions ?? EngineProjectionOptions.Enabled;
         _processLifecycleTelemetry = processLifecycleTelemetry;
         _logger = logger;
     }
@@ -166,10 +169,11 @@ public sealed class StepClaimService
 
     private async Task TryProjectProcessAsync(
         StepExecutionContext context,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         CancellationToken cancellationToken)
     {
-        if (_processIndexProjectionService is null)
+        if (!_projectionOptions.SynchronousEngineUpdatesEnabled ||
+            _processIndexProjectionService is null)
         {
             return;
         }
@@ -193,11 +197,12 @@ public sealed class StepClaimService
 
     private async Task TryProjectRealtimeAsync(
         StepExecutionContext context,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         ProcessStepRecord step,
         CancellationToken cancellationToken)
     {
-        if (_processRealtimeProjectionService is null)
+        if (!_projectionOptions.SynchronousEngineUpdatesEnabled ||
+            _processRealtimeProjectionService is null)
         {
             return;
         }
@@ -224,7 +229,7 @@ public sealed class StepClaimService
         }
     }
 
-    private Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> GetProcessStateAsync(
+    private Task<ProcessInstanceRecord> GetProcessStateAsync(
         StepExecutionContext context,
         CancellationToken cancellationToken) =>
         _processInstanceRepository.GetProcessStateById(
@@ -234,7 +239,7 @@ public sealed class StepClaimService
 
     internal static void EnsureExecutionProgress(
         StepExecutionContext context,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process)
+        ProcessInstanceRecord process)
     {
         process.ExecutionProgress ??= new ProcessExecutionProgress();
         if (process.ExecutionProgress.TotalNodeCount <= 0)

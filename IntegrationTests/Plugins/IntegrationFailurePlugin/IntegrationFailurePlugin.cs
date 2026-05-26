@@ -4,17 +4,14 @@ namespace WorkflowBuilder.IntegrationTests.Plugins.IntegrationFailurePlugin;
 
 public sealed class IntegrationFailurePlugin : IPlugin
 {
-    public required IntegrationWorkflowState State { get; set; }
-
     public required FailureRequest Request { get; init; }
 
     public FailureSuccess? Success { get; set; }
 
     public Task Execute()
     {
-        State.LastStage = "failure";
 
-        if (State.ShouldFail)
+        if (Request.ShouldFail)
         {
             throw new InvalidOperationException(
                 $"Requested failure for {Request.NormalizedName}.");

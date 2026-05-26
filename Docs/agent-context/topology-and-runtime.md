@@ -99,7 +99,7 @@ flowchart LR
 8. Capability validation includes required software probes, engine-side endpoint checks where configured, and required domain config/secret presence.
 9. After capability validation succeeds, runtime config files are generated and passed to the plugin with repeated `--config` arguments.
 10. The plugin runtime launches the plugin executable through the harness.
-11. The plugin hydrates its required input/global state from Cosmos using the invocation envelope identifiers.
+11. The plugin hydrates its required input channels from Cosmos using the invocation envelope identifiers.
 12. The plugin emits framed process-protocol stdout messages; result frames enter bounded finalization, then the engine updates process-step state and durably schedules downstream work as needed.
 13. `Backend.ProjectionWorker` consumes canonical process/process-step changes and maintains query/realtime projections. Engine synchronous projection writes are compatibility behavior.
 14. Cosmos changes in `processsteps` are observed by `ProgressBroadcaster`.
@@ -119,7 +119,7 @@ The summary projection is the query seed for recent-process and dashboard paths.
 
 Existing deployments can opt into projection repair by running the migration service with `ProcessIndexBackfill:Enabled=true`. The backfill enumerates SQL blueprint versions, pages the existing `processes` partitions, and idempotently upserts directory and summary rows. It is safe to rerun and can be throttled with `ProcessIndexBackfill:BatchSize`.
 
-`Backend.ProjectionWorker` is the long-running owner for projection maintenance. It consumes Cosmos change feed records from `processes` and `processsteps`, stores leases in `processprojectionleases`, and can repair a single process projection from canonical process plus process-step records. Engine synchronous projection writes are controlled by `Projections:SynchronousEngineUpdatesEnabled`, which defaults to `true` for compatibility. Set it to `false` in production once ProjectionWorker is running and healthy so Engine remains focused on execution.
+`Backend.ProjectionWorker` is the long-running owner for projection maintenance. It consumes Cosmos change feed records from `processes` and `processsteps`, stores leases in `processprojectionleases`, and can repair a single process projection from canonical process plus process-step records. Engine synchronous projection writes are controlled by `Projections:SynchronousEngineUpdatesEnabled`, which defaults to `true` for compatibility. Production and performance runs should set it to `false` and run ProjectionWorker so Engine does not write process index or realtime projections during normal node execution.
 
 ## Realtime Projection Model
 
@@ -128,7 +128,7 @@ Realtime broadcasting uses lightweight projections so change-feed batches do not
 - `processrealtimesummaries`, partitioned by `/id`, stores one row per process with blueprint identity, aggregate process status, runtime step counts, and compact per-step status contributions for idempotent updates.
 - `processnoderealtime`, partitioned by `/processId`, stores one row per process node with aggregate runtime-step status, latest runtime step id, timestamps, failure summary, and compact per-runtime-step contributions for fan-out and Collection Iterator aggregation.
 
-API process start and Engine step claim/finalization can update these projections best-effort when compatibility synchronous updates are enabled. `Backend.ProjectionWorker` is the async owner and rebuilds the same projection rows from canonical state. The `processes` and `processsteps` containers remain authoritative: process detail pages still load full source state, and `ProgressBroadcaster` falls back to a full source load only when a realtime projection is missing, then repairs the projection for later batches. Projection write failures are observable through realtime projection metrics and should not fail process execution.
+API process start can update these projections for start-time compatibility, and Engine step claim/finalization only writes them when `Projections:SynchronousEngineUpdatesEnabled=true`. `Backend.ProjectionWorker` is the async owner and rebuilds the same projection rows from canonical state. The `processes` and `processsteps` containers remain authoritative: process detail pages still load full source state, and `ProgressBroadcaster` falls back to a full source load only when a realtime projection is missing, then repairs the projection for later batches. ProjectionWorker emits processed item, failure, and lag metrics; Engine emits `engine_synchronous_projection_updates_enabled` so production can verify the hot path is projection-free.
 
 ## Step Dispatch Guarantee
 
@@ -151,6 +151,8 @@ New process records include a `start` snapshot with the deterministic initial st
 ## Step Finalization Guarantee
 
 Plugin-backed steps and native Collection Iterator steps finalize through the `processstepfinalizations` outbox container. The engine writes a `ResultReceived` checkpoint before mutating step or process state, advances explicit stages as outputs/failures, downstream activation, and phase/process effects become durable, and only acknowledges the process-step queue message after the finalization record reaches `QueueMessageCompletionPrepared`.
+
+Plugin-backed process-step queue messages remain unsettled while the plugin job is active and while queued plugin results are finalized. `Backend.Engine` starts an explicit active-message lock-renewal loop after a step is durably claimed and tracked as active. The loop renews before `LockedUntil` reaches the configured lead time, stops on queue-message completion, abandonment/reset cleanup, plugin-agent crash cleanup, shutdown, or `ProcessStepQueue:MaxActiveRenewalDurationMinutes`, and records renewal, failure, suspected lock-loss, and active-renewal-duration metrics. If renewal or settlement loses the broker lock, redelivery is still safe because step claim, finalization resume, and downstream activation are idempotent.
 
 If a queue message is redelivered for a step with an incomplete finalization record, the engine resumes from the recorded stage instead of re-running the plugin or native operator. Downstream step creation remains idempotent because runtime step ids are deterministic and inserts use create-if-not-exists semantics. Legacy completed or failed steps without a finalization record are treated as already settled.
 

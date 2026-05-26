@@ -45,7 +45,6 @@ function taskVersion(options: {
     version: options.version ?? '1.0.0',
     state: 'Active',
     description: 'Version',
-    requiredGlobalState: null,
     inputChannel: options.inputProperties
       ? {
           name: 'Input',

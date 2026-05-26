@@ -149,7 +149,6 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
         var inputChannels = new List<PluginChannelContract>();
         var outputChannels = new List<PluginChannelContract>();
         var capabilityTypes = new List<PluginCapabilityTypeContract>();
-        PluginChannelContract? globalState = null;
         string? displayName = null;
         string? pluginTypeName = null;
         Location location = buildInvocation.GetLocation();
@@ -183,7 +182,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                 continue;
             }
 
-            if (memberName is "ConfigureInputChannel" or "ConfigureOutputChannel" or "WithGlobalState")
+            if (memberName is "ConfigureInputChannel" or "ConfigureOutputChannel")
             {
                 if (currentInvocation.ArgumentList.Arguments.Count != 1)
                 {
@@ -210,17 +209,13 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                     propertySymbol.Type,
                     location);
 
-                switch (memberName)
+                if (memberName == "ConfigureInputChannel")
                 {
-                    case "ConfigureInputChannel":
-                        inputChannels.Add(contract);
-                        break;
-                    case "ConfigureOutputChannel":
-                        outputChannels.Add(contract);
-                        break;
-                    default:
-                        globalState = contract;
-                        break;
+                    inputChannels.Add(contract);
+                }
+                else
+                {
+                    outputChannels.Add(contract);
                 }
 
                 if (memberAccess.Expression is not InvocationExpressionSyntax nextInvocation)
@@ -333,7 +328,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                 Diagnostic.Create(
                     UnsupportedBuilderShapeRule,
                     currentInvocation.GetLocation(),
-                    $"Unsupported call '{memberName}' in plugin builder chain. Only ConfigureInputChannel, ConfigureOutputChannel, WithGlobalState, RequireCapability, and Build are supported."));
+                    $"Unsupported call '{memberName}' in plugin builder chain. Only ConfigureInputChannel, ConfigureOutputChannel, RequireCapability, and Build are supported."));
         }
 
         if (displayName is null || pluginTypeName is null)
@@ -361,7 +356,6 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                 inputChannels.SingleOrDefault(),
                 outputChannels,
                 capabilityTypes,
-                globalState,
                 buildInvocation.GetLocation()));
     }
 
@@ -371,7 +365,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
     {
         var inputChannel = invocation.InputChannel is null
             ? null
-            : BuildChannelContract(invocation.InputChannel, isGlobalState: false, diagnostics);
+            : BuildChannelContract(invocation.InputChannel, diagnostics);
         if (invocation.InputChannel is not null)
         {
             ValidatePluginJsonSerializableAttribute(invocation.InputChannel, "Input channel", diagnostics);
@@ -383,18 +377,11 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
         }
 
         var outputChannels = invocation.OutputChannels
-            .Select(channel => BuildChannelContract(channel, isGlobalState: false, diagnostics))
+            .Select(channel => BuildChannelContract(channel, diagnostics))
             .Where(channel => channel is not null)
             .Cast<GeneratedChannelContract>()
             .ToList();
 
-        var globalState = invocation.GlobalState is null
-            ? null
-            : BuildChannelContract(invocation.GlobalState, isGlobalState: true, diagnostics);
-        if (invocation.GlobalState is not null)
-        {
-            ValidatePluginJsonSerializableAttribute(invocation.GlobalState, "Global state", diagnostics);
-        }
         var capabilityRequirements = invocation.CapabilityTypes
             .Select(capabilityType => BuildCapabilityRequirement(capabilityType, diagnostics))
             .Where(capability => capability is not null)
@@ -434,7 +421,6 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
 
         var schemaDictionary = new Dictionary<string, GeneratedSchemaContract>(StringComparer.Ordinal);
         CollectSchema(inputChannel, schemaDictionary);
-        CollectSchema(globalState, schemaDictionary);
         foreach (var channel in outputChannels)
         {
             CollectSchema(channel, schemaDictionary);
@@ -445,7 +431,6 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
             invocation.PluginTypeName,
             inputChannel,
             outputChannels,
-            globalState,
             capabilityRequirements,
             configurationRequirements,
             schemaDictionary);
@@ -866,7 +851,6 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
 
     private static GeneratedChannelContract? BuildChannelContract(
         PluginChannelContract channel,
-        bool isGlobalState,
         ImmutableArray<Diagnostic>.Builder diagnostics)
     {
         var channelType = channel.TypeSymbol;
@@ -894,7 +878,7 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
             diagnostics.Add(Diagnostic.Create(
                 ContractModelMustBeFlatRule,
                 channel.Location,
-                $"{(isGlobalState ? "Global state" : $"Channel '{channel.Name}'")} must be a flat DTO with only public scalar or enum properties."));
+                $"Channel '{channel.Name}' must be a flat DTO with only public scalar or enum properties."));
             return null;
         }
 
@@ -1111,7 +1095,6 @@ public sealed class PluginContractGenerator : IIncrementalGenerator
                 Abi = PluginAbiDefaults.CurrentMetadata,
                 InputChannel = contract.InputChannel is null ? null : MapChannel(contract.InputChannel),
                 OutputChannels = contract.OutputChannels.Select(MapChannel).ToList(),
-                GlobalState = contract.GlobalState is null ? null : MapChannel(contract.GlobalState),
                 Capabilities = new ManifestFileCapabilitiesInfo
                 {
                     Requirements = contract.CapabilityRequirements.Select(MapCapabilityRequirement).ToList()
@@ -1547,15 +1530,6 @@ internal sealed class WorkflowBuilderPluginInputMaterializerProvider : IPluginIn
             WriteChannel(builder, channel);
         }
         builder.EndArray();
-        builder.PropertyName("globalState");
-        if (manifest.GlobalState is null)
-        {
-            builder.NullValue();
-        }
-        else
-        {
-            WriteChannel(builder, manifest.GlobalState);
-        }
 
         builder.PropertyName("capabilities");
         builder.StartObject();
@@ -1690,36 +1664,36 @@ internal sealed class WorkflowBuilderPluginInputMaterializerProvider : IPluginIn
             {
                 builder.PropertyName(propertyEntry.Key);
                 builder.StartObject();
-            builder.Property("type", propertyEntry.Value.Type);
-            if (!string.IsNullOrWhiteSpace(propertyEntry.Value.Format))
-            {
-                builder.Property("format", propertyEntry.Value.Format!);
-            }
+                builder.Property("type", propertyEntry.Value.Type);
+                if (!string.IsNullOrWhiteSpace(propertyEntry.Value.Format))
+                {
+                    builder.Property("format", propertyEntry.Value.Format!);
+                }
 
                 if (propertyEntry.Value.Enum is not null && propertyEntry.Value.Enum.Length > 0)
                 {
-                builder.Property("enum", propertyEntry.Value.Enum);
-            }
-
-            if (propertyEntry.Value.Items is not null)
-            {
-                builder.PropertyName("items");
-                builder.StartObject();
-                builder.Property("type", propertyEntry.Value.Items.Type);
-                if (!string.IsNullOrWhiteSpace(propertyEntry.Value.Items.Format))
-                {
-                    builder.Property("format", propertyEntry.Value.Items.Format!);
+                    builder.Property("enum", propertyEntry.Value.Enum);
                 }
 
-                if (propertyEntry.Value.Items.Enum is not null && propertyEntry.Value.Items.Enum.Length > 0)
+                if (propertyEntry.Value.Items is not null)
                 {
-                    builder.Property("enum", propertyEntry.Value.Items.Enum);
+                    builder.PropertyName("items");
+                    builder.StartObject();
+                    builder.Property("type", propertyEntry.Value.Items.Type);
+                    if (!string.IsNullOrWhiteSpace(propertyEntry.Value.Items.Format))
+                    {
+                        builder.Property("format", propertyEntry.Value.Items.Format!);
+                    }
+
+                    if (propertyEntry.Value.Items.Enum is not null && propertyEntry.Value.Items.Enum.Length > 0)
+                    {
+                        builder.Property("enum", propertyEntry.Value.Items.Enum);
+                    }
+                    builder.EndObject();
                 }
+
                 builder.EndObject();
             }
-
-            builder.EndObject();
-        }
 
             builder.EndObject();
             builder.EndObject();
@@ -1773,7 +1747,6 @@ internal sealed class WorkflowBuilderPluginInputMaterializerProvider : IPluginIn
         PluginChannelContract? InputChannel,
         IReadOnlyList<PluginChannelContract> OutputChannels,
         IReadOnlyList<PluginCapabilityTypeContract> CapabilityTypes,
-        PluginChannelContract? GlobalState,
         Location Location);
 
     private sealed record PluginChannelContract(
@@ -1797,7 +1770,6 @@ internal sealed class WorkflowBuilderPluginInputMaterializerProvider : IPluginIn
         string PluginTypeName,
         GeneratedChannelContract? InputChannel,
         IReadOnlyList<GeneratedChannelContract> OutputChannels,
-        GeneratedChannelContract? GlobalState,
         IReadOnlyList<GeneratedCapabilityRequirementContract> CapabilityRequirements,
         IReadOnlyList<GeneratedConfigurationRequirementContract> ConfigurationRequirements,
         IReadOnlyDictionary<string, GeneratedSchemaContract> Schemas);
@@ -1873,7 +1845,6 @@ internal sealed class WorkflowBuilderPluginInputMaterializerProvider : IPluginIn
         public PluginAbiMetadata Abi { get; init; } = PluginAbiDefaults.CurrentMetadata;
         public ManifestFileChannelInfo? InputChannel { get; init; }
         public List<ManifestFileChannelInfo> OutputChannels { get; init; } = [];
-        public ManifestFileChannelInfo? GlobalState { get; init; }
         public ManifestFileCapabilitiesInfo Capabilities { get; init; } = new();
         public ManifestFileConfigurationInfo Configuration { get; init; } = new();
     }

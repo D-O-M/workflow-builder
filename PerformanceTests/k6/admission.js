@@ -79,14 +79,7 @@ function buildPayload() {
 
   const key = `k6-${__VU}-${__ITER}-${Date.now()}`;
   return {
-    globalState: {
-      runLabel: 'local-nft-k6',
-      stepsCompleted: 0,
-      totalScore: 0,
-      lastStage: '',
-      traceEnabled: false,
-    },
-    initialTaskInput: {
+initialTaskInput: {
       correlationKey: key,
       payloadSize: 256 + (__ITER % 512),
       baseScore: 10 + (__ITER % 7),

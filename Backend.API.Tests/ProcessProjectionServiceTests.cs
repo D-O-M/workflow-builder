@@ -93,14 +93,13 @@ public sealed class ProcessProjectionServiceTests
             CancellationToken.None);
 
         var processId = Guid.NewGuid();
-        var processRecord = new ProcessInstanceRecord<Dictionary<string, JsonElement>>
+        var processRecord = new ProcessInstanceRecord
         {
             id = processId.ToString(),
             BlueprintId = created.Versions[0].BlueprintVersionId.ToString(),
             CreatedAt = DateTimeOffset.Parse("2026-04-21T00:10:00Z"),
             UpdatedAt = DateTimeOffset.Parse("2026-04-21T00:12:00Z"),
             Status = ProcessStatus.Pending,
-            GlobalState = new Dictionary<string, JsonElement>(),
             NodeOverrides = new Dictionary<string, Dictionary<string, JsonElement>>
             {
                 [targetNodeId.ToString()] = new Dictionary<string, JsonElement>
@@ -167,13 +166,12 @@ public sealed class ProcessProjectionServiceTests
         var phasedProcessId = Guid.NewGuid();
         var phaseId = Guid.NewGuid();
         var processId = Guid.NewGuid();
-        var processRecord = new ProcessInstanceRecord<Dictionary<string, JsonElement>>
+        var processRecord = new ProcessInstanceRecord
         {
             id = processId.ToString(),
             BlueprintId = created.Versions[0].BlueprintVersionId.ToString(),
             CreatedAt = DateTimeOffset.Parse("2026-04-21T00:10:00Z"),
             Status = ProcessStatus.Pending,
-            GlobalState = new Dictionary<string, JsonElement>(),
             Phase = new ProcessPhaseMetadata
             {
                 PhasedProcessId = phasedProcessId.ToString(),
@@ -235,13 +233,12 @@ public sealed class ProcessProjectionServiceTests
             CancellationToken.None);
 
         var processId = Guid.NewGuid();
-        var processRecord = new ProcessInstanceRecord<Dictionary<string, JsonElement>>
+        var processRecord = new ProcessInstanceRecord
         {
             id = processId.ToString(),
             BlueprintId = created.Versions[0].BlueprintVersionId.ToString(),
             CreatedAt = DateTimeOffset.Parse("2026-04-21T00:10:00Z"),
             Status = ProcessStatus.Pending,
-            GlobalState = new Dictionary<string, JsonElement>(),
         };
         var processRepository = new ProcessInstanceRepositoryStub(created.Versions[0].BlueprintVersionId, processRecord);
         var index = new ProcessIndexProjectionServiceStub(new ProcessDirectoryRecord
@@ -540,7 +537,7 @@ public sealed class ProcessProjectionServiceTests
         return taskDefinition;
     }
 
-    private static ProcessInstanceRecord<Dictionary<string, JsonElement>> CreateProcessRecord(
+    private static ProcessInstanceRecord CreateProcessRecord(
         Guid processId,
         int blueprintVersionId,
         ProcessStatus status) =>
@@ -551,17 +548,16 @@ public sealed class ProcessProjectionServiceTests
             CreatedAt = DateTimeOffset.Parse("2026-04-21T00:10:00Z"),
             UpdatedAt = DateTimeOffset.Parse("2026-04-21T00:12:00Z"),
             Status = status,
-            GlobalState = new Dictionary<string, JsonElement>(),
         };
 
-    private sealed class ProcessInstanceRepositoryStub : IProcessInstanceRepository<Dictionary<string, JsonElement>>
+    private sealed class ProcessInstanceRepositoryStub : IProcessInstanceRepository
     {
         private readonly int _blueprintVersionId;
-        private readonly ProcessInstanceRecord<Dictionary<string, JsonElement>> _processRecord;
+        private readonly ProcessInstanceRecord _processRecord;
 
         public ProcessInstanceRepositoryStub(
             int blueprintVersionId,
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> processRecord)
+            ProcessInstanceRecord processRecord)
         {
             _blueprintVersionId = blueprintVersionId;
             _processRecord = processRecord;
@@ -569,12 +565,12 @@ public sealed class ProcessProjectionServiceTests
 
         public List<int> RequestedBlueprintVersionIds { get; } = [];
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> CreateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+        public Task<ProcessInstanceRecord> CreateProcessState(
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> GetProcessStateById(
+        public Task<ProcessInstanceRecord> GetProcessStateById(
             Guid processId,
             int blueprintVersionId,
             CancellationToken cancellationToken)
@@ -585,10 +581,10 @@ public sealed class ProcessProjectionServiceTests
                 return Task.FromResult(_processRecord);
             }
 
-            throw new EntityNotFoundException<ProcessInstanceRecord<Dictionary<string, JsonElement>>>(processId.ToString());
+            throw new EntityNotFoundException<ProcessInstanceRecord>(processId.ToString());
         }
 
-        public Task<List<ProcessInstanceRecord<Dictionary<string, JsonElement>>>> GetProcessStatesForBlueprint(
+        public Task<List<ProcessInstanceRecord>> GetProcessStatesForBlueprint(
             int blueprintVersionId,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
@@ -615,13 +611,13 @@ public sealed class ProcessProjectionServiceTests
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> UpdateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+        public Task<ProcessInstanceRecord> UpdateProcessState(
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<bool> TryUpdateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
@@ -711,7 +707,7 @@ public sealed class ProcessProjectionServiceTests
         }
 
         public Task UpsertFromProcessAsync(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+            ProcessInstanceRecord process,
             int blueprintDefinitionId,
             int blueprintVersionId,
             CancellationToken cancellationToken) =>
@@ -755,7 +751,7 @@ public sealed class ProcessProjectionServiceTests
         public int RepairCallCount { get; private set; }
 
         public Task UpsertFromProcessAsync(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+            ProcessInstanceRecord process,
             int blueprintDefinitionId,
             int blueprintVersionId,
             CancellationToken cancellationToken) =>
@@ -769,7 +765,7 @@ public sealed class ProcessProjectionServiceTests
             Task.CompletedTask;
 
         public Task UpsertFromProcessAndStepsAsync(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+            ProcessInstanceRecord process,
             int blueprintDefinitionId,
             int blueprintVersionId,
             IReadOnlyCollection<ProcessStepRecord> steps,

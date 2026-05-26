@@ -13,4 +13,3 @@ public abstract class Channel
 
 public class InputChannelDefinition : Channel { }
 public class OutputChannelDefinition : Channel { }
-public class GlobalStateDefinition : Channel { }

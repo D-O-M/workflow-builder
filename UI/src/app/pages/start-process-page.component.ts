@@ -250,7 +250,6 @@ export class StartProcessPageComponent {
 
   protected readonly form = this.fb.group({
     blueprintId: this.fb.control<number | null>(null, Validators.required),
-    globalState: this.fb.group({}),
     initialTaskInput: this.fb.group({}),
   });
 
@@ -274,10 +273,6 @@ export class StartProcessPageComponent {
   private readonly initialTaskInputStatus = toSignal(
     this.form.controls.initialTaskInput.statusChanges.pipe(startWith(this.form.controls.initialTaskInput.status)),
     { initialValue: this.form.controls.initialTaskInput.status },
-  );
-  private readonly globalStateStatus = toSignal(
-    this.form.controls.globalState.statusChanges.pipe(startWith(this.form.controls.globalState.status)),
-    { initialValue: this.form.controls.globalState.status },
   );
   private readonly formStatus = toSignal(
     this.form.statusChanges.pipe(startWith(this.form.status)),
@@ -413,9 +408,6 @@ export class StartProcessPageComponent {
       : this.taskDefinitionById().get(firstTask.taskDefinitionId ?? 0)?.name ?? null;
   });
 
-  protected readonly globalStateFields = computed(() =>
-    createTaskPropertyFieldDefinitions(this.firstTaskVersion()?.requiredGlobalState?.properties ?? null),
-  );
   protected readonly firstTaskFields = computed(() =>
     createTaskPropertyFieldDefinitions(this.firstTaskVersion()?.inputChannel?.properties ?? null),
   );
@@ -424,11 +416,6 @@ export class StartProcessPageComponent {
     this.selectedBlueprintConfigured()
     && !this.blueprintLoading()
     && this.initialTaskInputStatus() === 'VALID',
-  );
-  protected readonly canAdvanceFromGlobalState = computed(() =>
-    this.selectedBlueprintConfigured()
-    && !this.blueprintLoading()
-    && this.globalStateStatus() === 'VALID',
   );
   protected readonly canStartProcess = computed(() =>
     !this.executing()
@@ -502,7 +489,6 @@ export class StartProcessPageComponent {
 
   constructor() {
     effect(() => {
-      this.resetGroup(this.form.controls.globalState, this.globalStateFields());
       this.resetGroup(this.form.controls.initialTaskInput, this.firstTaskFields());
     });
 
@@ -553,7 +539,6 @@ export class StartProcessPageComponent {
     this.executing.set(true);
     try {
       const processPayload = {
-        globalState: this.serializeFieldGroup(this.globalStateFields(), this.form.controls.globalState),
         initialTaskInput: this.serializeFieldGroup(this.firstTaskFields(), this.form.controls.initialTaskInput),
         nodeOverrides: this.collectRuntimeOverrides(),
       };
@@ -628,7 +613,7 @@ export class StartProcessPageComponent {
   }
 
   protected goToNextWizardStep(): void {
-    this.wizardStepIndex.update((currentStep) => Math.min(currentStep + 1, 2));
+    this.wizardStepIndex.update((currentStep) => Math.min(currentStep + 1, 1));
   }
 
   protected goToPreviousWizardStep(): void {

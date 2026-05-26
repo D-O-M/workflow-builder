@@ -28,10 +28,12 @@ builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing.AddSource(ProcessLifecycleTelemetry.ActivitySourceName))
     .WithMetrics(metrics => metrics
         .AddMeter("WorkflowBuilder.Engine.Processes")
+        .AddMeter(EngineProjectionTelemetry.MeterName)
         .AddMeter("WorkflowBuilder.Cosmos")
         .AddMeter(Backend.Repositories.Processes.ProcessRealtimeProjectionTelemetry.MeterName)
         .AddMeter(Backend.Repositories.Processes.ProcessSummaryProjectionTelemetry.MeterName)
         .AddMeter(ProcessStepDispatchTelemetry.MeterName)
+        .AddMeter(ProcessStepLockRenewalTelemetry.MeterName)
         .AddMeter(PluginResultFinalizationTelemetry.MeterName)
         .AddMeter(PluginRuntimeAgentTelemetry.MeterName));
 
@@ -48,9 +50,18 @@ builder.Services.AddSingleton(sp =>
         .GetSection("ProcessStepDispatch")
         .Get<ProcessStepDispatchOptions>()
     ?? new ProcessStepDispatchOptions());
-var synchronousProjectionUpdatesEnabled = builder.Configuration.GetValue(
-    "Projections:SynchronousEngineUpdatesEnabled",
-    true);
+builder.Services.AddSingleton(sp =>
+    sp.GetRequiredService<IConfiguration>()
+        .GetSection(ProcessStepQueueLockRenewalOptions.SectionName)
+        .Get<ProcessStepQueueLockRenewalOptions>()
+    ?? new ProcessStepQueueLockRenewalOptions());
+var engineProjectionOptions = builder.Configuration
+    .GetSection(EngineProjectionOptions.SectionName)
+    .Get<EngineProjectionOptions>()
+    ?? new EngineProjectionOptions();
+var synchronousProjectionUpdatesEnabled = engineProjectionOptions.SynchronousEngineUpdatesEnabled;
+builder.Services.AddSingleton(engineProjectionOptions);
+builder.Services.AddSingleton<EngineProjectionTelemetry>();
 
 var sqlConnectionString = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(
     builder.Configuration,
@@ -201,8 +212,10 @@ builder.Services.AddTransient<CollectionIteratorExecutionService>();
 builder.Services.AddTransient<ICollectionIteratorExecutionService>(provider => provider.GetRequiredService<CollectionIteratorExecutionService>());
 builder.Services.AddSingleton<ProcessLifecycleTelemetry>();
 builder.Services.AddSingleton<ProcessStepDispatchTelemetry>();
+builder.Services.AddSingleton<ProcessStepLockRenewalTelemetry>();
 builder.Services.AddSingleton<PluginResultFinalizationTelemetry>();
 builder.Services.AddSingleton<PluginRuntimeAgentTelemetry>();
+builder.Services.AddSingleton<ActiveStepLockRenewalService>();
 builder.Services.AddSingleton<ProcessStepDispatchService>();
 builder.Services.AddSingleton<IProcessStepDispatcher>(provider =>
     provider.GetRequiredService<ProcessStepDispatchService>());
@@ -220,6 +233,7 @@ builder.Services.AddHostedService<QueueConsumer>();
 builder.Services.AddHostedService<PluginReloadConsumer>();
 
 var app = builder.Build();
+_ = app.Services.GetRequiredService<EngineProjectionTelemetry>();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

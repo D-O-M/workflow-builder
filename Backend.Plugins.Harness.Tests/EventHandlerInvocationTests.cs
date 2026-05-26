@@ -111,66 +111,6 @@ public sealed class EventHandlerInvocationTests
     }
 
     [Test]
-    public async Task ProcessEnvelopeAsync_hydrates_global_state()
-    {
-        var processId = Guid.NewGuid();
-        var envelope = CreateEnvelope(processId: processId, executableBlueprintId: 500);
-        var state = new TestGlobalState
-        {
-            RunLabel = "global",
-            StepsCompleted = 7
-        };
-        var record = new ProcessInstanceRecord<TestGlobalState>
-        {
-            id = processId.ToString(),
-            BlueprintId = "500",
-            GlobalState = state
-        };
-
-        var resultFactory = CreateResultFactory(
-            [CreateOutputChannel<GlobalStatePlugin, GlobalStateOutput>("Output", plugin => plugin.Output!)],
-            new PluginGlobalStateSerializer<GlobalStatePlugin, TestGlobalState>(
-                plugin => plugin.State!,
-                PluginJsonSerialization.GetTypeInfo<TestGlobalState>(
-                    EventHandlerInvocationJsonContext.Default,
-                    "global state")));
-        var setter = new PropertySetterUtility<GlobalStatePlugin, TestGlobalState>(plugin => plugin.State!);
-        var hydrationPlan = new PluginHydrationPlan<GlobalStatePlugin>(
-        [
-            new GlobalStateHydrationDescriptor<GlobalStatePlugin, ProcessInstanceRecord<TestGlobalState>, TestGlobalState>(
-                setter,
-                env => env.ProcessId.ToString(),
-                env => env.ExecutableBlueprintId.ToString())
-        ]);
-
-        using var provider = CreateProvider(
-            hydrationPlan,
-            resultFactory,
-            services =>
-            {
-                services.AddScoped<IPluginDocumentStore<ProcessInstanceRecord<TestGlobalState>>>(_ =>
-                    new MemoryPluginDocumentStore<ProcessInstanceRecord<TestGlobalState>>(
-                        (documentId, partitionKey) =>
-                            documentId == processId.ToString() && partitionKey == "500"
-                                ? record
-                                : null));
-                services.AddScoped(sp =>
-                    new PluginPropertyHydrationService<ProcessInstanceRecord<TestGlobalState>, TestGlobalState>(
-                        sp.GetRequiredService<IPluginDocumentStore<ProcessInstanceRecord<TestGlobalState>>>(),
-                        (process, _) => process.GlobalState));
-            });
-        var handler = CreateHandler<GlobalStatePlugin>(provider);
-
-        var result = await handler.ProcessEnvelopeAsync(envelope, CancellationToken.None);
-
-        result.Succeeded.ShouldBeTrue();
-        ReadGlobalStateOutput(result).RunLabel.ShouldBe("global");
-        result.GlobalState.ShouldNotBeNull();
-        result.GlobalState["RunLabel"].GetString().ShouldBe("global");
-        result.GlobalState["StepsCompleted"].GetInt32().ShouldBe(7);
-    }
-
-    [Test]
     public async Task ProcessEnvelopeAsync_runs_multiple_hydration_steps_in_order_during_concurrent_invocations()
     {
         ConcurrentOrderedPlugin.Reset();
@@ -267,13 +207,7 @@ public sealed class EventHandlerInvocationTests
     private static PluginExecutionResultFactory<TPlugin> CreateResultFactory<TPlugin>(
         params IPluginOutputChannel<TPlugin>[] outputChannels)
         where TPlugin : class, IPlugin =>
-        new(outputChannels, globalStateSerializer: null);
-
-    private static PluginExecutionResultFactory<TPlugin> CreateResultFactory<TPlugin>(
-        IReadOnlyCollection<IPluginOutputChannel<TPlugin>> outputChannels,
-        IPluginGlobalStateSerializer<TPlugin>? globalStateSerializer)
-        where TPlugin : class, IPlugin =>
-        new(outputChannels, globalStateSerializer);
+        new(outputChannels);
 
     private static IPluginOutputChannel<TPlugin> CreateOutputChannel<TPlugin, TOutput>(
         string name,
@@ -292,9 +226,6 @@ public sealed class EventHandlerInvocationTests
 
     private static HydrationOutput ReadHydrationOutput(PluginExecutionResult result) =>
         result.OutputData["Output"].Deserialize<HydrationOutput>(JsonSerializerOptions.Web)!;
-
-    private static GlobalStateOutput ReadGlobalStateOutput(PluginExecutionResult result) =>
-        result.OutputData["Output"].Deserialize<GlobalStateOutput>(JsonSerializerOptions.Web)!;
 
     private static OrderedOutput ReadOrderedOutput(PluginExecutionResult result) =>
         result.OutputData["Output"].Deserialize<OrderedOutput>(JsonSerializerOptions.Web)!;
@@ -386,22 +317,6 @@ public sealed class EventHandlerInvocationTests
             {
                 Text = Input?.Text,
                 Number = Input?.Number ?? 0
-            };
-            return Task.CompletedTask;
-        }
-    }
-
-    private sealed class GlobalStatePlugin : IPlugin
-    {
-        public TestGlobalState? State { get; set; }
-        public GlobalStateOutput? Output { get; private set; }
-
-        public Task Execute()
-        {
-            Output = new GlobalStateOutput
-            {
-                RunLabel = State?.RunLabel,
-                StepsCompleted = State?.StepsCompleted ?? 0
             };
             return Task.CompletedTask;
         }
@@ -526,13 +441,6 @@ public sealed class EventHandlerInvocationTests
     }
 
     [PluginJsonSerializable]
-    public sealed class GlobalStateOutput
-    {
-        public string? RunLabel { get; set; }
-        public int StepsCompleted { get; set; }
-    }
-
-    [PluginJsonSerializable]
     public sealed class OrderedOutput
     {
         public int InstanceId { get; set; }
@@ -540,21 +448,13 @@ public sealed class EventHandlerInvocationTests
         public string Steps { get; set; } = string.Empty;
     }
 
-    [PluginJsonSerializable]
-    public sealed class TestGlobalState : IGlobalState
-    {
-        public string RunLabel { get; set; } = string.Empty;
-        public int StepsCompleted { get; set; }
-    }
 }
 
 [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata)]
 [JsonSerializable(typeof(EventHandlerInvocationTests.InputDto))]
 [JsonSerializable(typeof(EventHandlerInvocationTests.InvocationOutput))]
 [JsonSerializable(typeof(EventHandlerInvocationTests.HydrationOutput))]
-[JsonSerializable(typeof(EventHandlerInvocationTests.GlobalStateOutput))]
 [JsonSerializable(typeof(EventHandlerInvocationTests.OrderedOutput))]
-[JsonSerializable(typeof(EventHandlerInvocationTests.TestGlobalState))]
 internal partial class EventHandlerInvocationJsonContext : JsonSerializerContext
 {
 }

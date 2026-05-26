@@ -7,13 +7,16 @@ namespace Backend.Services.ProcessStepQueue;
 
 internal sealed class ServiceBusProcessStepQueueMessage : IProcessStepQueueMessage
 {
+    private readonly object _sync = new();
     private readonly ProcessMessageEventArgs _args;
     private readonly ServiceBusReceivedMessage _message;
+    private DateTimeOffset _lockedUntil;
 
     public ServiceBusProcessStepQueueMessage(ProcessMessageEventArgs args)
     {
         _args = args;
         _message = args.Message;
+        _lockedUntil = _message.LockedUntil;
         Payload = JsonSerializer.Deserialize<ProcessStepInitialisationMessage>(_message.Body)
             ?? throw new InvalidOperationException("Unable to deserialize process step queue message.");
     }
@@ -22,7 +25,16 @@ internal sealed class ServiceBusProcessStepQueueMessage : IProcessStepQueueMessa
 
     public DateTimeOffset EnqueuedAt => _message.EnqueuedTime;
 
-    public DateTimeOffset LockedUntil => _message.LockedUntil;
+    public DateTimeOffset LockedUntil
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _lockedUntil;
+            }
+        }
+    }
 
     public ProcessStepInitialisationMessage Payload { get; }
 
@@ -32,6 +44,13 @@ internal sealed class ServiceBusProcessStepQueueMessage : IProcessStepQueueMessa
     public Task AbandonAsync(CancellationToken cancellationToken) =>
         _args.AbandonMessageAsync(_message, cancellationToken: cancellationToken);
 
-    public Task RenewLockAsync(CancellationToken cancellationToken) =>
-        _args.RenewMessageLockAsync(_message, cancellationToken);
+    public async Task<DateTimeOffset> RenewLockAsync(CancellationToken cancellationToken)
+    {
+        await _args.RenewMessageLockAsync(_message, cancellationToken);
+        lock (_sync)
+        {
+            _lockedUntil = _message.LockedUntil;
+            return _lockedUntil;
+        }
+    }
 }

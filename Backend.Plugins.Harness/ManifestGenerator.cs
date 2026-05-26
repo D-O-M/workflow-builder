@@ -17,13 +17,12 @@ public static class ManifestGenerator
         };
 
     /// <summary>
-    /// Build a PluginManifest from the supplied channels and optional global state type.
+    /// Build a PluginManifest from the supplied channels.
     /// </summary>
     public static PluginManifest CreateManifest(
         string displayName,
         KeyValuePair<string, Type> inputChannel,
-        IEnumerable<KeyValuePair<string, Type>> outputChannels,
-        Type? globalStateType)
+        IEnumerable<KeyValuePair<string, Type>> outputChannels)
     {
         return new PluginManifest
         {
@@ -35,8 +34,7 @@ public static class ManifestGenerator
             },
             OutputChannels = outputChannels
                 .Select(kv => new ChannelManifest { Name = kv.Key, Type = kv.Value.FullName ?? kv.Value.Name })
-                .ToList(),
-            GlobalState = globalStateType?.FullName
+                .ToList()
         };
     }
 

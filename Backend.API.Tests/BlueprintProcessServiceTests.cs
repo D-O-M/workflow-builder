@@ -116,10 +116,6 @@ public sealed class BlueprintProcessServiceTests
             7,
             new BlueprintProcessInputModel
             {
-                GlobalState = new Dictionary<string, JsonElement>
-                {
-                    ["region"] = Json("uk")
-                },
                 InitialTaskInput = new Dictionary<string, JsonElement>
                 {
                     ["town"] = Json("input"),
@@ -958,25 +954,25 @@ public sealed class BlueprintProcessServiceTests
             Task.CompletedTask;
     }
 
-    private sealed class ProcessInstanceRepositorySpy : IProcessInstanceRepository<Dictionary<string, JsonElement>>
+    private sealed class ProcessInstanceRepositorySpy : IProcessInstanceRepository
     {
-        public ProcessInstanceRecord<Dictionary<string, JsonElement>>? CreatedState { get; private set; }
+        public ProcessInstanceRecord? CreatedState { get; private set; }
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> CreateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+        public Task<ProcessInstanceRecord> CreateProcessState(
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken)
         {
             CreatedState = state;
             return Task.FromResult(state);
         }
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> GetProcessStateById(
+        public Task<ProcessInstanceRecord> GetProcessStateById(
             Guid processId,
             int blueprintVersionId,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<List<ProcessInstanceRecord<Dictionary<string, JsonElement>>>> GetProcessStatesForBlueprint(
+        public Task<List<ProcessInstanceRecord>> GetProcessStatesForBlueprint(
             int blueprintVersionId,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
@@ -1003,13 +999,13 @@ public sealed class BlueprintProcessServiceTests
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> UpdateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+        public Task<ProcessInstanceRecord> UpdateProcessState(
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<bool> TryUpdateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
@@ -1034,10 +1030,10 @@ public sealed class BlueprintProcessServiceTests
 
     private sealed class ProcessIndexProjectionServiceSpy : IProcessIndexProjectionService
     {
-        public List<(ProcessInstanceRecord<Dictionary<string, JsonElement>> Process, int BlueprintDefinitionId, int BlueprintVersionId)> Upserts { get; } = [];
+        public List<(ProcessInstanceRecord Process, int BlueprintDefinitionId, int BlueprintVersionId)> Upserts { get; } = [];
 
         public Task UpsertFromProcessAsync(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+            ProcessInstanceRecord process,
             int blueprintDefinitionId,
             int blueprintVersionId,
             CancellationToken cancellationToken)

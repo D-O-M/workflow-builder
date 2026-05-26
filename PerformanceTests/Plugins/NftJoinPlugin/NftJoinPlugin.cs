@@ -4,8 +4,6 @@ namespace WorkflowBuilder.PerformanceTests.Plugins;
 
 public sealed class NftJoinPlugin : IPlugin
 {
-    public required NftProcessState State { get; set; }
-
     public required NftJoinRequest Request { get; init; }
 
     public NftJoinResult Joined { get; set; } = default!;
@@ -21,10 +19,6 @@ public sealed class NftJoinPlugin : IPlugin
             Request.BetaDigest,
             Request.GammaDigest,
             combinedScore);
-
-        State.StepsCompleted += 1;
-        State.TotalScore += combinedScore;
-        State.LastStage = "join";
 
         Joined = new NftJoinResult
         {

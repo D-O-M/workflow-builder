@@ -15,7 +15,6 @@ public record TaskVersionViewModel
     public required string State { get; init; }
     public string? Description { get; init; }
     public TaskVersionRuntimeAvailabilityViewModel RuntimeAvailability { get; init; } = new();
-    public required TaskChannel? RequiredGlobalState { get; init; }
     public TaskChannel? InputChannel { get; init; }
     public required List<TaskChannel> OutputChannels { get; init; } = new();
 }

@@ -95,7 +95,6 @@ function createTaskDefinition(): ITaskDefinition {
         version: '0.1.0',
         state: 'Active',
         description: null,
-        requiredGlobalState: null,
         inputChannel: {
           id: 1,
           name: 'Request',

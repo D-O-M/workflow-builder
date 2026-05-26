@@ -25,7 +25,7 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
     }
 
     public async Task UpsertFromProcessAsync(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         int blueprintDefinitionId,
         int blueprintVersionId,
         CancellationToken cancellationToken)
@@ -107,7 +107,7 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
         ProcessSummaryProjectionKeys.CreatePartitionKey(tenantId, scope, scopeId, timeBucket, shard);
 
     private static ProcessDirectoryRecord CreateDirectoryRecord(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         int blueprintDefinitionId,
         int blueprintVersionId,
         DateTimeOffset indexedAt)
@@ -131,7 +131,7 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
     }
 
     private async Task UpsertDirectoryAsync(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         int blueprintDefinitionId,
         int blueprintVersionId,
         DateTimeOffset indexedAt,
@@ -161,7 +161,7 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
     }
 
     private static IReadOnlyList<ProcessSummaryProjectionRecord> CreateSummaryRecords(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         int blueprintDefinitionId,
         int blueprintVersionId,
         DateTimeOffset indexedAt)
@@ -198,7 +198,7 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
     }
 
     private static ProcessSummaryProjectionRecord CreateSummaryRecord(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         int blueprintDefinitionId,
         int blueprintVersionId,
         ProcessSummaryProjectionScope scope,

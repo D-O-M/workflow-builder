@@ -10,6 +10,7 @@ public sealed class ProcessProjectionChangeFeedWorker : IHostedService
     private readonly CosmosClient _cosmosClient;
     private readonly IConfiguration _configuration;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ProjectionWorkerTelemetry _telemetry;
     private readonly ILogger<ProcessProjectionChangeFeedWorker> _logger;
     private ChangeFeedProcessor? _processProcessor;
     private ChangeFeedProcessor? _stepProcessor;
@@ -18,11 +19,13 @@ public sealed class ProcessProjectionChangeFeedWorker : IHostedService
         CosmosClient cosmosClient,
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory,
+        ProjectionWorkerTelemetry telemetry,
         ILogger<ProcessProjectionChangeFeedWorker> logger)
     {
         _cosmosClient = cosmosClient;
         _configuration = configuration;
         _scopeFactory = scopeFactory;
+        _telemetry = telemetry;
         _logger = logger;
     }
 
@@ -35,7 +38,7 @@ public sealed class ProcessProjectionChangeFeedWorker : IHostedService
 
         _processProcessor = database
             .GetContainer(WorkflowBuilderTopology.Cosmos.Containers.Processes.Name)
-            .GetChangeFeedProcessorBuilder<ProcessInstanceRecord<Dictionary<string, JsonElement>>>(
+            .GetChangeFeedProcessorBuilder<ProcessInstanceRecord>(
                 processorName: "WorkflowBuilder.ProjectionWorker.Processes",
                 onChangesDelegate: HandleProcessChangesAsync)
             .WithInstanceName($"{Environment.MachineName}-{Guid.NewGuid():N}")
@@ -82,7 +85,7 @@ public sealed class ProcessProjectionChangeFeedWorker : IHostedService
 
     private async Task HandleProcessChangesAsync(
         ChangeFeedProcessorContext context,
-        IReadOnlyCollection<ProcessInstanceRecord<Dictionary<string, JsonElement>>> changes,
+        IReadOnlyCollection<ProcessInstanceRecord> changes,
         CancellationToken cancellationToken)
     {
         if (changes.Count == 0)
@@ -115,6 +118,7 @@ public sealed class ProcessProjectionChangeFeedWorker : IHostedService
         string leaseToken,
         Exception exception)
     {
+        _telemetry.RecordFailure(source, exception);
         _logger.LogWarning(
             exception,
             "Projection worker failed while processing {Source} lease {LeaseToken}.",

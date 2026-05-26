@@ -132,16 +132,6 @@ function createTaskDefinitions(): ITaskDefinition[] {
           version: '1.0.0',
           state: 'Active',
           description: 'Start node',
-          requiredGlobalState: {
-            id: 1,
-            name: 'GlobalState',
-            properties: [
-              { name: 'LaunchEnabled', kind: 'Boolean', required: false, enumValues: [] },
-              { name: 'LaunchCount', kind: 'Integer', required: false, enumValues: [] },
-              { name: 'TargetScore', kind: 'Decimal', required: false, enumValues: [] },
-              { name: 'OptionalNote', kind: 'String', required: false, enumValues: [] },
-            ],
-          },
           inputChannel: {
             id: 2,
             name: 'Input',
@@ -171,7 +161,6 @@ function createTaskDefinitions(): ITaskDefinition[] {
           version: '1.0.0',
           state: 'Active',
           description: 'Recommendation node',
-          requiredGlobalState: null,
           inputChannel: {
             name: 'Input',
             properties: {
@@ -295,7 +284,6 @@ describe('StartProcessPageComponent', () => {
     await component.execute();
 
     expect(editorService.startProcess).toHaveBeenCalledWith(1, {
-      globalState: {},
       initialTaskInput: {},
       nodeOverrides: {
         'node-2': {
@@ -314,24 +302,13 @@ describe('StartProcessPageComponent', () => {
     await component.execute();
 
     expect(editorService.startProcess).toHaveBeenCalledWith(1, {
-      globalState: {},
       initialTaskInput: {},
       nodeOverrides: {},
     });
     expect((component as any).executeErrorMessage()).toBeNull();
   });
 
-  it('serializes initialization and global state controls as typed JSON values', async () => {
-    component.form.controls.globalState.addControl('LaunchEnabled', new FormControl('false'));
-    component.form.controls.globalState.addControl('LaunchCount', new FormControl('4'));
-    component.form.controls.globalState.addControl('TargetScore', new FormControl('12.5'));
-    component.form.controls.globalState.addControl('OptionalNote', new FormControl(''));
-    component.form.controls.globalState.patchValue({
-      LaunchEnabled: 'false',
-      LaunchCount: '4',
-      TargetScore: '12.5',
-      OptionalNote: '',
-    });
+  it('serializes initialization controls as typed JSON values', async () => {
     component.form.controls.initialTaskInput.addControl('Town', new FormControl('York'));
     component.form.controls.initialTaskInput.addControl('StartDate', new FormControl('2026-04-25'));
     component.form.controls.initialTaskInput.addControl('LaunchMode', new FormControl('DryRun'));
@@ -341,19 +318,6 @@ describe('StartProcessPageComponent', () => {
       LaunchMode: 'DryRun',
     });
 
-    expect((component as any).serializeFieldGroup(
-      [
-        { key: 'LaunchEnabled', label: 'Launch enabled', kind: 'boolean', required: false },
-        { key: 'LaunchCount', label: 'Launch count', kind: 'integer', required: false },
-        { key: 'TargetScore', label: 'Target score', kind: 'decimal', required: false },
-        { key: 'OptionalNote', label: 'Optional note', kind: 'string', required: false },
-      ],
-      component.form.controls.globalState,
-    )).toEqual({
-        LaunchEnabled: false,
-        LaunchCount: 4,
-        TargetScore: 12.5,
-      });
     expect((component as any).serializeFieldGroup(
       [
         { key: 'Town', label: 'Town', kind: 'string', required: false },
@@ -471,7 +435,6 @@ describe('StartProcessPageComponent', () => {
 
     expect(editorService.startProcess).not.toHaveBeenCalled();
     expect(editorService.startPhasedProcess).toHaveBeenCalledWith(10, {
-      globalState: {},
       initialTaskInput: {},
       nodeOverrides: {},
     });

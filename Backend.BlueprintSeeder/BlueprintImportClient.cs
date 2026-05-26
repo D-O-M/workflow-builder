@@ -148,9 +148,7 @@ internal sealed class BlueprintImportClient
                     HandoffMappings = transition.HandoffMappings.Select(mapping => new PhasedBlueprintHandoffMappingInputModel
                     {
                         SourceKind = mapping.SourceKind,
-                        SourceBlueprintNodeId = string.Equals(mapping.SourceKind, "GlobalState", StringComparison.OrdinalIgnoreCase)
-                            ? null
-                            : ResolveNodeId(sourceVersion, mapping.SourceBlueprintNodeKey),
+                        SourceBlueprintNodeId = ResolveNodeId(sourceVersion, mapping.SourceBlueprintNodeKey),
                         SourceChannelName = mapping.SourceChannelName,
                         SourceProperty = mapping.SourceProperty,
                         BridgePosition = mapping.BridgePosition,

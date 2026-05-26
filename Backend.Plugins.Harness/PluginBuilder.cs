@@ -24,11 +24,9 @@ public class PluginBuilder<TPlugin>
     where TPlugin : class, IPlugin
 {
     private static readonly string ProcessStepsContainerName = WorkflowBuilderTopology.Cosmos.Containers.ProcessSteps.Name;
-    private static readonly string ProcessesContainerName = WorkflowBuilderTopology.Cosmos.Containers.Processes.Name;
     private readonly string _displayName;
     private readonly JsonSerializerContext? _jsonSerializerContext;
-    private IPluginGlobalStateSerializer<TPlugin>? _globalStateSerializer;
-    private readonly Dictionary<string, PluginChannel> _inputChannels = new();
+    private readonly HashSet<string> _inputChannels = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IPluginOutputChannel<TPlugin>> _outputChannels = new();
     private readonly List<IPluginHydrationStepDescriptor<TPlugin>> _hydrationStepDescriptors = [];
     private readonly HashSet<Type> _capabilityTypes = [];
@@ -85,11 +83,10 @@ public class PluginBuilder<TPlugin>
     {
         var name = GetPropertyInfo(propertySelector).Name;
 
-        if (_inputChannels.ContainsKey(name))
+        if (_inputChannels.Contains(name))
             throw new InvalidOperationException($"Input channel '{name}' is already configured.");
 
-        _inputChannels.Add(name,
-            new PluginChannel(name, typeof(TChannelType)));
+        _inputChannels.Add(name);
 
         var setter = new PropertySetterUtility<TPlugin, TChannelType>(propertySelector);
         _hostAppBuilder.Services.AddSingleton(setter);
@@ -161,53 +158,13 @@ public class PluginBuilder<TPlugin>
         return this;
     }
 
-    public PluginBuilder<TPlugin> WithGlobalState<TGlobalState>(
-        Expression<Func<TPlugin, TGlobalState>> propertySelector)
-        where TGlobalState : class, IGlobalState
-    {
-        var name = GetPropertyInfo(propertySelector).Name;
-
-        if (_inputChannels.ContainsKey(name))
-            throw new InvalidOperationException($"Input channel '{name}' is already configured.");
-
-        _inputChannels.Add(name,
-            new PluginChannel(name, typeof(TGlobalState)));
-
-        var globalStateGetter = propertySelector.Compile();
-        _globalStateSerializer = new PluginGlobalStateSerializer<TPlugin, TGlobalState>(
-            globalStateGetter,
-            PluginJsonSerialization.GetTypeInfo<TGlobalState>(
-                _jsonSerializerContext,
-                "global state"));
-
-        var setter = new PropertySetterUtility<TPlugin, TGlobalState>(propertySelector);
-        _hostAppBuilder.Services.AddSingleton(setter);
-
-        EnsureWorkflowDocumentStoreRegistered<TGlobalState>();
-
-        _hostAppBuilder.Services.TryAddSingleton(sp =>
-            new PluginPropertyHydrationService<ProcessInstanceRecord<TGlobalState>, TGlobalState>(
-                sp.GetRequiredService<IPluginDocumentStore<ProcessInstanceRecord<TGlobalState>>>(),
-                (workflow, _) => workflow.GlobalState));
-
-        _hydrationStepDescriptors.Add(
-            new GlobalStateHydrationDescriptor<TPlugin, ProcessInstanceRecord<TGlobalState>, TGlobalState>(
-                setter,
-                env => env.ProcessId.ToString(),
-                env => env.ExecutableBlueprintId.ToString()));
-
-        return this;
-    }
-
     public Plugin<TPlugin> Build()
     {
         _hostAppBuilder.Services.AddSingleton(
             new PluginHydrationPlan<TPlugin>(_hydrationStepDescriptors.ToArray()));
 
         _hostAppBuilder.Services.AddSingleton(
-            new PluginExecutionResultFactory<TPlugin>(
-                _outputChannels.Values.ToList(),
-                _globalStateSerializer));
+            new PluginExecutionResultFactory<TPlugin>(_outputChannels.Values.ToList()));
 
         host = _hostAppBuilder.Build();
 
@@ -388,26 +345,6 @@ public class PluginBuilder<TPlugin>
                 sp.GetRequiredService<HttpClient>(),
                 databaseName,
                 ProcessStepsContainerName,
-                GetCosmosConnectionInfo().AccountKey));
-    }
-
-    private void EnsureWorkflowDocumentStoreRegistered<TGlobalState>()
-        where TGlobalState : class
-    {
-        if (UseFileStateStore())
-        {
-            _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<ProcessInstanceRecord<TGlobalState>>>(
-                _ => new FilePluginDocumentStore<ProcessInstanceRecord<TGlobalState>>(GetFileStateRootPath(), ProcessesContainerName));
-            return;
-        }
-
-        EnsureCosmosHttpClientRegistered();
-        var databaseName = GetCosmosDatabaseName();
-        _hostAppBuilder.Services.TryAddSingleton<IPluginDocumentStore<ProcessInstanceRecord<TGlobalState>>>(sp =>
-            new CosmosPluginDocumentStore<ProcessInstanceRecord<TGlobalState>>(
-                sp.GetRequiredService<HttpClient>(),
-                databaseName,
-                ProcessesContainerName,
                 GetCosmosConnectionInfo().AccountKey));
     }
 

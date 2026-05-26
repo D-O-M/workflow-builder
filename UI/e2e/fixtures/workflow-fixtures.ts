@@ -32,16 +32,7 @@ export const taskDefinitions: ITaskDefinition[] = [
         version: '1.0.0',
         state: 'Active',
         description: 'Collects weather and disruption signals for a location.',
-        requiredGlobalState: {
-          id: 501,
-          name: 'Global',
-          displayName: 'Global state',
-          properties: [
-            { name: 'operator', kind: 'String', required: true, enumValues: [] },
-            { name: 'region', kind: 'Enum', required: true, enumValues: ['EMEA', 'AMER', 'APAC'] },
-          ],
-        },
-        inputChannel: {
+          inputChannel: {
           id: 601,
           name: 'Trigger',
           displayName: 'Trigger',
@@ -68,16 +59,7 @@ export const taskDefinitions: ITaskDefinition[] = [
         version: '1.1.0',
         state: 'Active',
         description: 'Adds confidence output for downstream consumers.',
-        requiredGlobalState: {
-          id: 502,
-          name: 'Global',
-          displayName: 'Global state',
-          properties: [
-            { name: 'operator', kind: 'String', required: true, enumValues: [] },
-            { name: 'region', kind: 'Enum', required: true, enumValues: ['EMEA', 'AMER', 'APAC'] },
-          ],
-        },
-        inputChannel: {
+          inputChannel: {
           id: 602,
           name: 'Trigger',
           displayName: 'Trigger',
@@ -111,7 +93,6 @@ export const taskDefinitions: ITaskDefinition[] = [
         version: '1.0.0',
         state: 'Active',
         description: 'Formats a concise operational summary.',
-        requiredGlobalState: null,
         inputChannel: {
           id: 603,
           name: 'Input',
@@ -144,7 +125,6 @@ export const taskDefinitions: ITaskDefinition[] = [
         version: '1.0.0',
         state: 'Active',
         description: 'Sends a notification to an operator channel.',
-        requiredGlobalState: null,
         inputChannel: {
           id: 604,
           name: 'Input',

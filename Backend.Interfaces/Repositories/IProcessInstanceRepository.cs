@@ -2,18 +2,18 @@ using Backend.Database.State.Objects;
 
 namespace Backend.Interfaces.Repositories;
 
-public interface IProcessInstanceRepository<TGlobalState>
+public interface IProcessInstanceRepository
 {
-    Task<ProcessInstanceRecord<TGlobalState>> CreateProcessState(
-        ProcessInstanceRecord<TGlobalState> state,
+    Task<ProcessInstanceRecord> CreateProcessState(
+        ProcessInstanceRecord state,
         CancellationToken cancellationToken);
 
-    Task<ProcessInstanceRecord<TGlobalState>> GetProcessStateById(
+    Task<ProcessInstanceRecord> GetProcessStateById(
         Guid processId,
         int blueprintVersionId,
         CancellationToken cancellationToken);
 
-    Task<List<ProcessInstanceRecord<TGlobalState>>> GetProcessStatesForBlueprint(
+    Task<List<ProcessInstanceRecord>> GetProcessStatesForBlueprint(
         int blueprintVersionId,
         CancellationToken cancellationToken);
 
@@ -36,18 +36,18 @@ public interface IProcessInstanceRepository<TGlobalState>
         IReadOnlyCollection<ProcessStatus>? statuses,
         CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<ProcessInstanceRecord<TGlobalState>>> GetRecentProcessStatesForReconciliationAsync(
+    Task<IReadOnlyList<ProcessInstanceRecord>> GetRecentProcessStatesForReconciliationAsync(
         DateTimeOffset createdFrom,
         int maxItemCount,
         IReadOnlyCollection<ProcessStatus> statuses,
         CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
-    Task<ProcessInstanceRecord<TGlobalState>> UpdateProcessState(
-        ProcessInstanceRecord<TGlobalState> state,
+    Task<ProcessInstanceRecord> UpdateProcessState(
+        ProcessInstanceRecord state,
         CancellationToken cancellationToken);
 
     Task<bool> TryUpdateProcessState(
-        ProcessInstanceRecord<TGlobalState> state,
+        ProcessInstanceRecord state,
         CancellationToken cancellationToken);
 }

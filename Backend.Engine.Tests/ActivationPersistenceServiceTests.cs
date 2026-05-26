@@ -80,6 +80,88 @@ public sealed class ActivationPersistenceServiceTests
     }
 
     [Test]
+    public async Task PersistReadyActivationsAsync_projects_materialized_steps_when_synchronous_projection_updates_are_enabled()
+    {
+        var processId = Guid.NewGuid();
+        var sourceNodeId = Guid.NewGuid();
+        var destinationNodeId = Guid.NewGuid();
+        var blueprint = CreateSingleInboundBlueprint(sourceNodeId, destinationNodeId, "source-to-destination");
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(
+            processId,
+            blueprint,
+            new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal)));
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var context = await CreateClaimedContextAsync(
+            processId,
+            sourceNodeId,
+            blueprint,
+            stepRepository,
+            processRepository);
+        var realtimeProjection = new ProcessRealtimeProjectionServiceSpy();
+        var service = new ActivationPersistenceService(
+            new InMemoryNodeJoinStateRepository(),
+            CreateDispatchService(stepRepository, queueWriter),
+            stepRepository,
+            NullLogger<ActivationPersistenceService>.Instance,
+            realtimeProjection);
+        var result = CreateResult(context, "Out");
+        var plan = PlanReadyActivations(context, result);
+
+        await service.PersistReadyActivationsAsync(
+            plan,
+            result.CompletedAt,
+            batchSize: int.MaxValue,
+            CancellationToken.None);
+
+        var createdStep = stepRepository.CreatedSteps.Single();
+        realtimeProjection.StepUpserts.Single().Id.ShouldBe(createdStep.Id);
+    }
+
+    [Test]
+    public async Task PersistReadyActivationsAsync_skips_projection_when_synchronous_projection_updates_are_disabled()
+    {
+        var processId = Guid.NewGuid();
+        var sourceNodeId = Guid.NewGuid();
+        var destinationNodeId = Guid.NewGuid();
+        var blueprint = CreateSingleInboundBlueprint(sourceNodeId, destinationNodeId, "source-to-destination");
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(
+            processId,
+            blueprint,
+            new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal)));
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var context = await CreateClaimedContextAsync(
+            processId,
+            sourceNodeId,
+            blueprint,
+            stepRepository,
+            processRepository);
+        var realtimeProjection = new ProcessRealtimeProjectionServiceSpy();
+        var service = new ActivationPersistenceService(
+            new InMemoryNodeJoinStateRepository(),
+            CreateDispatchService(stepRepository, queueWriter),
+            stepRepository,
+            NullLogger<ActivationPersistenceService>.Instance,
+            realtimeProjection,
+            new EngineProjectionOptions
+            {
+                SynchronousEngineUpdatesEnabled = false
+            });
+        var result = CreateResult(context, "Out");
+        var plan = PlanReadyActivations(context, result);
+
+        await service.PersistReadyActivationsAsync(
+            plan,
+            result.CompletedAt,
+            batchSize: int.MaxValue,
+            CancellationToken.None);
+
+        stepRepository.CreatedSteps.Count.ShouldBe(1);
+        realtimeProjection.StepUpserts.Count.ShouldBe(0);
+    }
+
+    [Test]
     public async Task Disabled_dispatch_fails_before_downstream_steps_are_created()
     {
         var processId = Guid.NewGuid();
@@ -490,7 +572,6 @@ public sealed class ActivationPersistenceServiceTests
                     Score = 7
                 })
             },
-            GlobalState: null,
             StartedAt: DateTimeOffset.UtcNow.AddSeconds(-1),
             CompletedAt: DateTimeOffset.UtcNow,
             TimingsMs: null,
@@ -728,7 +809,7 @@ public sealed class ActivationPersistenceServiceTests
             AllNodes = nodes
         };
 
-    private static ProcessInstanceRecord<Dictionary<string, JsonElement>> CreateProcessState(
+    private static ProcessInstanceRecord CreateProcessState(
         Guid processId,
         ExecutableBlueprint blueprint,
         Dictionary<string, Dictionary<string, JsonElement>> nodeOverrides) =>
@@ -737,7 +818,6 @@ public sealed class ActivationPersistenceServiceTests
             id = processId.ToString(),
             BlueprintId = blueprint.Id.ToString(),
             Status = ProcessStatus.InProgress,
-            GlobalState = new Dictionary<string, JsonElement>(StringComparer.Ordinal),
             NodeOverrides = nodeOverrides,
             ExecutionProgress = new ProcessExecutionProgress
             {
@@ -1039,27 +1119,27 @@ public sealed class ActivationPersistenceServiceTests
     }
 
     private sealed class InMemoryProcessInstanceRepository
-        : IProcessInstanceRepository<Dictionary<string, JsonElement>>
+        : IProcessInstanceRepository
     {
-        public InMemoryProcessInstanceRepository(ProcessInstanceRecord<Dictionary<string, JsonElement>> state)
+        public InMemoryProcessInstanceRepository(ProcessInstanceRecord state)
         {
             State = state;
         }
 
-        public ProcessInstanceRecord<Dictionary<string, JsonElement>> State { get; private set; }
+        public ProcessInstanceRecord State { get; private set; }
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> CreateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+        public Task<ProcessInstanceRecord> CreateProcessState(
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> GetProcessStateById(
+        public Task<ProcessInstanceRecord> GetProcessStateById(
             Guid processId,
             int blueprintVersionId,
             CancellationToken cancellationToken) =>
             Task.FromResult(State);
 
-        public Task<List<ProcessInstanceRecord<Dictionary<string, JsonElement>>>> GetProcessStatesForBlueprint(
+        public Task<List<ProcessInstanceRecord>> GetProcessStatesForBlueprint(
             int blueprintVersionId,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
@@ -1086,8 +1166,8 @@ public sealed class ActivationPersistenceServiceTests
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> UpdateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+        public Task<ProcessInstanceRecord> UpdateProcessState(
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken)
         {
             State = state;
@@ -1095,7 +1175,7 @@ public sealed class ActivationPersistenceServiceTests
         }
 
         public Task<bool> TryUpdateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken)
         {
             State = state;
@@ -1165,6 +1245,47 @@ public sealed class ActivationPersistenceServiceTests
         }
     }
 
+    private sealed class ProcessRealtimeProjectionServiceSpy : IProcessRealtimeProjectionService
+    {
+        public List<ProcessStepRecord> StepUpserts { get; } = [];
+
+        public Task UpsertFromProcessAsync(
+            ProcessInstanceRecord process,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task UpsertFromStepAsync(
+            ProcessStepRecord step,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            CancellationToken cancellationToken)
+        {
+            StepUpserts.Add(step);
+            return Task.CompletedTask;
+        }
+
+        public Task UpsertFromProcessAndStepsAsync(
+            ProcessInstanceRecord process,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            IReadOnlyCollection<ProcessStepRecord> steps,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ProcessRealtimeSummaryProjectionRecord?> GetSummaryAsync(
+            Guid processId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<ProcessNodeRealtimeProjectionRecord>> GetNodeProjectionsAsync(
+            Guid processId,
+            IReadOnlyCollection<Guid> blueprintNodeIds,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
     private sealed class ProcessStepQueueMessageStub : IProcessStepQueueMessage
     {
         public ProcessStepQueueMessageStub(ProcessStepInitialisationMessage payload)
@@ -1181,6 +1302,7 @@ public sealed class ActivationPersistenceServiceTests
 
         public Task AbandonAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-        public Task RenewLockAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<DateTimeOffset> RenewLockAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(LockedUntil);
     }
 }

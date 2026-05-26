@@ -44,6 +44,7 @@ internal static class BlueprintScenarioBuilder
                 PluginBundleCatalog.TransformPlugin,
                 PluginBundleCatalog.ResultPlugin
             ],
+            middleDesignTimeOverrides: null,
             cancellationToken);
 
     public static Task<BlueprintScenario> CreateFailurePathAsync(
@@ -57,6 +58,7 @@ internal static class BlueprintScenarioBuilder
                 PluginBundleCatalog.FailurePlugin,
                 PluginBundleCatalog.ResultPlugin
             ],
+            middleDesignTimeOverrides: CreateOverrides(("ShouldFail", true)),
             cancellationToken);
 
     public static async Task<FanOutScenario> CreateFanOutScenarioAsync(
@@ -188,7 +190,7 @@ internal static class BlueprintScenarioBuilder
             environment,
             $"{PluginBundleCatalog.SeedPlugin}-failed-join-{Guid.NewGuid():N}",
             PluginBundleCatalog.FailurePlugin,
-            rightDesignTimeOverrides: null,
+            rightDesignTimeOverrides: CreateOverrides(("ShouldFail", true)),
             joinDesignTimeOverrides: null,
             rightPropertyMappings:
             [
@@ -196,8 +198,7 @@ internal static class BlueprintScenarioBuilder
             ],
             cancellationToken);
 
-    public static BlueprintProcessInputModel CreateProcessInput<TGlobalState, TInitialTaskInput>(
-        TGlobalState globalState,
+    public static BlueprintProcessInputModel CreateProcessInput<TInitialTaskInput>(
         TInitialTaskInput initialTaskInput,
         IReadOnlyDictionary<Guid, Dictionary<string, JsonElement>>? nodeOverrides = null)
     {
@@ -212,7 +213,6 @@ internal static class BlueprintScenarioBuilder
 
         return new BlueprintProcessInputModel
         {
-            GlobalState = ToJsonDictionary(globalState),
             InitialTaskInput = ToJsonDictionary(initialTaskInput),
             NodeOverrides = serializedNodeOverrides
         };
@@ -302,6 +302,7 @@ internal static class BlueprintScenarioBuilder
         DistributedAppTestEnvironment environment,
         string blueprintName,
         string[] pluginNames,
+        IReadOnlyDictionary<string, JsonElement>? middleDesignTimeOverrides,
         CancellationToken cancellationToken)
     {
         var tasks = await environment.GetTasksAsync(cancellationToken);
@@ -335,6 +336,7 @@ internal static class BlueprintScenarioBuilder
                     middleTaskVersion,
                     420,
                     120,
+                    designTimeOverrides: middleDesignTimeOverrides,
                     outgoingConnections:
                     [
                         CreateConnection(finalTaskIdV1, "Success")
@@ -371,6 +373,7 @@ internal static class BlueprintScenarioBuilder
                     middleTaskVersion,
                     460,
                     160,
+                    designTimeOverrides: middleDesignTimeOverrides,
                     outgoingConnections:
                     [
                         CreateConnection(finalTaskIdV2, "Success")

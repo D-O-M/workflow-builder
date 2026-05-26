@@ -179,11 +179,6 @@ namespace Backend.Database.Relational.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TaskVersionId")
-                        .IsUnique()
-                        .HasDatabaseName("UX_Channels_TaskVersionId_GlobalState")
-                        .HasFilter("[Discriminator] = 'GlobalStateDefinition'");
-
                     b.ToTable("Channels", (string)null);
 
                     b.HasDiscriminator().HasValue("Channel");
@@ -498,13 +493,6 @@ namespace Backend.Database.Relational.Migrations
                         .IsUnique();
 
                     b.ToTable("TaskVersions", (string)null);
-                });
-
-            modelBuilder.Entity("Backend.Database.Relational.Entities.GlobalStateDefinition", b =>
-                {
-                    b.HasBaseType("Backend.Database.Relational.Entities.Channel");
-
-                    b.HasDiscriminator().HasValue("GlobalStateDefinition");
                 });
 
             modelBuilder.Entity("Backend.Database.Relational.Entities.InputChannelDefinition", b =>

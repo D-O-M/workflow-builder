@@ -16,6 +16,7 @@ public sealed class ActivationPersistenceService
     private readonly IProcessStepDispatcher _processStepDispatcher;
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IProcessRealtimeProjectionService? _processRealtimeProjectionService;
+    private readonly EngineProjectionOptions _projectionOptions;
     private readonly ILogger<ActivationPersistenceService> _logger;
 
     public ActivationPersistenceService(
@@ -23,12 +24,14 @@ public sealed class ActivationPersistenceService
         IProcessStepDispatcher processStepDispatcher,
         IProcessStepRepository processStepRepository,
         ILogger<ActivationPersistenceService> logger,
-        IProcessRealtimeProjectionService? processRealtimeProjectionService = null)
+        IProcessRealtimeProjectionService? processRealtimeProjectionService = null,
+        EngineProjectionOptions? projectionOptions = null)
     {
         _nodeJoinStateRepository = nodeJoinStateRepository;
         _processStepDispatcher = processStepDispatcher;
         _processStepRepository = processStepRepository;
         _processRealtimeProjectionService = processRealtimeProjectionService;
+        _projectionOptions = projectionOptions ?? EngineProjectionOptions.Enabled;
         _logger = logger;
     }
 
@@ -266,7 +269,8 @@ public sealed class ActivationPersistenceService
         int blueprintVersionId,
         CancellationToken cancellationToken)
     {
-        if (_processRealtimeProjectionService is null)
+        if (!_projectionOptions.SynchronousEngineUpdatesEnabled ||
+            _processRealtimeProjectionService is null)
         {
             return;
         }

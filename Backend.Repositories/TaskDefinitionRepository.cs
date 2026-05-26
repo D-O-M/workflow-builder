@@ -123,15 +123,6 @@ public class TaskDefinitionRepository : ITaskDefinitionRepository
             Abi = version.Abi
         };
 
-        if (version.RequiredGlobalState is not null)
-        {
-            versionEntity.GlobalState = new GlobalStateDefinition
-            {
-                Name = "GlobalState",
-                Properties = version.RequiredGlobalState.Select(MapProperty).ToList()
-            };
-        }
-
         if (version.InputChannelDefinition is not null)
         {
             versionEntity.Channels.Add(new InputChannelDefinition

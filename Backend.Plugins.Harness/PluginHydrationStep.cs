@@ -83,39 +83,3 @@ internal sealed class InputChannelHydrationDescriptor<TPlugin, TProperty> : IPlu
         context.EffectiveInputData[_channelName] = hydrated.EffectiveInput;
     }
 }
-
-internal sealed class GlobalStateHydrationDescriptor<TPlugin, TDocument, TProperty> : IPluginHydrationStepDescriptor<TPlugin>
-    where TPlugin : class, IPlugin
-    where TDocument : class
-    where TProperty : class
-{
-    private readonly PropertySetterUtility<TPlugin, TProperty> _setter;
-    private readonly Func<InvocationEnvelope, string> _documentIdSelector;
-    private readonly Func<InvocationEnvelope, string> _partitionKeySelector;
-
-    public GlobalStateHydrationDescriptor(
-        PropertySetterUtility<TPlugin, TProperty> setter,
-        Func<InvocationEnvelope, string> documentIdSelector,
-        Func<InvocationEnvelope, string> partitionKeySelector)
-    {
-        _setter = setter;
-        _documentIdSelector = documentIdSelector;
-        _partitionKeySelector = partitionKeySelector;
-    }
-
-    public Task HydrateAsync(
-        IServiceProvider services,
-        TPlugin plugin,
-        InvocationEnvelope envelope,
-        PluginHydrationContext context,
-        CancellationToken cancellationToken)
-    {
-        var hydrator = services.GetRequiredService<PluginPropertyHydrationService<TDocument, TProperty>>();
-        return hydrator.HydratePluginProperty(
-            value => _setter.Set(plugin, value),
-            _documentIdSelector(envelope),
-            _partitionKeySelector(envelope),
-            outputChannelName: string.Empty,
-            cancellationToken);
-    }
-}

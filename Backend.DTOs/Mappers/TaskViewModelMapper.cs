@@ -26,13 +26,10 @@ public class TaskViewModelMapper
             Version = taskVersion.Version.ToString(),
             State = taskVersion.State.ToString(),
             Description = taskVersion.Description,
-            RequiredGlobalState = taskVersion.GlobalState is not null
-                ? MapViewModel(taskVersion.GlobalState)
-                : null,
             InputChannel = taskVersion.InputChannels.Any() ?
                 MapViewModel(taskVersion.InputChannels.First()) :
                 null,
-            OutputChannels = [..taskVersion.OutputChannels.Select(MapViewModel)]
+            OutputChannels = [.. taskVersion.OutputChannels.Select(MapViewModel)]
         };
         return viewModel;
     }

@@ -92,7 +92,7 @@ export interface BlueprintViewModel {
 }
 
 export type PhasedBlueprintPhaseVersionPolicy = 'Pinned' | 'Latest';
-export type PhasedBlueprintHandoffSourceKind = 'Output' | 'GlobalState';
+export type PhasedBlueprintHandoffSourceKind = 'Output';
 
 export interface PhasedBlueprintHandoffMappingInputModel {
   sourceKind: PhasedBlueprintHandoffSourceKind;
@@ -219,7 +219,6 @@ export interface PhasedProcessDetailViewModel {
 }
 
 export interface BlueprintProcessInputModel {
-  globalState: Record<string, unknown>;
   initialTaskInput: Record<string, unknown>;
   nodeOverrides?: Record<string, Record<string, unknown>>;
 }
@@ -288,7 +287,7 @@ export interface BlueprintProcessHistoryPageViewModel {
 }
 
 export type ProcessSearchStatus = 'Pending' | 'InProgress' | 'Completed' | 'Failed';
-export type ProcessSearchPropertyScope = 'GlobalState' | 'NodeInput' | 'NodeOutput';
+export type ProcessSearchPropertyScope = 'NodeInput' | 'NodeOutput';
 
 export interface ProcessSearchBlueprintFilter {
   blueprintDefinitionId: number;

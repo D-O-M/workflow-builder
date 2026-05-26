@@ -23,7 +23,7 @@ public sealed class PhasedProcessFinalizationService
     private readonly IPhasedBlueprintRepository _phasedBlueprintRepository;
     private readonly IPhasedProcessRepository _phasedProcessRepository;
     private readonly IPhaseCorrelationRepository _phaseCorrelationRepository;
-    private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessInstanceRepository _processInstanceRepository;
     private readonly IProcessStepRepository _processStepRepository;
     private readonly ILogger<PhasedProcessFinalizationService> _logger;
 
@@ -31,7 +31,7 @@ public sealed class PhasedProcessFinalizationService
         IPhasedBlueprintRepository phasedBlueprintRepository,
         IPhasedProcessRepository phasedProcessRepository,
         IPhaseCorrelationRepository phaseCorrelationRepository,
-        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        IProcessInstanceRepository processInstanceRepository,
         IProcessStepRepository processStepRepository,
         ILogger<PhasedProcessFinalizationService> logger)
     {
@@ -203,10 +203,6 @@ public sealed class PhasedProcessFinalizationService
         Guid childProcessId,
         CancellationToken cancellationToken)
     {
-        var processState = await _processInstanceRepository.GetProcessStateById(
-            childProcessId,
-            childBlueprintVersionId,
-            cancellationToken);
         var steps = await _processStepRepository.GetProcessStepsForProcess(
             childProcessId,
             cancellationToken);
@@ -218,16 +214,6 @@ public sealed class PhasedProcessFinalizationService
         var result = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         foreach (var mapping in transition.HandoffMappings)
         {
-            if (mapping.SourceKind == PhasedBlueprintHandoffSourceKind.GlobalState)
-            {
-                if (processState.GlobalState.TryGetValue(mapping.SourceProperty, out var globalValue))
-                {
-                    SetHandoffResult(result, mapping, globalValue);
-                }
-
-                continue;
-            }
-
             if (mapping.SourceBlueprintNodeId is not Guid sourceNodeId ||
                 string.IsNullOrWhiteSpace(mapping.SourceChannelName) ||
                 !stepsByNode.TryGetValue(sourceNodeId, out var sourceSteps))

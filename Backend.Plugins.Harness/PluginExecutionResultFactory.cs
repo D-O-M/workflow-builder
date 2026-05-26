@@ -6,15 +6,11 @@ namespace Backend.Plugins.Harness;
 internal sealed class PluginExecutionResultFactory<TPlugin>
     where TPlugin : class, IPlugin
 {
-    private readonly IPluginGlobalStateSerializer<TPlugin>? _globalStateSerializer;
     private readonly IReadOnlyCollection<IPluginOutputChannel<TPlugin>> _outputChannels;
 
-    public PluginExecutionResultFactory(
-        IReadOnlyCollection<IPluginOutputChannel<TPlugin>> outputChannels,
-        IPluginGlobalStateSerializer<TPlugin>? globalStateSerializer)
+    public PluginExecutionResultFactory(IReadOnlyCollection<IPluginOutputChannel<TPlugin>> outputChannels)
     {
         _outputChannels = outputChannels;
-        _globalStateSerializer = globalStateSerializer;
     }
 
     public PluginExecutionResult CreateSuccess(
@@ -30,7 +26,6 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
             true,
             CloneEffectiveInputData(effectiveInputData),
             BuildOutputData(plugin),
-            BuildGlobalState(plugin),
             startedAt,
             completedAt,
             timingsMs,
@@ -51,7 +46,6 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
             false,
             CloneEffectiveInputData(effectiveInputData),
             BuildOutputData(plugin),
-            BuildGlobalState(plugin),
             startedAt,
             completedAt,
             timingsMs,
@@ -74,16 +68,6 @@ internal sealed class PluginExecutionResultFactory<TPlugin>
         }
 
         return outputData;
-    }
-
-    private Dictionary<string, JsonElement>? BuildGlobalState(TPlugin plugin)
-    {
-        if (_globalStateSerializer is null)
-        {
-            return null;
-        }
-
-        return _globalStateSerializer.Serialize(plugin);
     }
 
     private static Dictionary<string, JsonElement>? CloneEffectiveInputData(

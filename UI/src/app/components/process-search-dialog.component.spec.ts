@@ -27,12 +27,6 @@ function createTaskDefinitions(): ITaskDefinition[] {
           version: '1.0.0',
           state: 'Active',
           description: 'Trigger',
-          requiredGlobalState: {
-            name: 'Global',
-            properties: {
-              user_id: 'String',
-            },
-          },
           inputChannel: null,
           outputChannels: [
             {
@@ -54,7 +48,6 @@ function createTaskDefinitions(): ITaskDefinition[] {
           version: '1.0.0',
           state: 'Active',
           description: 'HTTP',
-          requiredGlobalState: null,
           inputChannel: {
             name: 'Input',
             properties: {

@@ -258,6 +258,7 @@ public sealed class StepMessageHandlerTests
             return Task.CompletedTask;
         }
 
-        public Task RenewLockAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<DateTimeOffset> RenewLockAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(LockedUntil);
     }
 }

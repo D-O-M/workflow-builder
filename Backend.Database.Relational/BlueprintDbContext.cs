@@ -311,27 +311,13 @@ public class BlueprintDbContext : DbContext
             entity.HasDiscriminator<string>("Discriminator")
                   .HasValue<Channel>("Channel")
                   .HasValue<InputChannelDefinition>("InputChannelDefinition")
-                  .HasValue<OutputChannelDefinition>("OutputChannelDefinition")
-                  .HasValue<GlobalStateDefinition>("GlobalStateDefinition");
+                  .HasValue<OutputChannelDefinition>("OutputChannelDefinition");
 
             // Channel 1 -> many ChannelProperties
             entity.HasMany(e => e.Properties)
                   .WithOne(cp => cp.Channel)
                   .HasForeignKey(cp => cp.ChannelId)
                   .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        modelBuilder.Entity<GlobalStateDefinition>(entity =>
-        {
-            var indexBuilder = entity.HasIndex(e => e.TaskVersionId)
-                .HasDatabaseName("UX_Channels_TaskVersionId_GlobalState");
-
-            if (Database.IsSqlServer())
-            {
-                indexBuilder
-                    .IsUnique()
-                    .HasFilter("[Discriminator] = 'GlobalStateDefinition'");
-            }
         });
 
         // -----------------------------

@@ -4,8 +4,6 @@ namespace WorkflowBuilder.PerformanceTests.Plugins;
 
 public abstract class NftBranchPluginBase : IPlugin
 {
-    public required NftProcessState State { get; set; }
-
     public required NftBranchRequest Request { get; init; }
 
     public NftBranchResult Result { get; set; } = default!;
@@ -25,10 +23,6 @@ public abstract class NftBranchPluginBase : IPlugin
         var branchWeight = Math.Max(1, Request.BranchWeight);
         var branchScore = Request.SeedScore + BranchBias * branchWeight;
         var digest = $"{branchName}:{Request.PayloadToken.Length}:{branchScore}";
-
-        State.StepsCompleted += 1;
-        State.TotalScore += branchScore;
-        State.LastStage = branchName.ToLowerInvariant();
 
         Result = new NftBranchResult
         {

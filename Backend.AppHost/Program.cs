@@ -15,10 +15,13 @@ internal class Program
         var integrationTestsEnabled = builder.Configuration.GetValue("IntegrationTests:Enabled", false);
         var nftEnabled = builder.Configuration.GetValue("Nft:Enabled", false);
         var nftMinimalServices = builder.Configuration.GetValue("Nft:MinimalServices", nftEnabled);
+        var synchronousEngineProjectionUpdatesEnabled = builder.Configuration.GetValue(
+            "Projections:SynchronousEngineUpdatesEnabled",
+            !nftEnabled);
         var frontendEnabled = builder.Configuration.GetValue("Frontend:Enabled", true);
         var signalREnabled = builder.Configuration.GetValue("SignalR:Enabled", !nftMinimalServices || frontendEnabled);
         var dispatcherEnabled = builder.Configuration.GetValue("Dispatcher:Enabled", true);
-        var projectionWorkerEnabled = builder.Configuration.GetValue("ProjectionWorker:Enabled", !nftMinimalServices);
+        var projectionWorkerEnabled = builder.Configuration.GetValue("ProjectionWorker:Enabled", !nftMinimalServices || nftEnabled);
         var maintenanceEnabled = builder.Configuration.GetValue("Maintenance:Enabled", !nftMinimalServices);
         var pluginDetectorEnabled = builder.Configuration.GetValue("PluginDetector:Enabled", !nftMinimalServices);
         var progressBroadcasterEnabled = builder.Configuration.GetValue(
@@ -257,6 +260,9 @@ internal class Program
             .WithEnvironment(
                 "ProcessStepQueue__MaxAutoLockRenewalMinutes",
                 processStepQueueMaxAutoLockRenewalMinutes.ToString())
+            .WithEnvironment(
+                "Projections__SynchronousEngineUpdatesEnabled",
+                synchronousEngineProjectionUpdatesEnabled.ToString())
             .WithEnvironment("WorkflowBuilder__RepositoryRoot", repositoryRoot)
             .WithEnvironment("WORKFLOW_BUILDER_DEMO_REPOSITORY", repositoryRoot);
         if (integrationTestsEnabled)

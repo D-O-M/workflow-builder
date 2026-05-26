@@ -15,7 +15,7 @@ public sealed class StepFinalizationRecoveryService
 
     private readonly IProcessStepFinalizationRepository _finalizationRepository;
     private readonly IProcessStepRepository _processStepRepository;
-    private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessInstanceRepository _processInstanceRepository;
     private readonly IBlueprintExecutionCache _blueprintExecutionCache;
     private readonly IStepFinalizationService _stepFinalizationService;
     private readonly StepFinalizationRecoveryTelemetry _telemetry;
@@ -25,7 +25,7 @@ public sealed class StepFinalizationRecoveryService
     public StepFinalizationRecoveryService(
         IProcessStepFinalizationRepository finalizationRepository,
         IProcessStepRepository processStepRepository,
-        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        IProcessInstanceRepository processInstanceRepository,
         IBlueprintExecutionCache blueprintExecutionCache,
         IStepFinalizationService stepFinalizationService,
         StepFinalizationRecoveryTelemetry telemetry,
@@ -128,7 +128,7 @@ public sealed class StepFinalizationRecoveryService
             return false;
         }
 
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process;
+        ProcessInstanceRecord process;
         try
         {
             process = await _processInstanceRepository.GetProcessStateById(
@@ -310,7 +310,7 @@ public sealed class StepFinalizationRecoveryService
         public Task AbandonAsync(CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Finalization recovery does not have a live queue message to abandon.");
 
-        public Task RenewLockAsync(CancellationToken cancellationToken) =>
+        public Task<DateTimeOffset> RenewLockAsync(CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Finalization recovery does not have a live queue message lock to renew.");
     }
 }

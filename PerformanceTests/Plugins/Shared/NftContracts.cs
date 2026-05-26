@@ -3,20 +3,6 @@ using Backend.Plugins.Harness;
 namespace WorkflowBuilder.PerformanceTests.Plugins;
 
 [Backend.Plugins.Harness.PluginJsonSerializable]
-public sealed class NftProcessState : IGlobalState
-{
-    public string RunLabel { get; set; } = string.Empty;
-
-    public int StepsCompleted { get; set; }
-
-    public int TotalScore { get; set; }
-
-    public string LastStage { get; set; } = string.Empty;
-
-    public bool TraceEnabled { get; set; }
-}
-
-[Backend.Plugins.Harness.PluginJsonSerializable]
 public sealed class NftSeedRequest
 {
     public string CorrelationKey { get; set; } = string.Empty;

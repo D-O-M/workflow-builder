@@ -159,7 +159,6 @@ public sealed class TaskCatalogQueryServiceTests
                     Id = 101,
                     Version = "1.0.0",
                     State = TaskVersionState.Registered.ToString(),
-                    RequiredGlobalState = null,
                     OutputChannels = []
                 }
             ]

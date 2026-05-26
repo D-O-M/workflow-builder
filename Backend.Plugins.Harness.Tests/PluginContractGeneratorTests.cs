@@ -72,57 +72,20 @@ public sealed class SuccessOutput
     }
 
     [Test]
-    public void Generator_reports_error_when_global_state_dto_is_not_marked_for_json_source_generation()
+    public void Generator_emits_manifest_with_only_input_and_output_channels()
     {
-        var diagnostics = RunGenerator("""
+        var runResult = RunGeneratorResult("""
 using System.Threading.Tasks;
 using Backend.Plugins.Harness;
 
 var plugin = Plugin.CreateBuilder<TestPlugin>("Test Plugin")
-    .WithGlobalState(p => p.State)
-    .Build();
-
-public sealed class TestPlugin : IPlugin
-{
-    public required TestState State { get; set; }
-    public Task Execute() => Task.CompletedTask;
-}
-
-public sealed class TestState : IGlobalState
-{
-    public string RunLabel { get; set; } = "";
-}
-""");
-
-        diagnostics.ShouldContain(diagnostic =>
-            diagnostic.Id == "WBP005" &&
-            diagnostic.GetMessage().Contains("Global state 'State'", StringComparison.Ordinal) &&
-            diagnostic.GetMessage().Contains("TestState", StringComparison.Ordinal));
-    }
-
-    [Test]
-    public void Generator_accepts_marked_output_and_global_state_dtos()
-    {
-        var diagnostics = RunGenerator("""
-using System.Threading.Tasks;
-using Backend.Plugins.Harness;
-
-var plugin = Plugin.CreateBuilder<TestPlugin>("Test Plugin")
-    .WithGlobalState(p => p.State)
     .ConfigureOutputChannel(p => p.Success)
     .Build();
 
 public sealed class TestPlugin : IPlugin
 {
-    public required TestState State { get; set; }
     public SuccessOutput? Success { get; set; }
     public Task Execute() => Task.CompletedTask;
-}
-
-[PluginJsonSerializable]
-public sealed class TestState : IGlobalState
-{
-    public string RunLabel { get; set; } = "";
 }
 
 [PluginJsonSerializable]
@@ -132,7 +95,11 @@ public sealed class SuccessOutput
 }
 """);
 
-        diagnostics.ShouldNotContain(diagnostic => diagnostic.Id == "WBP005");
+        var source = runResult.Results.Single().GeneratedSources.Single().SourceText.ToString();
+
+        runResult.Diagnostics.ShouldBeEmpty();
+        source.ShouldContain("outputChannels");
+        source.ShouldContain("inputChannel");
     }
 
     [Test]

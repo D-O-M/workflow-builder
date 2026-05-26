@@ -21,16 +21,8 @@ export class StartProcessPage {
     await this.page.getByRole('option', { name: 'High' }).click();
   }
 
-  async fillGlobalState(): Promise<void> {
-    await this.page.getByTestId('start-process-global-input-operator').fill('Ops Desk');
-    await this.page.getByTestId('start-process-global-select-region').click();
-    await this.page.getByRole('option', { name: 'EMEA' }).click();
-  }
-
   async launch(): Promise<void> {
     await this.fillInitialInput();
-    await this.page.getByTestId('start-process-continue-global-state').click();
-    await this.fillGlobalState();
     await this.page.getByTestId('start-process-continue-runtime-overrides').click();
     await this.page.getByTestId('start-process-submit').click();
   }

@@ -23,7 +23,7 @@ public sealed class ProcessStartReconciliationService
         ProcessStatus.InProgress
     ];
 
-    private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessInstanceRepository _processInstanceRepository;
     private readonly IProcessStepRepository _processStepRepository;
     private readonly IProcessIndexProjectionService _processIndexProjectionService;
     private readonly IBlueprintExecutionCache _blueprintExecutionCache;
@@ -32,7 +32,7 @@ public sealed class ProcessStartReconciliationService
     private readonly ILogger<ProcessStartReconciliationService> _logger;
 
     public ProcessStartReconciliationService(
-        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        IProcessInstanceRepository processInstanceRepository,
         IProcessStepRepository processStepRepository,
         IProcessIndexProjectionService processIndexProjectionService,
         IBlueprintExecutionCache blueprintExecutionCache,
@@ -337,7 +337,7 @@ public sealed class ProcessStartReconciliationService
     }
 
     private bool TryCreateInitialStepFromSnapshot(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         ExecutableBlueprint blueprint,
         Guid processId,
         Guid expectedInitialStepId,
@@ -461,7 +461,7 @@ public sealed class ProcessStartReconciliationService
         Guid ProcessId,
         int BlueprintVersionId,
         DateTimeOffset CreatedAt,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>>? Process);
+        ProcessInstanceRecord? Process);
 
     private sealed record ProcessRepairResult(
         bool MissingInitialStepFound,

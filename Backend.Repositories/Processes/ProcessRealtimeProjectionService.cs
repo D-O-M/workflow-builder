@@ -22,7 +22,7 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
     }
 
     public async Task UpsertFromProcessAsync(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         int blueprintDefinitionId,
         int blueprintVersionId,
         CancellationToken cancellationToken)
@@ -48,7 +48,7 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
     }
 
     public async Task UpsertFromProcessAndStepsAsync(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         int blueprintDefinitionId,
         int blueprintVersionId,
         IReadOnlyCollection<ProcessStepRecord> steps,
@@ -199,7 +199,7 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
     }
 
     private static ProcessRealtimeSummaryProjectionRecord CreateSummaryProjection(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         int blueprintDefinitionId,
         int blueprintVersionId) =>
         new()

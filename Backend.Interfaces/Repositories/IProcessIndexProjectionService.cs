@@ -6,7 +6,7 @@ namespace Backend.Interfaces.Repositories;
 public interface IProcessIndexProjectionService
 {
     Task UpsertFromProcessAsync(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         int blueprintDefinitionId,
         int blueprintVersionId,
         CancellationToken cancellationToken);

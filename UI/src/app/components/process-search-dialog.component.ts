@@ -700,8 +700,6 @@ export class ProcessSearchDialogComponent {
 
   protected propertyOptionMeta(option: PropertyCatalogItem): string {
     switch (option.scope) {
-      case 'GlobalState':
-        return `${option.subtitle} · Global state`;
       case 'NodeInput':
         return `${this.propertyTaskName(option)} · Input · ${option.subtitle}`;
       case 'NodeOutput':
@@ -742,7 +740,7 @@ export class ProcessSearchDialogComponent {
       groups.set(option.scope, options);
     }
 
-    return (['GlobalState', 'NodeInput', 'NodeOutput'] satisfies ProcessSearchPropertyScope[])
+    return (['NodeInput', 'NodeOutput'] satisfies ProcessSearchPropertyScope[])
       .map((scope) => ({
         key: scope,
         label: this.propertyScopeGroupLabel(scope),
@@ -1031,26 +1029,6 @@ export class ProcessSearchDialogComponent {
             ? 'Collection Iterator'
             : taskDefinition?.name ?? `Task ${task.taskDefinitionId ?? 0}`;
 
-          for (const property of normalizeTaskPropertyDefinitions(taskVersion?.requiredGlobalState?.properties)) {
-            if (property.kind.endsWith('[]')) {
-              continue;
-            }
-
-            const option: PropertyCatalogItem = {
-              key: `global:${blueprint.id}:${property.name}:${property.kind}`,
-              scope: 'GlobalState',
-              blueprintDefinitionId: blueprint.id,
-              blueprintNodeId: null,
-              propertyKey: property.name,
-              propertyType: property.kind,
-              enumValues: [...property.enumValues],
-              label: `Global / ${property.name}`,
-              subtitle: blueprint.name,
-              searchText: `${blueprint.name} global ${property.name}`.toLocaleLowerCase(),
-            };
-            propertyMap.set(option.key, option);
-          }
-
           if (!nodeScopeKeys.has(nodeKey)) {
             continue;
           }
@@ -1142,8 +1120,6 @@ export class ProcessSearchDialogComponent {
 
   private propertyScopeShortLabel(scope: ProcessSearchPropertyScope): string {
     switch (scope) {
-      case 'GlobalState':
-        return 'Global';
       case 'NodeInput':
         return 'Input';
       case 'NodeOutput':
@@ -1153,8 +1129,6 @@ export class ProcessSearchDialogComponent {
 
   private propertyScopeGroupLabel(scope: ProcessSearchPropertyScope): string {
     switch (scope) {
-      case 'GlobalState':
-        return 'Global state';
       case 'NodeInput':
         return 'Node inputs';
       case 'NodeOutput':

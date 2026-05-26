@@ -77,14 +77,6 @@ public sealed class PluginIngestionAndProcessExecutionTests
             $"/api/blueprints/{blueprint.BlueprintDefinitionId}/processes",
             new BlueprintProcessInputModel
             {
-                GlobalState = ToDictionary(new
-                {
-                    runLabel = "happy-path",
-                    stepsCompleted = 0,
-                    totalScore = 0,
-                    lastStage = "queued",
-                    shouldFail = false
-                }),
                 InitialTaskInput = ToDictionary(new
                 {
                     name = "  caveman  ",
@@ -106,9 +98,6 @@ public sealed class PluginIngestionAndProcessExecutionTests
             cancellationToken);
 
         snapshot.Process.Status.ShouldBe(ProcessStatus.Completed);
-        snapshot.Process.GlobalState["StepsCompleted"].GetInt32().ShouldBe(3);
-        snapshot.Process.GlobalState["TotalScore"].GetInt32().ShouldBe(20);
-        snapshot.Process.GlobalState["LastStage"].GetString().ShouldBe("result");
         snapshot.RealSteps
             .All(step => step.Dispatch?.Status == ProcessStepDispatchStatus.Dispatched)
             .ShouldBeTrue();
@@ -154,14 +143,6 @@ public sealed class PluginIngestionAndProcessExecutionTests
             $"/api/blueprints/{blueprint.BlueprintDefinitionId}/processes",
             new BlueprintProcessInputModel
             {
-                GlobalState = ToDictionary(new
-                {
-                    runLabel = "signalr-progress",
-                    stepsCompleted = 0,
-                    totalScore = 0,
-                    lastStage = "queued",
-                    shouldFail = false
-                }),
                 InitialTaskInput = ToDictionary(new
                 {
                     name = "realtime",
@@ -234,14 +215,6 @@ public sealed class PluginIngestionAndProcessExecutionTests
             $"/api/blueprints/{blueprint.BlueprintDefinitionId}/processes",
             new BlueprintProcessInputModel
             {
-                GlobalState = ToDictionary(new
-                {
-                    runLabel = "failure-path",
-                    stepsCompleted = 0,
-                    totalScore = 0,
-                    lastStage = "queued",
-                    shouldFail = true
-                }),
                 InitialTaskInput = ToDictionary(new
                 {
                     name = "doomed",
@@ -263,7 +236,6 @@ public sealed class PluginIngestionAndProcessExecutionTests
             cancellationToken);
 
         snapshot.Process.Status.ShouldBe(ProcessStatus.Failed);
-        snapshot.Process.GlobalState["LastStage"].GetString().ShouldBe("failure");
         snapshot.RealSteps.ShouldNotContain(step => step.BlueprintNodeId == blueprint.FinalBlueprintNodeId.ToString());
         snapshot.RealSteps.ShouldContain(step => step.Status == ProcessStepStatus.Failed);
     }

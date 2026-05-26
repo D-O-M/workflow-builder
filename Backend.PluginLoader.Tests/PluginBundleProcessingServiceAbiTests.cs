@@ -54,7 +54,10 @@ public sealed class PluginBundleProcessingServiceAbiTests
         var manifest = MinimalManifest(
             PluginAbiDefaults.CurrentMetadata with
             {
-                Version = new PluginAbiVersion(2, 0)
+                Version = new PluginAbiVersion(1, 1),
+                ResultSchemaVersion = 1,
+                HydrationProtocolVersion = 1,
+                HarnessVersion = "1.0.0"
             });
 
         var ex = await Should.ThrowAsync<PluginAbiCompatibilityException>(

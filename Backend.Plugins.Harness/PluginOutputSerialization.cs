@@ -12,12 +12,6 @@ internal interface IPluginOutputChannel<TPlugin>
     JsonElement? Serialize(TPlugin plugin);
 }
 
-internal interface IPluginGlobalStateSerializer<TPlugin>
-    where TPlugin : class, IPlugin
-{
-    Dictionary<string, JsonElement> Serialize(TPlugin plugin);
-}
-
 internal sealed class PluginOutputChannel<TPlugin, TChannelType> : IPluginOutputChannel<TPlugin>
     where TPlugin : class, IPlugin
     where TChannelType : class
@@ -48,47 +42,6 @@ internal sealed class PluginOutputChannel<TPlugin, TChannelType> : IPluginOutput
         return _jsonTypeInfo is null
             ? JsonSerializer.SerializeToElement(value, PluginJsonSerialization.ContractJsonOptions)
             : JsonSerializer.SerializeToElement(value, _jsonTypeInfo);
-    }
-}
-
-internal sealed class PluginGlobalStateSerializer<TPlugin, TGlobalState> : IPluginGlobalStateSerializer<TPlugin>
-    where TPlugin : class, IPlugin
-    where TGlobalState : class, IGlobalState
-{
-    private readonly Func<TPlugin, TGlobalState> _getter;
-    private readonly JsonTypeInfo<TGlobalState>? _jsonTypeInfo;
-
-    public PluginGlobalStateSerializer(
-        Func<TPlugin, TGlobalState> getter,
-        JsonTypeInfo<TGlobalState>? jsonTypeInfo)
-    {
-        _getter = getter;
-        _jsonTypeInfo = jsonTypeInfo;
-    }
-
-    public Dictionary<string, JsonElement> Serialize(TPlugin plugin)
-    {
-        var value = _getter(plugin);
-        if (value is null)
-        {
-            return new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        }
-
-        var element = _jsonTypeInfo is null
-            ? JsonSerializer.SerializeToElement(value, PluginJsonSerialization.ContractJsonOptions)
-            : JsonSerializer.SerializeToElement(value, _jsonTypeInfo);
-
-        if (element.ValueKind != JsonValueKind.Object)
-        {
-            return new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        }
-
-        return element
-            .EnumerateObject()
-            .ToDictionary(
-                property => property.Name,
-                property => property.Value.Clone(),
-                StringComparer.Ordinal);
     }
 }
 

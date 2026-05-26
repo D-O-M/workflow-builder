@@ -215,7 +215,7 @@ public sealed record PluginTaskVersionRuntimeStatusUpdate
     public DateTimeOffset? OccurredAt { get; init; }
 }
 
-public class ProcessInstanceRecord<TGlobalState>
+public class ProcessInstanceRecord
 {
     private string _id = null!;
 
@@ -255,9 +255,6 @@ public class ProcessInstanceRecord<TGlobalState>
     [JsonPropertyName("status")]
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public ProcessStatus Status { get; set; }
-
-    [JsonPropertyName("globalState")]
-    public required TGlobalState GlobalState { get; set; }
 
     [JsonPropertyName("nodeOverrides")]
     public Dictionary<string, Dictionary<string, JsonElement>> NodeOverrides { get; set; } = new();
@@ -1063,9 +1060,6 @@ public sealed class ProcessStepFinalizationRecord
 
     [JsonPropertyName("outputData")]
     public Dictionary<string, JsonElement>? OutputData { get; set; }
-
-    [JsonPropertyName("globalState")]
-    public Dictionary<string, JsonElement>? GlobalState { get; set; }
 
     [JsonPropertyName("timingsMs")]
     public Dictionary<string, double>? TimingsMs { get; set; }

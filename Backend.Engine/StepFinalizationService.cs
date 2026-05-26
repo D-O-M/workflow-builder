@@ -70,9 +70,10 @@ public class StepFinalizationService : IStepFinalizationService
     private readonly PhasedProcessFinalizationService _phasedProcessFinalizationService;
     private readonly IProcessStepFinalizationRepository _finalizationRepository;
     private readonly IProcessStepRepository _processStepRepository;
-    private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessInstanceRepository _processInstanceRepository;
     private readonly IProcessIndexProjectionService? _processIndexProjectionService;
     private readonly IProcessRealtimeProjectionService? _processRealtimeProjectionService;
+    private readonly EngineProjectionOptions _projectionOptions;
     private readonly StepClaimService _stepClaimService;
     private readonly ProcessLifecycleTelemetry _processLifecycleTelemetry;
     private readonly ILogger<StepFinalizationService> _logger;
@@ -83,12 +84,13 @@ public class StepFinalizationService : IStepFinalizationService
         PhasedProcessFinalizationService phasedProcessFinalizationService,
         IProcessStepFinalizationRepository finalizationRepository,
         IProcessStepRepository processStepRepository,
-        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        IProcessInstanceRepository processInstanceRepository,
         StepClaimService stepClaimService,
         ProcessLifecycleTelemetry processLifecycleTelemetry,
         ILogger<StepFinalizationService> logger,
         IProcessIndexProjectionService? processIndexProjectionService = null,
-        IProcessRealtimeProjectionService? processRealtimeProjectionService = null)
+        IProcessRealtimeProjectionService? processRealtimeProjectionService = null,
+        EngineProjectionOptions? projectionOptions = null)
     {
         _activationPlanner = activationPlanner;
         _activationPersistenceService = activationPersistenceService;
@@ -98,6 +100,7 @@ public class StepFinalizationService : IStepFinalizationService
         _processInstanceRepository = processInstanceRepository;
         _processIndexProjectionService = processIndexProjectionService;
         _processRealtimeProjectionService = processRealtimeProjectionService;
+        _projectionOptions = projectionOptions ?? EngineProjectionOptions.Enabled;
         _stepClaimService = stepClaimService;
         _processLifecycleTelemetry = processLifecycleTelemetry;
         _logger = logger;
@@ -398,7 +401,6 @@ public class StepFinalizationService : IStepFinalizationService
             await PersistFailedStepAsync(
                 context,
                 record.EffectiveInputData,
-                record.GlobalState,
                 record.ErrorMessage,
                 record.CompletedAt,
                 cancellationToken);
@@ -475,7 +477,6 @@ public class StepFinalizationService : IStepFinalizationService
             context,
             record.EffectiveInputData,
             outputData,
-            record.GlobalState,
             record.CompletedAt,
             cancellationToken);
 
@@ -649,7 +650,6 @@ public class StepFinalizationService : IStepFinalizationService
             Succeeded: true,
             EffectiveInputData: record.EffectiveInputData,
             OutputData: CloneJsonMap(outputData),
-            GlobalState: record.GlobalState,
             StartedAt: record.StartedAt,
             CompletedAt: record.CompletedAt,
             TimingsMs: record.TimingsMs,
@@ -664,7 +664,6 @@ public class StepFinalizationService : IStepFinalizationService
             Succeeded: false,
             EffectiveInputData: record.EffectiveInputData,
             OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-            GlobalState: record.GlobalState,
             StartedAt: record.StartedAt,
             CompletedAt: record.CompletedAt,
             TimingsMs: record.TimingsMs,
@@ -674,7 +673,6 @@ public class StepFinalizationService : IStepFinalizationService
         StepExecutionContext context,
         Dictionary<string, JsonElement>? effectiveInputData,
         Dictionary<string, JsonElement> outputData,
-        Dictionary<string, JsonElement>? globalState,
         DateTimeOffset completedAt,
         CancellationToken cancellationToken)
     {
@@ -688,7 +686,6 @@ public class StepFinalizationService : IStepFinalizationService
 
         var completed = await UpdateProcessStateAfterSuccessAsync(
             context,
-            globalState,
             completedAt,
             cancellationToken);
 
@@ -708,7 +705,6 @@ public class StepFinalizationService : IStepFinalizationService
     private async Task PersistFailedStepAsync(
         StepExecutionContext context,
         Dictionary<string, JsonElement>? effectiveInputData,
-        Dictionary<string, JsonElement>? globalState,
         string? errorMessage,
         DateTimeOffset failedAt,
         CancellationToken cancellationToken)
@@ -723,7 +719,6 @@ public class StepFinalizationService : IStepFinalizationService
 
         await UpdateProcessStateAfterFailureAsync(
             context,
-            globalState,
             failedAt,
             cancellationToken);
 
@@ -740,10 +735,11 @@ public class StepFinalizationService : IStepFinalizationService
 
     private async Task TryProjectProcessAsync(
         StepExecutionContext context,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         CancellationToken cancellationToken)
     {
-        if (_processIndexProjectionService is null)
+        if (!_projectionOptions.SynchronousEngineUpdatesEnabled ||
+            _processIndexProjectionService is null)
         {
             return;
         }
@@ -771,7 +767,8 @@ public class StepFinalizationService : IStepFinalizationService
         int blueprintVersionId,
         CancellationToken cancellationToken)
     {
-        if (_processRealtimeProjectionService is null)
+        if (!_projectionOptions.SynchronousEngineUpdatesEnabled ||
+            _processRealtimeProjectionService is null)
         {
             return;
         }
@@ -834,11 +831,9 @@ public class StepFinalizationService : IStepFinalizationService
 
     private async Task<bool> UpdateProcessStateAfterSuccessAsync(
         StepExecutionContext context,
-        Dictionary<string, JsonElement>? globalState,
         DateTimeOffset completedAt,
         CancellationToken cancellationToken)
     {
-        var normalizedGlobalState = globalState is null ? null : NormalizeJsonMap(globalState);
         for (var attempt = 0; attempt < MaxProcessStateUpdateAttempts; attempt++)
         {
             var process = await _processInstanceRepository.GetProcessStateById(
@@ -847,11 +842,6 @@ public class StepFinalizationService : IStepFinalizationService
                 cancellationToken);
 
             StepClaimService.EnsureExecutionProgress(context, process);
-            if (normalizedGlobalState is not null)
-            {
-                process.GlobalState = normalizedGlobalState;
-            }
-
             var wasCompleted = process.Status is ProcessStatus.Completed;
             process.ExecutionProgress.CompletedNodeIds.Add(context.BlueprintNodeId.ToString());
             process.ExecutionProgress.CompletedStepIds.Add(context.ProcessStepId.ToString());
@@ -879,11 +869,9 @@ public class StepFinalizationService : IStepFinalizationService
 
     private async Task UpdateProcessStateAfterFailureAsync(
         StepExecutionContext context,
-        Dictionary<string, JsonElement>? globalState,
         DateTimeOffset failedAt,
         CancellationToken cancellationToken)
     {
-        var normalizedGlobalState = globalState is null ? null : NormalizeJsonMap(globalState);
         for (var attempt = 0; attempt < MaxProcessStateUpdateAttempts; attempt++)
         {
             var process = await _processInstanceRepository.GetProcessStateById(
@@ -892,11 +880,6 @@ public class StepFinalizationService : IStepFinalizationService
                 cancellationToken);
 
             StepClaimService.EnsureExecutionProgress(context, process);
-            if (normalizedGlobalState is not null)
-            {
-                process.GlobalState = normalizedGlobalState;
-            }
-
             process.ExecutionProgress.FailedNodeIds.Add(context.BlueprintNodeId.ToString());
             process.ExecutionProgress.FailedStepIds.Add(context.ProcessStepId.ToString());
             process.Status = ProcessStatus.Failed;
@@ -1011,7 +994,6 @@ public class StepFinalizationService : IStepFinalizationService
             Stage = ProcessStepFinalizationStage.ResultReceived,
             EffectiveInputData = NormalizeJsonMap(result.EffectiveInputData),
             OutputData = NormalizeJsonMap(result.OutputData),
-            GlobalState = NormalizeJsonMap(result.GlobalState),
             TimingsMs = result.TimingsMs is null
                 ? null
                 : new Dictionary<string, double>(result.TimingsMs, StringComparer.Ordinal),
@@ -1155,7 +1137,6 @@ public class StepFinalizationService : IStepFinalizationService
     {
         record.EffectiveInputData = null;
         record.OutputData = null;
-        record.GlobalState = null;
         record.TimingsMs = null;
     }
 

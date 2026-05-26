@@ -6,7 +6,7 @@ namespace Backend.Interfaces.Repositories;
 public interface IProcessRealtimeProjectionService
 {
     Task UpsertFromProcessAsync(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         int blueprintDefinitionId,
         int blueprintVersionId,
         CancellationToken cancellationToken);
@@ -18,7 +18,7 @@ public interface IProcessRealtimeProjectionService
         CancellationToken cancellationToken);
 
     Task UpsertFromProcessAndStepsAsync(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         int blueprintDefinitionId,
         int blueprintVersionId,
         IReadOnlyCollection<ProcessStepRecord> steps,

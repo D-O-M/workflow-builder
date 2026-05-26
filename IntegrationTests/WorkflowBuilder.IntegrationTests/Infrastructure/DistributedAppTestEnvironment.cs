@@ -28,7 +28,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
     private readonly CosmosClient _cosmosClient;
     private readonly BlobContainerClient _pluginBlobContainer;
     private readonly ProcessStepRepository _processStepRepository;
-    private readonly ProcessInstanceRepository<Dictionary<string, JsonElement>> _processRepository;
+    private readonly ProcessInstanceRepository _processRepository;
     private readonly StartupLogCapture _resourceLogCapture;
 
     private DistributedAppTestEnvironment(
@@ -36,7 +36,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         CosmosClient cosmosClient,
         BlobContainerClient pluginBlobContainer,
         ProcessStepRepository processStepRepository,
-        ProcessInstanceRepository<Dictionary<string, JsonElement>> processRepository,
+        ProcessInstanceRepository processRepository,
         HttpClient apiClient,
         string signalRBaseUrl,
         IntegrationTestSettings settings,
@@ -184,7 +184,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
             });
 
         var processStepRepository = new ProcessStepRepository(cosmosClient.GetContainer(CosmosDatabaseName, TasksContainerName));
-        var processRepository = new ProcessInstanceRepository<Dictionary<string, JsonElement>>(
+        var processRepository = new ProcessInstanceRepository(
             cosmosClient.GetContainer(CosmosDatabaseName, ProcessesContainerName));
 
         var environment = new DistributedAppTestEnvironment(
@@ -332,7 +332,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
         CancellationToken cancellationToken) =>
         _processStepRepository.UpdateProcessStep(processStep, cancellationToken);
 
-    public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> GetProcessStateAsync(
+    public Task<ProcessInstanceRecord> GetProcessStateAsync(
         Guid processId,
         int blueprintVersionId,
         CancellationToken cancellationToken) =>

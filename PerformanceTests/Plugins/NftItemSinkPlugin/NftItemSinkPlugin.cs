@@ -4,8 +4,6 @@ namespace WorkflowBuilder.PerformanceTests.Plugins;
 
 public sealed class NftItemSinkPlugin : IPlugin
 {
-    public required NftProcessState State { get; set; }
-
     public required NftItemSinkRequest Request { get; init; }
 
     public NftItemSinkResult Result { get; set; } = default!;
@@ -18,9 +16,6 @@ public sealed class NftItemSinkPlugin : IPlugin
         }
 
         var item = Request.Item.Trim();
-        State.StepsCompleted += 1;
-        State.TotalScore += item.Length;
-        State.LastStage = "item-sink";
 
         Result = new NftItemSinkResult
         {

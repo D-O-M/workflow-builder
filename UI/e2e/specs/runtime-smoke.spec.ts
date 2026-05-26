@@ -12,7 +12,6 @@ test.describe('Runtime smoke', () => {
     await page.getByTestId('start-process-initial-input-AirportCode').fill('LHR');
     await page.getByTestId('start-process-initial-input-WindowStartIsoDate').fill('05/12/2026');
     await page.getByTestId('start-process-initial-input-WindowEndIsoDate').fill('05/13/2026');
-    await page.getByTestId('start-process-continue-global-state').click();
     await page.getByTestId('start-process-continue-runtime-overrides').click();
     await page.getByTestId('start-process-submit').click();
     await expect(page).toHaveURL(/\/processes\?blueprintId=\d+&processId=/, { timeout: 60_000 });

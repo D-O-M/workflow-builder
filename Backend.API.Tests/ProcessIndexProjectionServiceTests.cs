@@ -60,7 +60,7 @@ public sealed class ProcessIndexProjectionServiceTests
         summaries.Records.Values.ShouldAllBe(record => record.Status == ProcessStatus.Completed);
     }
 
-    private static ProcessInstanceRecord<Dictionary<string, JsonElement>> CreateProcess(
+    private static ProcessInstanceRecord CreateProcess(
         Guid processId,
         ProcessStatus status,
         string createdAt,
@@ -72,7 +72,6 @@ public sealed class ProcessIndexProjectionServiceTests
             CreatedAt = DateTimeOffset.Parse(createdAt),
             UpdatedAt = updatedAt is null ? null : DateTimeOffset.Parse(updatedAt),
             Status = status,
-            GlobalState = [],
         };
 
     private sealed class InMemoryProcessDirectoryRepository : IProcessDirectoryRepository

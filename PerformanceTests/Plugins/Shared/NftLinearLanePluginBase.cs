@@ -4,8 +4,6 @@ namespace WorkflowBuilder.PerformanceTests.Plugins;
 
 public abstract class NftLinearLanePluginBase : IPlugin
 {
-    public required NftProcessState State { get; set; }
-
     public required NftLaneRequest Request { get; init; }
 
     public NftLaneResult Result { get; set; } = default!;
@@ -23,10 +21,6 @@ public abstract class NftLinearLanePluginBase : IPlugin
         var laneWeight = Math.Max(1, Request.LaneWeight);
         var laneScore = Request.SeedScore + laneWeight;
         var digest = $"{laneName}:{Request.PayloadToken.Length}:{laneScore}";
-
-        State.StepsCompleted += 1;
-        State.TotalScore += laneScore;
-        State.LastStage = laneName.ToLowerInvariant();
 
         Result = new NftLaneResult
         {

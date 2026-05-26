@@ -40,7 +40,6 @@ public sealed class PluginManifestParsingUtility : IPluginManifestParsingUtility
             Abi = ReadAbi(manifestObject["abi"]),
             InputChannel = ReadChannel(manifestObject["inputChannel"]),
             OutputChannels = ReadChannels(manifestObject["outputChannels"]),
-            GlobalState = ReadGlobalState(manifestObject["globalState"]),
             Configuration = ReadConfiguration(manifestObject["configuration"]),
             Capabilities = ReadCapabilities(manifestObject["capabilities"])
         };
@@ -75,26 +74,6 @@ public sealed class PluginManifestParsingUtility : IPluginManifestParsingUtility
             SupportedStateStoreModes = ReadStringArray(abiObject["supportedStateStoreModes"]),
             SupportedPropertyKinds = ReadStringArray(abiObject["supportedPropertyKinds"])
         };
-    }
-
-    private static ManifestFileChannelInfo? ReadGlobalState(JsonNode? node)
-    {
-        if (node is null)
-        {
-            return null;
-        }
-
-        if (node is JsonValue value && value.TryGetValue<string>(out var legacyTypeName))
-        {
-            return new ManifestFileChannelInfo
-            {
-                Name = "GlobalState",
-                Type = legacyTypeName,
-                Properties = []
-            };
-        }
-
-        return ReadChannel(node);
     }
 
     private static List<ManifestFileChannelInfo> ReadChannels(JsonNode? node)

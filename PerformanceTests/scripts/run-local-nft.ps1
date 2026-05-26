@@ -487,10 +487,10 @@ function Start-AppHost {
     "SignalR__Enabled" = "false"
     "ProgressBroadcaster__Enabled" = "false"
     "Dispatcher__Enabled" = "true"
-    "ProjectionWorker__Enabled" = "false"
+    "ProjectionWorker__Enabled" = "true"
     "Maintenance__Enabled" = "false"
     "PluginDetector__Enabled" = "false"
-    "Projections__SynchronousEngineUpdatesEnabled" = "true"
+    "Projections__SynchronousEngineUpdatesEnabled" = "false"
     "PluginSeeding__Enabled" = "true"
     "PluginSeeding__BundlesRoot" = $bundleRoot
     "BlueprintSeeding__Enabled" = "true"
@@ -756,7 +756,6 @@ function Write-RunConfig {
     disabledAppHostServices = @(
       "backend-signalr",
       "progress-broadcaster",
-      "backend-projection-worker",
       "backend-maintenance",
       "plugin-detector"
     )

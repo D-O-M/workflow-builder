@@ -32,14 +32,6 @@ public sealed class BranchingBlueprintExecutionTests
             BlueprintScenarioBuilder.CreateProcessInput(
                 new
                 {
-                    runLabel = "fan-out",
-                    stepsCompleted = 0,
-                    totalScore = 0,
-                    lastStage = "queued",
-                    shouldFail = false
-                },
-                new
-                {
                     name = "  caveman  ",
                     baseScore = 4
                 }),
@@ -95,14 +87,6 @@ public sealed class BranchingBlueprintExecutionTests
             BlueprintScenarioBuilder.CreateProcessInput(
                 new
                 {
-                    runLabel = "join",
-                    stepsCompleted = 0,
-                    totalScore = 0,
-                    lastStage = "queued",
-                    shouldFail = false
-                },
-                new
-                {
                     name = "  caveman  ",
                     baseScore = 4
                 }),
@@ -151,14 +135,6 @@ public sealed class BranchingBlueprintExecutionTests
             BlueprintScenarioBuilder.CreateProcessInput(
                 new
                 {
-                    runLabel = "design-time-override",
-                    stepsCompleted = 0,
-                    totalScore = 0,
-                    lastStage = "queued",
-                    shouldFail = false
-                },
-                new
-                {
                     name = "  caveman  ",
                     baseScore = 4
                 }),
@@ -202,14 +178,6 @@ public sealed class BranchingBlueprintExecutionTests
         var accepted = await StartProcessAsync(
             blueprint.BlueprintDefinitionId,
             BlueprintScenarioBuilder.CreateProcessInput(
-                new
-                {
-                    runLabel = "runtime-override",
-                    stepsCompleted = 0,
-                    totalScore = 0,
-                    lastStage = "queued",
-                    shouldFail = false
-                },
                 new
                 {
                     name = "  caveman  ",
@@ -263,14 +231,6 @@ public sealed class BranchingBlueprintExecutionTests
             BlueprintScenarioBuilder.CreateProcessInput(
                 new
                 {
-                    runLabel = "override-precedence",
-                    stepsCompleted = 0,
-                    totalScore = 0,
-                    lastStage = "queued",
-                    shouldFail = false
-                },
-                new
-                {
                     name = "  caveman  ",
                     baseScore = 4
                 },
@@ -319,14 +279,6 @@ public sealed class BranchingBlueprintExecutionTests
         var accepted = await StartProcessAsync(
             blueprint.BlueprintDefinitionId,
             BlueprintScenarioBuilder.CreateProcessInput(
-                new
-                {
-                    runLabel = "failed-join-gate",
-                    stepsCompleted = 0,
-                    totalScore = 0,
-                    lastStage = "queued",
-                    shouldFail = true
-                },
                 new
                 {
                     name = "  caveman  ",

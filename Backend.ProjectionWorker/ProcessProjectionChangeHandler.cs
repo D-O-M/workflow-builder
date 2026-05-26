@@ -11,24 +11,28 @@ public sealed class ProcessProjectionChangeHandler
     private readonly IBlueprintExecutionCache _blueprintExecutionCache;
     private readonly IProcessIndexProjectionService _processIndexProjectionService;
     private readonly IProcessRealtimeProjectionService _processRealtimeProjectionService;
+    private readonly ProjectionWorkerTelemetry? _telemetry;
     private readonly ILogger<ProcessProjectionChangeHandler> _logger;
 
     public ProcessProjectionChangeHandler(
         IBlueprintExecutionCache blueprintExecutionCache,
         IProcessIndexProjectionService processIndexProjectionService,
         IProcessRealtimeProjectionService processRealtimeProjectionService,
-        ILogger<ProcessProjectionChangeHandler> logger)
+        ILogger<ProcessProjectionChangeHandler> logger,
+        ProjectionWorkerTelemetry? telemetry = null)
     {
         _blueprintExecutionCache = blueprintExecutionCache;
         _processIndexProjectionService = processIndexProjectionService;
         _processRealtimeProjectionService = processRealtimeProjectionService;
+        _telemetry = telemetry;
         _logger = logger;
     }
 
     public async Task ProjectProcessChangesAsync(
-        IReadOnlyCollection<ProcessInstanceRecord<Dictionary<string, JsonElement>>> processes,
+        IReadOnlyCollection<ProcessInstanceRecord> processes,
         CancellationToken cancellationToken)
     {
+        var observedAt = DateTimeOffset.UtcNow;
         foreach (var process in processes)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -57,6 +61,8 @@ public sealed class ProcessProjectionChangeHandler
                 blueprint.DefinitionId,
                 blueprint.Id,
                 cancellationToken);
+            _telemetry?.RecordProcessed("processes", 1);
+            _telemetry?.RecordLag("processes", process.UpdatedAt ?? process.CreatedAt, observedAt);
         }
     }
 
@@ -64,6 +70,7 @@ public sealed class ProcessProjectionChangeHandler
         IReadOnlyCollection<ProcessStepRecord> steps,
         CancellationToken cancellationToken)
     {
+        var observedAt = DateTimeOffset.UtcNow;
         foreach (var step in steps)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -87,6 +94,8 @@ public sealed class ProcessProjectionChangeHandler
                 blueprint.DefinitionId,
                 blueprint.Id,
                 cancellationToken);
+            _telemetry?.RecordProcessed("processsteps", 1);
+            _telemetry?.RecordLag("processsteps", GetChangedAt(step), observedAt);
         }
     }
 
@@ -104,6 +113,7 @@ public sealed class ProcessProjectionChangeHandler
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested &&
                                          IsMissingEntityException(exception))
         {
+            _telemetry?.RecordFailure("blueprints", "missing_blueprint_version");
             _logger.LogWarning(
                 exception,
                 "Projection worker skipped process {ProcessId} because blueprint version {BlueprintVersionId} could not be loaded.",
@@ -127,8 +137,16 @@ public sealed class ProcessProjectionChangeHandler
             "Projection worker skipped process {ProcessId} with invalid blueprint version id {BlueprintId}.",
             processId,
             blueprintId);
+        _telemetry?.RecordFailure("blueprints", "invalid_blueprint_version_id");
         return false;
     }
+
+    private static DateTimeOffset GetChangedAt(ProcessStepRecord step) =>
+        step.UpdatedAt ??
+        step.CompletedAt ??
+        step.FailedAt ??
+        step.StartedAt ??
+        step.CreatedAt;
 
     private static bool IsMissingEntityException(Exception exception) =>
         exception is EntityNotFoundException or KeyNotFoundException ||

@@ -74,7 +74,7 @@ test.describe('Start Process', () => {
     await startProcess.goto();
     await startProcess.selectBlueprint('Airport Disruption Advisor');
     await expect(page.getByTestId('start-process-stepper')).toBeVisible();
-    await expect(page.getByTestId('start-process-continue-global-state')).toBeVisible();
+    await expect(page.getByTestId('start-process-continue-runtime-overrides')).toBeVisible();
   });
 
   test('shows launch failures on the final step [start-process-error]', async ({ page, workflowApi: _workflowApi }) => {

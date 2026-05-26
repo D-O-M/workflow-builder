@@ -3,13 +3,6 @@ using Backend.Plugins.Harness;
 namespace TestPlugin;
 
 [Backend.Plugins.Harness.PluginJsonSerializable]
-public class State : IGlobalState
-{
-    public int PlayerId { get; set; }
-    public string PlayerIP { get; set; }
-}
-
-[Backend.Plugins.Harness.PluginJsonSerializable]
 public class PlayerInput
 {
     public int Score { get; set; }

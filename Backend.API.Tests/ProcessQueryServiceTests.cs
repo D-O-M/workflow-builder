@@ -208,75 +208,6 @@ public sealed class ProcessQueryServiceTests
     }
 
     [Test]
-    public async Task SearchProcessesAsync_hydrates_process_state_only_for_global_property_filters()
-    {
-        await using var database = await SqliteBlueprintDb.CreateAsync();
-        var definition = new BlueprintDefinition
-        {
-            Key = "orders",
-            DisplayName = "Order Intake",
-            Versions =
-            [
-                new BlueprintVersion { Version = 1 }
-            ]
-        };
-
-        database.Context.BlueprintDefinitions.Add(definition);
-        await database.Context.SaveChangesAsync();
-
-        var summary = CreateSummary(definition.Versions[0].Id, "2026-04-21T11:58:00Z", ProcessStatus.Completed);
-        var processId = Guid.Parse(summary.ProcessId);
-        var processState = new ProcessInstanceRecord<Dictionary<string, JsonElement>>
-        {
-            id = summary.ProcessId,
-            BlueprintId = definition.Versions[0].Id.ToString(),
-            CreatedAt = summary.CreatedAt,
-            UpdatedAt = summary.UpdatedAt,
-            Status = summary.Status,
-            GlobalState = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
-            {
-                ["user_id"] = JsonSerializer.SerializeToElement("admin_882"),
-            },
-        };
-
-        var processRepository = new ProcessInstanceRepositoryStub(
-            new Dictionary<int, IReadOnlyList<ProcessStateSummary>>
-            {
-                [definition.Versions[0].Id] = [summary],
-            },
-            new Dictionary<(int BlueprintVersionId, Guid ProcessId), ProcessInstanceRecord<Dictionary<string, JsonElement>>>
-            {
-                [(definition.Versions[0].Id, processId)] = processState,
-            });
-        var stepRepository = new ProcessStepRepositoryStub();
-        var service = CreateService(database, processRepository, stepRepository);
-
-        var page = await service.SearchProcessesAsync(
-            new ProcessSearchRequestInputModel
-            {
-                CreatedFrom = DateTimeOffset.Parse("2026-04-21T11:40:00Z"),
-                CreatedTo = DateTimeOffset.Parse("2026-04-21T12:00:00Z"),
-                Limit = 25,
-                PropertyFilters =
-                [
-                    new ProcessSearchPropertyFilterInputModel
-                    {
-                        Scope = "GlobalState",
-                        BlueprintDefinitionId = definition.Id,
-                        PropertyKey = "user_id",
-                        PropertyType = "String",
-                        Value = "admin_882",
-                    }
-                ]
-            },
-            CancellationToken.None);
-
-        page.Items.Count.ShouldBe(1);
-        processRepository.ProcessStateFetchCount.ShouldBe(1);
-        stepRepository.StepFetchCount.ShouldBe(0);
-    }
-
-    [Test]
     public async Task SearchProcessesAsync_hydrates_step_records_for_node_and_node_output_filters()
     {
         await using var database = await SqliteBlueprintDb.CreateAsync();
@@ -692,29 +623,29 @@ public sealed class ProcessQueryServiceTests
             observabilityQueryService: null!,
             processIndexProjectionService);
 
-    private sealed class ProcessInstanceRepositoryStub : IProcessInstanceRepository<Dictionary<string, JsonElement>>
+    private sealed class ProcessInstanceRepositoryStub : IProcessInstanceRepository
     {
         private readonly IReadOnlyDictionary<int, IReadOnlyList<ProcessStateSummary>> _itemsByBlueprintVersionId;
-        private readonly IReadOnlyDictionary<(int BlueprintVersionId, Guid ProcessId), ProcessInstanceRecord<Dictionary<string, JsonElement>>> _processStatesByKey;
+        private readonly IReadOnlyDictionary<(int BlueprintVersionId, Guid ProcessId), ProcessInstanceRecord> _processStatesByKey;
 
         public ProcessInstanceRepositoryStub(
             IReadOnlyDictionary<int, IReadOnlyList<ProcessStateSummary>> itemsByBlueprintVersionId,
-            IReadOnlyDictionary<(int BlueprintVersionId, Guid ProcessId), ProcessInstanceRecord<Dictionary<string, JsonElement>>>? processStatesByKey = null)
+            IReadOnlyDictionary<(int BlueprintVersionId, Guid ProcessId), ProcessInstanceRecord>? processStatesByKey = null)
         {
             _itemsByBlueprintVersionId = itemsByBlueprintVersionId;
             _processStatesByKey = processStatesByKey
-                ?? new Dictionary<(int BlueprintVersionId, Guid ProcessId), ProcessInstanceRecord<Dictionary<string, JsonElement>>>();
+                ?? new Dictionary<(int BlueprintVersionId, Guid ProcessId), ProcessInstanceRecord>();
         }
 
         public int ProcessStateFetchCount { get; private set; }
         public int SummaryPageFetchCount { get; private set; }
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> CreateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+        public Task<ProcessInstanceRecord> CreateProcessState(
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> GetProcessStateById(
+        public Task<ProcessInstanceRecord> GetProcessStateById(
             Guid processId,
             int blueprintVersionId,
             CancellationToken cancellationToken)
@@ -725,10 +656,10 @@ public sealed class ProcessQueryServiceTests
                 return Task.FromResult(processState);
             }
 
-            throw new EntityNotFoundException<ProcessInstanceRecord<Dictionary<string, JsonElement>>>(processId.ToString());
+            throw new EntityNotFoundException<ProcessInstanceRecord>(processId.ToString());
         }
 
-        public Task<List<ProcessInstanceRecord<Dictionary<string, JsonElement>>>> GetProcessStatesForBlueprint(
+        public Task<List<ProcessInstanceRecord>> GetProcessStatesForBlueprint(
             int blueprintVersionId,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
@@ -791,13 +722,13 @@ public sealed class ProcessQueryServiceTests
             });
         }
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> UpdateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+        public Task<ProcessInstanceRecord> UpdateProcessState(
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<bool> TryUpdateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
@@ -826,7 +757,7 @@ public sealed class ProcessQueryServiceTests
         public int BlueprintQueryCount { get; private set; }
 
         public Task UpsertFromProcessAsync(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+            ProcessInstanceRecord process,
             int blueprintDefinitionId,
             int blueprintVersionId,
             CancellationToken cancellationToken) =>

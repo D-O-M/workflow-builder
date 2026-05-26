@@ -39,7 +39,6 @@ function createTaskDefinition(
         version: overrides?.versionOverrides?.version ?? '1.0.0',
         state: overrides?.versionOverrides?.state ?? 'Active',
         description: overrides?.versionOverrides?.description ?? 'Lookup task',
-        requiredGlobalState: overrides?.versionOverrides?.requiredGlobalState ?? null,
         inputChannel: overrides?.versionOverrides?.inputChannel ?? null,
         outputChannels: overrides?.versionOverrides?.outputChannels ?? [],
       },
@@ -57,7 +56,6 @@ function createSourceTaskDefinition(): ITaskDefinition {
         version: '1.0.0',
         state: 'Active',
         description: 'Lookup task',
-        requiredGlobalState: null,
         inputChannel: null,
         outputChannels: [
           {
@@ -83,7 +81,6 @@ function createTargetTaskDefinition(): ITaskDefinition {
         version: '1.0.0',
         state: 'Active',
         description: 'Recommendation task',
-        requiredGlobalState: null,
         inputChannel: {
           name: 'Input',
           properties: {
@@ -114,7 +111,6 @@ function createValidationTaskDefinition(
         version: '1.0.0',
         state: 'Active',
         description: `${name} task`,
-        requiredGlobalState: null,
         inputChannel: options?.inputProperties
           ? {
             name: 'Input',
@@ -791,7 +787,6 @@ describe('BlueprintEditorPageComponent', () => {
           version: '1.0.0',
           state: 'Active',
           description: null,
-          requiredGlobalState: null,
           inputChannel: null,
           outputChannels: [],
         },
@@ -800,7 +795,6 @@ describe('BlueprintEditorPageComponent', () => {
           version: '1.0.3',
           state: 'Active',
           description: null,
-          requiredGlobalState: null,
           inputChannel: null,
           outputChannels: [],
         },
@@ -809,7 +803,6 @@ describe('BlueprintEditorPageComponent', () => {
           version: '1.1.0',
           state: 'Active',
           description: null,
-          requiredGlobalState: null,
           inputChannel: null,
           outputChannels: [],
         },

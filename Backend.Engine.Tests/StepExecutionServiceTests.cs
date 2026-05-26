@@ -8,12 +8,14 @@ using System.Threading.Tasks;
 using Backend.Database.Relational.Entities;
 using Backend.Database.State.Objects;
 using Backend.Engine;
+using Backend.Engine.Debugging;
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Models;
 using Backend.PluginAbi;
 using Backend.Plugins.Communication;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Shouldly;
@@ -123,7 +125,6 @@ public sealed class StepExecutionServiceTests
                 Succeeded: true,
                 EffectiveInputData: null,
                 OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-                GlobalState: null,
                 StartedAt: DateTimeOffset.UtcNow,
                 CompletedAt: DateTimeOffset.UtcNow,
                 TimingsMs: null,
@@ -143,6 +144,8 @@ public sealed class StepExecutionServiceTests
             agentManager.Object,
             fixture,
             telemetry);
+        var renewal = new LockRenewalHandleSpy();
+        fixture.Context.AttachLockRenewal(renewal);
         TrackActiveStep(service, fixture.Context);
         SetupPersistedStep(fixture, ProcessStepStatus.InProgress);
         fixture.StepRepository
@@ -159,6 +162,7 @@ public sealed class StepExecutionServiceTests
 
         fixture.QueueMessage.AbandonCount.ShouldBe(1);
         fixture.QueueMessage.CompleteCount.ShouldBe(0);
+        renewal.DisposeCount.ShouldBe(1);
         ActiveStepCount(service).ShouldBe(0);
         telemetry.RecordedActiveStepCleanupSucceeded.ShouldBe(1);
         telemetry.RecordedActiveStepCleanupFailed.ShouldBe(0);
@@ -179,6 +183,8 @@ public sealed class StepExecutionServiceTests
             agentManager.Object,
             fixture,
             telemetry);
+        var renewal = new LockRenewalHandleSpy();
+        fixture.Context.AttachLockRenewal(renewal);
         TrackActiveStep(service, fixture.Context);
         SetupPersistedStep(fixture, ProcessStepStatus.InProgress);
         fixture.StepRepository
@@ -195,6 +201,7 @@ public sealed class StepExecutionServiceTests
 
         fixture.QueueMessage.AbandonCount.ShouldBe(0);
         fixture.QueueMessage.CompleteCount.ShouldBe(0);
+        renewal.DisposeCount.ShouldBe(1);
         ActiveStepCount(service).ShouldBe(0);
         telemetry.RecordedActiveStepCleanupSucceeded.ShouldBe(0);
         telemetry.RecordedActiveStepCleanupFailed.ShouldBe(1);
@@ -281,10 +288,26 @@ public sealed class StepExecutionServiceTests
             reloader,
             telemetry,
             pluginRuntimeAgentTelemetry ?? new PluginRuntimeAgentTelemetry(),
+            CreateLockRenewalService(new ProcessStepQueueLockRenewalOptions
+            {
+                ActiveMessageLockRenewalEnabled = false
+            }),
             provider.GetRequiredService<IServiceScopeFactory>(),
             stepClaimService,
             NullLogger<StepExecutionService>.Instance);
     }
+
+    private static ActiveStepLockRenewalService CreateLockRenewalService(
+        ProcessStepQueueLockRenewalOptions? options = null,
+        IAsyncDelay? delay = null,
+        ProcessStepLockRenewalTelemetry? telemetry = null,
+        IHostApplicationLifetime? applicationLifetime = null) =>
+        new(
+            options ?? new ProcessStepQueueLockRenewalOptions(),
+            delay ?? new CompletedDelay(),
+            telemetry ?? new ProcessStepLockRenewalTelemetry(),
+            applicationLifetime ?? new ApplicationLifetimeStub(),
+            NullLogger<ActiveStepLockRenewalService>.Instance);
 
     private static Fixture CreateFixture()
     {
@@ -334,7 +357,7 @@ public sealed class StepExecutionServiceTests
             queueMessage,
             blueprint);
         var stepRepository = new Mock<IProcessStepRepository>();
-        var processRepository = new Mock<IProcessInstanceRepository<Dictionary<string, JsonElement>>>();
+        var processRepository = new Mock<IProcessInstanceRepository>();
         return new Fixture(context, queueMessage, stepRepository, processRepository);
     }
 
@@ -400,7 +423,7 @@ public sealed class StepExecutionServiceTests
         StepExecutionContext Context,
         ProcessStepQueueMessageSpy QueueMessage,
         Mock<IProcessStepRepository> StepRepository,
-        Mock<IProcessInstanceRepository<Dictionary<string, JsonElement>>> ProcessRepository);
+        Mock<IProcessInstanceRepository> ProcessRepository);
 
     private sealed class ProcessStepQueueMessageSpy(ProcessStepInitialisationMessage payload) : IProcessStepQueueMessage
     {
@@ -424,6 +447,36 @@ public sealed class StepExecutionServiceTests
             return Task.CompletedTask;
         }
 
-        public Task RenewLockAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<DateTimeOffset> RenewLockAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(LockedUntil);
+    }
+
+    private sealed class CompletedDelay : IAsyncDelay
+    {
+        public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class ApplicationLifetimeStub : IHostApplicationLifetime
+    {
+        private readonly CancellationTokenSource _stopping = new();
+
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+
+        public CancellationToken ApplicationStopping => _stopping.Token;
+
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+
+        public void StopApplication() => _stopping.Cancel();
+    }
+
+    private sealed class LockRenewalHandleSpy : IAsyncDisposable
+    {
+        public int DisposeCount { get; private set; }
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return ValueTask.CompletedTask;
+        }
     }
 }

@@ -23,7 +23,7 @@ public sealed class BlueprintProcessService
     private readonly IProcessStepDispatcher _processStepDispatcher;
     private readonly IBlueprintExecutionCache _blueprintExecutionCache;
     private readonly IBlueprintRepository _blueprintRepository;
-    private readonly IProcessInstanceRepository<Dictionary<string, JsonElement>> _processInstanceRepository;
+    private readonly IProcessInstanceRepository _processInstanceRepository;
     private readonly IProcessIndexProjectionService? _processIndexProjectionService;
     private readonly IProcessRealtimeProjectionService? _processRealtimeProjectionService;
     private readonly ProcessStartTelemetry _processStartTelemetry;
@@ -34,7 +34,7 @@ public sealed class BlueprintProcessService
         IProcessStepDispatcher processStepDispatcher,
         IBlueprintExecutionCache blueprintExecutionCache,
         IBlueprintRepository blueprintRepository,
-        IProcessInstanceRepository<Dictionary<string, JsonElement>> processInstanceRepository,
+        IProcessInstanceRepository processInstanceRepository,
         ProcessStartTelemetry processStartTelemetry,
         ILogger<BlueprintProcessService> logger,
         IProcessIndexProjectionService? processIndexProjectionService = null,
@@ -112,17 +112,13 @@ public sealed class BlueprintProcessService
                 initialNodeOverrides);
         }
 
-        var processState = new ProcessInstanceRecord<Dictionary<string, JsonElement>>
+        var processState = new ProcessInstanceRecord
         {
             id = processId.ToString(),
             BlueprintId = blueprintVersionIdString,
             CreatedAt = acceptedAt,
             UpdatedAt = acceptedAt,
             Status = ProcessStatus.Pending,
-            GlobalState = processModel.GlobalState.ToDictionary(
-                entry => entry.Key,
-                entry => entry.Value.Clone(),
-                StringComparer.Ordinal),
             NodeOverrides = serializedNodeOverrides,
             ExecutionProgress = new ProcessExecutionProgress
             {
@@ -263,17 +259,13 @@ public sealed class BlueprintProcessService
                 initialNodeOverrides);
         }
 
-        var processState = new ProcessInstanceRecord<Dictionary<string, JsonElement>>
+        var processState = new ProcessInstanceRecord
         {
             id = processId.ToString(),
             BlueprintId = blueprintVersionIdString,
             CreatedAt = acceptedAt,
             UpdatedAt = acceptedAt,
             Status = ProcessStatus.Pending,
-            GlobalState = processModel.GlobalState.ToDictionary(
-                entry => entry.Key,
-                entry => entry.Value.Clone(),
-                StringComparer.Ordinal),
             NodeOverrides = serializedNodeOverrides,
             Phase = phaseMetadata,
             ExecutionProgress = new ProcessExecutionProgress
@@ -359,7 +351,7 @@ public sealed class BlueprintProcessService
     }
 
     private async Task TryProjectProcessAsync(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         int blueprintDefinitionId,
         int blueprintVersionId,
         CancellationToken cancellationToken)
@@ -387,7 +379,7 @@ public sealed class BlueprintProcessService
     }
 
     private async Task TryProjectRealtimeAsync(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+        ProcessInstanceRecord process,
         ProcessStepRecord initialStep,
         int blueprintDefinitionId,
         int blueprintVersionId,

@@ -13,7 +13,6 @@ function version(id: number, value: `${number}.${number}.${number}` | string): I
     version: value as `${number}.${number}.${number}`,
     state: 'Active',
     description: null,
-    requiredGlobalState: null,
     inputChannel: null,
     outputChannels: [],
   };

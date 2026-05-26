@@ -10,7 +10,7 @@ namespace WorkflowBuilder.IntegrationTests.Scenarios;
 internal static class ProcessAssertions
 {
     internal sealed record ProcessSnapshot(
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> Process,
+        ProcessInstanceRecord Process,
         IReadOnlyList<ProcessStepRecord> Steps)
     {
         public IReadOnlyList<ProcessStepRecord> RealSteps =>
@@ -123,7 +123,7 @@ internal static class ProcessAssertions
                         return snapshot;
                     }
                 }
-                catch (EntityNotFoundException<ProcessInstanceRecord<Dictionary<string, JsonElement>>>)
+                catch (EntityNotFoundException<ProcessInstanceRecord>)
                 {
                     // The process document can land slightly after the start response.
                 }

@@ -164,18 +164,14 @@ public sealed class PhasedBlueprintRepositoryTests
     }
 
     [Test]
-    public async Task CreateAsync_rejects_global_state_handoff_type_mismatch()
+    public async Task CreateAsync_rejects_unknown_handoff_source_kinds()
     {
         await using var database = await SqliteBlueprintDb.CreateAsync();
         var sourceBlueprint = await SeedSingleNodeBlueprintAsync(
             database.Context,
             "Counter Source",
             new Dictionary<string, WorkflowPropertyKind>(),
-            new Dictionary<string, WorkflowPropertyKind>(),
-            new Dictionary<string, WorkflowPropertyKind>
-            {
-                ["attemptCount"] = WorkflowPropertyKind.Integer,
-            });
+            new Dictionary<string, WorkflowPropertyKind>());
         var targetBlueprint = await SeedSingleNodeBlueprintAsync(
             database.Context,
             "Counter Target",
@@ -192,7 +188,7 @@ public sealed class PhasedBlueprintRepositoryTests
         var exception = await Should.ThrowAsync<InvalidDataException>(() => repository.CreateAsync(
             new PhasedBlueprintInputModel
             {
-                Name = "Rejected Global Handoff",
+                Name = "Rejected Handoff Source",
                 Phases =
                 [
                     CreatePhase(firstPhaseId, 0, "Source", sourceBlueprint),
@@ -209,7 +205,7 @@ public sealed class PhasedBlueprintRepositoryTests
                         [
                             new PhasedBlueprintHandoffMappingInputModel
                             {
-                                SourceKind = "GlobalState",
+                                SourceKind = "ProcessContext",
                                 SourceProperty = "attemptCount",
                                 TargetBlueprintNodeId = targetBlueprint.NodeId,
                                 TargetProperty = "attemptCount",
@@ -220,7 +216,7 @@ public sealed class PhasedBlueprintRepositoryTests
             },
             CancellationToken.None));
 
-        exception.Message.ShouldContain("cannot map to destination property");
+        exception.Message.ShouldContain("Phase handoff source kind 'ProcessContext' is not supported");
     }
 
     [Test]
@@ -385,8 +381,7 @@ public sealed class PhasedBlueprintRepositoryTests
         BlueprintDbContext context,
         string name,
         Dictionary<string, WorkflowPropertyKind> inputProperties,
-        Dictionary<string, WorkflowPropertyKind> outputProperties,
-        Dictionary<string, WorkflowPropertyKind>? globalStateProperties = null)
+        Dictionary<string, WorkflowPropertyKind> outputProperties)
     {
         var taskDefinition = new TaskDefinition
         {
@@ -398,7 +393,7 @@ public sealed class PhasedBlueprintRepositoryTests
                     Version = new Version(1, 0, 0),
                     Path = $"/plugins/{name.Replace(" ", "-").ToLowerInvariant()}",
                     State = TaskVersionState.Active,
-                    Channels = BuildChannels(inputProperties, outputProperties, globalStateProperties),
+                    Channels = BuildChannels(inputProperties, outputProperties),
                 }
             ],
         };
@@ -449,7 +444,7 @@ public sealed class PhasedBlueprintRepositoryTests
                     Version = new Version(1, 0, 0),
                     Path = $"/plugins/{name.Replace(" ", "-").ToLowerInvariant()}-start",
                     State = TaskVersionState.Active,
-                    Channels = BuildChannels(new Dictionary<string, WorkflowPropertyKind>(), new Dictionary<string, WorkflowPropertyKind>(), null),
+                    Channels = BuildChannels(new Dictionary<string, WorkflowPropertyKind>(), new Dictionary<string, WorkflowPropertyKind>()),
                 }
             ],
         };
@@ -463,7 +458,7 @@ public sealed class PhasedBlueprintRepositoryTests
                     Version = new Version(1, 0, 0),
                     Path = $"/plugins/{name.Replace(" ", "-").ToLowerInvariant()}-target",
                     State = TaskVersionState.Active,
-                    Channels = BuildChannels(secondNodeInputProperties, new Dictionary<string, WorkflowPropertyKind>(), null),
+                    Channels = BuildChannels(secondNodeInputProperties, new Dictionary<string, WorkflowPropertyKind>()),
                 }
             ],
         };
@@ -512,8 +507,7 @@ public sealed class PhasedBlueprintRepositoryTests
 
     private static List<Channel> BuildChannels(
         Dictionary<string, WorkflowPropertyKind> inputProperties,
-        Dictionary<string, WorkflowPropertyKind> outputProperties,
-        Dictionary<string, WorkflowPropertyKind>? globalStateProperties)
+        Dictionary<string, WorkflowPropertyKind> outputProperties)
     {
         var channels = new List<Channel>
         {
@@ -528,15 +522,6 @@ public sealed class PhasedBlueprintRepositoryTests
                 Properties = CreateProperties(outputProperties),
             },
         };
-
-        if (globalStateProperties is not null)
-        {
-            channels.Add(new GlobalStateDefinition
-            {
-                Name = "GlobalState",
-                Properties = CreateProperties(globalStateProperties),
-            });
-        }
 
         return channels;
     }

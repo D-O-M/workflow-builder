@@ -131,10 +131,10 @@ internal sealed class InMemoryProcessStepQueue
             await _queue.RequeueAsync(_envelope, cancellationToken);
         }
 
-        public Task RenewLockAsync(CancellationToken cancellationToken)
+        public Task<DateTimeOffset> RenewLockAsync(CancellationToken cancellationToken)
         {
             LockedUntil = DateTimeOffset.UtcNow.AddMinutes(1);
-            return Task.CompletedTask;
+            return Task.FromResult(LockedUntil);
         }
     }
 }

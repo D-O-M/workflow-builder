@@ -168,7 +168,7 @@ internal sealed class DatabaseMigrationWorker(
             ?? WorkflowBuilderTopology.Cosmos.DefaultDatabaseName;
         var cosmosClient = serviceProvider.GetRequiredService<CosmosClient>();
         var database = cosmosClient.GetDatabase(databaseName);
-        var processRepository = new ProcessInstanceRepository<Dictionary<string, JsonElement>>(
+        var processRepository = new ProcessInstanceRepository(
             database.GetContainer(WorkflowBuilderTopology.Cosmos.Containers.Processes.Name));
         var indexProjectionService = new ProcessIndexProjectionService(
             new ProcessDirectoryRepository(database.GetContainer(WorkflowBuilderTopology.Cosmos.Containers.ProcessDirectory.Name)),
@@ -204,14 +204,13 @@ internal sealed class DatabaseMigrationWorker(
 
                 foreach (var summary in page.Items)
                 {
-                    var process = new ProcessInstanceRecord<Dictionary<string, JsonElement>>
+                    var process = new ProcessInstanceRecord
                     {
                         id = summary.ProcessId,
                         BlueprintId = summary.BlueprintId,
                         CreatedAt = summary.CreatedAt,
                         UpdatedAt = summary.UpdatedAt,
                         Status = summary.Status,
-                        GlobalState = [],
                     };
 
                     await indexProjectionService.UpsertFromProcessAsync(

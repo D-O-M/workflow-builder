@@ -34,7 +34,14 @@ public sealed class StepFinalizationServiceTests
         var queueWriter = new ProcessStepQueueWriterSpy { ThrowOnEnqueueAttempts = 1 };
         var dispatchService = CreateDispatchService(stepRepository, queueWriter);
         var processIndex = new ProcessIndexProjectionServiceSpy();
-        var service = CreateService(stepRepository, processRepository, finalizationRepository, dispatchService, processIndex);
+        var realtimeProjection = new ProcessRealtimeProjectionServiceSpy();
+        var service = CreateService(
+            stepRepository,
+            processRepository,
+            finalizationRepository,
+            dispatchService,
+            processIndex,
+            processRealtimeProjectionService: realtimeProjection);
         var context = await CreateContextAsync(processId, sourceNodeId, blueprint, stepRepository, processRepository);
         var result = CreateSuccessResult(context, "Out");
 
@@ -51,6 +58,10 @@ public sealed class StepFinalizationServiceTests
         processIndex.Upserts.Count.ShouldBeGreaterThanOrEqualTo(1);
         processIndex.Upserts.Last().ProcessId.ShouldBe(processId.ToString());
         processIndex.Upserts.Last().Status.ShouldBe(ProcessStatus.InProgress);
+        realtimeProjection.StepUpserts.Select(step => step.Id)
+            .ShouldContain(context.ProcessStepId.ToString());
+        realtimeProjection.StepUpserts.Select(step => step.Id)
+            .ShouldContain(downstreamStep.Id);
         queueWriter.Messages.Count.ShouldBe(0);
         context.QueueMessage.CompleteCount.ShouldBe(1);
 
@@ -65,6 +76,43 @@ public sealed class StepFinalizationServiceTests
         queueWriter.Messages.Count.ShouldBe(1);
         queueWriter.Messages[0].BlueprintNodeId.ShouldBe(destinationNodeId);
         downstreamStep.Dispatch.Status.ShouldBe(ProcessStepDispatchStatus.Dispatched);
+    }
+
+    [Test]
+    public async Task Success_finalization_skips_projection_services_when_synchronous_projection_updates_are_disabled()
+    {
+        var processId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+        var blueprint = CreateTerminalBlueprint(nodeId);
+        var stepRepository = new InMemoryProcessStepRepository();
+        var processRepository = new InMemoryProcessInstanceRepository(CreateProcessState(processId, blueprint));
+        var finalizationRepository = new InMemoryProcessStepFinalizationRepository();
+        var queueWriter = new ProcessStepQueueWriterSpy();
+        var dispatchService = CreateDispatchService(stepRepository, queueWriter);
+        var processIndex = new ProcessIndexProjectionServiceSpy();
+        var realtimeProjection = new ProcessRealtimeProjectionServiceSpy();
+        var service = CreateService(
+            stepRepository,
+            processRepository,
+            finalizationRepository,
+            dispatchService,
+            processIndex,
+            processRealtimeProjectionService: realtimeProjection,
+            projectionOptions: new EngineProjectionOptions
+            {
+                SynchronousEngineUpdatesEnabled = false
+            });
+        var context = await CreateContextAsync(processId, nodeId, blueprint, stepRepository, processRepository);
+
+        await service.FinalizeSucceededStepAsync(
+            context,
+            CreateSuccessResult(context, outputChannelName: null),
+            CancellationToken.None);
+
+        stepRepository.States[context.ProcessStepId].Status.ShouldBe(ProcessStepStatus.Completed);
+        processRepository.State.Status.ShouldBe(ProcessStatus.Completed);
+        processIndex.Upserts.Count.ShouldBe(0);
+        realtimeProjection.StepUpserts.Count.ShouldBe(0);
     }
 
     [Test]
@@ -197,7 +245,6 @@ public sealed class StepFinalizationServiceTests
             Succeeded: false,
             EffectiveInputData: null,
             OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-            GlobalState: null,
             StartedAt: failedAt.AddSeconds(-1),
             CompletedAt: failedAt,
             TimingsMs: null,
@@ -672,7 +719,9 @@ public sealed class StepFinalizationServiceTests
         InMemoryProcessStepFinalizationRepository finalizationRepository,
         ProcessStepDispatchService dispatchService,
         IProcessIndexProjectionService? processIndexProjectionService = null,
-        INodeJoinStateRepository? nodeJoinStateRepository = null)
+        INodeJoinStateRepository? nodeJoinStateRepository = null,
+        IProcessRealtimeProjectionService? processRealtimeProjectionService = null,
+        EngineProjectionOptions? projectionOptions = null)
     {
         var telemetry = new ProcessLifecycleTelemetry(NullLogger<ProcessLifecycleTelemetry>.Instance);
         var stepClaimService = new StepClaimService(
@@ -680,12 +729,16 @@ public sealed class StepFinalizationServiceTests
             processRepository,
             telemetry,
             processIndexProjectionService,
-            NullLogger<StepClaimService>.Instance);
+            NullLogger<StepClaimService>.Instance,
+            processRealtimeProjectionService,
+            projectionOptions);
         var activationPersistenceService = new ActivationPersistenceService(
             nodeJoinStateRepository ?? new InMemoryNodeJoinStateRepository(),
             dispatchService,
             stepRepository,
-            NullLogger<ActivationPersistenceService>.Instance);
+            NullLogger<ActivationPersistenceService>.Instance,
+            processRealtimeProjectionService,
+            projectionOptions);
         var phasedProcessFinalizationService = new PhasedProcessFinalizationService(
             Mock.Of<IPhasedBlueprintRepository>(),
             Mock.Of<IPhasedProcessRepository>(),
@@ -703,7 +756,9 @@ public sealed class StepFinalizationServiceTests
             stepClaimService,
             telemetry,
             NullLogger<StepFinalizationService>.Instance,
-            processIndexProjectionService);
+            processIndexProjectionService,
+            processRealtimeProjectionService,
+            projectionOptions);
     }
 
     private static StepFinalizationRecoveryService CreateRecoveryService(
@@ -807,7 +862,6 @@ public sealed class StepFinalizationServiceTests
                         Message = "hello"
                     })
                 },
-            GlobalState: null,
             StartedAt: DateTimeOffset.UtcNow.AddSeconds(-1),
             CompletedAt: DateTimeOffset.UtcNow,
             TimingsMs: null,
@@ -823,7 +877,6 @@ public sealed class StepFinalizationServiceTests
             Succeeded: false,
             EffectiveInputData: null,
             OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-            GlobalState: null,
             StartedAt: failedAt.AddSeconds(-1),
             CompletedAt: failedAt,
             TimingsMs: null,
@@ -849,7 +902,6 @@ public sealed class StepFinalizationServiceTests
             Stage = stage,
             EffectiveInputData = result.EffectiveInputData,
             OutputData = result.OutputData,
-            GlobalState = result.GlobalState,
             TimingsMs = result.TimingsMs is null
                 ? null
                 : new Dictionary<string, double>(result.TimingsMs, StringComparer.Ordinal),
@@ -906,13 +958,12 @@ public sealed class StepFinalizationServiceTests
     {
         record.EffectiveInputData = null;
         record.OutputData = null;
-        record.GlobalState = null;
         record.TimingsMs = null;
     }
 
     private static void EnsureExecutionProgress(
         StepExecutionContext context,
-        ProcessInstanceRecord<Dictionary<string, JsonElement>> process)
+        ProcessInstanceRecord process)
     {
         process.ExecutionProgress ??= new ProcessExecutionProgress();
         if (process.ExecutionProgress.TotalNodeCount <= 0)
@@ -942,7 +993,6 @@ public sealed class StepFinalizationServiceTests
                 context.InputChannelName,
                 materializedInput),
             OutputData: new Dictionary<string, JsonElement>(StringComparer.Ordinal),
-            GlobalState: null,
             StartedAt: DateTimeOffset.UtcNow.AddSeconds(-1),
             CompletedAt: DateTimeOffset.UtcNow,
             TimingsMs: null,
@@ -1142,7 +1192,7 @@ public sealed class StepFinalizationServiceTests
             AllNodes = nodes
         };
 
-    private static ProcessInstanceRecord<Dictionary<string, JsonElement>> CreateProcessState(
+    private static ProcessInstanceRecord CreateProcessState(
         Guid processId,
         ExecutableBlueprint blueprint) =>
         new()
@@ -1150,7 +1200,6 @@ public sealed class StepFinalizationServiceTests
             id = processId.ToString(),
             BlueprintId = blueprint.Id.ToString(),
             Status = ProcessStatus.InProgress,
-            GlobalState = new Dictionary<string, JsonElement>(StringComparer.Ordinal),
             NodeOverrides = new Dictionary<string, Dictionary<string, JsonElement>>(StringComparer.Ordinal),
             ExecutionProgress = new ProcessExecutionProgress
             {
@@ -1496,28 +1545,28 @@ public sealed class StepFinalizationServiceTests
     }
 
     private sealed class InMemoryProcessInstanceRepository
-        : IProcessInstanceRepository<Dictionary<string, JsonElement>>
+        : IProcessInstanceRepository
     {
-        public InMemoryProcessInstanceRepository(ProcessInstanceRecord<Dictionary<string, JsonElement>> state)
+        public InMemoryProcessInstanceRepository(ProcessInstanceRecord state)
         {
             State = state;
         }
 
-        public ProcessInstanceRecord<Dictionary<string, JsonElement>> State { get; private set; }
+        public ProcessInstanceRecord State { get; private set; }
         public int ThrowOnTryUpdateAttempts { get; set; }
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> CreateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+        public Task<ProcessInstanceRecord> CreateProcessState(
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> GetProcessStateById(
+        public Task<ProcessInstanceRecord> GetProcessStateById(
             Guid processId,
             int blueprintVersionId,
             CancellationToken cancellationToken) =>
             Task.FromResult(State);
 
-        public Task<List<ProcessInstanceRecord<Dictionary<string, JsonElement>>>> GetProcessStatesForBlueprint(
+        public Task<List<ProcessInstanceRecord>> GetProcessStatesForBlueprint(
             int blueprintVersionId,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
@@ -1544,8 +1593,8 @@ public sealed class StepFinalizationServiceTests
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<ProcessInstanceRecord<Dictionary<string, JsonElement>>> UpdateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+        public Task<ProcessInstanceRecord> UpdateProcessState(
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken)
         {
             State = state;
@@ -1553,7 +1602,7 @@ public sealed class StepFinalizationServiceTests
         }
 
         public Task<bool> TryUpdateProcessState(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> state,
+            ProcessInstanceRecord state,
             CancellationToken cancellationToken)
         {
             State = state;
@@ -1746,10 +1795,10 @@ public sealed class StepFinalizationServiceTests
 
     private sealed class ProcessIndexProjectionServiceSpy : IProcessIndexProjectionService
     {
-        public List<ProcessInstanceRecord<Dictionary<string, JsonElement>>> Upserts { get; } = [];
+        public List<ProcessInstanceRecord> Upserts { get; } = [];
 
         public Task UpsertFromProcessAsync(
-            ProcessInstanceRecord<Dictionary<string, JsonElement>> process,
+            ProcessInstanceRecord process,
             int blueprintDefinitionId,
             int blueprintVersionId,
             CancellationToken cancellationToken)
@@ -1780,6 +1829,52 @@ public sealed class StepFinalizationServiceTests
             DateTimeOffset? createdFrom,
             DateTimeOffset? createdTo,
             IReadOnlyCollection<ProcessStatus>? statuses,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class ProcessRealtimeProjectionServiceSpy : IProcessRealtimeProjectionService
+    {
+        public List<ProcessInstanceRecord> ProcessUpserts { get; } = [];
+
+        public List<ProcessStepRecord> StepUpserts { get; } = [];
+
+        public Task UpsertFromProcessAsync(
+            ProcessInstanceRecord process,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            CancellationToken cancellationToken)
+        {
+            ProcessUpserts.Add(process);
+            return Task.CompletedTask;
+        }
+
+        public Task UpsertFromStepAsync(
+            ProcessStepRecord step,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            CancellationToken cancellationToken)
+        {
+            StepUpserts.Add(step);
+            return Task.CompletedTask;
+        }
+
+        public Task UpsertFromProcessAndStepsAsync(
+            ProcessInstanceRecord process,
+            int blueprintDefinitionId,
+            int blueprintVersionId,
+            IReadOnlyCollection<ProcessStepRecord> steps,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ProcessRealtimeSummaryProjectionRecord?> GetSummaryAsync(
+            Guid processId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<ProcessNodeRealtimeProjectionRecord>> GetNodeProjectionsAsync(
+            Guid processId,
+            IReadOnlyCollection<Guid> blueprintNodeIds,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
@@ -1818,10 +1913,10 @@ public sealed class StepFinalizationServiceTests
             return Task.CompletedTask;
         }
 
-        public Task RenewLockAsync(CancellationToken cancellationToken)
+        public Task<DateTimeOffset> RenewLockAsync(CancellationToken cancellationToken)
         {
             LockedUntil = DateTimeOffset.UtcNow.AddMinutes(1);
-            return Task.CompletedTask;
+            return Task.FromResult(LockedUntil);
         }
     }
 }

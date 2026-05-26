@@ -16,5 +16,5 @@ public interface IProcessStepQueueMessage
 
     Task AbandonAsync(CancellationToken cancellationToken);
 
-    Task RenewLockAsync(CancellationToken cancellationToken);
+    Task<DateTimeOffset> RenewLockAsync(CancellationToken cancellationToken);
 }
