@@ -1,10 +1,8 @@
 using System;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Backend.Engine;
 using Microsoft.Extensions.Logging.Abstractions;
-using Moq;
 using Shouldly;
 
 namespace Backend.Engine.Tests;
@@ -12,73 +10,101 @@ namespace Backend.Engine.Tests;
 public sealed class PluginAgentExitNotificationServiceTests
 {
     [Test]
-    public async Task Non_shutdown_exit_with_inflight_jobs_notifies_failure_handler()
+    public async Task Non_shutdown_exit_with_inflight_jobs_publishes_health_event()
     {
         var jobId = Guid.NewGuid();
-        var failureHandler = new Mock<IPluginAgentFailureHandler>();
-        var service = CreateService(failureHandler, out _);
+        var service = CreateService(out _, out var healthEvents);
 
         await service.NotifyProcessExitAsync(
-            "TestPlugin",
+            CreateIdentity(),
             exitCode: 1,
             shutdownRequested: false,
+            policyRequestedStop: false,
             new PluginRuntimeProcessExitSummary(ExitedBeforeReady: false, [jobId]),
             CancellationToken.None);
 
-        failureHandler.Verify(
-            handler => handler.HandlePluginAgentExitedAsync(
-                It.Is<PluginAgentExitNotification>(notification =>
-                    notification.PluginName == "TestPlugin" &&
-                    notification.ExitCode == 1 &&
-                    !notification.ShutdownRequested &&
-                    notification.InFlightProcessStepIds.Contains(jobId)),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
+        var healthEvent = await ReadHealthEventAsync(healthEvents);
+        healthEvent.EventType.ShouldBe(PluginAgentHealthEventType.AgentExitedWithInFlightJobs);
+        healthEvent.ExitCode.ShouldBe(1);
+        healthEvent.PolicyRequestedStop.ShouldBeFalse();
+        healthEvent.ProcessStepIds.ShouldContain(jobId);
     }
 
     [Test]
-    public async Task Shutdown_exit_does_not_notify_failure_handler()
+    public async Task Shutdown_exit_does_not_publish_health_event()
     {
-        var failureHandler = new Mock<IPluginAgentFailureHandler>();
-        var service = CreateService(failureHandler, out _);
+        var service = CreateService(out _, out var healthEvents);
 
         await service.NotifyProcessExitAsync(
-            "TestPlugin",
+            CreateIdentity(),
             exitCode: 0,
             shutdownRequested: true,
+            policyRequestedStop: false,
             new PluginRuntimeProcessExitSummary(ExitedBeforeReady: false, [Guid.NewGuid()]),
             CancellationToken.None);
 
-        failureHandler.Verify(
-            handler => handler.HandlePluginAgentExitedAsync(
-                It.IsAny<PluginAgentExitNotification>(),
-                It.IsAny<CancellationToken>()),
-            Times.Never);
+        (await HasHealthEventAsync(healthEvents)).ShouldBeFalse();
     }
 
     [Test]
     public async Task Agent_exit_before_ready_records_telemetry()
     {
-        var service = CreateService(new Mock<IPluginAgentFailureHandler>(), out var telemetry);
+        var service = CreateService(out var telemetry, out var healthEvents);
 
         await service.NotifyProcessExitAsync(
-            "TestPlugin",
+            CreateIdentity(),
             exitCode: 1,
             shutdownRequested: false,
+            policyRequestedStop: false,
             new PluginRuntimeProcessExitSummary(ExitedBeforeReady: true, []),
             CancellationToken.None);
 
         telemetry.RecordedAgentExitedBeforeReady.ShouldBe(1);
+        var healthEvent = await ReadHealthEventAsync(healthEvents);
+        healthEvent.EventType.ShouldBe(PluginAgentHealthEventType.AgentExitedBeforeReady);
     }
 
     private static PluginAgentExitNotificationService CreateService(
-        Mock<IPluginAgentFailureHandler> failureHandler,
-        out PluginRuntimeAgentTelemetry telemetry)
+        out PluginRuntimeAgentTelemetry telemetry,
+        out PluginAgentHealthEventBus healthEvents)
     {
         telemetry = new PluginRuntimeAgentTelemetry();
+        healthEvents = new PluginAgentHealthEventBus();
         return new PluginAgentExitNotificationService(
-            failureHandler.Object,
+            healthEvents,
             telemetry,
             NullLogger<PluginAgentExitNotificationService>.Instance);
     }
+
+    private static async Task<PluginAgentHealthEvent> ReadHealthEventAsync(
+        PluginAgentHealthEventBus healthEvents)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await using var reader = healthEvents.ReadAllAsync(timeout.Token).GetAsyncEnumerator();
+        (await reader.MoveNextAsync()).ShouldBeTrue();
+        return reader.Current;
+    }
+
+    private static async Task<bool> HasHealthEventAsync(
+        PluginAgentHealthEventBus healthEvents)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        await using var reader = healthEvents.ReadAllAsync(timeout.Token).GetAsyncEnumerator();
+        try
+        {
+            return await reader.MoveNextAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    private static PluginAgentIdentity CreateIdentity() =>
+        new(
+            Guid.NewGuid(),
+            TaskVersionId: 101,
+            TaskDefinitionId: 10,
+            "TestPlugin",
+            new Version(1, 0, 0));
 }

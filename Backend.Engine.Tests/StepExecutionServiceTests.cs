@@ -236,6 +236,52 @@ public sealed class StepExecutionServiceTests
     }
 
     [Test]
+    public async Task Health_retry_decision_resets_active_step_abandons_message_and_releases_slot()
+    {
+        var fixture = CreateFixture();
+        var agentManager = new Mock<IAgentManager>();
+        var telemetry = new PluginRuntimeAgentTelemetry();
+        var service = CreateService(
+            new PluginRuntimeCatalog(),
+            Mock.Of<IPluginRuntimeReloader>(),
+            agentManager.Object,
+            fixture,
+            telemetry);
+        TrackActiveStep(service, fixture.Context);
+        SetupPersistedStep(fixture, ProcessStepStatus.InProgress);
+        fixture.StepRepository
+            .Setup(repository => repository.TryResetProcessStepToPendingAsync(
+                fixture.Context.ProcessStepId,
+                fixture.Context.ProcessId,
+                It.IsAny<DateTimeOffset>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        var decision = new PluginAgentHealthPolicyDecision(
+            PluginAgentHealthEvent.Create(
+                new PluginAgentIdentity(
+                    Guid.NewGuid(),
+                    fixture.Context.ResolvedTaskVersionId,
+                    fixture.Context.TaskDefinitionId,
+                    "TestPlugin",
+                    new Version(1, 0, 0)),
+                PluginAgentHealthEventType.FinalizationQueueClosed,
+                [fixture.Context.ProcessStepId]),
+            PluginAgentHealthPolicyOutcome.Warn | PluginAgentHealthPolicyOutcome.RetryActiveStep,
+            "retry",
+            BackoffUntil: null,
+            RepeatedCrashThresholdCrossed: false);
+
+        await service.ApplyPluginAgentHealthDecisionAsync(decision, CancellationToken.None);
+
+        fixture.QueueMessage.AbandonCount.ShouldBe(1);
+        ActiveStepCount(service).ShouldBe(0);
+        telemetry.RecordedActiveStepCleanupSucceeded.ShouldBe(1);
+        agentManager.Verify(
+            manager => manager.ReleaseStepSlot(fixture.Context.ResolvedTaskVersionId),
+            Times.Once);
+    }
+
+    [Test]
     public async Task HandlePluginAgentExitedAsync_terminal_step_is_not_reset_destructively()
     {
         var fixture = CreateFixture();
@@ -382,10 +428,16 @@ public sealed class StepExecutionServiceTests
 
     private static PluginAgentExitNotification CreateExitNotification(Guid processStepId) =>
         new(
-            "TestPlugin",
+            new PluginAgentIdentity(
+                Guid.NewGuid(),
+                TaskVersionId: 100,
+                TaskDefinitionId: 10,
+                "TestPlugin",
+                new Version(1, 0, 0)),
             ExitCode: 1,
             ShutdownRequested: false,
             ExitedBeforeReady: false,
+            PolicyRequestedStop: false,
             [processStepId]);
 
     private static void TrackActiveStep(

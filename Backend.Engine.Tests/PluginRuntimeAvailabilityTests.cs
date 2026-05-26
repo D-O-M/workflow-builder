@@ -183,6 +183,39 @@ public sealed class PluginRuntimeAvailabilityTests
     }
 
     [Test]
+    public async Task ReloadAsync_skips_runtime_quarantined_task_version()
+    {
+        var runtimeStore = new InMemoryPluginTaskVersionRuntimeStatusStore();
+        var taskVersion = CreateTaskVersion(101, new Version(1, 0, 1), PluginAbiDefaults.CurrentMetadata);
+        var policy = new PluginAgentHealthPolicy(
+            new PluginAgentHealthPolicyOptions
+            {
+                MaxCrashesPerWindow = 1
+            },
+            new PluginAgentHealthTelemetry());
+        policy.Evaluate(
+            PluginAgentHealthEvent.Create(
+                PluginAgentIdentity.FromTaskVersion(taskVersion),
+                PluginAgentHealthEventType.RuntimeLoadFailed,
+                message: "startup failed"));
+        var agentManager = new Mock<IAgentManager>();
+        var orchestrator = CreateOrchestrator(
+            [taskVersion],
+            agentManager: agentManager.Object,
+            runtimeStore: runtimeStore,
+            healthPolicy: policy);
+
+        await orchestrator.ReloadAsync(CancellationToken.None);
+
+        agentManager.Verify(manager => manager.RegisterAgent(It.IsAny<int>(), It.IsAny<PluginRuntimeAgent>()), Times.Never);
+        var record = (await runtimeStore.GetFreshByTaskVersionIdsAsync(
+            [taskVersion.Id],
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            CancellationToken.None)).Single();
+        record.CurrentStatus.ShouldBe(PluginTaskVersionRuntimeStatus.Quarantined);
+    }
+
+    [Test]
     public async Task ReloadAsync_runtime_status_store_failure_does_not_crash_reload()
     {
         var runtimeStore = new Mock<IPluginTaskVersionRuntimeStatusStore>();
@@ -208,7 +241,8 @@ public sealed class PluginRuntimeAvailabilityTests
         InMemoryPluginTaskVersionRuntimeStatusStore? runtimeStore = null,
         IPluginTaskVersionRuntimeStatusStore? runtimeStatusStore = null,
         IPluginRuntimeCapabilityService? capabilityService = null,
-        IPluginWorkspaceFactoryUtility? workspaceFactory = null)
+        IPluginWorkspaceFactoryUtility? workspaceFactory = null,
+        PluginAgentHealthPolicy? healthPolicy = null)
     {
         var repository = new Mock<ITaskDefinitionRepository>();
         repository
@@ -230,8 +264,11 @@ public sealed class PluginRuntimeAvailabilityTests
             new PluginTaskVersionRuntimeStatusPublisher(
                 store,
                 new EngineInstanceInfo(),
-                NullLogger<PluginTaskVersionRuntimeStatusPublisher>.Instance),
+            NullLogger<PluginTaskVersionRuntimeStatusPublisher>.Instance),
             new PluginRuntimeCatalog(),
+            new PluginAgentHealthEventBus(),
+            healthPolicy ?? new PluginAgentHealthPolicy(new PluginAgentHealthPolicyOptions(), new PluginAgentHealthTelemetry()),
+            new TestAsyncDelay(),
             NullLogger<PluginRuntimeOrchestrator>.Instance,
             services.GetRequiredService<IServiceScopeFactory>());
     }

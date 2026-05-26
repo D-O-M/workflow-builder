@@ -84,6 +84,41 @@ public sealed class TaskCatalogQueryServiceTests
     }
 
     [Test]
+    public async Task GetTaskCatalogAsync_exposes_quarantined_as_non_runnable()
+    {
+        var store = new InMemoryPluginTaskVersionRuntimeStatusStore();
+        await PublishAsync(
+            store,
+            101,
+            "engine-a",
+            PluginTaskVersionRuntimeStatus.Quarantined,
+            "Repeated crash threshold was crossed.");
+        var service = CreateService(CreateTaskDefinition(), store);
+
+        var tasks = await service.GetTaskCatalogAsync(CancellationToken.None);
+
+        var availability = tasks.Single().Versions.Single().RuntimeAvailability;
+        availability.Status.ShouldBe(PluginTaskVersionRuntimeStatus.Quarantined.ToString());
+        availability.Runnable.ShouldBeFalse();
+        availability.Message.ShouldBe("Repeated crash threshold was crossed.");
+    }
+
+    [Test]
+    public async Task GetTaskCatalogAsync_prefers_runtime_load_failed_over_quarantine()
+    {
+        var store = new InMemoryPluginTaskVersionRuntimeStatusStore();
+        await PublishAsync(store, 101, "engine-a", PluginTaskVersionRuntimeStatus.Quarantined);
+        await PublishAsync(store, 101, "engine-b", PluginTaskVersionRuntimeStatus.RuntimeLoadFailed);
+        var service = CreateService(CreateTaskDefinition(), store);
+
+        var tasks = await service.GetTaskCatalogAsync(CancellationToken.None);
+
+        tasks.Single()
+            .Versions.Single()
+            .RuntimeAvailability.Status.ShouldBe(PluginTaskVersionRuntimeStatus.RuntimeLoadFailed.ToString());
+    }
+
+    [Test]
     public async Task GetTaskCatalogAsync_ignores_stale_runtime_records()
     {
         var store = new InMemoryPluginTaskVersionRuntimeStatusStore();

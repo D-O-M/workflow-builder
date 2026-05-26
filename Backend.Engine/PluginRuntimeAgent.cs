@@ -21,10 +21,13 @@ public class PluginRuntimeAgent
     private readonly ILogger _logger;
     private readonly PluginResultFinalizationQueue _resultFinalizationQueue;
     private readonly PluginRuntimeAgentTelemetry _agentTelemetry;
+    private readonly PluginAgentHealthEventBus _healthEventBus;
+    private readonly PluginAgentHealthPolicyOptions _healthOptions;
     private readonly PluginAgentExitNotificationService _exitNotificationService;
     private readonly IChildProcessTracker _childProcessTracker;
     private readonly IOperatingSystemInformation _operatingSystemInformation;
     private readonly IPluginRuntimeConfigurationService _pluginRuntimeConfigurationService;
+    private readonly IAsyncDelay _asyncDelay;
     private Process? _process;
     private CancellationTokenSource? _processCancellation;
     private Pipe _commsStream = new();
@@ -34,6 +37,10 @@ public class PluginRuntimeAgent
     private readonly StringBuilder _stdoutBuffer = new();
     private PluginRuntimeProtocolSession? _protocolSession;
     private int _stopRequested;
+    private int _policyStopRequested;
+    private int _heartbeatMissedPublished;
+    private Task? _heartbeatMonitorTask;
+    private PluginAgentIdentity _identity = PluginAgentIdentity.Unknown("UninitializedPlugin");
 
     private string _name = string.Empty;
     public string Name => _name;
@@ -44,30 +51,39 @@ public class PluginRuntimeAgent
         ILogger<PluginRuntimeAgent> logger,
         PluginResultFinalizationQueue resultFinalizationQueue,
         PluginRuntimeAgentTelemetry agentTelemetry,
+        PluginAgentHealthEventBus healthEventBus,
+        PluginAgentHealthPolicyOptions healthOptions,
         PluginAgentExitNotificationService exitNotificationService,
         IChildProcessTracker childProcessTracker,
         IOperatingSystemInformation operatingSystemInformation,
-        IPluginRuntimeConfigurationService pluginRuntimeConfigurationService)
+        IPluginRuntimeConfigurationService pluginRuntimeConfigurationService,
+        IAsyncDelay asyncDelay)
     {
         _configuration = configuration;
         _hostEnvironment = hostEnvironment;
         _logger = logger;
         _resultFinalizationQueue = resultFinalizationQueue;
         _agentTelemetry = agentTelemetry;
+        _healthEventBus = healthEventBus;
+        _healthOptions = healthOptions;
         _exitNotificationService = exitNotificationService;
         _childProcessTracker = childProcessTracker;
         _operatingSystemInformation = operatingSystemInformation;
         _pluginRuntimeConfigurationService = pluginRuntimeConfigurationService;
+        _asyncDelay = asyncDelay;
     }
 
     public async Task InitialiseAsync(
         FileInfo entryPoint,
-        string name,
+        PluginAgentIdentity identity,
         CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(entryPoint);
-        _name = name;
+        _identity = identity;
+        _name = identity.DisplayName;
         _stopRequested = 0;
+        _policyStopRequested = 0;
+        _heartbeatMissedPublished = 0;
 
         if (_process is not null)
         {
@@ -75,15 +91,17 @@ public class PluginRuntimeAgent
         }
 
         _protocolSession = new PluginRuntimeProtocolSession(
-            Name,
+            _identity,
             _resultFinalizationQueue,
             _agentTelemetry,
+            _healthEventBus,
             _logger);
         _runTask = Run(entryPoint, token);
 
         try
         {
             await WaitUntilReadyAsync(token);
+            StartHeartbeatMonitor();
         }
         catch
         {
@@ -233,8 +251,11 @@ public class PluginRuntimeAgent
                         await FlushBufferedOutputAsync(
                             processRemainingText: true,
                             _processCancellation?.Token ?? cancellationToken);
-                        var stopWasRequested = Volatile.Read(ref _stopRequested) == 1 ||
-                                               _processCancellation?.IsCancellationRequested == true;
+                        var policyRequestedStop = Volatile.Read(ref _policyStopRequested) == 1;
+                        var stopWasRequested =
+                            !policyRequestedStop &&
+                            (Volatile.Read(ref _stopRequested) == 1 ||
+                             _processCancellation?.IsCancellationRequested == true);
                         var exitSummary = EnsureProtocolSession().RecordProcessExit(
                             exited.ExitCode,
                             stopWasRequested);
@@ -242,9 +263,10 @@ public class PluginRuntimeAgent
                         try
                         {
                             await _exitNotificationService.NotifyProcessExitAsync(
-                                Name,
+                                _identity,
                                 exited.ExitCode,
                                 stopWasRequested,
+                                policyRequestedStop,
                                 exitSummary,
                                 cancellationToken);
                         }
@@ -445,7 +467,21 @@ public class PluginRuntimeAgent
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        await StopCoreAsync(policyRequested: false, cancellationToken);
+    }
+
+    public async Task StopForHealthAsync(CancellationToken cancellationToken)
+    {
+        await StopCoreAsync(policyRequested: true, cancellationToken);
+    }
+
+    private async Task StopCoreAsync(bool policyRequested, CancellationToken cancellationToken)
+    {
         Interlocked.Exchange(ref _stopRequested, 1);
+        if (policyRequested)
+        {
+            Interlocked.Exchange(ref _policyStopRequested, 1);
+        }
 
         if (_processCancellation is not null)
         {
@@ -475,6 +511,68 @@ public class PluginRuntimeAgent
         }
     }
 
+    private void StartHeartbeatMonitor()
+    {
+        var timeout = _healthOptions.EffectiveHeartbeatTimeout;
+        if (timeout <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var cancellationToken = _processCancellation?.Token ?? CancellationToken.None;
+        _heartbeatMonitorTask = Task.Run(
+            () => MonitorHeartbeatAsync(timeout, cancellationToken),
+            CancellationToken.None);
+    }
+
+    private async Task MonitorHeartbeatAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var pollInterval = TimeSpan.FromMilliseconds(
+            Math.Clamp(timeout.TotalMilliseconds / 2, 500, 5000));
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await _asyncDelay.DelayAsync(pollInterval, cancellationToken);
+                var session = EnsureProtocolSession();
+                if (!session.IsReady)
+                {
+                    continue;
+                }
+
+                var elapsed = DateTimeOffset.UtcNow - session.LastHeartbeatAt;
+                if (elapsed < timeout)
+                {
+                    continue;
+                }
+
+                if (Interlocked.Exchange(ref _heartbeatMissedPublished, 1) == 0)
+                {
+                    await PublishHealthEventAsync(
+                        PluginAgentHealthEventType.HeartbeatMissed,
+                        message: $"Plugin agent heartbeat was not observed for {elapsed.TotalSeconds:0} seconds.",
+                        cancellationToken: cancellationToken);
+                }
+
+                return;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Expected during process shutdown.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Plugin runtime {PluginName} heartbeat monitor failed.",
+                Name);
+        }
+    }
+
     private async Task WaitUntilReadyAsync(CancellationToken cancellationToken)
     {
         var startupTimeout = TimeSpan.FromSeconds(
@@ -491,8 +589,13 @@ public class PluginRuntimeAgent
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException(
+            var timeoutException = new TimeoutException(
                 $"{Name} did not signal readiness within {startupTimeout.TotalSeconds:0} seconds.");
+            await PublishHealthEventAsync(
+                PluginAgentHealthEventType.StartupTimeout,
+                exception: timeoutException,
+                cancellationToken: CancellationToken.None);
+            throw timeoutException;
         }
     }
 
@@ -521,9 +624,40 @@ public class PluginRuntimeAgent
     private PluginRuntimeProtocolSession EnsureProtocolSession()
     {
         return _protocolSession ??= new PluginRuntimeProtocolSession(
-            Name,
+            _identity,
             _resultFinalizationQueue,
             _agentTelemetry,
+            _healthEventBus,
             _logger);
+    }
+
+    private async Task PublishHealthEventAsync(
+        PluginAgentHealthEventType eventType,
+        Exception? exception = null,
+        string? message = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _healthEventBus.PublishAsync(
+                PluginAgentHealthEvent.Create(
+                    _identity,
+                    eventType,
+                    exception: exception,
+                    message: message),
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to publish plugin-agent health event {EventType} for {PluginName}.",
+                eventType,
+                Name);
+        }
     }
 }

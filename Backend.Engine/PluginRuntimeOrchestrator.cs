@@ -1,6 +1,7 @@
 using Backend.Database.Relational.Entities;
 using Backend.Engine.Capabilities;
 using Backend.Database.State.Objects;
+using Backend.Engine.Debugging;
 using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
 using Backend.Models;
@@ -13,7 +14,7 @@ public interface IPluginRuntimeReloader
     Task ReloadAsync(CancellationToken cancellationToken);
 }
 
-public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReloader
+public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReloader, IPluginAgentHealthDecisionHandler
 {
     private readonly IAgentManager _agentManager;
     private readonly IPluginRuntimeCapabilityService _capabilityService;
@@ -21,6 +22,9 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
     private readonly IPluginIngestionStatusStore _pluginIngestionStatusStore;
     private readonly PluginTaskVersionRuntimeStatusPublisher _runtimeStatusPublisher;
     private readonly PluginRuntimeCatalog _pluginRuntimeCatalog;
+    private readonly PluginAgentHealthEventBus _healthEventBus;
+    private readonly PluginAgentHealthPolicy _healthPolicy;
+    private readonly IAsyncDelay _asyncDelay;
     private readonly ILogger _logger;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly Lock _sync = new();
@@ -36,6 +40,9 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
         IPluginIngestionStatusStore pluginIngestionStatusStore,
         PluginTaskVersionRuntimeStatusPublisher runtimeStatusPublisher,
         PluginRuntimeCatalog pluginRuntimeCatalog,
+        PluginAgentHealthEventBus healthEventBus,
+        PluginAgentHealthPolicy healthPolicy,
+        IAsyncDelay asyncDelay,
         ILogger<PluginRuntimeOrchestrator> logger,
         IServiceScopeFactory serviceScopeFactory)
     {
@@ -45,6 +52,9 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
         _pluginIngestionStatusStore = pluginIngestionStatusStore;
         _runtimeStatusPublisher = runtimeStatusPublisher;
         _pluginRuntimeCatalog = pluginRuntimeCatalog;
+        _healthEventBus = healthEventBus;
+        _healthPolicy = healthPolicy;
+        _asyncDelay = asyncDelay;
         _logger = logger;
         _serviceScopeFactory = serviceScopeFactory;
     }
@@ -85,6 +95,35 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
         await base.StopAsync(cancellationToken);
     }
 
+    public async Task ApplyPluginAgentHealthDecisionAsync(
+        PluginAgentHealthPolicyDecision decision,
+        CancellationToken cancellationToken)
+    {
+        if (decision.Event.Identity.TaskVersionId <= 0)
+        {
+            return;
+        }
+
+        if (decision.HasOutcome(PluginAgentHealthPolicyOutcome.QuarantineTaskVersion))
+        {
+            await QuarantineTaskVersionAsync(decision, cancellationToken);
+            return;
+        }
+
+        if (decision.HasOutcome(PluginAgentHealthPolicyOutcome.QuarantineAgent) ||
+            decision.HasOutcome(PluginAgentHealthPolicyOutcome.RestartAgent))
+        {
+            await StopAgentForHealthAsync(
+                decision.Event.Identity.TaskVersionId,
+                cancellationToken);
+        }
+
+        if (decision.HasOutcome(PluginAgentHealthPolicyOutcome.RestartAgent))
+        {
+            await ScheduleReloadAfterBackoffAsync(decision, cancellationToken);
+        }
+    }
+
     private async Task ReloadCoreAsync(CancellationToken cancellationToken)
     {
         await using var scope = _serviceScopeFactory.CreateAsyncScope();
@@ -118,6 +157,18 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
             TaskDefinitionInfo? routedVersion = null;
             foreach (var candidate in ordered)
             {
+                if (_healthPolicy.IsTaskVersionQuarantined(candidate.Id, out var quarantineReason))
+                {
+                    await StopAgentForHealthAsync(candidate.Id, cancellationToken);
+                    await _runtimeStatusPublisher.PublishAsync(
+                        candidate,
+                        PluginTaskVersionRuntimeStatus.Quarantined,
+                        quarantineReason ?? "Plugin task version is quarantined by this engine instance.",
+                        [],
+                        cancellationToken);
+                    continue;
+                }
+
                 if (!await IsRuntimeAbiCompatibleAsync(candidate, cancellationToken))
                 {
                     await StopAgentIfIdleAsync(candidate, cancellationToken);
@@ -293,6 +344,12 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
                     $"{requiredFailures.Length} required capability check(s) failed.",
                     requiredFailures,
                     cancellationToken);
+                await PublishHealthEventAsync(
+                    PluginAgentHealthEvent.Create(
+                        PluginAgentIdentity.FromTaskVersion(taskInfo),
+                        PluginAgentHealthEventType.CapabilityValidationFailed,
+                        message: $"{requiredFailures.Length} required capability check(s) failed."),
+                    cancellationToken);
                 _logger.LogWarning(
                     "Task version {TaskVersionId} ({TaskName} {Version}) is not runnable because {FailureCount} required capability check(s) failed.",
                     taskInfo.Id,
@@ -303,9 +360,10 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
             }
 
             var agent = scope.ServiceProvider.GetRequiredService<PluginRuntimeAgent>();
+            var identity = PluginAgentIdentity.FromTaskVersion(taskInfo);
             await agent.InitialiseAsync(
                 entryPoint,
-                $"{taskInfo.Name} (Version: {taskInfo.Version})",
+                identity,
                 cancellationToken);
 
             lock (_sync)
@@ -344,6 +402,16 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
                 ex.Message,
                 [],
                 cancellationToken);
+            if (ex is not TimeoutException)
+            {
+                await PublishHealthEventAsync(
+                    PluginAgentHealthEvent.Create(
+                        PluginAgentIdentity.FromTaskVersion(taskInfo),
+                        PluginAgentHealthEventType.RuntimeLoadFailed,
+                        exception: ex),
+                    cancellationToken);
+            }
+
             _logger.LogError(
                 ex,
                 "Failed to start agent for task version {TaskVersionId} ({TaskName} {Version}).",
@@ -427,6 +495,118 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
             cancellationToken);
 
         return new FileInfo(Path.Combine(workspaceDirectory, entryPoint));
+    }
+
+    private async Task QuarantineTaskVersionAsync(
+        PluginAgentHealthPolicyDecision decision,
+        CancellationToken cancellationToken)
+    {
+        var taskVersionId = decision.Event.Identity.TaskVersionId;
+        await StopAgentForHealthAsync(taskVersionId, cancellationToken);
+        _pluginRuntimeCatalog.RemoveTaskVersionRoute(taskVersionId);
+
+        if (TryGetKnownTaskInfo(taskVersionId, out var taskInfo))
+        {
+            await _runtimeStatusPublisher.PublishAsync(
+                taskInfo,
+                PluginTaskVersionRuntimeStatus.Quarantined,
+                decision.Reason,
+                [],
+                cancellationToken);
+        }
+
+        _logger.LogError(
+            "Plugin task version {TaskVersionId} ({PluginName} {PluginVersion}) was quarantined by this engine instance: {Reason}",
+            taskVersionId,
+            decision.Event.Identity.PluginName,
+            decision.Event.Identity.PluginVersion,
+            decision.Reason);
+    }
+
+    private async Task ScheduleReloadAfterBackoffAsync(
+        PluginAgentHealthPolicyDecision decision,
+        CancellationToken cancellationToken)
+    {
+        if (TryGetKnownTaskInfo(decision.Event.Identity.TaskVersionId, out var taskInfo))
+        {
+            await _runtimeStatusPublisher.PublishAsync(
+                taskInfo,
+                PluginTaskVersionRuntimeStatus.RuntimeLoadFailed,
+                decision.Reason,
+                [],
+                cancellationToken);
+        }
+
+        var backoff = decision.BackoffUntil is DateTimeOffset backoffUntil
+            ? backoffUntil - DateTimeOffset.UtcNow
+            : TimeSpan.Zero;
+        if (backoff > TimeSpan.Zero)
+        {
+            await _asyncDelay.DelayAsync(backoff, cancellationToken);
+        }
+
+        if (!_healthPolicy.IsTaskVersionQuarantined(decision.Event.Identity.TaskVersionId, out _))
+        {
+            await ReloadAsync(cancellationToken);
+        }
+    }
+
+    private async Task StopAgentForHealthAsync(
+        int taskVersionId,
+        CancellationToken cancellationToken)
+    {
+        PluginRuntimeAgent? agent = null;
+        lock (_sync)
+        {
+            if (_agents.TryGetValue(taskVersionId, out agent!))
+            {
+                _agents.Remove(taskVersionId);
+            }
+
+            _agentManager.UnregisterAgent(taskVersionId);
+        }
+
+        _pluginRuntimeCatalog.RemoveTaskVersionRoute(taskVersionId);
+
+        if (agent is not null)
+        {
+            _logger.LogWarning(
+                "Stopping plugin agent {AgentName} because plugin-agent health policy requested removal.",
+                agent.Name);
+            await agent.StopForHealthAsync(cancellationToken);
+        }
+    }
+
+    private bool TryGetKnownTaskInfo(
+        int taskVersionId,
+        out TaskDefinitionInfo taskInfo)
+    {
+        lock (_sync)
+        {
+            return _knownTaskInfos.TryGetValue(taskVersionId, out taskInfo!);
+        }
+    }
+
+    private async Task PublishHealthEventAsync(
+        PluginAgentHealthEvent healthEvent,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _healthEventBus.PublishAsync(healthEvent, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to publish plugin-agent health event {EventType} for task version {TaskVersionId}.",
+                healthEvent.EventType,
+                healthEvent.Identity.TaskVersionId);
+        }
     }
 
     private async Task StopAgentIfIdleAsync(TaskDefinitionInfo taskInfo, CancellationToken cancellationToken)

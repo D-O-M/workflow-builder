@@ -35,7 +35,8 @@ builder.Services.AddOpenTelemetry()
         .AddMeter(ProcessStepDispatchTelemetry.MeterName)
         .AddMeter(ProcessStepLockRenewalTelemetry.MeterName)
         .AddMeter(PluginResultFinalizationTelemetry.MeterName)
-        .AddMeter(PluginRuntimeAgentTelemetry.MeterName));
+        .AddMeter(PluginRuntimeAgentTelemetry.MeterName)
+        .AddMeter(PluginAgentHealthTelemetry.MeterName));
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -126,11 +127,20 @@ builder.Services.AddSingleton(sp =>
         .GetSection("PluginRuntimeStatus")
         .Get<PluginRuntimeStatusOptions>()
     ?? new PluginRuntimeStatusOptions());
+builder.Services.AddSingleton(sp =>
+    sp.GetRequiredService<IConfiguration>()
+        .GetSection(PluginAgentHealthPolicyOptions.SectionName)
+        .Get<PluginAgentHealthPolicyOptions>()
+    ?? new PluginAgentHealthPolicyOptions());
 builder.Services.AddSingleton<EngineInstanceInfo>();
 builder.Services.AddSingleton<PluginTaskVersionRuntimeStatusPublisher>();
 builder.Services.AddSingleton<PluginRuntimeCatalog>();
+builder.Services.AddSingleton<PluginAgentHealthTelemetry>();
+builder.Services.AddSingleton<PluginAgentHealthPolicy>();
+builder.Services.AddSingleton<PluginAgentHealthEventBus>();
 builder.Services.AddSingleton<PluginRuntimeOrchestrator>();
 builder.Services.AddSingleton<IPluginRuntimeReloader>(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
+builder.Services.AddSingleton<IPluginAgentHealthDecisionHandler>(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
 builder.Services.AddSingleton<IAsyncDelay, DefaultAsyncDelay>();
 builder.Services.AddSingleton<IDebuggerAttachmentGuard, DebuggerAttachmentGuard>();
 builder.Services.AddSingleton<IOperatingSystemInformation, OperatingSystemInformation>();
@@ -221,12 +231,13 @@ builder.Services.AddSingleton<IProcessStepDispatcher>(provider =>
     provider.GetRequiredService<ProcessStepDispatchService>());
 builder.Services.AddSingleton<StepExecutionService>();
 builder.Services.AddSingleton<IStepExecutionService>(provider => provider.GetRequiredService<StepExecutionService>());
-builder.Services.AddSingleton<IPluginAgentFailureHandler>(provider => provider.GetRequiredService<StepExecutionService>());
+builder.Services.AddSingleton<IPluginAgentHealthDecisionHandler>(provider => provider.GetRequiredService<StepExecutionService>());
 builder.Services.AddSingleton<PluginAgentExitNotificationService>();
 builder.Services.AddSingleton<StepMessageHandler>();
 builder.Services.AddSingleton<PluginResultFinalizationQueue>();
 
 builder.Services.AddHostedService<PluginResultFinalizationWorker>();
+builder.Services.AddHostedService<PluginAgentHealthWorker>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<PluginRuntimeOrchestrator>());
 builder.Services.AddHostedService<PluginRuntimeStatusHeartbeatWorker>();
 builder.Services.AddHostedService<QueueConsumer>();

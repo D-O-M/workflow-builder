@@ -123,6 +123,9 @@ public sealed class PluginRuntimeOrchestratorIngestionStatusTests
                 new EngineInstanceInfo(),
                 NullLogger<PluginTaskVersionRuntimeStatusPublisher>.Instance),
             new PluginRuntimeCatalog(),
+            new PluginAgentHealthEventBus(),
+            new PluginAgentHealthPolicy(new PluginAgentHealthPolicyOptions(), new PluginAgentHealthTelemetry()),
+            new TestAsyncDelay(),
             NullLogger<PluginRuntimeOrchestrator>.Instance,
             services.GetRequiredService<IServiceScopeFactory>());
     }

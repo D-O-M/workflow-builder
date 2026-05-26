@@ -65,6 +65,20 @@ public sealed class PluginRuntimeCatalog
         }
     }
 
+    public void RemoveTaskVersionRoute(int taskVersionId)
+    {
+        lock (_sync)
+        {
+            foreach (var lane in _laneRoutes
+                         .Where(route => route.Value == taskVersionId)
+                         .Select(route => route.Key)
+                         .ToArray())
+            {
+                _laneRoutes.Remove(lane);
+            }
+        }
+    }
+
     public void Clear()
     {
         lock (_sync)

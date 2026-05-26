@@ -114,6 +114,7 @@ public sealed class TaskCatalogQueryService
         {
             PluginTaskVersionRuntimeStatus.Runnable => 100,
             PluginTaskVersionRuntimeStatus.RuntimeLoadFailed => 80,
+            PluginTaskVersionRuntimeStatus.Quarantined => 75,
             PluginTaskVersionRuntimeStatus.UnrunnableAbiIncompatible => 70,
             PluginTaskVersionRuntimeStatus.UnrunnableMissingConfiguration => 60,
             PluginTaskVersionRuntimeStatus.UnrunnableMissingCapability => 50,

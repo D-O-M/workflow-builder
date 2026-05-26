@@ -179,6 +179,8 @@ namespace Backend.Database.Relational.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("TaskVersionId");
+
                     b.ToTable("Channels", (string)null);
 
                     b.HasDiscriminator().HasValue("Channel");
@@ -278,11 +280,11 @@ namespace Backend.Database.Relational.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<Guid>("PhasedBlueprintTransitionId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<double>("BridgePosition")
                         .HasColumnType("float");
+
+                    b.Property<Guid>("PhasedBlueprintTransitionId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("SourceBlueprintNodeId")
                         .HasColumnType("uniqueidentifier");
@@ -439,12 +441,12 @@ namespace Backend.Database.Relational.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int>("AbiHydrationProtocolVersion")
-                        .HasColumnType("int");
-
                     b.Property<string>("AbiHarnessVersion")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("AbiHydrationProtocolVersion")
+                        .HasColumnType("int");
 
                     b.Property<int>("AbiInvocationEnvelopeSchemaVersion")
                         .HasColumnType("int");

@@ -105,6 +105,7 @@ public enum PluginTaskVersionRuntimeStatus
     UnrunnableMissingCapability,
     UnrunnableMissingConfiguration,
     RuntimeLoadFailed,
+    Quarantined,
     UnknownNotLoaded
 }
 

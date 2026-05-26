@@ -2,24 +2,25 @@ namespace Backend.Engine;
 
 public sealed class PluginAgentExitNotificationService
 {
-    private readonly IPluginAgentFailureHandler _failureHandler;
+    private readonly PluginAgentHealthEventBus _healthEventBus;
     private readonly PluginRuntimeAgentTelemetry _telemetry;
     private readonly ILogger<PluginAgentExitNotificationService> _logger;
 
     public PluginAgentExitNotificationService(
-        IPluginAgentFailureHandler failureHandler,
+        PluginAgentHealthEventBus healthEventBus,
         PluginRuntimeAgentTelemetry telemetry,
         ILogger<PluginAgentExitNotificationService> logger)
     {
-        _failureHandler = failureHandler;
+        _healthEventBus = healthEventBus;
         _telemetry = telemetry;
         _logger = logger;
     }
 
     public async Task NotifyProcessExitAsync(
-        string pluginName,
+        PluginAgentIdentity identity,
         int exitCode,
         bool shutdownRequested,
+        bool policyRequestedStop,
         PluginRuntimeProcessExitSummary exitSummary,
         CancellationToken cancellationToken)
     {
@@ -29,31 +30,78 @@ public sealed class PluginAgentExitNotificationService
             {
                 _logger.LogInformation(
                     "Plugin runtime {PluginName} exited before ready during shutdown. Exit code: {ExitCode}.",
-                    pluginName,
+                    identity.DisplayName,
                     exitCode);
             }
             else
             {
-                _telemetry.RecordAgentExitedBeforeReady(pluginName);
+                _telemetry.RecordAgentExitedBeforeReady(identity.DisplayName);
+                await PublishHealthEventAsync(
+                    PluginAgentHealthEvent.Create(
+                        identity,
+                        PluginAgentHealthEventType.AgentExitedBeforeReady,
+                        exitCode: exitCode,
+                        message: "Plugin runtime exited before signalling readiness.",
+                        policyRequestedStop: policyRequestedStop),
+                    cancellationToken);
                 _logger.LogError(
                     "Plugin runtime {PluginName} exited before signalling readiness. Exit code: {ExitCode}.",
-                    pluginName,
+                    identity.DisplayName,
                     exitCode);
             }
         }
 
-        if (shutdownRequested || exitSummary.InFlightJobIds.Count == 0)
+        if (shutdownRequested)
         {
             return;
         }
 
-        await _failureHandler.HandlePluginAgentExitedAsync(
-            new PluginAgentExitNotification(
-                pluginName,
-                exitCode,
-                ShutdownRequested: false,
-                exitSummary.ExitedBeforeReady,
-                exitSummary.InFlightJobIds),
-            cancellationToken);
+        if (exitSummary.InFlightJobIds.Count > 0)
+        {
+            await PublishHealthEventAsync(
+                PluginAgentHealthEvent.Create(
+                    identity,
+                    PluginAgentHealthEventType.AgentExitedWithInFlightJobs,
+                    exitSummary.InFlightJobIds,
+                    exitCode,
+                    message: "Plugin runtime exited with in-flight process steps.",
+                    policyRequestedStop: policyRequestedStop),
+                cancellationToken);
+            return;
+        }
+
+        if (!exitSummary.ExitedBeforeReady)
+        {
+            await PublishHealthEventAsync(
+                PluginAgentHealthEvent.Create(
+                    identity,
+                    PluginAgentHealthEventType.RuntimeLoadFailed,
+                    exitCode: exitCode,
+                    message: "Plugin runtime exited unexpectedly.",
+                    policyRequestedStop: policyRequestedStop),
+                cancellationToken);
+        }
+    }
+
+    private async Task PublishHealthEventAsync(
+        PluginAgentHealthEvent healthEvent,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _healthEventBus.PublishAsync(healthEvent, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to publish plugin-agent health event {EventType} for {PluginName}.",
+                healthEvent.EventType,
+                healthEvent.Identity.DisplayName);
+        }
     }
 }

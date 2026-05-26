@@ -132,6 +132,9 @@ public sealed class PluginRuntimeOrchestratorAbiTests
                 new EngineInstanceInfo(),
                 NullLogger<PluginTaskVersionRuntimeStatusPublisher>.Instance),
             catalog,
+            new PluginAgentHealthEventBus(),
+            new PluginAgentHealthPolicy(new PluginAgentHealthPolicyOptions(), new PluginAgentHealthTelemetry()),
+            new TestAsyncDelay(),
             NullLogger<PluginRuntimeOrchestrator>.Instance,
             services.GetRequiredService<IServiceScopeFactory>());
     }

@@ -79,6 +79,18 @@ ProjectionWorker emits:
 
 Engine emits `engine_synchronous_projection_updates_enabled`. In production/performance mode this should report `0`, with ProjectionWorker lag staying bounded.
 
+### Plugin agent health
+
+`Backend.Engine` publishes structured plugin-agent health metrics for runtime failures and suspicious protocol behavior:
+
+- `plugin_agent_health_events_total`
+- `plugin_agent_restarts_total`
+- `plugin_agent_quarantined_agents_total`
+- `plugin_agent_quarantined_task_versions_total`
+- `plugin_agent_repeated_crashes_total`
+
+Task-version quarantine from this policy is runtime-only for the current Engine process. It appears in task catalog runtime availability as `Quarantined`, while bundle ingestion quarantine remains owned by PluginDetector/admin flows.
+
 ### Process-step queue naming
 
 `process-step-queue` resource naming and `processsteps` entity naming need to stay aligned across:

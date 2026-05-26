@@ -1,15 +1,12 @@
 namespace Backend.Engine;
 
 public sealed record PluginAgentExitNotification(
-    string PluginName,
+    PluginAgentIdentity Identity,
     int ExitCode,
     bool ShutdownRequested,
     bool ExitedBeforeReady,
-    IReadOnlyCollection<Guid> InFlightProcessStepIds);
-
-public interface IPluginAgentFailureHandler
+    bool PolicyRequestedStop,
+    IReadOnlyCollection<Guid> InFlightProcessStepIds)
 {
-    Task HandlePluginAgentExitedAsync(
-        PluginAgentExitNotification notification,
-        CancellationToken cancellationToken);
+    public string PluginName => Identity.DisplayName;
 }

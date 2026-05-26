@@ -30,6 +30,7 @@ public sealed class RuntimeServiceBoundaryTests
 
         source.ShouldContain("AddHostedService<QueueConsumer>");
         source.ShouldContain("AddHostedService<PluginResultFinalizationWorker>");
+        source.ShouldContain("AddHostedService<PluginAgentHealthWorker>");
         source.ShouldContain("AddHostedService<PluginReloadConsumer>");
         source.ShouldNotContain("AddHostedService<ProcessStepDispatchWorker>");
         source.ShouldNotContain("AddHostedService<StepFinalizationRecoveryWorker>");
@@ -79,6 +80,18 @@ public sealed class RuntimeServiceBoundaryTests
         executionSource.ShouldContain("StopLockRenewalAsync");
         renewalSource.ShouldContain("RenewProcessingWindowAsync");
         renewalSource.ShouldNotContain("MaxAutoLockRenewalDuration");
+    }
+
+    [Test]
+    public void Engine_registers_plugin_agent_health_policy()
+    {
+        var programSource = File.ReadAllText(RepositoryPath("Backend.Engine", "Program.cs"));
+
+        programSource.ShouldContain("AddSingleton<PluginAgentHealthPolicy>");
+        programSource.ShouldContain("AddSingleton<PluginAgentHealthEventBus>");
+        programSource.ShouldContain("AddSingleton<PluginAgentHealthTelemetry>");
+        programSource.ShouldContain("AddMeter(PluginAgentHealthTelemetry.MeterName)");
+        programSource.ShouldContain("AddHostedService<PluginAgentHealthWorker>");
     }
 
     [Test]
