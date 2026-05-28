@@ -8,8 +8,11 @@ using Backend.Interfaces.Repositories;
 using Backend.Repositories;
 using Backend.Services.ProcessStepQueue;
 using Backend.Services.PluginRuntimeStatus;
+using Backend.Security.Authentication;
+using Backend.Security.Authorization;
 using Backend.Topology;
 using Microsoft.Azure.Cosmos;
+using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using System.Text.Json;
@@ -111,8 +114,12 @@ public class Program
             client.Timeout = TimeSpan.FromSeconds(30);
         });
         builder.Services.AddMemoryCache();
+        builder.Services.AddWorkflowSecurity(builder.Configuration, builder.Environment);
 
-        builder.Services.AddControllers();
+        builder.Services.AddControllers(options =>
+        {
+            options.Filters.Add(new AuthorizeFilter(WorkflowAuthorizationPolicies.Authenticated));
+        });
 
         builder.Services.AddScoped<Backend.API.Validation.Blueprints.IBlueprintVersionValidator>(sp =>
             new Backend.API.Validation.Blueprints.BlueprintVersionValidatorPipeline(
@@ -148,8 +155,9 @@ public class Program
             app.MapScalarApiReference();
         }
 
-        app.UseAuthorization();
         app.UseCors("AllowAngularDevClient");
+        app.UseAuthentication();
+        app.UseAuthorization();
 
         app.MapControllers();
 

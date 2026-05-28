@@ -1,6 +1,13 @@
 import { Injectable, inject } from '@angular/core';
-import { HubConnection, HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr';
+import {
+  HubConnection,
+  HubConnectionBuilder,
+  HubConnectionState,
+  IHttpConnectionOptions,
+  LogLevel,
+} from '@microsoft/signalr';
 import { Subject } from 'rxjs';
+import { AuthService } from '../auth/auth.service';
 import { RuntimeClientConfigService } from './runtime-client-config.service';
 
 export interface ProcessSummaryUpdatedEvent {
@@ -41,6 +48,7 @@ export interface ProcessStepsUpdatedEvent {
 @Injectable({ providedIn: 'root' })
 export class ProcessRealtimeService {
   private readonly runtimeClientConfig = inject(RuntimeClientConfigService);
+  private readonly auth = inject(AuthService);
   private connection: HubConnection | null = null;
   private startPromise: Promise<void> | null = null;
   private reconnectTimeoutId: number | null = null;
@@ -170,9 +178,12 @@ export class ProcessRealtimeService {
 
   private createConnection(): HubConnection {
     const connection = new HubConnectionBuilder()
-      .withUrl(`${this.runtimeClientConfig.signalRBaseUrl}/hubs/processes`, {
-        withCredentials: false,
-      })
+      .withUrl(
+        `${this.runtimeClientConfig.signalRBaseUrl}/hubs/processes`,
+        createProcessRealtimeConnectionOptions(
+          this.runtimeClientConfig.authentication.enabled,
+          () => this.auth.getAccessToken(),
+        ))
       .withAutomaticReconnect()
       .configureLogging(LogLevel.Warning)
       .build();
@@ -292,4 +303,19 @@ export class ProcessRealtimeService {
     this.pendingNodeUpdates.length = 0;
     this.flushScheduled = false;
   }
+}
+
+export function createProcessRealtimeConnectionOptions(
+  authenticationEnabled: boolean,
+  getAccessToken: () => Promise<string | null>,
+): IHttpConnectionOptions {
+  const options: IHttpConnectionOptions = {
+    withCredentials: false,
+  };
+
+  if (authenticationEnabled) {
+    options.accessTokenFactory = async () => await getAccessToken() ?? '';
+  }
+
+  return options;
 }

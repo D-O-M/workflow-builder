@@ -15,6 +15,35 @@ internal class Program
         var integrationTestsEnabled = builder.Configuration.GetValue("IntegrationTests:Enabled", false);
         var nftEnabled = builder.Configuration.GetValue("Nft:Enabled", false);
         var nftMinimalServices = builder.Configuration.GetValue("Nft:MinimalServices", nftEnabled);
+        var authEnabled = builder.Configuration.GetValue(
+            "Authentication:Enabled",
+            builder.Environment.IsDevelopment() && !integrationTestsEnabled && !nftEnabled);
+        var keycloakEnabled = builder.Configuration.GetValue(
+            "Authentication:Keycloak:Enabled",
+            authEnabled && builder.Environment.IsDevelopment() && !nftEnabled);
+        var keycloakRealm = GetConfigurationValueOrDefault(
+            builder.Configuration,
+            "Authentication:Keycloak:Realm",
+            "workflow-builder");
+        var keycloakAudience = GetConfigurationValueOrDefault(
+            builder.Configuration,
+            "Authentication:Keycloak:Audience",
+            "workflow-builder-api");
+        var keycloakSpaClientId = GetConfigurationValueOrDefault(
+            builder.Configuration,
+            "Authentication:Keycloak:SpaClientId",
+            "workflow-builder-spa");
+        var keycloakScope = GetConfigurationValueOrDefault(
+            builder.Configuration,
+            "Authentication:Keycloak:Scope",
+            "openid profile email");
+        var keycloakAuthority = GetConfigurationValueOrDefault(
+            builder.Configuration,
+            "Authentication:Keycloak:Authority",
+            $"http://localhost:8080/realms/{keycloakRealm}");
+        var keycloakRequireHttpsMetadata = builder.Configuration.GetValue(
+            "Authentication:Keycloak:RequireHttpsMetadata",
+            !builder.Environment.IsDevelopment());
         var synchronousEngineProjectionUpdatesEnabled = builder.Configuration.GetValue(
             "Projections:SynchronousEngineUpdatesEnabled",
             !nftEnabled);
@@ -95,6 +124,12 @@ internal class Program
             artifactsBlobContainerName);
 
         var (serviceBus, processStepQueue, pluginControlQueue) = AddServiceBus(builder);
+        var keycloakAdminUsername = builder.AddParameter("KeycloakAdminUsername", "admin");
+        var keycloakAdminPassword = builder.AddParameter("KeycloakAdminPassword", "admin", secret: true);
+        var keycloak = keycloakEnabled
+            ? builder.AddKeycloak("keycloak", 8080, keycloakAdminUsername, keycloakAdminPassword)
+                .WithRealmImport(Path.Combine(repositoryRoot, "Infra", "Keycloak", "Realms"))
+            : null;
         var observability = builder.Configuration.GetValue("Observability:Enabled", true)
             ? AddObservability(
                 builder,
@@ -165,11 +200,34 @@ internal class Program
                 .WithExternalHttpEndpoints();
         }
 
+        if (keycloak is not null)
+        {
+            api.WithReference(keycloak)
+                .WaitFor(keycloak);
+        }
+
         api.WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
             .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
             .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
+        ConfigureAuthentication(
+            api,
+            authEnabled,
+            keycloakEnabled,
+            keycloakAuthority,
+            keycloakRealm,
+            keycloakAudience,
+            keycloakSpaClientId,
+            keycloakScope,
+            keycloakRequireHttpsMetadata);
+        ConfigureClientAuthentication(
+            api,
+            authEnabled,
+            keycloakAuthority,
+            keycloakAudience,
+            keycloakSpaClientId,
+            keycloakScope);
 
         IResourceBuilder<ProjectResource>? signalR = null;
         EndpointReference? signalRHttpEndpoint = null;
@@ -183,6 +241,22 @@ internal class Program
                     env: "ASPNETCORE_HTTP_PORTS")
                 .WithExternalHttpEndpoints();
             WaitForObservability(signalR, observability);
+            ConfigureAuthentication(
+                signalR,
+                authEnabled,
+                keycloakEnabled,
+                keycloakAuthority,
+                keycloakRealm,
+                keycloakAudience,
+                keycloakSpaClientId,
+                keycloakScope,
+                keycloakRequireHttpsMetadata);
+            if (keycloak is not null)
+            {
+                signalR.WithReference(keycloak)
+                    .WaitFor(keycloak);
+            }
+
             signalRHttpEndpoint = signalR.GetEndpoint("http");
         }
 
@@ -725,6 +799,46 @@ internal class Program
 
     static string? TryGetConfigurationValue(IConfiguration configuration, string key) =>
         configuration.GetValue<string>(key);
+
+    static IResourceBuilder<T> ConfigureAuthentication<T>(
+        IResourceBuilder<T> resourceBuilder,
+        bool authEnabled,
+        bool keycloakEnabled,
+        string keycloakAuthority,
+        string keycloakRealm,
+        string keycloakAudience,
+        string keycloakSpaClientId,
+        string keycloakScope,
+        bool requireHttpsMetadata)
+        where T : IResourceWithEnvironment
+    {
+        return resourceBuilder
+            .WithEnvironment("Authentication__Enabled", authEnabled.ToString())
+            .WithEnvironment("Authentication__Keycloak__Enabled", keycloakEnabled.ToString())
+            .WithEnvironment("Authentication__Keycloak__Authority", keycloakAuthority)
+            .WithEnvironment("Authentication__Keycloak__Realm", keycloakRealm)
+            .WithEnvironment("Authentication__Keycloak__Audience", keycloakAudience)
+            .WithEnvironment("Authentication__Keycloak__SpaClientId", keycloakSpaClientId)
+            .WithEnvironment("Authentication__Keycloak__Scope", keycloakScope)
+            .WithEnvironment("Authentication__Keycloak__RequireHttpsMetadata", requireHttpsMetadata.ToString());
+    }
+
+    static IResourceBuilder<T> ConfigureClientAuthentication<T>(
+        IResourceBuilder<T> resourceBuilder,
+        bool authEnabled,
+        string keycloakAuthority,
+        string keycloakAudience,
+        string keycloakSpaClientId,
+        string keycloakScope)
+        where T : IResourceWithEnvironment
+    {
+        return resourceBuilder
+            .WithEnvironment("ClientConfig__Authentication__Enabled", authEnabled.ToString())
+            .WithEnvironment("ClientConfig__Authentication__Authority", authEnabled ? keycloakAuthority : string.Empty)
+            .WithEnvironment("ClientConfig__Authentication__ClientId", authEnabled ? keycloakSpaClientId : string.Empty)
+            .WithEnvironment("ClientConfig__Authentication__Scope", authEnabled ? keycloakScope : string.Empty)
+            .WithEnvironment("ClientConfig__Authentication__Audience", authEnabled ? keycloakAudience : string.Empty);
+    }
 
     static void WaitForObservability<T>(
         IResourceBuilder<T> resourceBuilder,

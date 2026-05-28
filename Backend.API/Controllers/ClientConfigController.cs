@@ -1,19 +1,26 @@
 using Backend.API.Infrastructure;
+using Backend.Security.Authentication;
 using Backend.Topology;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
 namespace Backend.API.Controllers;
 
+[AllowAnonymous]
 [ApiController]
 [Route(WorkflowBuilderTopology.ClientConfig.Route)]
 public sealed class ClientConfigController : ControllerBase
 {
     private readonly ClientRuntimeConfigOptions _options;
+    private readonly WorkflowAuthenticationOptions _authOptions;
 
-    public ClientConfigController(IOptions<ClientRuntimeConfigOptions> options)
+    public ClientConfigController(
+        IOptions<ClientRuntimeConfigOptions> options,
+        IOptions<WorkflowAuthenticationOptions> authOptions)
     {
         _options = options.Value;
+        _authOptions = authOptions.Value;
     }
 
     [HttpGet]
@@ -25,12 +32,40 @@ public sealed class ClientConfigController : ControllerBase
             ?? throw new InvalidOperationException($"{WorkflowBuilderTopology.ClientConfig.SignalRBaseUrlKey} is not configured.");
         var grafanaBaseUrl = NormalizeBaseUrl(_options.GrafanaBaseUrl)
             ?? throw new InvalidOperationException($"{WorkflowBuilderTopology.ClientConfig.GrafanaBaseUrlKey} is not configured.");
+        var authentication = ResolveAuthentication(_options.Authentication, _authOptions);
 
         return Ok(new ClientRuntimeConfigViewModel(
             apiBaseUrl,
             signalRBaseUrl,
-            grafanaBaseUrl));
+            grafanaBaseUrl,
+            authentication));
     }
+
+    private static ClientRuntimeAuthenticationViewModel ResolveAuthentication(
+        ClientRuntimeAuthenticationOptions clientOptions,
+        WorkflowAuthenticationOptions authOptions)
+    {
+        var enabled = clientOptions.Enabled ?? authOptions.Enabled;
+        if (!enabled)
+        {
+            return new ClientRuntimeAuthenticationViewModel(
+                Enabled: false,
+                Authority: string.Empty,
+                ClientId: string.Empty,
+                Scope: string.Empty,
+                Audience: string.Empty);
+        }
+
+        return new ClientRuntimeAuthenticationViewModel(
+            Enabled: true,
+            Authority: NormalizeBaseUrl(clientOptions.Authority) ?? NormalizeBaseUrl(authOptions.Keycloak.Authority) ?? string.Empty,
+            ClientId: UseConfiguredOrFallback(clientOptions.ClientId, authOptions.Keycloak.SpaClientId),
+            Scope: UseConfiguredOrFallback(clientOptions.Scope, authOptions.Keycloak.Scope),
+            Audience: UseConfiguredOrFallback(clientOptions.Audience, authOptions.Keycloak.Audience));
+    }
+
+    private static string UseConfiguredOrFallback(string? configured, string fallback) =>
+        string.IsNullOrWhiteSpace(configured) ? fallback : configured;
 
     private static string? NormalizeBaseUrl(string? value)
     {
@@ -45,5 +80,13 @@ public sealed class ClientConfigController : ControllerBase
     public sealed record ClientRuntimeConfigViewModel(
         string ApiBaseUrl,
         string SignalRBaseUrl,
-        string GrafanaBaseUrl);
+        string GrafanaBaseUrl,
+        ClientRuntimeAuthenticationViewModel Authentication);
+
+    public sealed record ClientRuntimeAuthenticationViewModel(
+        bool Enabled,
+        string Authority,
+        string ClientId,
+        string Scope,
+        string Audience);
 }

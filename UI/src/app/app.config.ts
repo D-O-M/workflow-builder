@@ -10,6 +10,7 @@ import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimations } from '@angular/platform-browser/animations';
 
 import { routes } from './app.routes';
+import { authTokenInterceptor } from './interceptors/auth-token.interceptor';
 import { apiPrefixInterceptor } from './interceptors/api-prefix.interceptor';
 import { RuntimeClientConfigService } from './domain/runtime-client-config.service';
 
@@ -19,7 +20,7 @@ export const appConfig: ApplicationConfig = {
     provideZonelessChangeDetection(),
     provideAnimations(),
     provideRouter(routes),
-    provideHttpClient(withInterceptors([apiPrefixInterceptor])),
+    provideHttpClient(withInterceptors([apiPrefixInterceptor, authTokenInterceptor])),
     provideAppInitializer(() => inject(RuntimeClientConfigService).load()),
   ]
 };

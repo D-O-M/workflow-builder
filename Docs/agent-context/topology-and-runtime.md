@@ -37,6 +37,8 @@ The API currently exposes a fixed external HTTP endpoint on port `5180` in the A
 
 Startup validation is intentionally strict. API, Engine, Dispatcher, Projection Worker, Maintenance, PluginDetector, ProgressBroadcaster, and SignalR fail fast when required SQL/Cosmos/Storage/Service Bus/realtime/client config is missing, placeholder-valued, or inconsistent with the canonical topology. AppHost may provide canonical local defaults, but direct service startup must provide explicit valid configuration.
 
+Local development authentication is Keycloak-backed when `Authentication:Enabled=true`. AppHost starts the dev Keycloak realm by default outside integration-test and NFT modes, while `Authentication:Enabled=false` keeps the API, SignalR, and UI in local no-auth mode. See `Docs/authentication-keycloak.md` for realm names, client ids, and dev credentials.
+
 ## Service Ownership
 
 | Service | Owns |

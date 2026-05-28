@@ -78,15 +78,40 @@
       <button mat-icon-button type="button" aria-label="Help" matTooltip="Help" data-testid="app-shell-help">
         <mat-icon>help_outline</mat-icon>
       </button>
-      <button
-        mat-stroked-button
-        type="button"
-        class="app-shell__profile-button"
-        aria-label="Profile"
-        data-testid="app-shell-profile"
-      >
-        {{ profileInitial() }}
-      </button>
+      @if (authEnabled() && !authenticated()) {
+        <button
+          mat-stroked-button
+          type="button"
+          class="app-shell__sign-in-button"
+          data-testid="app-shell-sign-in"
+          (click)="login()"
+        >
+          Sign in
+        </button>
+      } @else {
+        <button
+          mat-stroked-button
+          type="button"
+          class="app-shell__profile-button"
+          [attr.aria-label]="profileLabel()"
+          [matTooltip]="profileLabel()"
+          data-testid="app-shell-profile"
+        >
+          {{ profileInitial() }}
+        </button>
+        @if (authEnabled()) {
+          <button
+            mat-icon-button
+            type="button"
+            aria-label="Sign out"
+            matTooltip="Sign out"
+            data-testid="app-shell-sign-out"
+            (click)="logout()"
+          >
+            <mat-icon>logout</mat-icon>
+          </button>
+        }
+      }
     </mat-toolbar>
 
     <section class="app-shell__content-body" data-testid="app-shell-content">

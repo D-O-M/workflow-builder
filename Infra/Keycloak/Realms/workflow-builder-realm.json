@@ -1,0 +1,93 @@
+{
+  "realm": "workflow-builder",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "roles": {
+    "realm": [
+      { "name": "workflowbuilder.admin" },
+      { "name": "workflowbuilder.blueprint_author" },
+      { "name": "workflowbuilder.process_operator" },
+      { "name": "workflowbuilder.runtime_engineer" },
+      { "name": "workflowbuilder.auditor" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "workflow-builder-spa",
+      "name": "WorkflowBuilder SPA",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:4200/*",
+        "http://127.0.0.1:4200/*"
+      ],
+      "webOrigins": [
+        "http://localhost:4200",
+        "http://127.0.0.1:4200"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:4200/*##http://127.0.0.1:4200/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "workflow-builder-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "workflow-builder-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "workflow-builder-api",
+      "name": "WorkflowBuilder API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    }
+  ],
+  "users": [
+    {
+      "username": "developer",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "developer@localhost",
+      "firstName": "WorkflowBuilder",
+      "lastName": "Developer",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "developer",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "workflowbuilder.admin",
+        "workflowbuilder.blueprint_author",
+        "workflowbuilder.process_operator",
+        "workflowbuilder.runtime_engineer",
+        "workflowbuilder.auditor"
+      ]
+    }
+  ]
+}

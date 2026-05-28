@@ -25,6 +25,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map, startWith } from 'rxjs';
 import { APP_PRIMARY_NAV_ITEMS } from '../domain/app-navigation';
+import { AuthService } from '../auth/auth.service';
 import { NavigationDrawerService } from '../domain/navigation-drawer.service';
 
 interface ShellRouteState {
@@ -53,6 +54,7 @@ interface ShellRouteState {
 export class AppShellComponent {
   private readonly router = inject(Router);
   private readonly navigationDrawer = inject(NavigationDrawerService);
+  protected readonly auth = inject(AuthService);
 
   protected readonly navItems = APP_PRIMARY_NAV_ITEMS;
   protected readonly sidebarCollapsed = this.navigationDrawer.collapsed;
@@ -77,11 +79,19 @@ export class AppShellComponent {
   protected readonly contentOffset = computed(() =>
     this.compactViewport() ? '0px' : (this.sidebarCollapsed() ? '5.25rem' : '16.5rem'),
   );
+  protected readonly authEnabled = computed(() => this.auth.authenticationEnabled);
+  protected readonly authenticated = this.auth.isAuthenticated;
+  protected readonly profileLabel = computed(() =>
+    this.auth.userProfile()?.displayName ?? 'Sign in',
+  );
   protected readonly profileInitial = computed(() =>
-    this.shellState().title.trim().charAt(0).toUpperCase() || 'W',
+    this.profileLabel().trim().charAt(0).toUpperCase() ||
+    this.shellState().title.trim().charAt(0).toUpperCase() ||
+    'W',
   );
 
   constructor() {
+    void this.auth.initialize();
     effect(() => {
       this.shellState();
       if (this.compactViewport()) {
@@ -101,6 +111,14 @@ export class AppShellComponent {
 
   protected closeNavigationDrawer(): void {
     this.mobileSidebarOpen.set(false);
+  }
+
+  protected login(): void {
+    void this.auth.login(this.router.url);
+  }
+
+  protected logout(): void {
+    void this.auth.logout();
   }
 
   private readShellState(): ShellRouteState {

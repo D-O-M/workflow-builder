@@ -1,7 +1,9 @@
 using Backend.Models.Realtime;
+using Backend.Security.Authentication;
 using Backend.SignalR.Hubs;
 using Backend.SignalR.Services;
 using Backend.Topology;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.SignalR;
 
 AspireEndpointEnvironment.PreferAspireHttpPortsOverInheritedUrls();
@@ -9,6 +11,25 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 WorkflowBuilderTopologyValidator.ValidateSignalR();
 
+builder.Services.AddWorkflowSecurity(builder.Configuration, builder.Environment, options =>
+{
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            if (!string.IsNullOrWhiteSpace(accessToken) &&
+                context.HttpContext.Request.Path.Equals(
+                    WorkflowBuilderTopology.Realtime.HubRoute,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                context.Token = accessToken;
+            }
+
+            return Task.CompletedTask;
+        }
+    };
+});
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<ProcessSubscriptionRegistry>();
 builder.Services.AddCors(options =>
@@ -26,6 +47,8 @@ var app = builder.Build();
 
 app.MapDefaultEndpoints();
 app.UseCors("AllowAngularDevClient");
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapHub<ProcessProgressHub>(WorkflowBuilderTopology.Realtime.HubRoute);
 app.MapGet(WorkflowBuilderTopology.Realtime.InternalSubscriptionSnapshotRoute, (ProcessSubscriptionRegistry registry) =>

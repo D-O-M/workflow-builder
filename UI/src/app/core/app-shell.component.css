@@ -123,6 +123,12 @@
   font-weight: 700;
 }
 
+.app-shell__sign-in-button {
+  min-height: 2.5rem;
+  border-radius: var(--app-radius-medium);
+  font-weight: 700;
+}
+
 .app-shell__content-body {
   min-height: 0;
   overflow: hidden;

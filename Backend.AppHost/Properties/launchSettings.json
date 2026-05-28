@@ -32,6 +32,8 @@
         "Frontend__Enabled": "false",
         "Observability__Enabled": "false",
         "Nft__Enabled": "true",
+        "Authentication__Enabled": "false",
+        "Authentication__Keycloak__Enabled": "false",
         "Nft__MinimalServices": "true",
         "Nft__PluginRuntime__MaxConcurrentResultFinalizations": "80",
         "Nft__ProcessStepQueue__MaxConcurrentMessages": "32",

@@ -43,7 +43,9 @@ var startEngine = builder.Configuration.GetValue("IntegrationTests:StartEngine",
 var signalR = builder.AddProject<Projects.Backend_SignalR>("backend-signalr")
     .WithHttpEndpoint(
         name: "http",
-        env: "ASPNETCORE_HTTP_PORTS");
+        env: "ASPNETCORE_HTTP_PORTS")
+    .WithEnvironment("Authentication__Enabled", "false")
+    .WithEnvironment("Authentication__Keycloak__Enabled", "false");
 var signalRHttpEndpoint = signalR.GetEndpoint("http");
 
 builder.AddProject<Projects.Backend_API>("backend-api")
@@ -62,7 +64,10 @@ builder.AddProject<Projects.Backend_API>("backend-api")
     .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
     .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName)
     .WithEnvironment(WorkflowBuilderTopology.ClientConfig.SignalRBaseUrlEnvironmentVariable, signalRHttpEndpoint)
-    .WithEnvironment(WorkflowBuilderTopology.ClientConfig.GrafanaBaseUrlEnvironmentVariable, "http://127.0.0.1:9");
+    .WithEnvironment(WorkflowBuilderTopology.ClientConfig.GrafanaBaseUrlEnvironmentVariable, "http://127.0.0.1:9")
+    .WithEnvironment("Authentication__Enabled", "false")
+    .WithEnvironment("Authentication__Keycloak__Enabled", "false")
+    .WithEnvironment("ClientConfig__Authentication__Enabled", "false");
 
 if (startEngine)
 {

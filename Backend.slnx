@@ -17,7 +17,9 @@
     <Project Path="Backend.Engine.Tests/Backend.Engine.Tests.csproj" />
     <Project Path="Backend.PluginLoader.Tests/Backend.PluginLoader.Tests.csproj" />
     <Project Path="Backend.Plugins.Harness.Tests/Backend.Plugins.Harness.Tests.csproj" />
+    <Project Path="Backend.Security.Tests/Backend.Security.Tests.csproj" />
     <Project Path="Backend.ShowcaseTown.Tests/Backend.ShowcaseTown.Tests.csproj" />
+    <Project Path="Backend.SignalR.Tests/Backend.SignalR.Tests.csproj" />
     <Project Path="Backend.Topology.Tests/Backend.Topology.Tests.csproj" />
   </Folder>
   <Project Path="Backend.API/Backend.API.csproj" />
@@ -44,6 +46,7 @@
   <Project Path="Backend.Plugins.Configuration/Dcc/Backend.Plugins.Configuration.Dcc.csproj" />
   <Project Path="Backend.Plugins.Harness/Backend.Plugins.Harness.csproj" />
   <Project Path="Backend.Repositories/Backend.Repositories.csproj" />
+  <Project Path="Backend.Security/Backend.Security.csproj" />
   <Project Path="Backend.ServiceDefaults/Backend.ServiceDefaults.csproj" />
   <Project Path="Backend.SignalR/Backend.SignalR.csproj" />
   <Project Path="Backend.Services/Backend.Services.csproj" />

@@ -12,6 +12,13 @@ describe('RuntimeClientConfigService', () => {
       apiBaseUrl: 'http://localhost:5180',
       signalRBaseUrl: 'http://localhost:64217',
       grafanaBaseUrl: 'http://localhost:3000',
+      authentication: {
+        enabled: true,
+        authority: 'http://localhost:8080/realms/workflow-builder',
+        clientId: 'workflow-builder-spa',
+        scope: 'openid profile email',
+        audience: 'workflow-builder-api',
+      },
     }), {
       status: 200,
       headers: {
@@ -24,6 +31,13 @@ describe('RuntimeClientConfigService', () => {
     expect(service.apiBaseUrl).toBe('http://localhost:5180');
     expect(service.signalRBaseUrl).toBe('http://localhost:64217');
     expect(service.grafanaBaseUrl).toBe('http://localhost:3000');
+    expect(service.authentication).toEqual({
+      enabled: true,
+      authority: 'http://localhost:8080/realms/workflow-builder',
+      clientId: 'workflow-builder-spa',
+      scope: 'openid profile email',
+      audience: 'workflow-builder-api',
+    });
   });
 
   it('normalizes trailing slashes from configured urls', async () => {
@@ -32,6 +46,12 @@ describe('RuntimeClientConfigService', () => {
       apiBaseUrl: 'http://localhost:5180/',
       signalRBaseUrl: 'http://localhost:64217/',
       grafanaBaseUrl: 'http://localhost:3000/',
+      authentication: {
+        enabled: true,
+        authority: 'http://localhost:8080/realms/workflow-builder/',
+        clientId: 'workflow-builder-spa',
+        scope: 'openid profile email',
+      },
     }), {
       status: 200,
       headers: {
@@ -44,5 +64,30 @@ describe('RuntimeClientConfigService', () => {
     expect(service.apiBaseUrl).toBe('http://localhost:5180');
     expect(service.signalRBaseUrl).toBe('http://localhost:64217');
     expect(service.grafanaBaseUrl).toBe('http://localhost:3000');
+    expect(service.authentication.authority).toBe('http://localhost:8080/realms/workflow-builder');
+  });
+
+  it('defaults missing authentication settings to disabled mode', async () => {
+    const service = new RuntimeClientConfigService();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      apiBaseUrl: 'http://localhost:5180',
+      signalRBaseUrl: 'http://localhost:64217',
+      grafanaBaseUrl: 'http://localhost:3000',
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }));
+
+    await service.load();
+
+    expect(service.authentication).toEqual({
+      enabled: false,
+      authority: '',
+      clientId: '',
+      scope: '',
+      audience: '',
+    });
   });
 });
