@@ -6,6 +6,7 @@ using Backend.Topology;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.EntityFrameworkCore;
+using System.Net.Http.Headers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -57,6 +58,23 @@ builder.Services.AddHttpClient(SignalRProcessGateway.HttpClientName, client =>
 {
     client.BaseAddress = new Uri(EnsureTrailingSlash(signalRBaseUrl), UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(5);
+    var internalPublisherBearerToken = builder.Configuration[
+        WorkflowBuilderTopology.Realtime.InternalPublisherBearerTokenKey];
+    if (!string.IsNullOrWhiteSpace(internalPublisherBearerToken))
+    {
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            internalPublisherBearerToken);
+    }
+
+    var internalPublisherSecret = builder.Configuration[
+        WorkflowBuilderTopology.Realtime.InternalPublisherSharedSecretKey];
+    if (!string.IsNullOrWhiteSpace(internalPublisherSecret))
+    {
+        client.DefaultRequestHeaders.Add(
+            WorkflowBuilderTopology.Realtime.InternalPublisherHeaderName,
+            internalPublisherSecret);
+    }
 });
 
 builder.Services.AddSingleton<SignalRProcessGateway>();

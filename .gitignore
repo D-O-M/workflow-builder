@@ -17,6 +17,14 @@ UI/.angular/
 # Environment files
 /.env
 
+# Terraform local state and plans
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+
 # Angular CLI and build artefacts
 /.angular-cli.json
 /.ng/

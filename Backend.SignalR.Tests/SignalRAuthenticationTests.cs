@@ -34,4 +34,23 @@ public sealed class SignalRAuthenticationTests
         source.ShouldContain("WorkflowBuilderTopology.Realtime.HubRoute");
         source.ShouldContain("InternalProcessEventsRoute");
     }
+
+    [Test]
+    public void Internal_broadcaster_endpoints_require_internal_publisher_authorization_or_secret()
+    {
+        var sourcePath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "..",
+            "..",
+            "Backend.SignalR",
+            "Program.cs"));
+        var source = File.ReadAllText(sourcePath);
+
+        source.ShouldContain("AuthorizeInternalPublisherAsync");
+        source.ShouldContain(WorkflowAuthorizationPolicies.InternalPublisher);
+        source.ShouldContain("InternalPublisherHeaderName");
+        source.ShouldContain("InternalPublisherSharedSecretKey");
+    }
 }

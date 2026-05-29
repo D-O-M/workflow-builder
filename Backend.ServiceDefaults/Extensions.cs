@@ -1,4 +1,7 @@
+using Azure.Identity;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.AzureAppConfiguration;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -16,6 +19,7 @@ public static class Extensions
 {
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
+        builder.AddWorkflowAzureAppConfiguration();
         builder.ConfigureOpenTelemetry();
 
         builder.AddDefaultHealthChecks();
@@ -110,6 +114,45 @@ public static class Extensions
         });
 
         return app;
+    }
+
+    public static TBuilder AddWorkflowAzureAppConfiguration<TBuilder>(this TBuilder builder)
+        where TBuilder : IHostApplicationBuilder
+    {
+        var options = builder.Configuration
+            .GetSection(WorkflowAzureAppConfigurationOptions.SectionName)
+            .Get<WorkflowAzureAppConfigurationOptions>()
+            ?? new WorkflowAzureAppConfigurationOptions();
+
+        if (!options.IsUsable)
+        {
+            return builder;
+        }
+
+        var credentialOptions = new DefaultAzureCredentialOptions();
+        if (!string.IsNullOrWhiteSpace(options.ManagedIdentityClientId))
+        {
+            credentialOptions.ManagedIdentityClientId = options.ManagedIdentityClientId;
+        }
+
+        var credential = new DefaultAzureCredential(credentialOptions);
+        builder.Configuration.AddAzureAppConfiguration(appConfig =>
+        {
+            appConfig.Connect(new Uri(options.Endpoint), credential);
+            if (options.IncludeNullLabel)
+            {
+                appConfig.Select(KeyFilter.Any, LabelFilter.Null);
+            }
+
+            if (!string.IsNullOrWhiteSpace(options.Label))
+            {
+                appConfig.Select(KeyFilter.Any, options.Label);
+            }
+
+            appConfig.ConfigureKeyVault(keyVault => keyVault.SetCredential(credential));
+        });
+
+        return builder;
     }
 }
 

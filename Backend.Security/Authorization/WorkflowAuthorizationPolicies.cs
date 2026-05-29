@@ -8,4 +8,5 @@ public static class WorkflowAuthorizationPolicies
     public const string RuntimeEngineer = nameof(RuntimeEngineer);
     public const string Auditor = nameof(Auditor);
     public const string Admin = nameof(Admin);
+    public const string InternalPublisher = nameof(InternalPublisher);
 }

@@ -1,0 +1,58 @@
+# Cheap WorkflowBuilder demo defaults. Copy to terraform.tfvars and replace image
+# references after your external build/push route has published containers.
+
+location         = "uksouth"
+project_name     = "workflow-builder"
+environment_name = "demo"
+
+enable_private_endpoints      = false
+enable_key_vault              = true
+enable_app_configuration      = true
+enable_container_registry     = true
+enable_keycloak               = false
+authentication_enabled        = false
+enable_static_web_app         = true
+enable_projection_worker      = false
+enable_maintenance_worker     = false
+enable_plugin_detector        = false
+enable_progress_broadcaster   = true
+enable_blueprint_seeding_job  = false
+enable_plugin_seeding_job     = false
+enable_observability_stack    = false
+
+api_min_replicas        = 0
+api_max_replicas        = 1
+signalr_min_replicas    = 0
+signalr_max_replicas    = 1
+engine_min_replicas     = 0
+engine_max_replicas     = 1
+dispatcher_min_replicas = 0
+dispatcher_max_replicas = 1
+
+default_cpu    = 0.25
+default_memory = "0.5Gi"
+engine_cpu     = 0.5
+engine_memory  = "1Gi"
+
+service_bus_sku          = "Basic"
+cosmos_free_tier_enabled = true
+cosmos_enable_serverless = false
+storage_replication_type = "LRS"
+
+# Replace these with images built from the repo Dockerfiles.
+# The defaults are harmless placeholders so Terraform can create service shells.
+# api_image               = "<acr>.azurecr.io/workflow-builder/backend-api:<tag>"
+# signalr_image           = "<acr>.azurecr.io/workflow-builder/backend-signalr:<tag>"
+# engine_image            = "<acr>.azurecr.io/workflow-builder/backend-engine:<tag>"
+# dispatcher_image        = "<acr>.azurecr.io/workflow-builder/backend-dispatcher:<tag>"
+# projection_worker_image = "<acr>.azurecr.io/workflow-builder/backend-projection-worker:<tag>"
+# maintenance_image       = "<acr>.azurecr.io/workflow-builder/backend-maintenance:<tag>"
+
+# To enable demo Keycloak-backed auth later:
+# enable_keycloak        = true
+# authentication_enabled = true
+# require_https_metadata = true
+# keycloak_admin_password = "<set a demo admin password>"
+
+# SQL password is generated when omitted. Set it explicitly for reproducible demos.
+# sql_admin_password = "<set a strong password>"

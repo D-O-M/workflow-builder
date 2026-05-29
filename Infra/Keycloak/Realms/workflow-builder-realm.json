@@ -13,7 +13,8 @@
       { "name": "workflowbuilder.blueprint_author" },
       { "name": "workflowbuilder.process_operator" },
       { "name": "workflowbuilder.runtime_engineer" },
-      { "name": "workflowbuilder.auditor" }
+      { "name": "workflowbuilder.auditor" },
+      { "name": "workflowbuilder.internal_publisher" }
     ]
   },
   "clients": [
@@ -64,6 +65,18 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false
+    },
+    {
+      "clientId": "workflow-builder-progress-broadcaster",
+      "name": "WorkflowBuilder Progress Broadcaster",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "developer",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
     }
   ],
   "users": [
@@ -86,7 +99,16 @@
         "workflowbuilder.blueprint_author",
         "workflowbuilder.process_operator",
         "workflowbuilder.runtime_engineer",
-        "workflowbuilder.auditor"
+        "workflowbuilder.auditor",
+        "workflowbuilder.internal_publisher"
+      ]
+    },
+    {
+      "username": "service-account-workflow-builder-progress-broadcaster",
+      "enabled": true,
+      "serviceAccountClientId": "workflow-builder-progress-broadcaster",
+      "realmRoles": [
+        "workflowbuilder.internal_publisher"
       ]
     }
   ]

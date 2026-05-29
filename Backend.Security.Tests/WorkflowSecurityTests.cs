@@ -102,6 +102,16 @@ public sealed class WorkflowSecurityTests
         denied.Allowed.ShouldBeFalse();
     }
 
+    [Test]
+    public void Development_actor_includes_internal_publisher_role()
+    {
+        var resolver = CreateResolver(authEnabled: false);
+
+        var actor = resolver.Resolve(null);
+
+        actor.IsInRole(WorkflowRoles.InternalPublisher).ShouldBeTrue();
+    }
+
     private static ClaimsPrincipalWorkflowActorResolver CreateResolver(bool authEnabled) =>
         new(
             new HttpContextAccessor(),

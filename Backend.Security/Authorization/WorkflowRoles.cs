@@ -7,6 +7,7 @@ public static class WorkflowRoles
     public const string ProcessOperator = "workflowbuilder.process_operator";
     public const string RuntimeEngineer = "workflowbuilder.runtime_engineer";
     public const string Auditor = "workflowbuilder.auditor";
+    public const string InternalPublisher = "workflowbuilder.internal_publisher";
 
     public static readonly string[] DevelopmentRoles =
     [
@@ -14,6 +15,7 @@ public static class WorkflowRoles
         BlueprintAuthor,
         ProcessOperator,
         RuntimeEngineer,
-        Auditor
+        Auditor,
+        InternalPublisher
     ];
 }

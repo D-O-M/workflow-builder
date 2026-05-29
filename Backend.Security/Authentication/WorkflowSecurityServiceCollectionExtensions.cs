@@ -100,5 +100,8 @@ public static class WorkflowSecurityServiceCollectionExtensions
         options.AddPolicy(
             WorkflowAuthorizationPolicies.Admin,
             policy => policy.RequireRole(WorkflowRoles.Admin));
+        options.AddPolicy(
+            WorkflowAuthorizationPolicies.InternalPublisher,
+            policy => policy.RequireRole(WorkflowRoles.InternalPublisher, WorkflowRoles.Admin));
     }
 }

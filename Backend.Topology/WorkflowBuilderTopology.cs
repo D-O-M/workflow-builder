@@ -139,6 +139,9 @@ public static class WorkflowBuilderTopology
         public const string HubRoute = "/hubs/processes";
         public const string InternalSubscriptionSnapshotRoute = "internal/subscriptions/snapshot";
         public const string InternalProcessEventsRoute = "internal/process-events";
+        public const string InternalPublisherSharedSecretKey = "Realtime:InternalPublisher:SharedSecret";
+        public const string InternalPublisherBearerTokenKey = "Realtime:InternalPublisher:BearerToken";
+        public const string InternalPublisherHeaderName = "X-WorkflowBuilder-Internal-Publisher";
         public const string ProcessSummaryUpdatedEvent = "processSummaryUpdated";
         public const string ProcessStepsUpdatedEvent = "processStepsUpdated";
         public const string BlueprintGroupPrefix = "blueprint:";
