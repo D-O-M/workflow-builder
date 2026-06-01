@@ -124,33 +124,35 @@ public static class Extensions
             .Get<WorkflowAzureAppConfigurationOptions>()
             ?? new WorkflowAzureAppConfigurationOptions();
 
-        if (!options.IsUsable)
+        if (options.IsUsable)
         {
-            return builder;
-        }
-
-        var credentialOptions = new DefaultAzureCredentialOptions();
-        if (!string.IsNullOrWhiteSpace(options.ManagedIdentityClientId))
-        {
-            credentialOptions.ManagedIdentityClientId = options.ManagedIdentityClientId;
-        }
-
-        var credential = new DefaultAzureCredential(credentialOptions);
-        builder.Configuration.AddAzureAppConfiguration(appConfig =>
-        {
-            appConfig.Connect(new Uri(options.Endpoint), credential);
-            if (options.IncludeNullLabel)
+            var credentialOptions = new DefaultAzureCredentialOptions();
+            if (!string.IsNullOrWhiteSpace(options.ManagedIdentityClientId))
             {
-                appConfig.Select(KeyFilter.Any, LabelFilter.Null);
+                credentialOptions.ManagedIdentityClientId = options.ManagedIdentityClientId;
             }
 
-            if (!string.IsNullOrWhiteSpace(options.Label))
+            var credential = new DefaultAzureCredential(credentialOptions);
+            builder.Configuration.AddAzureAppConfiguration(appConfig =>
             {
-                appConfig.Select(KeyFilter.Any, options.Label);
-            }
+                appConfig.Connect(new Uri(options.Endpoint), credential);
+                if (options.IncludeNullLabel)
+                {
+                    appConfig.Select(KeyFilter.Any, LabelFilter.Null);
+                }
 
-            appConfig.ConfigureKeyVault(keyVault => keyVault.SetCredential(credential));
-        });
+                if (!string.IsNullOrWhiteSpace(options.Label))
+                {
+                    appConfig.Select(KeyFilter.Any, options.Label);
+                }
+
+                appConfig.ConfigureKeyVault(keyVault => keyVault.SetCredential(credential));
+            });
+        }
+
+        // ACA and Functions env vars are intentionally only bootstrap and emergency override
+        // values. Add them last so services consume one normal IConfiguration surface.
+        builder.Configuration.AddEnvironmentVariables();
 
         return builder;
     }

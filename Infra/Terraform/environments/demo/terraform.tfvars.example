@@ -1,9 +1,12 @@
 # Cheap WorkflowBuilder demo defaults. Copy to terraform.tfvars and replace image
 # references after your external build/push route has published containers.
 
-location         = "uksouth"
+location         = "westeurope"
 project_name     = "workflow-builder"
 environment_name = "demo"
+
+# Static Web Apps is not available in every Azure region. West Europe is supported.
+static_web_app_location = "westeurope"
 
 enable_private_endpoints      = false
 enable_key_vault              = true
@@ -15,7 +18,7 @@ enable_static_web_app         = true
 enable_projection_worker      = false
 enable_maintenance_worker     = false
 enable_plugin_detector        = false
-enable_progress_broadcaster   = true
+enable_progress_broadcaster   = false
 enable_blueprint_seeding_job  = false
 enable_plugin_seeding_job     = false
 enable_observability_stack    = false

@@ -43,7 +43,7 @@ output "cosmos_account_name" {
 }
 
 output "service_bus_namespace_name" {
-  value = substr("${local.prefix}-sb", 0, 50)
+  value = substr("${local.prefix}-busns", 0, 50)
 }
 
 output "static_web_app_name" {

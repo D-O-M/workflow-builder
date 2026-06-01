@@ -69,6 +69,12 @@ variable "enable_static_web_app" {
   description = "Provision an Azure Static Web App shell for the Angular frontend."
 }
 
+variable "static_web_app_location" {
+  type        = string
+  default     = "westeurope"
+  description = "Azure Static Web Apps is available only in selected regions. Keep this separate from the main resource location."
+}
+
 variable "enable_keycloak" {
   type        = bool
   default     = false
@@ -362,7 +368,7 @@ variable "vnet_address_space" {
 
 variable "container_apps_subnet_cidr" {
   type    = string
-  default = "10.42.1.0/23"
+  default = "10.42.0.0/23"
 }
 
 variable "private_endpoints_subnet_cidr" {

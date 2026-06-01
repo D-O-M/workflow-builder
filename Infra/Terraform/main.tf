@@ -394,7 +394,7 @@ module "static_web_app" {
   source              = "./modules/static-web-app"
   name                = module.naming.static_web_app_name
   resource_group_name = module.resource_group.name
-  location            = module.resource_group.location
+  location            = var.static_web_app_location
   tags                = local.tags
 }
 

@@ -71,9 +71,17 @@ Services get only a small bootstrap environment:
 - `AzureAppConfiguration__ManagedIdentityClientId`
 - runtime environment and port values where needed
 
-The app loads Azure App Configuration before topology validation. Non-secret settings are stored directly with the environment label. Secrets are stored in Key Vault and referenced from App Configuration when `enable_key_vault=true`; otherwise the demo stores secret values directly in App Configuration.
+The app loads Azure App Configuration before topology validation, then re-adds environment variables as the final provider. That means ACA and Function App environment variables should stay minimal: App Configuration bootstrap values, managed identity client id, port/runtime values, and emergency overrides only. Normal app settings should live in Azure App Configuration.
+
+Non-secret settings are stored directly with the environment label. Secrets are stored in Key Vault and referenced from App Configuration when `enable_key_vault=true`; otherwise the demo stores secret values directly in App Configuration.
 
 The current app runtime still uses connection strings for SQL, Cosmos, Storage, and Service Bus. The Terraform keeps those as secrets and includes TODOs in comments/docs for later managed-identity data-plane clients.
+
+## Region And Trial Subscription Notes
+
+The demo example uses `westeurope` because Azure Static Web Apps is not available in every Azure region, including `uksouth` at the time this Terraform was written. If you choose a different primary region, keep `static_web_app_location` set to one of the supported Static Web Apps regions.
+
+The optional Functions workers create Linux Consumption plans. Some free/trial subscriptions have App Service total VM quota set to zero, which causes Function plan creation to fail with an additional quota message. Leave `enable_progress_broadcaster=false` and `enable_plugin_detector=false` until quota is available.
 
 ## Security Notes
 
