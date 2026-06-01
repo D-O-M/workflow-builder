@@ -1,0 +1,265 @@
+name: Build Service Images
+
+on:
+  workflow_dispatch:
+    inputs:
+      acr_name:
+        description: Azure Container Registry name. Falls back to vars.ACR_NAME.
+        required: false
+        type: string
+      acr_login_server:
+        description: ACR login server, for example myregistry.azurecr.io. Falls back to vars.ACR_LOGIN_SERVER.
+        required: false
+        type: string
+      image_namespace:
+        description: Image namespace/repository prefix. Falls back to vars.IMAGE_NAMESPACE, then workflow-builder.
+        required: false
+        type: string
+      image_tag:
+        description: Image tag. Falls back to vars.IMAGE_TAG, then the short commit SHA.
+        required: false
+        type: string
+      push_latest:
+        description: Set true to also push latest tags. Falls back to vars.PUSH_LATEST, then false.
+        required: false
+        type: string
+      build_configuration:
+        description: .NET build configuration passed to Dockerfiles.
+        required: false
+        type: string
+      platforms:
+        description: Docker target platform list.
+        required: false
+        type: string
+      azure_client_id:
+        description: Azure federated identity client id. Falls back to vars.AZURE_CLIENT_ID.
+        required: false
+        type: string
+      azure_tenant_id:
+        description: Azure tenant id. Falls back to vars.AZURE_TENANT_ID.
+        required: false
+        type: string
+      azure_subscription_id:
+        description: Azure subscription id. Falls back to vars.AZURE_SUBSCRIPTION_ID.
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      acr_name:
+        required: false
+        type: string
+      acr_login_server:
+        required: false
+        type: string
+      image_namespace:
+        required: false
+        type: string
+      image_tag:
+        required: false
+        type: string
+      push_latest:
+        required: false
+        type: string
+      build_configuration:
+        required: false
+        type: string
+      platforms:
+        required: false
+        type: string
+      azure_client_id:
+        required: false
+        type: string
+      azure_tenant_id:
+        required: false
+        type: string
+      azure_subscription_id:
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  prepare:
+    name: Resolve Destination
+    runs-on: ubuntu-latest
+    outputs:
+      acr-name: ${{ steps.resolve.outputs.acr-name }}
+      acr-login-server: ${{ steps.resolve.outputs.acr-login-server }}
+      image-namespace: ${{ steps.resolve.outputs.image-namespace }}
+      image-tag: ${{ steps.resolve.outputs.image-tag }}
+      push-latest: ${{ steps.resolve.outputs.push-latest }}
+      build-configuration: ${{ steps.resolve.outputs.build-configuration }}
+      platforms: ${{ steps.resolve.outputs.platforms }}
+      azure-client-id: ${{ steps.resolve.outputs.azure-client-id }}
+      azure-tenant-id: ${{ steps.resolve.outputs.azure-tenant-id }}
+      azure-subscription-id: ${{ steps.resolve.outputs.azure-subscription-id }}
+
+    steps:
+      - name: Resolve inputs and variables
+        id: resolve
+        shell: bash
+        env:
+          INPUT_ACR_NAME: ${{ inputs.acr_name }}
+          INPUT_ACR_LOGIN_SERVER: ${{ inputs.acr_login_server }}
+          INPUT_IMAGE_NAMESPACE: ${{ inputs.image_namespace }}
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+          INPUT_PUSH_LATEST: ${{ inputs.push_latest }}
+          INPUT_BUILD_CONFIGURATION: ${{ inputs.build_configuration }}
+          INPUT_PLATFORMS: ${{ inputs.platforms }}
+          INPUT_AZURE_CLIENT_ID: ${{ inputs.azure_client_id }}
+          INPUT_AZURE_TENANT_ID: ${{ inputs.azure_tenant_id }}
+          INPUT_AZURE_SUBSCRIPTION_ID: ${{ inputs.azure_subscription_id }}
+          VAR_ACR_NAME: ${{ vars.ACR_NAME }}
+          VAR_ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+          VAR_IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE }}
+          VAR_IMAGE_TAG: ${{ vars.IMAGE_TAG }}
+          VAR_PUSH_LATEST: ${{ vars.PUSH_LATEST }}
+          VAR_BUILD_CONFIGURATION: ${{ vars.BUILD_CONFIGURATION }}
+          VAR_PLATFORMS: ${{ vars.PLATFORMS }}
+          VAR_AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          VAR_AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          VAR_AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+
+          acr_name="${INPUT_ACR_NAME:-${VAR_ACR_NAME:-}}"
+          acr_login_server="${INPUT_ACR_LOGIN_SERVER:-${VAR_ACR_LOGIN_SERVER:-}}"
+          image_namespace="${INPUT_IMAGE_NAMESPACE:-${VAR_IMAGE_NAMESPACE:-workflow-builder}}"
+          image_tag="${INPUT_IMAGE_TAG:-${VAR_IMAGE_TAG:-${GITHUB_SHA::12}}}"
+          push_latest="${INPUT_PUSH_LATEST:-${VAR_PUSH_LATEST:-false}}"
+          build_configuration="${INPUT_BUILD_CONFIGURATION:-${VAR_BUILD_CONFIGURATION:-Release}}"
+          platforms="${INPUT_PLATFORMS:-${VAR_PLATFORMS:-linux/amd64}}"
+          azure_client_id="${INPUT_AZURE_CLIENT_ID:-${VAR_AZURE_CLIENT_ID:-}}"
+          azure_tenant_id="${INPUT_AZURE_TENANT_ID:-${VAR_AZURE_TENANT_ID:-}}"
+          azure_subscription_id="${INPUT_AZURE_SUBSCRIPTION_ID:-${VAR_AZURE_SUBSCRIPTION_ID:-}}"
+
+          acr_login_server="${acr_login_server#https://}"
+          acr_login_server="${acr_login_server#http://}"
+          acr_login_server="${acr_login_server%/}"
+          image_namespace="${image_namespace#/}"
+          image_namespace="${image_namespace%/}"
+          push_latest="$(printf '%s' "$push_latest" | tr '[:upper:]' '[:lower:]')"
+
+          if [ -z "$acr_name" ] && [ -n "$acr_login_server" ]; then
+            acr_name="${acr_login_server%%.*}"
+          fi
+
+          if [ -z "$acr_login_server" ] && [ -n "$acr_name" ]; then
+            acr_login_server="${acr_name}.azurecr.io"
+          fi
+
+          missing=()
+          [ -n "$acr_name" ] || missing+=("acr_name or vars.ACR_NAME")
+          [ -n "$acr_login_server" ] || missing+=("acr_login_server or vars.ACR_LOGIN_SERVER")
+          [ -n "$azure_client_id" ] || missing+=("azure_client_id or vars.AZURE_CLIENT_ID")
+          [ -n "$azure_tenant_id" ] || missing+=("azure_tenant_id or vars.AZURE_TENANT_ID")
+          [ -n "$azure_subscription_id" ] || missing+=("azure_subscription_id or vars.AZURE_SUBSCRIPTION_ID")
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required image build configuration:\n' >&2
+            printf '  - %s\n' "${missing[@]}" >&2
+            exit 1
+          fi
+
+          if [ "$push_latest" != "true" ] && [ "$push_latest" != "false" ]; then
+            printf 'push_latest must be true or false, got: %s\n' "$push_latest" >&2
+            exit 1
+          fi
+
+          {
+            echo "acr-name=$acr_name"
+            echo "acr-login-server=$acr_login_server"
+            echo "image-namespace=$image_namespace"
+            echo "image-tag=$image_tag"
+            echo "push-latest=$push_latest"
+            echo "build-configuration=$build_configuration"
+            echo "platforms=$platforms"
+            echo "azure-client-id=$azure_client_id"
+            echo "azure-tenant-id=$azure_tenant_id"
+            echo "azure-subscription-id=$azure_subscription_id"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Show image destination
+        shell: bash
+        run: |
+          {
+            echo "### Service image destination"
+            echo
+            echo "- Registry: \`${{ steps.resolve.outputs.acr-login-server }}\`"
+            echo "- Namespace: \`${{ steps.resolve.outputs.image-namespace }}\`"
+            echo "- Tag: \`${{ steps.resolve.outputs.image-tag }}\`"
+            echo "- Push latest: \`${{ steps.resolve.outputs.push-latest }}\`"
+            echo "- Platforms: \`${{ steps.resolve.outputs.platforms }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend-api
+            dockerfile: Backend.API/Dockerfile
+          - service: backend-signalr
+            dockerfile: Backend.SignalR/Dockerfile
+          - service: backend-engine
+            dockerfile: Backend.Engine/Dockerfile
+          - service: backend-dispatcher
+            dockerfile: Backend.Dispatcher/Dockerfile
+          - service: backend-projection-worker
+            dockerfile: Backend.ProjectionWorker/Dockerfile
+          - service: backend-maintenance
+            dockerfile: Backend.Maintenance/Dockerfile
+          - service: backend-progress-broadcaster
+            dockerfile: Backend.Functions.ProgressBroadcaster/Dockerfile
+          - service: backend-plugin-detector
+            dockerfile: Backend.Functions.PluginDetector/Dockerfile
+
+    steps:
+      - name: Check Out Repository
+        uses: actions/checkout@v4
+
+      - name: Log In To Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ needs.prepare.outputs.azure-client-id }}
+          tenant-id: ${{ needs.prepare.outputs.azure-tenant-id }}
+          subscription-id: ${{ needs.prepare.outputs.azure-subscription-id }}
+
+      - name: Log In To ACR
+        run: az acr login --name "${{ needs.prepare.outputs.acr-name }}"
+
+      - name: Set Up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve image tags
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image="${{ needs.prepare.outputs.acr-login-server }}/${{ needs.prepare.outputs.image-namespace }}/${{ matrix.service }}"
+          {
+            echo "tags<<EOF"
+            echo "$image:${{ needs.prepare.outputs.image-tag }}"
+            if [ "${{ needs.prepare.outputs.push-latest }}" = "true" ]; then
+              echo "$image:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build And Push Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ needs.prepare.outputs.platforms }}
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          build-args: |
+            BUILD_CONFIGURATION=${{ needs.prepare.outputs.build-configuration }}
+          provenance: false

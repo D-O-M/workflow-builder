@@ -49,15 +49,17 @@ Cosmos free tier can only be enabled when creating the Cosmos account. Azure SQL
 Terraform accepts prebuilt image references such as:
 
 ```hcl
-api_image        = "<acr>.azurecr.io/workflow-builder/backend-api:demo"
-signalr_image    = "<acr>.azurecr.io/workflow-builder/backend-signalr:demo"
-engine_image     = "<acr>.azurecr.io/workflow-builder/backend-engine:demo"
-dispatcher_image = "<acr>.azurecr.io/workflow-builder/backend-dispatcher:demo"
+api_image               = "<acr>.azurecr.io/workflow-builder/backend-api:<tag>"
+signalr_image           = "<acr>.azurecr.io/workflow-builder/backend-signalr:<tag>"
+engine_image            = "<acr>.azurecr.io/workflow-builder/backend-engine:<tag>"
+dispatcher_image        = "<acr>.azurecr.io/workflow-builder/backend-dispatcher:<tag>"
+projection_worker_image = "<acr>.azurecr.io/workflow-builder/backend-projection-worker:<tag>"
+maintenance_image       = "<acr>.azurecr.io/workflow-builder/backend-maintenance:<tag>"
 ```
 
-The default image values are harmless placeholders so service shells can be created before your image deployment route is ready. Use the Dockerfiles under each service project to build/push images through CI or CLI.
+The default image values are harmless placeholders so service shells can be created before your image deployment route is ready. `.github/workflows/build-service-images.yml` builds and pushes Linux images for the backend service Dockerfiles to ACR using Azure OIDC. Configure `ACR_NAME`, `ACR_LOGIN_SERVER`, `IMAGE_NAMESPACE`, `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` as GitHub repository/environment variables, or pass matching workflow inputs when running it manually or as a reusable workflow. The Azure federated identity needs `AcrPush` on the target registry.
 
-Function App shells are created when enabled, but Terraform does not deploy Function code packages. Deploy `Backend.Functions.ProgressBroadcaster` and `Backend.Functions.PluginDetector` through your preferred Functions deployment route.
+The image workflow also publishes `backend-progress-broadcaster` and `backend-plugin-detector` images for future containerized worker routes. Function App shells are created when enabled, but the current Terraform Function App path does not consume those images or deploy Function code packages. Deploy `Backend.Functions.ProgressBroadcaster` and `Backend.Functions.PluginDetector` through your preferred Functions deployment route.
 
 Static Web Apps is provisioned but the Angular app is not uploaded by Terraform. Deploy the UI separately, then use the `frontend_url`, `api_url`, and `signalr_url` outputs to verify runtime config from `/api/client-config`.
 
