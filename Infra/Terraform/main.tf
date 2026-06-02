@@ -99,7 +99,7 @@ module "sql" {
   server_name                   = module.naming.sql_server_name
   database_name                 = var.sql_database_name
   resource_group_name           = module.resource_group.name
-  location                      = module.resource_group.location
+  location                      = var.sql_location != "" ? var.sql_location : module.resource_group.location
   administrator_login           = var.sql_admin_username
   administrator_password        = local.sql_admin_password
   sku_name                      = var.sql_sku_name
@@ -114,7 +114,7 @@ module "cosmos" {
   account_name        = module.naming.cosmos_account_name
   database_name       = var.cosmos_database_name
   resource_group_name = module.resource_group.name
-  location            = module.resource_group.location
+  location            = var.cosmos_location != "" ? var.cosmos_location : module.resource_group.location
   free_tier_enabled   = var.cosmos_free_tier_enabled
   serverless_enabled  = var.cosmos_enable_serverless
   containers          = local.cosmos_containers

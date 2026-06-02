@@ -1,12 +1,17 @@
 # Cheap WorkflowBuilder demo defaults. Copy to terraform.tfvars and replace image
 # references after your external build/push route has published containers.
 
-location         = "westeurope"
+location         = "ukwest"
 project_name     = "workflow-builder"
 environment_name = "demo"
 
 # Static Web Apps is not available in every Azure region. West Europe is supported.
 static_web_app_location = "westeurope"
+
+# Trial subscriptions can be region-restricted for data services even when the
+# primary region works for other resources.
+sql_location    = "swedencentral"
+cosmos_location = "swedencentral"
 
 enable_private_endpoints      = false
 enable_key_vault              = true

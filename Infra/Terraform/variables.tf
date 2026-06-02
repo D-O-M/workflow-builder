@@ -308,6 +308,12 @@ variable "sql_database_name" {
   default = "TasksDB"
 }
 
+variable "sql_location" {
+  type        = string
+  default     = ""
+  description = "Optional Azure region override for Azure SQL. Defaults to the primary location when empty."
+}
+
 variable "sql_admin_username" {
   type    = string
   default = "workflowadmin"
@@ -334,6 +340,12 @@ variable "sql_sku_name" {
 variable "cosmos_database_name" {
   type    = string
   default = "enginedb"
+}
+
+variable "cosmos_location" {
+  type        = string
+  default     = ""
+  description = "Optional Azure region override for Cosmos DB. Defaults to the primary location when empty."
 }
 
 variable "cosmos_free_tier_enabled" {

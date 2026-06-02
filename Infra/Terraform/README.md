@@ -81,7 +81,9 @@ The current app runtime still uses connection strings for SQL, Cosmos, Storage, 
 
 ## Region And Trial Subscription Notes
 
-The demo example uses `westeurope` because Azure Static Web Apps is not available in every Azure region, including `uksouth` at the time this Terraform was written. If you choose a different primary region, keep `static_web_app_location` set to one of the supported Static Web Apps regions.
+The demo example uses `ukwest` for the primary resources and `westeurope` for Static Web Apps because Azure Static Web Apps is not available in every Azure region, including `uksouth` and `ukwest` at the time this Terraform was written. If you choose a different primary region, keep `static_web_app_location` set to one of the supported Static Web Apps regions.
+
+Azure SQL and Cosmos DB can be more tightly restricted on trial/free subscriptions than Container Apps or Storage. The demo example keeps the primary app resources in `ukwest` but sets `sql_location` and `cosmos_location` to `swedencentral` so data-plane capacity can be adjusted independently when Azure reports regional provisioning restrictions.
 
 The optional Functions workers create Linux Consumption plans. Some free/trial subscriptions have App Service total VM quota set to zero, which causes Function plan creation to fail with an additional quota message. Leave `enable_progress_broadcaster=false` and `enable_plugin_detector=false` until quota is available.
 
