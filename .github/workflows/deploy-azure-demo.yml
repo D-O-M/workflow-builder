@@ -1,0 +1,792 @@
+name: Deploy Azure Demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: GitHub environment name. Falls back to vars.DEPLOY_ENVIRONMENT_NAME, then demo.
+        required: false
+        type: string
+      resource_group_name:
+        description: Azure resource group created by Terraform. Falls back to vars.AZURE_RESOURCE_GROUP.
+        required: false
+        type: string
+      acr_name:
+        description: Azure Container Registry name. Falls back to vars.ACR_NAME.
+        required: false
+        type: string
+      acr_login_server:
+        description: ACR login server. Falls back to vars.ACR_LOGIN_SERVER.
+        required: false
+        type: string
+      image_namespace:
+        description: Image namespace. Falls back to vars.IMAGE_NAMESPACE, then workflow-builder.
+        required: false
+        type: string
+      image_tag:
+        description: Image tag. Falls back to vars.IMAGE_TAG, then short commit SHA.
+        required: false
+        type: string
+      build_images:
+        description: Build and push service images before deploying.
+        required: false
+        type: string
+      push_latest:
+        description: Also push latest image tags when building images.
+        required: false
+        type: string
+      build_configuration:
+        description: .NET build configuration.
+        required: false
+        type: string
+      platforms:
+        description: Docker build platform list.
+        required: false
+        type: string
+      deploy_projection_worker:
+        description: Deploy backend-projection-worker Container App.
+        required: false
+        type: string
+      deploy_maintenance_worker:
+        description: Deploy backend-maintenance Container App.
+        required: false
+        type: string
+      deploy_progress_broadcaster:
+        description: Deploy ProgressBroadcaster Function App package.
+        required: false
+        type: string
+      deploy_plugin_detector:
+        description: Deploy PluginDetector Function App package.
+        required: false
+        type: string
+      deploy_static_web_app:
+        description: Build and upload Angular app to Azure Static Web Apps.
+        required: false
+        type: string
+      deploy_plugin_bundles:
+        description: Build canonical plugin bundles and upload them to the plugins blob container.
+        required: false
+        type: string
+      run_database_migrations:
+        description: Run Backend.Database.MigrationService against Azure App Configuration.
+        required: false
+        type: string
+      api_container_app_name:
+        description: Backend.API Container App name.
+        required: false
+        type: string
+      signalr_container_app_name:
+        description: Backend.SignalR Container App name.
+        required: false
+        type: string
+      engine_container_app_name:
+        description: Backend.Engine Container App name.
+        required: false
+        type: string
+      dispatcher_container_app_name:
+        description: Backend.Dispatcher Container App name.
+        required: false
+        type: string
+      storage_account_name:
+        description: Storage account for plugin bundle upload.
+        required: false
+        type: string
+      plugins_container_name:
+        description: Blob container for plugin bundle upload.
+        required: false
+        type: string
+      app_configuration_endpoint:
+        description: Azure App Configuration endpoint for optional database migrations.
+        required: false
+        type: string
+      plugin_runtime_identifier:
+        description: Runtime identifier for canonical plugin bundles.
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      target_environment:
+        required: false
+        type: string
+      resource_group_name:
+        required: false
+        type: string
+      acr_name:
+        required: false
+        type: string
+      acr_login_server:
+        required: false
+        type: string
+      image_namespace:
+        required: false
+        type: string
+      image_tag:
+        required: false
+        type: string
+      build_images:
+        required: false
+        type: string
+      push_latest:
+        required: false
+        type: string
+      build_configuration:
+        required: false
+        type: string
+      platforms:
+        required: false
+        type: string
+      deploy_projection_worker:
+        required: false
+        type: string
+      deploy_maintenance_worker:
+        required: false
+        type: string
+      deploy_progress_broadcaster:
+        required: false
+        type: string
+      deploy_plugin_detector:
+        required: false
+        type: string
+      deploy_static_web_app:
+        required: false
+        type: string
+      deploy_plugin_bundles:
+        required: false
+        type: string
+      run_database_migrations:
+        required: false
+        type: string
+      api_container_app_name:
+        required: false
+        type: string
+      signalr_container_app_name:
+        required: false
+        type: string
+      engine_container_app_name:
+        required: false
+        type: string
+      dispatcher_container_app_name:
+        required: false
+        type: string
+      projection_worker_container_app_name:
+        required: false
+        type: string
+      maintenance_container_app_name:
+        required: false
+        type: string
+      progress_broadcaster_function_app_name:
+        required: false
+        type: string
+      plugin_detector_function_app_name:
+        required: false
+        type: string
+      storage_account_name:
+        required: false
+        type: string
+      plugins_container_name:
+        required: false
+        type: string
+      app_configuration_endpoint:
+        required: false
+        type: string
+      plugin_runtime_identifier:
+        required: false
+        type: string
+      azure_client_id:
+        required: false
+        type: string
+      azure_tenant_id:
+        required: false
+        type: string
+      azure_subscription_id:
+        required: false
+        type: string
+    secrets:
+      azure_static_web_apps_api_token:
+        required: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  resolve:
+    name: Resolve Deployment Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      target-environment: ${{ steps.resolve.outputs.target-environment }}
+      resource-group-name: ${{ steps.resolve.outputs.resource-group-name }}
+      acr-name: ${{ steps.resolve.outputs.acr-name }}
+      acr-login-server: ${{ steps.resolve.outputs.acr-login-server }}
+      image-namespace: ${{ steps.resolve.outputs.image-namespace }}
+      image-tag: ${{ steps.resolve.outputs.image-tag }}
+      build-images: ${{ steps.resolve.outputs.build-images }}
+      push-latest: ${{ steps.resolve.outputs.push-latest }}
+      build-configuration: ${{ steps.resolve.outputs.build-configuration }}
+      platforms: ${{ steps.resolve.outputs.platforms }}
+      deploy-projection-worker: ${{ steps.resolve.outputs.deploy-projection-worker }}
+      deploy-maintenance-worker: ${{ steps.resolve.outputs.deploy-maintenance-worker }}
+      deploy-progress-broadcaster: ${{ steps.resolve.outputs.deploy-progress-broadcaster }}
+      deploy-plugin-detector: ${{ steps.resolve.outputs.deploy-plugin-detector }}
+      deploy-static-web-app: ${{ steps.resolve.outputs.deploy-static-web-app }}
+      deploy-plugin-bundles: ${{ steps.resolve.outputs.deploy-plugin-bundles }}
+      run-database-migrations: ${{ steps.resolve.outputs.run-database-migrations }}
+      api-container-app-name: ${{ steps.resolve.outputs.api-container-app-name }}
+      signalr-container-app-name: ${{ steps.resolve.outputs.signalr-container-app-name }}
+      engine-container-app-name: ${{ steps.resolve.outputs.engine-container-app-name }}
+      dispatcher-container-app-name: ${{ steps.resolve.outputs.dispatcher-container-app-name }}
+      projection-worker-container-app-name: ${{ steps.resolve.outputs.projection-worker-container-app-name }}
+      maintenance-container-app-name: ${{ steps.resolve.outputs.maintenance-container-app-name }}
+      progress-broadcaster-function-app-name: ${{ steps.resolve.outputs.progress-broadcaster-function-app-name }}
+      plugin-detector-function-app-name: ${{ steps.resolve.outputs.plugin-detector-function-app-name }}
+      storage-account-name: ${{ steps.resolve.outputs.storage-account-name }}
+      plugins-container-name: ${{ steps.resolve.outputs.plugins-container-name }}
+      app-configuration-endpoint: ${{ steps.resolve.outputs.app-configuration-endpoint }}
+      plugin-runtime-identifier: ${{ steps.resolve.outputs.plugin-runtime-identifier }}
+      azure-client-id: ${{ steps.resolve.outputs.azure-client-id }}
+      azure-tenant-id: ${{ steps.resolve.outputs.azure-tenant-id }}
+      azure-subscription-id: ${{ steps.resolve.outputs.azure-subscription-id }}
+    steps:
+      - name: Resolve and validate inputs
+        id: resolve
+        shell: bash
+        env:
+          INPUT_TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
+          INPUT_RESOURCE_GROUP_NAME: ${{ inputs.resource_group_name }}
+          INPUT_ACR_NAME: ${{ inputs.acr_name }}
+          INPUT_ACR_LOGIN_SERVER: ${{ inputs.acr_login_server }}
+          INPUT_IMAGE_NAMESPACE: ${{ inputs.image_namespace }}
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+          INPUT_BUILD_IMAGES: ${{ inputs.build_images }}
+          INPUT_PUSH_LATEST: ${{ inputs.push_latest }}
+          INPUT_BUILD_CONFIGURATION: ${{ inputs.build_configuration }}
+          INPUT_PLATFORMS: ${{ inputs.platforms }}
+          INPUT_DEPLOY_PROJECTION_WORKER: ${{ inputs.deploy_projection_worker }}
+          INPUT_DEPLOY_MAINTENANCE_WORKER: ${{ inputs.deploy_maintenance_worker }}
+          INPUT_DEPLOY_PROGRESS_BROADCASTER: ${{ inputs.deploy_progress_broadcaster }}
+          INPUT_DEPLOY_PLUGIN_DETECTOR: ${{ inputs.deploy_plugin_detector }}
+          INPUT_DEPLOY_STATIC_WEB_APP: ${{ inputs.deploy_static_web_app }}
+          INPUT_DEPLOY_PLUGIN_BUNDLES: ${{ inputs.deploy_plugin_bundles }}
+          INPUT_RUN_DATABASE_MIGRATIONS: ${{ inputs.run_database_migrations }}
+          INPUT_API_CONTAINER_APP_NAME: ${{ inputs.api_container_app_name }}
+          INPUT_SIGNALR_CONTAINER_APP_NAME: ${{ inputs.signalr_container_app_name }}
+          INPUT_ENGINE_CONTAINER_APP_NAME: ${{ inputs.engine_container_app_name }}
+          INPUT_DISPATCHER_CONTAINER_APP_NAME: ${{ inputs.dispatcher_container_app_name }}
+          INPUT_PROJECTION_WORKER_CONTAINER_APP_NAME: ${{ inputs.projection_worker_container_app_name }}
+          INPUT_MAINTENANCE_CONTAINER_APP_NAME: ${{ inputs.maintenance_container_app_name }}
+          INPUT_PROGRESS_BROADCASTER_FUNCTION_APP_NAME: ${{ inputs.progress_broadcaster_function_app_name }}
+          INPUT_PLUGIN_DETECTOR_FUNCTION_APP_NAME: ${{ inputs.plugin_detector_function_app_name }}
+          INPUT_STORAGE_ACCOUNT_NAME: ${{ inputs.storage_account_name }}
+          INPUT_PLUGINS_CONTAINER_NAME: ${{ inputs.plugins_container_name }}
+          INPUT_APP_CONFIGURATION_ENDPOINT: ${{ inputs.app_configuration_endpoint }}
+          INPUT_PLUGIN_RUNTIME_IDENTIFIER: ${{ inputs.plugin_runtime_identifier }}
+          INPUT_AZURE_CLIENT_ID: ${{ inputs.azure_client_id }}
+          INPUT_AZURE_TENANT_ID: ${{ inputs.azure_tenant_id }}
+          INPUT_AZURE_SUBSCRIPTION_ID: ${{ inputs.azure_subscription_id }}
+          VAR_TARGET_ENVIRONMENT: ${{ vars.DEPLOY_ENVIRONMENT_NAME }}
+          VAR_RESOURCE_GROUP_NAME: ${{ vars.AZURE_RESOURCE_GROUP }}
+          VAR_ACR_NAME: ${{ vars.ACR_NAME }}
+          VAR_ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+          VAR_IMAGE_NAMESPACE: ${{ vars.IMAGE_NAMESPACE }}
+          VAR_IMAGE_TAG: ${{ vars.IMAGE_TAG }}
+          VAR_BUILD_IMAGES: ${{ vars.BUILD_IMAGES }}
+          VAR_PUSH_LATEST: ${{ vars.PUSH_LATEST }}
+          VAR_BUILD_CONFIGURATION: ${{ vars.BUILD_CONFIGURATION }}
+          VAR_PLATFORMS: ${{ vars.PLATFORMS }}
+          VAR_DEPLOY_PROJECTION_WORKER: ${{ vars.DEPLOY_PROJECTION_WORKER }}
+          VAR_DEPLOY_MAINTENANCE_WORKER: ${{ vars.DEPLOY_MAINTENANCE_WORKER }}
+          VAR_DEPLOY_PROGRESS_BROADCASTER: ${{ vars.DEPLOY_PROGRESS_BROADCASTER }}
+          VAR_DEPLOY_PLUGIN_DETECTOR: ${{ vars.DEPLOY_PLUGIN_DETECTOR }}
+          VAR_DEPLOY_STATIC_WEB_APP: ${{ vars.DEPLOY_STATIC_WEB_APP }}
+          VAR_DEPLOY_PLUGIN_BUNDLES: ${{ vars.DEPLOY_PLUGIN_BUNDLES }}
+          VAR_RUN_DATABASE_MIGRATIONS: ${{ vars.RUN_DATABASE_MIGRATIONS }}
+          VAR_API_CONTAINER_APP_NAME: ${{ vars.BACKEND_API_CONTAINER_APP_NAME }}
+          VAR_SIGNALR_CONTAINER_APP_NAME: ${{ vars.BACKEND_SIGNALR_CONTAINER_APP_NAME }}
+          VAR_ENGINE_CONTAINER_APP_NAME: ${{ vars.BACKEND_ENGINE_CONTAINER_APP_NAME }}
+          VAR_DISPATCHER_CONTAINER_APP_NAME: ${{ vars.BACKEND_DISPATCHER_CONTAINER_APP_NAME }}
+          VAR_PROJECTION_WORKER_CONTAINER_APP_NAME: ${{ vars.BACKEND_PROJECTION_WORKER_CONTAINER_APP_NAME }}
+          VAR_MAINTENANCE_CONTAINER_APP_NAME: ${{ vars.BACKEND_MAINTENANCE_CONTAINER_APP_NAME }}
+          VAR_PROGRESS_BROADCASTER_FUNCTION_APP_NAME: ${{ vars.PROGRESS_BROADCASTER_FUNCTION_APP_NAME }}
+          VAR_PLUGIN_DETECTOR_FUNCTION_APP_NAME: ${{ vars.PLUGIN_DETECTOR_FUNCTION_APP_NAME }}
+          VAR_STORAGE_ACCOUNT_NAME: ${{ vars.AZURE_STORAGE_ACCOUNT_NAME }}
+          VAR_PLUGINS_CONTAINER_NAME: ${{ vars.PLUGINS_CONTAINER_NAME }}
+          VAR_APP_CONFIGURATION_ENDPOINT: ${{ vars.AZURE_APP_CONFIGURATION_ENDPOINT }}
+          VAR_PLUGIN_RUNTIME_IDENTIFIER: ${{ vars.PLUGIN_RUNTIME_IDENTIFIER }}
+          VAR_AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          VAR_AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          VAR_AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+
+          first_non_empty() {
+            for value in "$@"; do
+              if [ -n "${value:-}" ]; then
+                printf '%s' "$value"
+                return 0
+              fi
+            done
+          }
+
+          normalize_bool() {
+            local name="$1"
+            local value="$2"
+            value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+            case "$value" in
+              true|1|yes|y|on) printf 'true' ;;
+              false|0|no|n|off|'') printf 'false' ;;
+              *) printf '%s must be true or false, got: %s\n' "$name" "$value" >&2; exit 1 ;;
+            esac
+          }
+
+          target_environment="$(first_non_empty "$INPUT_TARGET_ENVIRONMENT" "$VAR_TARGET_ENVIRONMENT" "demo")"
+          resource_group_name="$(first_non_empty "$INPUT_RESOURCE_GROUP_NAME" "$VAR_RESOURCE_GROUP_NAME")"
+          acr_name="$(first_non_empty "$INPUT_ACR_NAME" "$VAR_ACR_NAME")"
+          acr_login_server="$(first_non_empty "$INPUT_ACR_LOGIN_SERVER" "$VAR_ACR_LOGIN_SERVER")"
+          image_namespace="$(first_non_empty "$INPUT_IMAGE_NAMESPACE" "$VAR_IMAGE_NAMESPACE" "workflow-builder")"
+          image_tag="$(first_non_empty "$INPUT_IMAGE_TAG" "$VAR_IMAGE_TAG" "${GITHUB_SHA::12}")"
+          build_images="$(normalize_bool build_images "$(first_non_empty "$INPUT_BUILD_IMAGES" "$VAR_BUILD_IMAGES" "true")")"
+          push_latest="$(normalize_bool push_latest "$(first_non_empty "$INPUT_PUSH_LATEST" "$VAR_PUSH_LATEST" "false")")"
+          build_configuration="$(first_non_empty "$INPUT_BUILD_CONFIGURATION" "$VAR_BUILD_CONFIGURATION" "Release")"
+          platforms="$(first_non_empty "$INPUT_PLATFORMS" "$VAR_PLATFORMS" "linux/amd64")"
+          deploy_projection_worker="$(normalize_bool deploy_projection_worker "$(first_non_empty "$INPUT_DEPLOY_PROJECTION_WORKER" "$VAR_DEPLOY_PROJECTION_WORKER" "false")")"
+          deploy_maintenance_worker="$(normalize_bool deploy_maintenance_worker "$(first_non_empty "$INPUT_DEPLOY_MAINTENANCE_WORKER" "$VAR_DEPLOY_MAINTENANCE_WORKER" "false")")"
+          deploy_progress_broadcaster="$(normalize_bool deploy_progress_broadcaster "$(first_non_empty "$INPUT_DEPLOY_PROGRESS_BROADCASTER" "$VAR_DEPLOY_PROGRESS_BROADCASTER" "false")")"
+          deploy_plugin_detector="$(normalize_bool deploy_plugin_detector "$(first_non_empty "$INPUT_DEPLOY_PLUGIN_DETECTOR" "$VAR_DEPLOY_PLUGIN_DETECTOR" "false")")"
+          deploy_static_web_app="$(normalize_bool deploy_static_web_app "$(first_non_empty "$INPUT_DEPLOY_STATIC_WEB_APP" "$VAR_DEPLOY_STATIC_WEB_APP" "true")")"
+          deploy_plugin_bundles="$(normalize_bool deploy_plugin_bundles "$(first_non_empty "$INPUT_DEPLOY_PLUGIN_BUNDLES" "$VAR_DEPLOY_PLUGIN_BUNDLES" "true")")"
+          run_database_migrations="$(normalize_bool run_database_migrations "$(first_non_empty "$INPUT_RUN_DATABASE_MIGRATIONS" "$VAR_RUN_DATABASE_MIGRATIONS" "false")")"
+          api_container_app_name="$(first_non_empty "$INPUT_API_CONTAINER_APP_NAME" "$VAR_API_CONTAINER_APP_NAME")"
+          signalr_container_app_name="$(first_non_empty "$INPUT_SIGNALR_CONTAINER_APP_NAME" "$VAR_SIGNALR_CONTAINER_APP_NAME")"
+          engine_container_app_name="$(first_non_empty "$INPUT_ENGINE_CONTAINER_APP_NAME" "$VAR_ENGINE_CONTAINER_APP_NAME")"
+          dispatcher_container_app_name="$(first_non_empty "$INPUT_DISPATCHER_CONTAINER_APP_NAME" "$VAR_DISPATCHER_CONTAINER_APP_NAME")"
+          projection_worker_container_app_name="$(first_non_empty "$INPUT_PROJECTION_WORKER_CONTAINER_APP_NAME" "$VAR_PROJECTION_WORKER_CONTAINER_APP_NAME")"
+          maintenance_container_app_name="$(first_non_empty "$INPUT_MAINTENANCE_CONTAINER_APP_NAME" "$VAR_MAINTENANCE_CONTAINER_APP_NAME")"
+          progress_broadcaster_function_app_name="$(first_non_empty "$INPUT_PROGRESS_BROADCASTER_FUNCTION_APP_NAME" "$VAR_PROGRESS_BROADCASTER_FUNCTION_APP_NAME")"
+          plugin_detector_function_app_name="$(first_non_empty "$INPUT_PLUGIN_DETECTOR_FUNCTION_APP_NAME" "$VAR_PLUGIN_DETECTOR_FUNCTION_APP_NAME")"
+          storage_account_name="$(first_non_empty "$INPUT_STORAGE_ACCOUNT_NAME" "$VAR_STORAGE_ACCOUNT_NAME")"
+          plugins_container_name="$(first_non_empty "$INPUT_PLUGINS_CONTAINER_NAME" "$VAR_PLUGINS_CONTAINER_NAME" "plugins")"
+          app_configuration_endpoint="$(first_non_empty "$INPUT_APP_CONFIGURATION_ENDPOINT" "$VAR_APP_CONFIGURATION_ENDPOINT")"
+          plugin_runtime_identifier="$(first_non_empty "$INPUT_PLUGIN_RUNTIME_IDENTIFIER" "$VAR_PLUGIN_RUNTIME_IDENTIFIER" "linux-x64")"
+          azure_client_id="$(first_non_empty "$INPUT_AZURE_CLIENT_ID" "$VAR_AZURE_CLIENT_ID")"
+          azure_tenant_id="$(first_non_empty "$INPUT_AZURE_TENANT_ID" "$VAR_AZURE_TENANT_ID")"
+          azure_subscription_id="$(first_non_empty "$INPUT_AZURE_SUBSCRIPTION_ID" "$VAR_AZURE_SUBSCRIPTION_ID")"
+
+          acr_login_server="${acr_login_server#https://}"
+          acr_login_server="${acr_login_server#http://}"
+          acr_login_server="${acr_login_server%/}"
+          image_namespace="${image_namespace#/}"
+          image_namespace="${image_namespace%/}"
+
+          if [ -z "$acr_name" ] && [ -n "$acr_login_server" ]; then
+            acr_name="${acr_login_server%%.*}"
+          fi
+          if [ -z "$acr_login_server" ] && [ -n "$acr_name" ]; then
+            acr_login_server="${acr_name}.azurecr.io"
+          fi
+
+          missing=()
+          [ -n "$resource_group_name" ] || missing+=("resource_group_name or vars.AZURE_RESOURCE_GROUP")
+          [ -n "$azure_client_id" ] || missing+=("azure_client_id or vars.AZURE_CLIENT_ID")
+          [ -n "$azure_tenant_id" ] || missing+=("azure_tenant_id or vars.AZURE_TENANT_ID")
+          [ -n "$azure_subscription_id" ] || missing+=("azure_subscription_id or vars.AZURE_SUBSCRIPTION_ID")
+          [ -n "$acr_name" ] || missing+=("acr_name or vars.ACR_NAME")
+          [ -n "$acr_login_server" ] || missing+=("acr_login_server or vars.ACR_LOGIN_SERVER")
+          [ -n "$api_container_app_name" ] || missing+=("api_container_app_name or vars.BACKEND_API_CONTAINER_APP_NAME")
+          [ -n "$signalr_container_app_name" ] || missing+=("signalr_container_app_name or vars.BACKEND_SIGNALR_CONTAINER_APP_NAME")
+          [ -n "$engine_container_app_name" ] || missing+=("engine_container_app_name or vars.BACKEND_ENGINE_CONTAINER_APP_NAME")
+          [ -n "$dispatcher_container_app_name" ] || missing+=("dispatcher_container_app_name or vars.BACKEND_DISPATCHER_CONTAINER_APP_NAME")
+
+          if [ "$deploy_projection_worker" = "true" ] && [ -z "$projection_worker_container_app_name" ]; then
+            missing+=("projection_worker_container_app_name or vars.BACKEND_PROJECTION_WORKER_CONTAINER_APP_NAME")
+          fi
+          if [ "$deploy_maintenance_worker" = "true" ] && [ -z "$maintenance_container_app_name" ]; then
+            missing+=("maintenance_container_app_name or vars.BACKEND_MAINTENANCE_CONTAINER_APP_NAME")
+          fi
+          if [ "$deploy_progress_broadcaster" = "true" ] && [ -z "$progress_broadcaster_function_app_name" ]; then
+            missing+=("progress_broadcaster_function_app_name or vars.PROGRESS_BROADCASTER_FUNCTION_APP_NAME")
+          fi
+          if [ "$deploy_plugin_detector" = "true" ] && [ -z "$plugin_detector_function_app_name" ]; then
+            missing+=("plugin_detector_function_app_name or vars.PLUGIN_DETECTOR_FUNCTION_APP_NAME")
+          fi
+          if [ "$deploy_plugin_bundles" = "true" ] && [ -z "$storage_account_name" ]; then
+            missing+=("storage_account_name or vars.AZURE_STORAGE_ACCOUNT_NAME")
+          fi
+          if [ "$run_database_migrations" = "true" ] && [ -z "$app_configuration_endpoint" ]; then
+            missing+=("app_configuration_endpoint or vars.AZURE_APP_CONFIGURATION_ENDPOINT")
+          fi
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required deployment configuration:\n' >&2
+            printf '  - %s\n' "${missing[@]}" >&2
+            exit 1
+          fi
+
+          {
+            echo "target-environment=$target_environment"
+            echo "resource-group-name=$resource_group_name"
+            echo "acr-name=$acr_name"
+            echo "acr-login-server=$acr_login_server"
+            echo "image-namespace=$image_namespace"
+            echo "image-tag=$image_tag"
+            echo "build-images=$build_images"
+            echo "push-latest=$push_latest"
+            echo "build-configuration=$build_configuration"
+            echo "platforms=$platforms"
+            echo "deploy-projection-worker=$deploy_projection_worker"
+            echo "deploy-maintenance-worker=$deploy_maintenance_worker"
+            echo "deploy-progress-broadcaster=$deploy_progress_broadcaster"
+            echo "deploy-plugin-detector=$deploy_plugin_detector"
+            echo "deploy-static-web-app=$deploy_static_web_app"
+            echo "deploy-plugin-bundles=$deploy_plugin_bundles"
+            echo "run-database-migrations=$run_database_migrations"
+            echo "api-container-app-name=$api_container_app_name"
+            echo "signalr-container-app-name=$signalr_container_app_name"
+            echo "engine-container-app-name=$engine_container_app_name"
+            echo "dispatcher-container-app-name=$dispatcher_container_app_name"
+            echo "projection-worker-container-app-name=$projection_worker_container_app_name"
+            echo "maintenance-container-app-name=$maintenance_container_app_name"
+            echo "progress-broadcaster-function-app-name=$progress_broadcaster_function_app_name"
+            echo "plugin-detector-function-app-name=$plugin_detector_function_app_name"
+            echo "storage-account-name=$storage_account_name"
+            echo "plugins-container-name=$plugins_container_name"
+            echo "app-configuration-endpoint=$app_configuration_endpoint"
+            echo "plugin-runtime-identifier=$plugin_runtime_identifier"
+            echo "azure-client-id=$azure_client_id"
+            echo "azure-tenant-id=$azure_tenant_id"
+            echo "azure-subscription-id=$azure_subscription_id"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Deployment target"
+            echo
+            echo "- Environment: \`$target_environment\`"
+            echo "- Resource group: \`$resource_group_name\`"
+            echo "- Image tag: \`$acr_login_server/$image_namespace/*:$image_tag\`"
+            echo "- Build images: \`$build_images\`"
+            echo "- Static Web App: \`$deploy_static_web_app\`"
+            echo "- Plugin bundles: \`$deploy_plugin_bundles\`"
+            echo "- Migrations: \`$run_database_migrations\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build_service_images:
+    name: Build Service Images
+    needs: resolve
+    if: ${{ needs.resolve.outputs.build-images == 'true' }}
+    uses: ./.github/workflows/build-service-images.yml
+    with:
+      acr_name: ${{ needs.resolve.outputs.acr-name }}
+      acr_login_server: ${{ needs.resolve.outputs.acr-login-server }}
+      image_namespace: ${{ needs.resolve.outputs.image-namespace }}
+      image_tag: ${{ needs.resolve.outputs.image-tag }}
+      push_latest: ${{ needs.resolve.outputs.push-latest }}
+      build_configuration: ${{ needs.resolve.outputs.build-configuration }}
+      platforms: ${{ needs.resolve.outputs.platforms }}
+      include_function_images: ${{ 'false' }}
+      azure_client_id: ${{ needs.resolve.outputs.azure-client-id }}
+      azure_tenant_id: ${{ needs.resolve.outputs.azure-tenant-id }}
+      azure_subscription_id: ${{ needs.resolve.outputs.azure-subscription-id }}
+
+  deploy_container_apps:
+    name: Deploy Container Apps
+    runs-on: ubuntu-latest
+    needs:
+      - resolve
+      - build_service_images
+    if: ${{ always() && needs.resolve.result == 'success' && (needs.build_service_images.result == 'success' || needs.build_service_images.result == 'skipped') }}
+    environment: ${{ needs.resolve.outputs.target-environment }}
+    steps:
+      - name: Log In To Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ needs.resolve.outputs.azure-client-id }}
+          tenant-id: ${{ needs.resolve.outputs.azure-tenant-id }}
+          subscription-id: ${{ needs.resolve.outputs.azure-subscription-id }}
+
+      - name: Ensure Container Apps extension
+        run: az extension add --name containerapp --upgrade
+
+      - name: Deploy service images
+        shell: bash
+        env:
+          RESOURCE_GROUP: ${{ needs.resolve.outputs.resource-group-name }}
+          ACR_LOGIN_SERVER: ${{ needs.resolve.outputs.acr-login-server }}
+          IMAGE_NAMESPACE: ${{ needs.resolve.outputs.image-namespace }}
+          IMAGE_TAG: ${{ needs.resolve.outputs.image-tag }}
+          API_APP: ${{ needs.resolve.outputs.api-container-app-name }}
+          SIGNALR_APP: ${{ needs.resolve.outputs.signalr-container-app-name }}
+          ENGINE_APP: ${{ needs.resolve.outputs.engine-container-app-name }}
+          DISPATCHER_APP: ${{ needs.resolve.outputs.dispatcher-container-app-name }}
+          PROJECTION_APP: ${{ needs.resolve.outputs.projection-worker-container-app-name }}
+          MAINTENANCE_APP: ${{ needs.resolve.outputs.maintenance-container-app-name }}
+          DEPLOY_PROJECTION: ${{ needs.resolve.outputs.deploy-projection-worker }}
+          DEPLOY_MAINTENANCE: ${{ needs.resolve.outputs.deploy-maintenance-worker }}
+        run: |
+          set -euo pipefail
+
+          image_ref() {
+            printf '%s/%s/%s:%s' "$ACR_LOGIN_SERVER" "$IMAGE_NAMESPACE" "$1" "$IMAGE_TAG"
+          }
+
+          configure_registry() {
+            local app_name="$1"
+            local identity_json identity_id
+            identity_json="$(az containerapp identity show \
+              --name "$app_name" \
+              --resource-group "$RESOURCE_GROUP" \
+              --output json)"
+            identity_id="$(python3 -c 'import json,sys; data=json.load(sys.stdin); identities=data.get("userAssignedIdentities") or {}; print(next(iter(identities), ""))' <<< "$identity_json")"
+            if [ -z "$identity_id" ]; then
+              echo "::warning title=Container App identity missing::${app_name} has no user-assigned identity; relying on existing registry configuration."
+              return 0
+            fi
+
+            az containerapp registry set \
+              --name "$app_name" \
+              --resource-group "$RESOURCE_GROUP" \
+              --server "$ACR_LOGIN_SERVER" \
+              --identity "$identity_id" \
+              --output none
+          }
+
+          deploy_app() {
+            local app_name="$1"
+            local service="$2"
+            local image
+            image="$(image_ref "$service")"
+            echo "Deploying $app_name -> $image"
+            configure_registry "$app_name"
+            az containerapp update \
+              --name "$app_name" \
+              --resource-group "$RESOURCE_GROUP" \
+              --image "$image" \
+              --output none
+          }
+
+          deploy_app "$API_APP" "backend-api"
+          deploy_app "$SIGNALR_APP" "backend-signalr"
+          deploy_app "$ENGINE_APP" "backend-engine"
+          deploy_app "$DISPATCHER_APP" "backend-dispatcher"
+
+          if [ "$DEPLOY_PROJECTION" = "true" ]; then
+            deploy_app "$PROJECTION_APP" "backend-projection-worker"
+          fi
+
+          if [ "$DEPLOY_MAINTENANCE" = "true" ]; then
+            deploy_app "$MAINTENANCE_APP" "backend-maintenance"
+          fi
+
+          {
+            echo "### Container Apps deployed"
+            echo
+            echo "- API: \`$API_APP\`"
+            echo "- SignalR: \`$SIGNALR_APP\`"
+            echo "- Engine: \`$ENGINE_APP\`"
+            echo "- Dispatcher: \`$DISPATCHER_APP\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy_function_apps:
+    name: Deploy Function Apps
+    runs-on: ubuntu-latest
+    needs: resolve
+    if: ${{ needs.resolve.outputs.deploy-progress-broadcaster == 'true' || needs.resolve.outputs.deploy-plugin-detector == 'true' }}
+    environment: ${{ needs.resolve.outputs.target-environment }}
+    steps:
+      - name: Check Out Repository
+        uses: actions/checkout@v4
+
+      - name: Set Up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Log In To Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ needs.resolve.outputs.azure-client-id }}
+          tenant-id: ${{ needs.resolve.outputs.azure-tenant-id }}
+          subscription-id: ${{ needs.resolve.outputs.azure-subscription-id }}
+
+      - name: Publish and zip Function App packages
+        shell: bash
+        env:
+          RESOURCE_GROUP: ${{ needs.resolve.outputs.resource-group-name }}
+          DEPLOY_PROGRESS: ${{ needs.resolve.outputs.deploy-progress-broadcaster }}
+          DEPLOY_PLUGIN_DETECTOR: ${{ needs.resolve.outputs.deploy-plugin-detector }}
+          PROGRESS_FUNCTION_APP: ${{ needs.resolve.outputs.progress-broadcaster-function-app-name }}
+          PLUGIN_DETECTOR_FUNCTION_APP: ${{ needs.resolve.outputs.plugin-detector-function-app-name }}
+          BUILD_CONFIGURATION: ${{ needs.resolve.outputs.build-configuration }}
+        run: |
+          set -euo pipefail
+
+          package_function() {
+            local project="$1"
+            local package_name="$2"
+            local publish_dir="$RUNNER_TEMP/functions/$package_name/publish"
+            local package_path="$RUNNER_TEMP/functions/$package_name.zip"
+            rm -rf "$RUNNER_TEMP/functions/$package_name"
+            mkdir -p "$publish_dir"
+            dotnet publish "$project" -c "$BUILD_CONFIGURATION" -o "$publish_dir" /p:UseAppHost=false
+            python3 - "$publish_dir" "$package_path" <<'PY'
+          import os
+          import sys
+          import zipfile
+
+          source, target = sys.argv[1], sys.argv[2]
+          with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+              for root, _, files in os.walk(source):
+                  for name in files:
+                      path = os.path.join(root, name)
+                      archive.write(path, os.path.relpath(path, source))
+          PY
+            printf '%s' "$package_path"
+          }
+
+          deploy_function() {
+            local app_name="$1"
+            local project="$2"
+            local package_name="$3"
+            local package_path
+            package_path="$(package_function "$project" "$package_name")"
+            echo "Deploying Function App $app_name from $package_path"
+            az functionapp deployment source config-zip \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$app_name" \
+              --src "$package_path" \
+              --output none
+          }
+
+          if [ "$DEPLOY_PROGRESS" = "true" ]; then
+            deploy_function "$PROGRESS_FUNCTION_APP" \
+              "Backend.Functions.ProgressBroadcaster/Backend.Functions.ProgressBroadcaster.csproj" \
+              "progress-broadcaster"
+          fi
+
+          if [ "$DEPLOY_PLUGIN_DETECTOR" = "true" ]; then
+            deploy_function "$PLUGIN_DETECTOR_FUNCTION_APP" \
+              "Backend.Functions.PluginDetector/Backend.Functions.PluginDetector.csproj" \
+              "plugin-detector"
+          fi
+
+  deploy_static_web_app:
+    name: Deploy Static Web App
+    runs-on: ubuntu-latest
+    needs: resolve
+    if: ${{ needs.resolve.outputs.deploy-static-web-app == 'true' }}
+    environment: ${{ needs.resolve.outputs.target-environment }}
+    steps:
+      - name: Check Out Repository
+        uses: actions/checkout@v4
+
+      - name: Validate Static Web Apps token
+        shell: bash
+        env:
+          SWA_TOKEN: ${{ secrets.azure_static_web_apps_api_token || secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+        run: |
+          if [ -z "$SWA_TOKEN" ]; then
+            echo "Missing Static Web Apps deployment token. Set secret AZURE_STATIC_WEB_APPS_API_TOKEN or pass azure_static_web_apps_api_token from the caller." >&2
+            exit 1
+          fi
+
+      - name: Set Up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: UI/package-lock.json
+
+      - name: Build Angular app
+        working-directory: UI
+        run: |
+          npm ci
+          npm run build
+
+      - name: Upload Static Web App
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.azure_static_web_apps_api_token || secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: UI/dist/workflow-builder/browser
+          skip_app_build: true
+
+  deploy_plugin_bundles:
+    name: Deploy Plugin Bundles
+    runs-on: ubuntu-latest
+    needs: resolve
+    if: ${{ needs.resolve.outputs.deploy-plugin-bundles == 'true' }}
+    environment: ${{ needs.resolve.outputs.target-environment }}
+    steps:
+      - name: Check Out Repository
+        uses: actions/checkout@v4
+
+      - name: Set Up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Log In To Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ needs.resolve.outputs.azure-client-id }}
+          tenant-id: ${{ needs.resolve.outputs.azure-tenant-id }}
+          subscription-id: ${{ needs.resolve.outputs.azure-subscription-id }}
+
+      - name: Build canonical plugin bundles
+        shell: pwsh
+        run: |
+          ./BuildScripts/bundle-plugins.ps1 `
+            -RootDir ./Backend.Plugins `
+            -OutputDir ./Backend.Plugins/_bundles `
+            -Configuration '${{ needs.resolve.outputs.build-configuration }}' `
+            -RuntimeIdentifier '${{ needs.resolve.outputs.plugin-runtime-identifier }}' `
+            -Overwrite
+
+      - name: Upload plugin bundles
+        shell: bash
+        env:
+          STORAGE_ACCOUNT_NAME: ${{ needs.resolve.outputs.storage-account-name }}
+          PLUGINS_CONTAINER_NAME: ${{ needs.resolve.outputs.plugins-container-name }}
+        run: |
+          set -euo pipefail
+          az storage container create \
+            --account-name "$STORAGE_ACCOUNT_NAME" \
+            --name "$PLUGINS_CONTAINER_NAME" \
+            --auth-mode login \
+            --output none
+          az storage blob upload-batch \
+            --account-name "$STORAGE_ACCOUNT_NAME" \
+            --destination "$PLUGINS_CONTAINER_NAME" \
+            --source Backend.Plugins/_bundles \
+            --pattern "*.zip" \
+            --auth-mode login \
+            --overwrite \
+            --output table
+
+  run_database_migrations:
+    name: Run Database Migrations
+    runs-on: ubuntu-latest
+    needs: resolve
+    if: ${{ needs.resolve.outputs.run-database-migrations == 'true' }}
+    environment: ${{ needs.resolve.outputs.target-environment }}
+    steps:
+      - name: Check Out Repository
+        uses: actions/checkout@v4
+
+      - name: Set Up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Log In To Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ needs.resolve.outputs.azure-client-id }}
+          tenant-id: ${{ needs.resolve.outputs.azure-tenant-id }}
+          subscription-id: ${{ needs.resolve.outputs.azure-subscription-id }}
+
+      - name: Run migration service
+        env:
+          DOTNET_ENVIRONMENT: Production
+          AzureAppConfiguration__Enabled: "true"
+          AzureAppConfiguration__Endpoint: ${{ needs.resolve.outputs.app-configuration-endpoint }}
+          AzureAppConfiguration__Label: ${{ needs.resolve.outputs.target-environment }}
+        run: dotnet run --project Backend.Database.MigrationService/Backend.Database.MigrationService.csproj -c "${{ needs.resolve.outputs.build-configuration }}"

@@ -31,6 +31,10 @@ on:
         description: Docker target platform list.
         required: false
         type: string
+      include_function_images:
+        description: Build Function App Docker images for future containerized worker routes.
+        required: false
+        type: string
       azure_client_id:
         description: Azure federated identity client id. Falls back to vars.AZURE_CLIENT_ID.
         required: false
@@ -44,6 +48,19 @@ on:
         required: false
         type: string
   workflow_call:
+    outputs:
+      acr_name:
+        description: Resolved Azure Container Registry name.
+        value: ${{ jobs.prepare.outputs.acr-name }}
+      acr_login_server:
+        description: Resolved Azure Container Registry login server.
+        value: ${{ jobs.prepare.outputs.acr-login-server }}
+      image_namespace:
+        description: Resolved image namespace.
+        value: ${{ jobs.prepare.outputs.image-namespace }}
+      image_tag:
+        description: Resolved image tag.
+        value: ${{ jobs.prepare.outputs.image-tag }}
     inputs:
       acr_name:
         required: false
@@ -64,6 +81,9 @@ on:
         required: false
         type: string
       platforms:
+        required: false
+        type: string
+      include_function_images:
         required: false
         type: string
       azure_client_id:
@@ -92,6 +112,7 @@ jobs:
       push-latest: ${{ steps.resolve.outputs.push-latest }}
       build-configuration: ${{ steps.resolve.outputs.build-configuration }}
       platforms: ${{ steps.resolve.outputs.platforms }}
+      include-function-images: ${{ steps.resolve.outputs.include-function-images }}
       azure-client-id: ${{ steps.resolve.outputs.azure-client-id }}
       azure-tenant-id: ${{ steps.resolve.outputs.azure-tenant-id }}
       azure-subscription-id: ${{ steps.resolve.outputs.azure-subscription-id }}
@@ -108,6 +129,7 @@ jobs:
           INPUT_PUSH_LATEST: ${{ inputs.push_latest }}
           INPUT_BUILD_CONFIGURATION: ${{ inputs.build_configuration }}
           INPUT_PLATFORMS: ${{ inputs.platforms }}
+          INPUT_INCLUDE_FUNCTION_IMAGES: ${{ inputs.include_function_images }}
           INPUT_AZURE_CLIENT_ID: ${{ inputs.azure_client_id }}
           INPUT_AZURE_TENANT_ID: ${{ inputs.azure_tenant_id }}
           INPUT_AZURE_SUBSCRIPTION_ID: ${{ inputs.azure_subscription_id }}
@@ -118,6 +140,7 @@ jobs:
           VAR_PUSH_LATEST: ${{ vars.PUSH_LATEST }}
           VAR_BUILD_CONFIGURATION: ${{ vars.BUILD_CONFIGURATION }}
           VAR_PLATFORMS: ${{ vars.PLATFORMS }}
+          VAR_INCLUDE_FUNCTION_IMAGES: ${{ vars.INCLUDE_FUNCTION_IMAGES }}
           VAR_AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
           VAR_AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           VAR_AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
@@ -131,6 +154,7 @@ jobs:
           push_latest="${INPUT_PUSH_LATEST:-${VAR_PUSH_LATEST:-false}}"
           build_configuration="${INPUT_BUILD_CONFIGURATION:-${VAR_BUILD_CONFIGURATION:-Release}}"
           platforms="${INPUT_PLATFORMS:-${VAR_PLATFORMS:-linux/amd64}}"
+          include_function_images="${INPUT_INCLUDE_FUNCTION_IMAGES:-${VAR_INCLUDE_FUNCTION_IMAGES:-true}}"
           azure_client_id="${INPUT_AZURE_CLIENT_ID:-${VAR_AZURE_CLIENT_ID:-}}"
           azure_tenant_id="${INPUT_AZURE_TENANT_ID:-${VAR_AZURE_TENANT_ID:-}}"
           azure_subscription_id="${INPUT_AZURE_SUBSCRIPTION_ID:-${VAR_AZURE_SUBSCRIPTION_ID:-}}"
@@ -141,6 +165,7 @@ jobs:
           image_namespace="${image_namespace#/}"
           image_namespace="${image_namespace%/}"
           push_latest="$(printf '%s' "$push_latest" | tr '[:upper:]' '[:lower:]')"
+          include_function_images="$(printf '%s' "$include_function_images" | tr '[:upper:]' '[:lower:]')"
 
           if [ -z "$acr_name" ] && [ -n "$acr_login_server" ]; then
             acr_name="${acr_login_server%%.*}"
@@ -168,6 +193,11 @@ jobs:
             exit 1
           fi
 
+          if [ "$include_function_images" != "true" ] && [ "$include_function_images" != "false" ]; then
+            printf 'include_function_images must be true or false, got: %s\n' "$include_function_images" >&2
+            exit 1
+          fi
+
           {
             echo "acr-name=$acr_name"
             echo "acr-login-server=$acr_login_server"
@@ -176,6 +206,7 @@ jobs:
             echo "push-latest=$push_latest"
             echo "build-configuration=$build_configuration"
             echo "platforms=$platforms"
+            echo "include-function-images=$include_function_images"
             echo "azure-client-id=$azure_client_id"
             echo "azure-tenant-id=$azure_tenant_id"
             echo "azure-subscription-id=$azure_subscription_id"
@@ -192,6 +223,7 @@ jobs:
             echo "- Tag: \`${{ steps.resolve.outputs.image-tag }}\`"
             echo "- Push latest: \`${{ steps.resolve.outputs.push-latest }}\`"
             echo "- Platforms: \`${{ steps.resolve.outputs.platforms }}\`"
+            echo "- Include Function images: \`${{ steps.resolve.outputs.include-function-images }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   build:
@@ -204,26 +236,36 @@ jobs:
         include:
           - service: backend-api
             dockerfile: Backend.API/Dockerfile
+            kind: container-app
           - service: backend-signalr
             dockerfile: Backend.SignalR/Dockerfile
+            kind: container-app
           - service: backend-engine
             dockerfile: Backend.Engine/Dockerfile
+            kind: container-app
           - service: backend-dispatcher
             dockerfile: Backend.Dispatcher/Dockerfile
+            kind: container-app
           - service: backend-projection-worker
             dockerfile: Backend.ProjectionWorker/Dockerfile
+            kind: container-app
           - service: backend-maintenance
             dockerfile: Backend.Maintenance/Dockerfile
+            kind: container-app
           - service: backend-progress-broadcaster
             dockerfile: Backend.Functions.ProgressBroadcaster/Dockerfile
+            kind: function-image
           - service: backend-plugin-detector
             dockerfile: Backend.Functions.PluginDetector/Dockerfile
+            kind: function-image
 
     steps:
       - name: Check Out Repository
+        if: ${{ matrix.kind == 'container-app' || needs.prepare.outputs.include-function-images == 'true' }}
         uses: actions/checkout@v4
 
       - name: Log In To Azure
+        if: ${{ matrix.kind == 'container-app' || needs.prepare.outputs.include-function-images == 'true' }}
         uses: azure/login@v2
         with:
           client-id: ${{ needs.prepare.outputs.azure-client-id }}
@@ -231,12 +273,15 @@ jobs:
           subscription-id: ${{ needs.prepare.outputs.azure-subscription-id }}
 
       - name: Log In To ACR
+        if: ${{ matrix.kind == 'container-app' || needs.prepare.outputs.include-function-images == 'true' }}
         run: az acr login --name "${{ needs.prepare.outputs.acr-name }}"
 
       - name: Set Up Docker Buildx
+        if: ${{ matrix.kind == 'container-app' || needs.prepare.outputs.include-function-images == 'true' }}
         uses: docker/setup-buildx-action@v3
 
       - name: Resolve image tags
+        if: ${{ matrix.kind == 'container-app' || needs.prepare.outputs.include-function-images == 'true' }}
         id: image
         shell: bash
         run: |
@@ -253,6 +298,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build And Push Image
+        if: ${{ matrix.kind == 'container-app' || needs.prepare.outputs.include-function-images == 'true' }}
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -263,3 +309,7 @@ jobs:
           build-args: |
             BUILD_CONFIGURATION=${{ needs.prepare.outputs.build-configuration }}
           provenance: false
+
+      - name: Skip Function image
+        if: ${{ matrix.kind == 'function-image' && needs.prepare.outputs.include-function-images != 'true' }}
+        run: echo "Skipping ${{ matrix.service }} because current Azure demo deployment publishes Function Apps as zip packages."

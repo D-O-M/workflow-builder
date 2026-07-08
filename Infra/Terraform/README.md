@@ -59,7 +59,50 @@ maintenance_image       = "<acr>.azurecr.io/workflow-builder/backend-maintenance
 
 The default image values are harmless placeholders so service shells can be created before your image deployment route is ready. `.github/workflows/build-service-images.yml` builds and pushes Linux images for the backend service Dockerfiles to ACR using Azure OIDC. Configure `ACR_NAME`, `ACR_LOGIN_SERVER`, `IMAGE_NAMESPACE`, `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` as GitHub repository/environment variables, or pass matching workflow inputs when running it manually or as a reusable workflow. The Azure federated identity needs `AcrPush` on the target registry.
 
-The image workflow also publishes `backend-progress-broadcaster` and `backend-plugin-detector` images for future containerized worker routes. Function App shells are created when enabled, but the current Terraform Function App path does not consume those images or deploy Function code packages. Deploy `Backend.Functions.ProgressBroadcaster` and `Backend.Functions.PluginDetector` through your preferred Functions deployment route.
+The image workflow can also publish `backend-progress-broadcaster` and `backend-plugin-detector` images for future containerized worker routes by setting `include_function_images=true`. The current Terraform Function App path does not consume those images; the demo deployment workflow publishes Function Apps as zip packages instead.
+
+`.github/workflows/deploy-azure-demo.yml` is the end-to-end demo deployment route for this Terraform layout:
+
+- builds and pushes Container App images for API, SignalR, Engine, Dispatcher, and enabled worker Container Apps
+- updates the matching Azure Container Apps to those image tags
+- builds and uploads the Angular Static Web App when enabled
+- builds canonical plugin bundles with `BuildScripts/bundle-plugins.ps1` and uploads them to the `plugins` blob container when enabled
+- deploys ProgressBroadcaster and PluginDetector as Function App zip packages when those Terraform resources are enabled
+- optionally runs `Backend.Database.MigrationService` using Azure App Configuration bootstrap values
+
+Set these GitHub repository or environment variables from Terraform outputs:
+
+```text
+AZURE_RESOURCE_GROUP                  = resource_group_name
+ACR_NAME                              = container_registry_name
+ACR_LOGIN_SERVER                      = container_registry_login_server
+BACKEND_API_CONTAINER_APP_NAME        = container_app_names.api
+BACKEND_SIGNALR_CONTAINER_APP_NAME    = container_app_names.signalr
+BACKEND_ENGINE_CONTAINER_APP_NAME     = container_app_names.engine
+BACKEND_DISPATCHER_CONTAINER_APP_NAME = container_app_names.dispatcher
+AZURE_STORAGE_ACCOUNT_NAME            = storage_account_name
+PLUGINS_CONTAINER_NAME                = plugins_container_name
+AZURE_APP_CONFIGURATION_ENDPOINT      = app_configuration_endpoint
+```
+
+Optional services use these variables when enabled:
+
+```text
+BACKEND_PROJECTION_WORKER_CONTAINER_APP_NAME = container_app_names.projection_worker
+BACKEND_MAINTENANCE_CONTAINER_APP_NAME       = container_app_names.maintenance
+PROGRESS_BROADCASTER_FUNCTION_APP_NAME       = function_app_names.progress_broadcaster
+PLUGIN_DETECTOR_FUNCTION_APP_NAME            = function_app_names.plugin_detector
+```
+
+Set `AZURE_STATIC_WEB_APPS_API_TOKEN` from the sensitive `static_web_app_deployment_token` output if `DEPLOY_STATIC_WEB_APP=true`. The workflow also accepts all of these values as manual inputs, which is useful for a one-off demo deployment without storing repo variables.
+
+The GitHub OIDC identity used by the workflows needs enough access to update the provisioned resources:
+
+- `AcrPush` on the target ACR
+- permission to update Container Apps in the resource group, such as Container Apps Contributor or Contributor scoped to the demo resource group
+- `Storage Blob Data Contributor` on the storage account when uploading plugin bundles
+- Function App deployment permissions if ProgressBroadcaster or PluginDetector deployment is enabled
+- App Configuration Data Reader plus Key Vault Secrets User if database migrations are run from GitHub
 
 Static Web Apps is provisioned but the Angular app is not uploaded by Terraform. Deploy the UI separately, then use the `frontend_url`, `api_url`, and `signalr_url` outputs to verify runtime config from `/api/client-config`.
 

@@ -6,6 +6,25 @@ output "container_app_environment_name" {
   value = module.container_app_environment.name
 }
 
+output "container_registry_name" {
+  value = var.enable_container_registry ? module.container_registry[0].name : null
+}
+
+output "container_registry_login_server" {
+  value = var.enable_container_registry ? module.container_registry[0].login_server : null
+}
+
+output "container_app_names" {
+  value = {
+    api               = module.api.name
+    signalr           = module.signalr.name
+    engine            = module.engine.name
+    dispatcher        = module.dispatcher.name
+    projection_worker = var.enable_projection_worker ? module.projection_worker[0].name : null
+    maintenance       = var.enable_maintenance_worker ? module.maintenance[0].name : null
+  }
+}
+
 output "api_url" {
   value = module.api.url
 }
@@ -16,6 +35,10 @@ output "signalr_url" {
 
 output "frontend_url" {
   value = var.enable_static_web_app ? module.static_web_app[0].url : null
+}
+
+output "static_web_app_name" {
+  value = var.enable_static_web_app ? module.static_web_app[0].name : null
 }
 
 output "keycloak_url" {
@@ -48,6 +71,13 @@ output "storage_account_name" {
 
 output "plugins_container_name" {
   value = module.storage.container_names["plugins"]
+}
+
+output "function_app_names" {
+  value = {
+    progress_broadcaster = var.enable_progress_broadcaster ? module.progress_broadcaster_function[0].name : null
+    plugin_detector      = var.enable_plugin_detector ? module.plugin_detector_function[0].name : null
+  }
 }
 
 output "artifacts_container_name" {
