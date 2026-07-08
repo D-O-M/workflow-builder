@@ -5,6 +5,7 @@ interface CanvasE2eSnapshot {
   readonly id: string;
   readonly mode: string;
   readonly zoomPercent: number;
+  readonly renderer: CanvasE2eRendererState;
   readonly canvasRect: { readonly left: number; readonly top: number; readonly width: number; readonly height: number };
   readonly nodes: readonly {
     readonly id: number;
@@ -30,6 +31,14 @@ interface CanvasE2eSnapshot {
   }[];
 }
 
+interface CanvasE2eRendererState {
+  readonly kind: 'main-thread' | 'offscreen';
+  readonly submittedFrameId: number;
+  readonly presentedFrameId: number;
+  readonly nodeCount: number;
+  readonly connectionCount: number;
+}
+
 export class CanvasDriver {
   constructor(
     private readonly page: Page,
@@ -42,17 +51,61 @@ export class CanvasDriver {
 
   async snapshot(): Promise<CanvasE2eSnapshot> {
     await expect(this.locator()).toBeVisible();
-    const snapshot = await this.page.evaluate((canvasId) => {
+    let snapshot: CanvasE2eSnapshot | null = null;
+    await expect.poll(
+      async () => {
+        snapshot = await this.page.evaluate((canvasId) => {
+          const api = (window as typeof window & {
+            __workflowBuilderE2e?: {
+              getCanvasSnapshot(id: string): CanvasE2eSnapshot | null;
+            };
+          }).__workflowBuilderE2e;
+          return api?.getCanvasSnapshot(canvasId) ?? null;
+        }, this.testId);
+        return snapshot !== null;
+      },
+      { message: `Expected e2e canvas snapshot for ${this.testId}` },
+    ).toBe(true);
+    await this.waitForRender();
+    snapshot = await this.readSnapshot();
+    return snapshot!;
+  }
+
+  async waitForRender(): Promise<CanvasE2eRendererState | null> {
+    const requested = await this.page.evaluate((canvasId) => {
       const api = (window as typeof window & {
         __workflowBuilderE2e?: {
-          getCanvasSnapshot(id: string): CanvasE2eSnapshot | null;
+          canvases?: Record<string, {
+            requestFrame?: () => CanvasE2eRendererState | null;
+            rendererState?: () => CanvasE2eRendererState | null;
+          }>;
         };
       }).__workflowBuilderE2e;
-      return api?.getCanvasSnapshot(canvasId) ?? null;
+      return api?.canvases?.[canvasId]?.requestFrame?.() ?? null;
     }, this.testId);
 
-    expect(snapshot, `Expected e2e canvas snapshot for ${this.testId}`).not.toBeNull();
-    return snapshot!;
+    if (!requested) {
+      return null;
+    }
+
+    let presented: CanvasE2eRendererState | null = null;
+    await expect.poll(
+      async () => {
+        presented = await this.page.evaluate((canvasId) => {
+          const api = (window as typeof window & {
+            __workflowBuilderE2e?: {
+              canvases?: Record<string, {
+                rendererState?: () => CanvasE2eRendererState | null;
+              }>;
+            };
+          }).__workflowBuilderE2e;
+          return api?.canvases?.[canvasId]?.rendererState?.() ?? null;
+        }, this.testId);
+        return (presented?.presentedFrameId ?? 0) >= requested.submittedFrameId;
+      },
+      { message: `Expected ${this.testId} renderer to present frame ${requested.submittedFrameId}` },
+    ).toBe(true);
+    return presented ?? requested;
   }
 
   async expectNode(name: string): Promise<void> {
@@ -159,6 +212,17 @@ export class CanvasDriver {
   private async node(name: string): Promise<CanvasE2eSnapshot['nodes'][number]> {
     const snapshot = await this.snapshot();
     return this.findNode(snapshot, name);
+  }
+
+  private async readSnapshot(): Promise<CanvasE2eSnapshot | null> {
+    return this.page.evaluate((canvasId) => {
+      const api = (window as typeof window & {
+        __workflowBuilderE2e?: {
+          getCanvasSnapshot(id: string): CanvasE2eSnapshot | null;
+        };
+      }).__workflowBuilderE2e;
+      return api?.getCanvasSnapshot(canvasId) ?? null;
+    }, this.testId);
   }
 
   private findNode(snapshot: CanvasE2eSnapshot, name: string): CanvasE2eSnapshot['nodes'][number] {

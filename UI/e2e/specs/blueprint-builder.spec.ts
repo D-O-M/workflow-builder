@@ -23,6 +23,9 @@ test.describe('Blueprint Builder', () => {
     await builder.save();
     await expect.poll(() => workflowApi.lastCreatedBlueprint()?.name).toBe('E2E Blueprint Draft');
     await expectNoCriticalA11yViolations(page);
+    await builder.canvas.expectNode('Weather Lookup');
+    const renderState = await builder.canvas.waitForRender();
+    expect(renderState?.nodeCount).toBeGreaterThan(0);
     await expect(page.getByTestId('blueprints-workspace')).toHaveScreenshot('blueprint-builder-graph.png', {
       animations: 'disabled',
       caret: 'hide',

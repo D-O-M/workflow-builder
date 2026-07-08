@@ -8,6 +8,12 @@ interface CanvasViewportAdapter {
   readonly zoomLevel: WritableSignal<number>;
 }
 
+export interface CanvasBackingSize {
+  readonly width: number;
+  readonly height: number;
+  readonly devicePixelRatio: number;
+}
+
 export class CanvasViewportController {
   constructor(
     private readonly canvas: () => HTMLCanvasElement | null,
@@ -34,10 +40,10 @@ export class CanvasViewportController {
     };
   }
 
-  syncBackingSize(context: CanvasRenderingContext2D | null | undefined): void {
+  measureBackingSize(): CanvasBackingSize | null {
     const canvas = this.canvas();
     if (!canvas) {
-      return;
+      return null;
     }
 
     const dpr = window.devicePixelRatio || 1;
@@ -45,6 +51,22 @@ export class CanvasViewportController {
     const cssHeight = Math.max(1, Math.floor(canvas.clientHeight));
     const width = Math.max(1, Math.floor(cssWidth * dpr));
     const height = Math.max(1, Math.floor(cssHeight * dpr));
+
+    return {
+      width,
+      height,
+      devicePixelRatio: dpr,
+    };
+  }
+
+  syncBackingSize(context: CanvasRenderingContext2D | null | undefined): CanvasBackingSize | null {
+    const canvas = this.canvas();
+    const size = this.measureBackingSize();
+    if (!canvas || !size) {
+      return null;
+    }
+
+    const { width, height, devicePixelRatio } = size;
 
     if (canvas.width !== width) {
       canvas.width = width;
@@ -56,8 +78,10 @@ export class CanvasViewportController {
 
     if (context) {
       context.setTransform(1, 0, 0, 1, 0, 0);
-      context.scale(dpr, dpr);
+      context.scale(devicePixelRatio, devicePixelRatio);
     }
+
+    return size;
   }
 
   resetView(snapshot: CanvasRenderSnapshot): void {
