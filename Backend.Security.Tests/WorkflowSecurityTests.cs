@@ -32,7 +32,7 @@ public sealed class WorkflowSecurityTests
             Enabled = true,
             Keycloak = new WorkflowKeycloakOptions
             {
-                Authority = "http://localhost:8080/realms/workflow-builder",
+                Authority = "https://localhost:8080/realms/workflow-builder",
                 Audience = "workflow-builder-api",
                 SpaClientId = "workflow-builder-spa"
             }

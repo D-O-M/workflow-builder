@@ -14,7 +14,7 @@ describe('RuntimeClientConfigService', () => {
       grafanaBaseUrl: 'http://localhost:3000',
       authentication: {
         enabled: true,
-        authority: 'http://localhost:8080/realms/workflow-builder',
+        authority: 'https://localhost:8080/realms/workflow-builder',
         clientId: 'workflow-builder-spa',
         scope: 'openid profile email',
         audience: 'workflow-builder-api',
@@ -33,7 +33,7 @@ describe('RuntimeClientConfigService', () => {
     expect(service.grafanaBaseUrl).toBe('http://localhost:3000');
     expect(service.authentication).toEqual({
       enabled: true,
-      authority: 'http://localhost:8080/realms/workflow-builder',
+      authority: 'https://localhost:8080/realms/workflow-builder',
       clientId: 'workflow-builder-spa',
       scope: 'openid profile email',
       audience: 'workflow-builder-api',
@@ -48,7 +48,7 @@ describe('RuntimeClientConfigService', () => {
       grafanaBaseUrl: 'http://localhost:3000/',
       authentication: {
         enabled: true,
-        authority: 'http://localhost:8080/realms/workflow-builder/',
+        authority: 'https://localhost:8080/realms/workflow-builder/',
         clientId: 'workflow-builder-spa',
         scope: 'openid profile email',
       },
@@ -64,7 +64,7 @@ describe('RuntimeClientConfigService', () => {
     expect(service.apiBaseUrl).toBe('http://localhost:5180');
     expect(service.signalRBaseUrl).toBe('http://localhost:64217');
     expect(service.grafanaBaseUrl).toBe('http://localhost:3000');
-    expect(service.authentication.authority).toBe('http://localhost:8080/realms/workflow-builder');
+    expect(service.authentication.authority).toBe('https://localhost:8080/realms/workflow-builder');
   });
 
   it('defaults missing authentication settings to disabled mode', async () => {

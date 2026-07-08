@@ -4,7 +4,7 @@ WorkflowBuilder uses Keycloak for local-development user authentication and JWT 
 
 ## Local AppHost
 
-Normal AppHost development starts a Keycloak resource on `http://localhost:8080` unless authentication is explicitly disabled or the AppHost is running in integration-test/NFT mode.
+Normal AppHost development starts a Keycloak resource on `https://localhost:8080` unless authentication is explicitly disabled or the AppHost is running in integration-test/NFT mode.
 
 The dev realm import lives at:
 
@@ -18,6 +18,8 @@ It creates:
 - admin console login: `admin` / `admin`
 - SPA client: `workflow-builder-spa`
 - API audience/client: `workflow-builder-api`
+- blueprint seeder service-account client: `workflow-builder-blueprint-seeder` / `developer`
+- progress broadcaster service-account client: `workflow-builder-progress-broadcaster` / `developer`
 - dev user: `developer` / `developer`
 - dev roles:
   - `workflowbuilder.admin`
@@ -25,6 +27,7 @@ It creates:
   - `workflowbuilder.process_operator`
   - `workflowbuilder.runtime_engineer`
   - `workflowbuilder.auditor`
+  - `workflowbuilder.internal_publisher`
 
 ## Configuration
 
@@ -36,7 +39,7 @@ Server-side auth settings:
     "Enabled": true,
     "Keycloak": {
       "Enabled": true,
-      "Authority": "http://localhost:8080/realms/workflow-builder",
+      "Authority": "https://localhost:8080/realms/workflow-builder",
       "Realm": "workflow-builder",
       "Audience": "workflow-builder-api",
       "SpaClientId": "workflow-builder-spa",
@@ -60,7 +63,7 @@ The frontend bootstraps by anonymously fetching `/api/client-config`. The respon
   "grafanaBaseUrl": "http://localhost:3000",
   "authentication": {
     "enabled": true,
-    "authority": "http://localhost:8080/realms/workflow-builder",
+    "authority": "https://localhost:8080/realms/workflow-builder",
     "clientId": "workflow-builder-spa",
     "scope": "openid profile email",
     "audience": "workflow-builder-api"
@@ -74,7 +77,9 @@ When auth is disabled, `authentication.enabled` is `false` and the remaining aut
 
 `Backend.API` validates JWT bearer tokens for normal controllers. `/api/client-config`, Aspire health/default endpoints, and local development OpenAPI/Scalar endpoints remain anonymous. APIs return normal `401`/`403` responses; they do not redirect browser users to Keycloak.
 
-`Backend.SignalR` protects `/hubs/processes` with bearer auth. The hub accepts `access_token` from the query string only on the hub route, which is the SignalR browser-client pattern. Internal broadcaster endpoints remain anonymous for now and should move to service-to-service authentication in a future pass.
+`Backend.SignalR` protects `/hubs/processes` with bearer auth. The hub accepts `access_token` from the query string only on the hub route, which is the SignalR browser-client pattern. Internal broadcaster endpoints require either an internal-publisher bearer token or a configured internal shared-secret header.
+
+The local AppHost blueprint seeder uses the `workflow-builder-blueprint-seeder` service-account client when authentication is enabled. If seeded imports fail, the seeder exits nonzero so Aspire marks the one-shot resource as failed instead of quietly completing.
 
 ## Frontend Flow
 

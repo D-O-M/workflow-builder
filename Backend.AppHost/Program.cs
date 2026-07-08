@@ -37,10 +37,18 @@ internal class Program
             builder.Configuration,
             "Authentication:Keycloak:Scope",
             "openid profile email");
+        var blueprintSeederClientId = GetConfigurationValueOrDefault(
+            builder.Configuration,
+            "BlueprintSeeding:Authentication:ClientId",
+            "workflow-builder-blueprint-seeder");
+        var blueprintSeederScope = GetConfigurationValueOrDefault(
+            builder.Configuration,
+            "BlueprintSeeding:Authentication:Scope",
+            "profile email");
         var keycloakAuthority = GetConfigurationValueOrDefault(
             builder.Configuration,
             "Authentication:Keycloak:Authority",
-            $"http://localhost:8080/realms/{keycloakRealm}");
+            $"https://localhost:8080/realms/{keycloakRealm}");
         var keycloakRequireHttpsMetadata = builder.Configuration.GetValue(
             "Authentication:Keycloak:RequireHttpsMetadata",
             !builder.Environment.IsDevelopment());
@@ -126,6 +134,7 @@ internal class Program
         var (serviceBus, processStepQueue, pluginControlQueue) = AddServiceBus(builder);
         var keycloakAdminUsername = builder.AddParameter("KeycloakAdminUsername", "admin");
         var keycloakAdminPassword = builder.AddParameter("KeycloakAdminPassword", "admin", secret: true);
+        var blueprintSeederClientSecret = builder.AddParameter("BlueprintSeederClientSecret", "developer", secret: true);
         var keycloak = keycloakEnabled
             ? builder.AddKeycloak("keycloak", 8080, keycloakAdminUsername, keycloakAdminPassword)
                 .WithRealmImport(Path.Combine(repositoryRoot, "Infra", "Keycloak", "Realms"))
@@ -514,10 +523,20 @@ internal class Program
                 .WaitForCompletion(migrations)
                 .WithEnvironment("BlueprintSeeding__Enabled", "true")
                 .WithEnvironment("BlueprintSeeding__BlueprintsRoot", blueprintSeedingRoot)
-                .WithEnvironment("BlueprintSeeding__ApiBaseUrl", api.GetEndpoint("http"));
+                .WithEnvironment("BlueprintSeeding__ApiBaseUrl", api.GetEndpoint("http"))
+                .WithEnvironment("BlueprintSeeding__Authentication__Enabled", authEnabled.ToString())
+                .WithEnvironment("BlueprintSeeding__Authentication__Authority", authEnabled ? keycloakAuthority : string.Empty)
+                .WithEnvironment("BlueprintSeeding__Authentication__ClientId", blueprintSeederClientId)
+                .WithEnvironment("BlueprintSeeding__Authentication__ClientSecret", blueprintSeederClientSecret)
+                .WithEnvironment("BlueprintSeeding__Authentication__Scope", blueprintSeederScope);
             if (signalR is not null)
             {
                 blueprintSeeder.WaitFor(signalR);
+            }
+
+            if (authEnabled && keycloak is not null)
+            {
+                blueprintSeeder.WaitFor(keycloak);
             }
 
             WaitForObservability(blueprintSeeder, observability);

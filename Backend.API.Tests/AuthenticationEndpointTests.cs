@@ -59,7 +59,7 @@ public sealed class AuthenticationEndpointTests
             var config = await response.Content.ReadFromJsonAsync<ClientConfigResponse>();
             config.ShouldNotBeNull();
             config.Authentication.Enabled.ShouldBeTrue();
-            config.Authentication.Authority.ShouldBe("http://localhost:8080/realms/workflow-builder");
+            config.Authentication.Authority.ShouldBe("https://localhost:8080/realms/workflow-builder");
             config.Authentication.ClientId.ShouldBe("workflow-builder-spa");
         }
         finally
@@ -101,7 +101,7 @@ public sealed class AuthenticationEndpointTests
             [WorkflowBuilderTopology.ClientConfig.GrafanaBaseUrlKey] = "http://localhost:3000",
             ["Authentication:Enabled"] = authEnabled.ToString(),
             ["Authentication:Keycloak:Enabled"] = "true",
-            ["Authentication:Keycloak:Authority"] = "http://localhost:8080/realms/workflow-builder",
+            ["Authentication:Keycloak:Authority"] = "https://localhost:8080/realms/workflow-builder",
             ["Authentication:Keycloak:Realm"] = "workflow-builder",
             ["Authentication:Keycloak:Audience"] = "workflow-builder-api",
             ["Authentication:Keycloak:SpaClientId"] = "workflow-builder-spa",

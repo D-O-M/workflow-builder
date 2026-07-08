@@ -7,6 +7,12 @@ builder.AddServiceDefaults();
 
 builder.Services.Configure<BlueprintSeedingOptions>(
     builder.Configuration.GetSection(BlueprintSeedingOptions.SectionName));
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddHttpClient<BlueprintSeederAccessTokenProvider>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.AddTransient<BlueprintSeederAuthenticationHandler>();
 
 builder.Services.AddHttpClient<BlueprintImportClient>((serviceProvider, client) =>
 {
@@ -21,7 +27,8 @@ builder.Services.AddHttpClient<BlueprintImportClient>((serviceProvider, client) 
 
     client.BaseAddress = new Uri(EnsureTrailingSlash(options.ApiBaseUrl), UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(30);
-});
+})
+    .AddHttpMessageHandler<BlueprintSeederAuthenticationHandler>();
 builder.Services.AddHostedService<BlueprintSeedingHostedService>();
 
 await builder.Build().RunAsync();

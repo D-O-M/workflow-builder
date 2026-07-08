@@ -165,6 +165,18 @@ internal sealed class BlueprintSeedingHostedService : BackgroundService
                 importedPhaseSeriesCount,
                 skippedInvalidPhaseSeriesCount,
                 failedPhaseSeriesCount);
+
+            if (failedCount > 0 || failedPhaseSeriesCount > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Blueprint seeding failed for {failedCount} blueprint file(s) and {failedPhaseSeriesCount} phase-series file(s).");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
+        {
+            Environment.ExitCode = 1;
+            _logger.LogError(ex, "Blueprint seeding failed.");
+            throw;
         }
         finally
         {

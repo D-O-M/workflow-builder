@@ -67,6 +67,31 @@
       "serviceAccountsEnabled": false
     },
     {
+      "clientId": "workflow-builder-blueprint-seeder",
+      "name": "WorkflowBuilder Blueprint Seeder",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "developer",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "workflow-builder-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "workflow-builder-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
       "clientId": "workflow-builder-progress-broadcaster",
       "name": "WorkflowBuilder Progress Broadcaster",
       "enabled": true,
@@ -76,7 +101,20 @@
       "standardFlowEnabled": false,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
-      "serviceAccountsEnabled": true
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "workflow-builder-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "workflow-builder-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "users": [
@@ -101,6 +139,14 @@
         "workflowbuilder.runtime_engineer",
         "workflowbuilder.auditor",
         "workflowbuilder.internal_publisher"
+      ]
+    },
+    {
+      "username": "service-account-workflow-builder-blueprint-seeder",
+      "enabled": true,
+      "serviceAccountClientId": "workflow-builder-blueprint-seeder",
+      "realmRoles": [
+        "workflowbuilder.blueprint_author"
       ]
     },
     {
