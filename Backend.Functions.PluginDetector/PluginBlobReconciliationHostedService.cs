@@ -93,6 +93,12 @@ internal sealed class PluginBlobReconciliationHostedService : BackgroundService
         {
             _logger.LogInformation("Plugin blob reconciliation was cancelled during shutdown.");
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Plugin blob reconciliation failed. Blob-trigger ingestion will remain active for future plugin bundle uploads.");
+        }
     }
 
     private async Task RecordStatusAsync(
