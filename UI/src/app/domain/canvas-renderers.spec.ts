@@ -128,12 +128,16 @@ class RecordingCanvasContext {
   }
 }
 
-function createSurface(ctx: RecordingCanvasContext): CanvasRenderSurface {
+function createSurface(
+  ctx: RecordingCanvasContext,
+  options: { readonly materialIconReady?: boolean } = {},
+): CanvasRenderSurface {
   return {
     ctx: ctx as unknown as CanvasRenderingContext2D,
     fontReady: signal(true),
-    materialIconReady: false,
+    materialIconReady: options.materialIconReady ?? false,
     materialIconFontFamily: "'Material Icons'",
+    materialIconFontUrl: 'https://fonts.gstatic.com/material-icons.woff2',
     setFont(weight, size) {
       ctx.font = `${weight} ${size}px Inter`;
     },
@@ -312,6 +316,34 @@ describe('CanvasConnectionPreviewRenderer', () => {
 });
 
 describe('CanvasNodeRenderer', () => {
+  it('draws plugin node icons with the Material Icons ligature when the font is ready', () => {
+    const node = createNode();
+    const snapshot = buildCanvasRenderSnapshot(
+      [node],
+      [],
+      new Map<number, ReadonlySet<string>>(),
+      'simplified',
+      { gridSize: 10, nodeMargin: 20 },
+      false,
+    );
+    const ctx = new RecordingCanvasContext();
+    const renderer = new CanvasNodeRenderer(createSurface(ctx, { materialIconReady: true }));
+
+    renderer.drawNodes({
+      nodes: snapshot.nodes,
+      portConnectivity: snapshot.portConnectivity,
+      drag: null,
+      hoveredNodeId: null,
+      hoveredPortKey: null,
+      selectedNodeIds: new Set<number>(),
+      options: { detailTier: 'simplified' },
+    });
+
+    expect(ctx.text).toContain('Lookup Weather');
+    expect(ctx.text).toContain('extension');
+    expect(ctx.fillCount).toBeGreaterThan(0);
+  });
+
   it('keeps passive summary sockets quiet while preserving property socket emphasis', () => {
     const node = createNode();
     const expandedSections = new Map<number, ReadonlySet<string>>([

@@ -47,6 +47,7 @@ import {
     CanvasRenderFramePlan,
 } from '../domain/canvas-render-frame-factory';
 import {
+    CanvasRendererFontState,
     CanvasRendererHost,
     MainThreadCanvasRendererHost,
     OffscreenCanvasRendererHost,
@@ -260,6 +261,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
 
     private canvasWrapper?: CanvasWrapper;
     private rendererHost?: CanvasRendererHost;
+    private lastSubmittedFontState: CanvasRendererFontState | null = null;
     private resizeObserver?: ResizeObserver;
     private canvasBackingSize = {
         width: 1,
@@ -438,7 +440,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
             this.selectedNodeIds();
             this.selectedConnectionIds();
             wrapper.fontReady();
-            this.rendererHost?.updateFontState(wrapper.fontState());
+            this.syncRendererFontState(wrapper);
             wrapper.viewportOffset();
             wrapper.zoomLevel();
             this.zoomPercent.set(Math.round(wrapper.zoomLevel() * 100));
@@ -474,6 +476,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         this.resizeObserver?.disconnect();
         this.rendererHost?.destroy();
         this.rendererHost = undefined;
+        this.lastSubmittedFontState = null;
         if (this.pendingDrawFrameId !== null) {
             cancelAnimationFrame(this.pendingDrawFrameId);
             this.pendingDrawFrameId = null;
@@ -505,6 +508,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
             if (offscreenHost) {
                 this.canvasWrapper = detachedWrapper;
                 this.rendererHost = offscreenHost;
+                this.lastSubmittedFontState = detachedWrapper.fontState();
                 return;
             }
         }
@@ -522,6 +526,25 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         this.rendererHost = new MainThreadCanvasRendererHost(
             this.canvasWrapper,
         );
+        this.lastSubmittedFontState = this.canvasWrapper.fontState();
+    }
+
+    private syncRendererFontState(wrapper: CanvasWrapper): void {
+        const fontState = wrapper.fontState();
+        if (
+            this.lastSubmittedFontState &&
+            this.lastSubmittedFontState.fontFamily === fontState.fontFamily &&
+            this.lastSubmittedFontState.fontReady === fontState.fontReady &&
+            this.lastSubmittedFontState.materialIconReady ===
+                fontState.materialIconReady &&
+            this.lastSubmittedFontState.materialIconFontUrl ===
+                fontState.materialIconFontUrl
+        ) {
+            return;
+        }
+
+        this.lastSubmittedFontState = fontState;
+        this.rendererHost?.updateFontState(fontState);
     }
 
     private offscreenRenderingEnabled(): boolean {

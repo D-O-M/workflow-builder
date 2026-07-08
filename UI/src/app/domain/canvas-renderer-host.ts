@@ -17,6 +17,13 @@ export interface CanvasRendererHostResize {
     readonly devicePixelRatio: number;
 }
 
+export interface CanvasRendererFontState {
+    readonly fontFamily: string;
+    readonly fontReady: boolean;
+    readonly materialIconReady: boolean;
+    readonly materialIconFontUrl: string | null;
+}
+
 export interface CanvasRendererFrameRequest {
     readonly canvasWidth: number;
     readonly canvasHeight: number;
@@ -41,11 +48,7 @@ export interface CanvasRendererHost {
     readonly lastSubmittedNodeCount: number;
     readonly lastSubmittedConnectionCount: number;
     resize(request: CanvasRendererHostResize): void;
-    updateFontState(font: {
-        readonly fontFamily: string;
-        readonly fontReady: boolean;
-        readonly materialIconReady: boolean;
-    }): void;
+    updateFontState(font: CanvasRendererFontState): void;
     drawFrame(request: CanvasRendererFrameRequest): void;
     destroy(): void;
 }
@@ -61,11 +64,7 @@ export class MainThreadCanvasRendererHost implements CanvasRendererHost {
 
     resize(_request: CanvasRendererHostResize): void {}
 
-    updateFontState(_font: {
-        readonly fontFamily: string;
-        readonly fontReady: boolean;
-        readonly materialIconReady: boolean;
-    }): void {}
+    updateFontState(_font: CanvasRendererFontState): void {}
 
     drawFrame(request: CanvasRendererFrameRequest): void {
         this.submittedFrameId += 1;
@@ -92,12 +91,9 @@ export class OffscreenCanvasRendererHost implements CanvasRendererHost {
         private readonly worker: Worker,
         canvas: OffscreenCanvas,
         gridSize: number,
-        font: {
-            readonly fontFamily: string;
-            readonly fontReady: boolean;
-            readonly materialIconReady: boolean;
-        },
+        font: CanvasRendererFontState,
     ) {
+        this.lastSubmittedFontState = font;
         this.worker.addEventListener('message', (event) =>
             this.handleWorkerMessage(event as MessageEvent<CanvasWorkerHostMessage>),
         );
@@ -115,11 +111,7 @@ export class OffscreenCanvasRendererHost implements CanvasRendererHost {
     static create(
         canvas: HTMLCanvasElement,
         gridSize: number,
-        font: {
-            readonly fontFamily: string;
-            readonly fontReady: boolean;
-            readonly materialIconReady: boolean;
-        },
+        font: CanvasRendererFontState,
     ): OffscreenCanvasRendererHost | null {
         if (
             typeof Worker !== 'function' ||
@@ -154,11 +146,12 @@ export class OffscreenCanvasRendererHost implements CanvasRendererHost {
         });
     }
 
-    updateFontState(font: {
-        readonly fontFamily: string;
-        readonly fontReady: boolean;
-        readonly materialIconReady: boolean;
-    }): void {
+    updateFontState(font: CanvasRendererFontState): void {
+        if (areFontStatesEqual(this.lastSubmittedFontState, font)) {
+            return;
+        }
+
+        this.lastSubmittedFontState = font;
         this.worker.postMessage({
             kind: 'font',
             font,
@@ -191,4 +184,18 @@ export class OffscreenCanvasRendererHost implements CanvasRendererHost {
             );
         }
     }
+
+    private lastSubmittedFontState: CanvasRendererFontState;
+}
+
+function areFontStatesEqual(
+    left: CanvasRendererFontState,
+    right: CanvasRendererFontState,
+): boolean {
+    return (
+        left.fontFamily === right.fontFamily &&
+        left.fontReady === right.fontReady &&
+        left.materialIconReady === right.materialIconReady &&
+        left.materialIconFontUrl === right.materialIconFontUrl
+    );
 }

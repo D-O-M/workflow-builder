@@ -9,6 +9,7 @@ export interface CanvasRenderSurface {
     readonly fontReady: Signal<boolean>;
     readonly materialIconReady: boolean;
     readonly materialIconFontFamily: string;
+    readonly materialIconFontUrl: string | null;
     setFont(weight: 500 | 600 | 700, size: number): void;
     roundedRect(
         x: number,
@@ -33,17 +34,23 @@ export interface CanvasDrawSurfaceOptions {
     readonly fontFamily?: string;
     readonly fontReady?: boolean;
     readonly materialIconReady?: boolean;
+    readonly materialIconFontUrl?: string | null;
     readonly loadDocumentFonts?: boolean;
 }
 
 export class CanvasDrawSurface implements CanvasRenderSurface {
     private static readonly primaryFontFamilyName = '"Inter"';
     private static readonly materialIconFontFamilyName = '"Material Icons"';
+    private static readonly materialIconStylesheetUrlPattern =
+        /fonts\.googleapis\.com\/icon\?.*family=Material\+Icons/i;
+    private static readonly stylesheetFontUrlPattern =
+        /url\((['"]?)(?<url>[^'")]+)\1\)\s+format\((['"]?)woff2\3\)/i;
     private static readonly fallbackFontFamily =
         "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
     readonly fontReady = signal(false);
     readonly materialIconFontFamily = "'Material Icons'";
+    private materialIconResolvedFontUrl: string | null = null;
     private fontFamily: string;
     private materialIconLoaded = false;
 
@@ -52,6 +59,8 @@ export class CanvasDrawSurface implements CanvasRenderSurface {
         options: CanvasDrawSurfaceOptions = {},
     ) {
         this.fontFamily = options.fontFamily ?? this.resolveFontFamily();
+        this.materialIconResolvedFontUrl =
+            options.materialIconFontUrl ?? this.materialIconResolvedFontUrl;
         this.materialIconLoaded = options.materialIconReady ?? false;
         if (options.fontReady === true || options.loadDocumentFonts === false) {
             this.fontReady.set(true);
@@ -65,12 +74,18 @@ export class CanvasDrawSurface implements CanvasRenderSurface {
         return this.materialIconLoaded;
     }
 
+    get materialIconFontUrl(): string | null {
+        return this.materialIconResolvedFontUrl;
+    }
+
     get resolvedFontFamily(): string {
         return this.fontFamily;
     }
 
     updateFontState(options: CanvasDrawSurfaceOptions): void {
         this.fontFamily = options.fontFamily ?? this.fontFamily;
+        this.materialIconResolvedFontUrl =
+            options.materialIconFontUrl ?? this.materialIconResolvedFontUrl;
         this.materialIconLoaded =
             options.materialIconReady ?? this.materialIconLoaded;
         if (options.fontReady !== undefined) {
@@ -209,6 +224,8 @@ export class CanvasDrawSurface implements CanvasRenderSurface {
                 await fonts.load(
                     `400 20px ${CanvasDrawSurface.materialIconFontFamilyName}`,
                 );
+                this.materialIconResolvedFontUrl =
+                    await this.resolveMaterialIconFontUrl();
                 this.materialIconLoaded = true;
             } catch {
                 this.materialIconLoaded = false;
@@ -223,6 +240,31 @@ export class CanvasDrawSurface implements CanvasRenderSurface {
         } catch {
             this.materialIconLoaded = false;
             this.fontReady.set(true);
+        }
+    }
+
+    private async resolveMaterialIconFontUrl(): Promise<string | null> {
+        if (typeof document === 'undefined' || typeof fetch !== 'function') {
+            return this.materialIconResolvedFontUrl;
+        }
+
+        const stylesheet = [...document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')]
+            .find((link) => CanvasDrawSurface.materialIconStylesheetUrlPattern.test(link.href));
+        if (!stylesheet) {
+            return this.materialIconResolvedFontUrl;
+        }
+
+        try {
+            const response = await fetch(stylesheet.href);
+            if (!response.ok) {
+                return this.materialIconResolvedFontUrl;
+            }
+
+            const css = await response.text();
+            const match = CanvasDrawSurface.stylesheetFontUrlPattern.exec(css);
+            return match?.groups?.['url'] ?? this.materialIconResolvedFontUrl;
+        } catch {
+            return this.materialIconResolvedFontUrl;
         }
     }
 

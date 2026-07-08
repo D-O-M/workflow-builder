@@ -74,11 +74,13 @@ export class CanvasWrapper {
         readonly fontFamily: string;
         readonly fontReady: boolean;
         readonly materialIconReady: boolean;
+        readonly materialIconFontUrl: string | null;
     } {
         return {
             fontFamily: this.surface.resolvedFontFamily,
             fontReady: this.surface.fontReady(),
             materialIconReady: this.surface.materialIconReady,
+            materialIconFontUrl: this.surface.materialIconFontUrl,
         };
     }
 
@@ -86,6 +88,7 @@ export class CanvasWrapper {
         readonly fontFamily: string;
         readonly fontReady: boolean;
         readonly materialIconReady: boolean;
+        readonly materialIconFontUrl: string | null;
     }): void {
         this.surface.updateFontState(font);
     }

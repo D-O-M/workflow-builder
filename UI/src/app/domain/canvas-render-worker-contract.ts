@@ -85,6 +85,7 @@ export interface CanvasWorkerFontState {
     readonly fontFamily: string;
     readonly fontReady: boolean;
     readonly materialIconReady: boolean;
+    readonly materialIconFontUrl: string | null;
 }
 
 export interface CanvasWorkerFramePayload {

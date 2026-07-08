@@ -5,7 +5,7 @@ import {
     getVisibleWorldBounds,
     getWorldRadiusFromScreenRadius,
 } from './canvas-backdrop';
-import { CanvasRenderSurface } from './canvas-draw-surface';
+import { Canvas2DContext, CanvasRenderSurface } from './canvas-draw-surface';
 import { CanvasTheme } from './canvas-theme';
 import { Point } from './node-model';
 
@@ -113,7 +113,7 @@ export class CanvasBackdropRenderer {
             return null;
         }
 
-        const tileContext = tile.getContext('2d');
+        const tileContext = tile.getContext('2d') as Canvas2DContext | null;
         if (!tileContext) {
             return null;
         }

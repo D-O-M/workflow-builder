@@ -60,6 +60,7 @@ describe('OffscreenCanvasRendererHost', () => {
                 fontFamily: 'Inter',
                 fontReady: true,
                 materialIconReady: false,
+                materialIconFontUrl: null,
             },
         );
 
@@ -77,6 +78,7 @@ describe('OffscreenCanvasRendererHost', () => {
             fontFamily: 'Inter',
             fontReady: true,
             materialIconReady: false,
+            materialIconFontUrl: 'https://fonts.gstatic.com/material-icons.woff2',
         });
 
         expect(host).not.toBeNull();
@@ -90,6 +92,7 @@ describe('OffscreenCanvasRendererHost', () => {
                     fontFamily: 'Inter',
                     fontReady: true,
                     materialIconReady: false,
+                    materialIconFontUrl: 'https://fonts.gstatic.com/material-icons.woff2',
                 },
             },
             transfer: [offscreen],
@@ -100,6 +103,7 @@ describe('OffscreenCanvasRendererHost', () => {
             fontFamily: 'Inter',
             fontReady: true,
             materialIconReady: true,
+            materialIconFontUrl: 'https://fonts.gstatic.com/material-icons.woff2',
         });
         host!.destroy();
 
@@ -115,6 +119,7 @@ describe('OffscreenCanvasRendererHost', () => {
                 fontFamily: 'Inter',
                 fontReady: true,
                 materialIconReady: true,
+                materialIconFontUrl: 'https://fonts.gstatic.com/material-icons.woff2',
             },
         });
         expect(worker.messages[3]!.message).toEqual({ kind: 'destroy' });
@@ -131,6 +136,7 @@ describe('OffscreenCanvasRendererHost', () => {
             fontFamily: 'Inter',
             fontReady: true,
             materialIconReady: false,
+            materialIconFontUrl: null,
         })!;
         const request = {
             canvasWidth: 800,
@@ -189,5 +195,36 @@ describe('OffscreenCanvasRendererHost', () => {
         worker.emitMessage({ kind: 'frame-presented', frameId: 2 });
 
         expect(host.presentedFrameId).toBe(2);
+    });
+
+    it('does not post unchanged font state during viewport-only redraws', () => {
+        vi.stubGlobal('Worker', RecordingWorker);
+        const offscreen = { width: 0, height: 0 } as OffscreenCanvas;
+        const canvas = {
+            transferControlToOffscreen: vi.fn(() => offscreen),
+        } as unknown as HTMLCanvasElement;
+        const font = {
+            fontFamily: 'Inter',
+            fontReady: true,
+            materialIconReady: true,
+            materialIconFontUrl: 'https://fonts.gstatic.com/material-icons.woff2',
+        };
+        const host = OffscreenCanvasRendererHost.create(canvas, 20, font)!;
+        const worker = RecordingWorker.instances[0]!;
+
+        host.updateFontState(font);
+        host.updateFontState({ ...font });
+
+        expect(worker.messages).toHaveLength(1);
+
+        host.updateFontState({ ...font, materialIconReady: false });
+
+        expect(worker.messages).toHaveLength(2);
+        expect(worker.messages[1]!.message).toMatchObject({
+            kind: 'font',
+            font: {
+                materialIconReady: false,
+            },
+        });
     });
 });
