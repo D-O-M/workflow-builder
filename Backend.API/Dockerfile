@@ -11,9 +11,8 @@ EXPOSE 8080
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
-COPY ["Backend.API/Backend.API.csproj", "Backend.API/"]
-RUN dotnet restore "./Backend.API/Backend.API.csproj"
 COPY . .
+RUN dotnet restore "Backend.API/Backend.API.csproj"
 WORKDIR "/src/Backend.API"
 RUN dotnet build "./Backend.API.csproj" -c $BUILD_CONFIGURATION -o /app/build
 

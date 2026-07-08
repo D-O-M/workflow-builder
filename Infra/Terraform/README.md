@@ -70,6 +70,21 @@ The image workflow can also publish `backend-progress-broadcaster` and `backend-
 - deploys ProgressBroadcaster and PluginDetector as Function App zip packages when those Terraform resources are enabled
 - optionally runs `Backend.Database.MigrationService` using Azure App Configuration bootstrap values
 
+After `terraform apply`, the quickest setup path is:
+
+```powershell
+pwsh ./scripts/configure-github-deployment.ps1 `
+  -Repository "<owner>/<repo>" `
+  -AzureClientId "<federated-identity-client-id>" `
+  -AzureTenantId "<tenant-id>" `
+  -AzureSubscriptionId "<subscription-id>" `
+  -RunWorkflow
+```
+
+Run it from `Infra/Terraform`. The script reads `terraform output -json` or `tofu output -json`, sets the GitHub Actions variables and Static Web Apps deployment secret with `gh`, and optionally starts `deploy-azure-demo.yml`. Use `-WhatIf` to preview the `gh` operations, `-SkipStaticWebAppToken` if you want to manage the Static Web Apps token yourself, and `-RunDatabaseMigrations` if the GitHub OIDC identity has App Configuration and Key Vault permissions.
+
+If the script reports a missing Terraform output after you pull workflow changes, run `tofu apply -refresh-only` or a normal `tofu apply` first so the local state includes the latest output definitions.
+
 Set these GitHub repository or environment variables from Terraform outputs:
 
 ```text
