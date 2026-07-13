@@ -119,6 +119,8 @@ The GitHub OIDC identity used by the workflows needs enough access to update the
 - Function App deployment permissions if ProgressBroadcaster or PluginDetector deployment is enabled
 - App Configuration Data Reader plus Key Vault Secrets User if database migrations are run from GitHub
 
+Set `deployment_principal_object_id` to the Entra object id of the GitHub OIDC deployment service principal to let Terraform grant those App Configuration and Key Vault data-plane reads for migrations.
+
 Static Web Apps is provisioned but the Angular app is not uploaded by Terraform. Deploy the UI separately, then use the `frontend_url`, `api_url`, and `signalr_url` outputs to verify runtime config from `/api/client-config`.
 
 ## Configuration

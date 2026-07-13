@@ -26,6 +26,8 @@ resource "azurerm_function_app_flex_consumption" "this" {
 
   lifecycle {
     ignore_changes = [
+      app_settings["AzureWebJobsStorage"],
+      app_settings["DEPLOYMENT_STORAGE_CONNECTION_STRING"],
       zip_deploy_file
     ]
   }

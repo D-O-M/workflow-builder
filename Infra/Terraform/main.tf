@@ -171,12 +171,26 @@ module "role_assignments" {
         principal_id         = data.azurerm_client_config.current.object_id
       }
     } : {},
+    var.enable_app_configuration && trimspace(var.deployment_principal_object_id) != "" ? {
+      "app-config-data-reader-deployment" = {
+        scope                = module.app_configuration[0].id
+        role_definition_name = "App Configuration Data Reader"
+        principal_id         = var.deployment_principal_object_id
+      }
+    } : {},
     var.enable_key_vault ? {
       for key, principal_id in module.identities.principal_ids :
       "key-vault-secrets-user-${key}" => {
         scope                = module.key_vault[0].id
         role_definition_name = "Key Vault Secrets User"
         principal_id         = principal_id
+      }
+    } : {},
+    var.enable_key_vault && trimspace(var.deployment_principal_object_id) != "" ? {
+      "key-vault-secrets-user-deployment" = {
+        scope                = module.key_vault[0].id
+        role_definition_name = "Key Vault Secrets User"
+        principal_id         = var.deployment_principal_object_id
       }
     } : {},
     var.enable_container_registry ? {
@@ -417,6 +431,7 @@ module "progress_broadcaster_function" {
   identity_ids               = [module.identities.ids.progress_broadcaster]
   app_settings = merge(local.function_app_config_env_base, {
     "AzureAppConfiguration__ManagedIdentityClientId" = module.identities.client_ids.progress_broadcaster
+    "DEPLOYMENT_STORAGE_CONNECTION_STRING"           = module.storage.primary_connection_string
     "AzureWebJobsStorage"                            = module.storage.primary_connection_string
   })
   tags = local.tags
@@ -434,6 +449,7 @@ module "plugin_detector_function" {
   identity_ids               = [module.identities.ids.plugin_detector]
   app_settings = merge(local.function_app_config_env_base, {
     "AzureAppConfiguration__ManagedIdentityClientId" = module.identities.client_ids.plugin_detector
+    "DEPLOYMENT_STORAGE_CONNECTION_STRING"           = module.storage.primary_connection_string
     "AzureWebJobsStorage"                            = module.storage.primary_connection_string
   })
   tags = local.tags

@@ -57,6 +57,12 @@ variable "enable_app_configuration" {
   description = "Create Azure App Configuration and wire services to it."
 }
 
+variable "deployment_principal_object_id" {
+  type        = string
+  default     = ""
+  description = "Optional Entra object id for the GitHub/Azure deployment principal. When set, Terraform grants it App Configuration and Key Vault data-plane read access for migration/deploy workflows."
+}
+
 variable "enable_container_registry" {
   type        = bool
   default     = true

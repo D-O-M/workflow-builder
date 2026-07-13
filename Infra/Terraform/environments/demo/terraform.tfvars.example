@@ -28,6 +28,11 @@ enable_blueprint_seeding_job  = false
 enable_plugin_seeding_job     = false
 enable_observability_stack    = false
 
+# Optional: set this to the Entra object id of the GitHub OIDC deployment
+# service principal if you want the workflow to run database migrations through
+# Azure App Configuration and Key Vault references.
+# deployment_principal_object_id = "<service-principal-object-id>"
+
 api_min_replicas        = 0
 api_max_replicas        = 1
 signalr_min_replicas    = 0
@@ -63,7 +68,7 @@ storage_replication_type = "LRS"
 # keycloak_admin_password = "<set a demo admin password>"
 
 # Set either function toggle back to false if your subscription has App Service
-# quota restrictions for Linux Consumption Function Apps.
+# or Functions quota restrictions.
 
 # SQL password is generated when omitted. Set it explicitly for reproducible demos.
 # sql_admin_password = "<set a strong password>"
