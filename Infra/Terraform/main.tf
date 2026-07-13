@@ -209,6 +209,13 @@ resource "azurerm_app_configuration_key" "secret_references" {
   value                  = jsonencode({ uri = module.key_vault[0].secret_ids[each.value] })
 
   depends_on = [module.role_assignments, module.key_vault]
+
+  lifecycle {
+    ignore_changes = [
+      type,
+      vault_key_reference
+    ]
+  }
 }
 
 resource "azurerm_app_configuration_key" "secret_values" {

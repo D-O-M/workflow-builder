@@ -143,7 +143,7 @@ The demo example uses `ukwest` for the primary resources and `westeurope` for St
 
 Azure SQL and Cosmos DB can be more tightly restricted on trial/free subscriptions than Container Apps or Storage. The demo example keeps the primary app resources in `ukwest` but sets `sql_location` and `cosmos_location` to `swedencentral` so data-plane capacity can be adjusted independently when Azure reports regional provisioning restrictions.
 
-The optional Functions workers create Linux Consumption plans. Some free/trial subscriptions have App Service total VM quota set to zero, which causes Function plan creation to fail with an additional quota message. Leave `enable_progress_broadcaster=false` and `enable_plugin_detector=false` until quota is available.
+The demo profile enables ProgressBroadcaster and PluginDetector as Linux Consumption Function Apps. Some free/trial subscriptions have App Service total VM quota set to zero, which causes Function plan creation to fail with an additional quota message. Set `enable_progress_broadcaster=false` and `enable_plugin_detector=false` if quota is unavailable.
 
 ## Security Notes
 

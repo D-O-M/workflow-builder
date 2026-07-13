@@ -5,6 +5,14 @@ resource "azurerm_container_app" "this" {
   revision_mode                = "Single"
   tags                         = var.tags
 
+  lifecycle {
+    ignore_changes = [
+      registry,
+      template[0].container[0].image,
+      workload_profile_name
+    ]
+  }
+
   dynamic "identity" {
     for_each = length(var.identity_ids) == 0 ? [] : [1]
     content {

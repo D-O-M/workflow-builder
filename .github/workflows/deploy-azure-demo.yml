@@ -87,6 +87,22 @@ on:
         description: Backend.Dispatcher Container App name.
         required: false
         type: string
+      projection_worker_container_app_name:
+        description: Backend.ProjectionWorker Container App name.
+        required: false
+        type: string
+      maintenance_container_app_name:
+        description: Backend.Maintenance Container App name.
+        required: false
+        type: string
+      progress_broadcaster_function_app_name:
+        description: ProgressBroadcaster Function App name.
+        required: false
+        type: string
+      plugin_detector_function_app_name:
+        description: PluginDetector Function App name.
+        required: false
+        type: string
       storage_account_name:
         description: Storage account for plugin bundle upload.
         required: false
@@ -492,7 +508,8 @@ jobs:
     needs:
       - resolve
       - build_service_images
-    if: ${{ always() && needs.resolve.result == 'success' && (needs.build_service_images.result == 'success' || needs.build_service_images.result == 'skipped') }}
+      - run_database_migrations
+    if: ${{ always() && needs.resolve.result == 'success' && (needs.build_service_images.result == 'success' || needs.build_service_images.result == 'skipped') && (needs.run_database_migrations.result == 'success' || needs.run_database_migrations.result == 'skipped') }}
     environment: ${{ needs.resolve.outputs.target-environment }}
     steps:
       - name: Log In To Azure
@@ -587,8 +604,10 @@ jobs:
   deploy_function_apps:
     name: Deploy Function Apps
     runs-on: ubuntu-latest
-    needs: resolve
-    if: ${{ needs.resolve.outputs.deploy-progress-broadcaster == 'true' || needs.resolve.outputs.deploy-plugin-detector == 'true' }}
+    needs:
+      - resolve
+      - run_database_migrations
+    if: ${{ always() && needs.resolve.result == 'success' && (needs.run_database_migrations.result == 'success' || needs.run_database_migrations.result == 'skipped') && (needs.resolve.outputs.deploy-progress-broadcaster == 'true' || needs.resolve.outputs.deploy-plugin-detector == 'true') }}
     environment: ${{ needs.resolve.outputs.target-environment }}
     steps:
       - name: Check Out Repository
@@ -711,8 +730,10 @@ jobs:
   deploy_plugin_bundles:
     name: Deploy Plugin Bundles
     runs-on: ubuntu-latest
-    needs: resolve
-    if: ${{ needs.resolve.outputs.deploy-plugin-bundles == 'true' }}
+    needs:
+      - resolve
+      - deploy_function_apps
+    if: ${{ always() && needs.resolve.result == 'success' && (needs.deploy_function_apps.result == 'success' || needs.deploy_function_apps.result == 'skipped') && needs.resolve.outputs.deploy-plugin-bundles == 'true' }}
     environment: ${{ needs.resolve.outputs.target-environment }}
     steps:
       - name: Check Out Repository

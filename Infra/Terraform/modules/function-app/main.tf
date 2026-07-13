@@ -19,6 +19,12 @@ resource "azurerm_linux_function_app" "this" {
   app_settings                    = var.app_settings
   tags                            = var.tags
 
+  lifecycle {
+    ignore_changes = [
+      zip_deploy_file
+    ]
+  }
+
   dynamic "identity" {
     for_each = length(var.identity_ids) == 0 ? [] : [1]
     content {
