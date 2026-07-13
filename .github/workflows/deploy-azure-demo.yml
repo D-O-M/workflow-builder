@@ -87,22 +87,6 @@ on:
         description: Backend.Dispatcher Container App name.
         required: false
         type: string
-      projection_worker_container_app_name:
-        description: Backend.ProjectionWorker Container App name.
-        required: false
-        type: string
-      maintenance_container_app_name:
-        description: Backend.Maintenance Container App name.
-        required: false
-        type: string
-      progress_broadcaster_function_app_name:
-        description: ProgressBroadcaster Function App name.
-        required: false
-        type: string
-      plugin_detector_function_app_name:
-        description: PluginDetector Function App name.
-        required: false
-        type: string
       storage_account_name:
         description: Storage account for plugin bundle upload.
         required: false
