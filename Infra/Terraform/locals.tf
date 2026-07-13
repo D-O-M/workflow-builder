@@ -46,6 +46,9 @@ locals {
 
   app_config_endpoint = var.enable_app_configuration ? module.app_configuration[0].endpoint : ""
   acr_login_server    = var.enable_container_registry ? module.container_registry[0].login_server : ""
+  frontend_origin = trimspace(var.frontend_allowed_origin) != "" ? trimsuffix(trimspace(var.frontend_allowed_origin), "/") : (
+    var.enable_static_web_app ? module.static_web_app[0].url : ""
+  )
 
   app_config_env_base = [
     {
@@ -75,6 +78,10 @@ locals {
       {
         name  = "ASPNETCORE_HTTP_PORTS"
         value = tostring(var.container_port)
+      },
+      {
+        name  = "Cors__AllowedOrigins__0"
+        value = local.frontend_origin
       }
     ])
     signalr = concat(local.app_config_env_base, [
@@ -89,6 +96,10 @@ locals {
       {
         name  = "ASPNETCORE_HTTP_PORTS"
         value = tostring(var.container_port)
+      },
+      {
+        name  = "Cors__AllowedOrigins__0"
+        value = local.frontend_origin
       }
     ])
     engine = concat(local.app_config_env_base, [
@@ -159,6 +170,7 @@ locals {
     "ClientConfig:Authentication:ClientId"                     = var.authentication_enabled ? var.keycloak_spa_client_id : ""
     "ClientConfig:Authentication:Scope"                        = var.authentication_enabled ? "openid profile email" : ""
     "ClientConfig:Authentication:Audience"                     = var.authentication_enabled ? var.keycloak_api_audience : ""
+    "Cors:AllowedOrigins:0"                                    = local.frontend_origin
     "Authentication:Enabled"                                   = tostring(var.authentication_enabled)
     "Authentication:Keycloak:Enabled"                          = tostring(var.authentication_enabled && var.enable_keycloak)
     "Authentication:Keycloak:Authority"                        = local.keycloak_authority

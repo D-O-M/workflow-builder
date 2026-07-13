@@ -15,12 +15,27 @@ export interface RuntimeAuthenticationConfig {
   audience?: string;
 }
 
+interface RuntimeBootstrapConfig {
+  apiBaseUrl?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class RuntimeClientConfigService {
   private config: RuntimeClientConfig | null = null;
 
   async load(): Promise<void> {
-    const response = await fetch('/api/client-config', { credentials: 'omit' });
+    const bootstrapResponse = await fetch('/runtime-bootstrap.json', {
+      credentials: 'omit',
+      cache: 'no-store',
+    });
+    if (!bootstrapResponse.ok) {
+      throw new Error(`Unable to load runtime bootstrap config (${bootstrapResponse.status}).`);
+    }
+
+    const bootstrap = await bootstrapResponse.json() as RuntimeBootstrapConfig;
+    const bootstrapApiBaseUrl = this.normalizeBaseUrl(bootstrap.apiBaseUrl ?? '');
+    const clientConfigUrl = `${bootstrapApiBaseUrl}/api/client-config`;
+    const response = await fetch(clientConfigUrl, { credentials: 'omit', cache: 'no-store' });
     if (!response.ok) {
       throw new Error(`Unable to load runtime client config (${response.status}).`);
     }

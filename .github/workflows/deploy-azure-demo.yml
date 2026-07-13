@@ -680,6 +680,39 @@ jobs:
       - name: Check Out Repository
         uses: actions/checkout@v4
 
+      - name: Log In To Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ needs.resolve.outputs.azure-client-id }}
+          tenant-id: ${{ needs.resolve.outputs.azure-tenant-id }}
+          subscription-id: ${{ needs.resolve.outputs.azure-subscription-id }}
+
+      - name: Write runtime API bootstrap
+        shell: bash
+        env:
+          RESOURCE_GROUP: ${{ needs.resolve.outputs.resource-group-name }}
+          API_APP: ${{ needs.resolve.outputs.api-container-app-name }}
+        run: |
+          set -euo pipefail
+          api_fqdn="$(az containerapp show \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$API_APP" \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)"
+          if [ -z "$api_fqdn" ]; then
+            echo "Could not resolve the Backend.API ingress FQDN for runtime bootstrap." >&2
+            exit 1
+          fi
+
+          python3 - "https://$api_fqdn" <<'PY'
+          import json
+          import sys
+
+          with open("UI/public/runtime-bootstrap.json", "w", encoding="utf-8") as target:
+              json.dump({"apiBaseUrl": sys.argv[1]}, target, indent=2)
+              target.write("\n")
+          PY
+
       - name: Validate Static Web Apps token
         shell: bash
         env:

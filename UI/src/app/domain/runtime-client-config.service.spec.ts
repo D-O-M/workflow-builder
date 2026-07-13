@@ -6,43 +6,46 @@ describe('RuntimeClientConfigService', () => {
     vi.restoreAllMocks();
   });
 
-  it('uses the configured API and SignalR base urls from client-config', async () => {
+  it('loads client config from the bootstrapped API origin', async () => {
     const service = new RuntimeClientConfigService();
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      apiBaseUrl: 'http://localhost:5180',
-      signalRBaseUrl: 'http://localhost:64217',
-      grafanaBaseUrl: 'http://localhost:3000',
+    const fetch = mockConfigRequests('https://api.workflow.test', {
+      apiBaseUrl: 'https://api.workflow.test',
+      signalRBaseUrl: 'https://signalr.workflow.test',
+      grafanaBaseUrl: 'https://grafana.workflow.test',
       authentication: {
         enabled: true,
-        authority: 'https://localhost:8080/realms/workflow-builder',
+        authority: 'https://identity.workflow.test/realms/workflow-builder',
         clientId: 'workflow-builder-spa',
         scope: 'openid profile email',
         audience: 'workflow-builder-api',
       },
-    }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }));
+    });
 
     await service.load();
 
-    expect(service.apiBaseUrl).toBe('http://localhost:5180');
-    expect(service.signalRBaseUrl).toBe('http://localhost:64217');
-    expect(service.grafanaBaseUrl).toBe('http://localhost:3000');
+    expect(fetch).toHaveBeenNthCalledWith(1, '/runtime-bootstrap.json', {
+      credentials: 'omit',
+      cache: 'no-store',
+    });
+    expect(fetch).toHaveBeenNthCalledWith(2, 'https://api.workflow.test/api/client-config', {
+      credentials: 'omit',
+      cache: 'no-store',
+    });
+    expect(service.apiBaseUrl).toBe('https://api.workflow.test');
+    expect(service.signalRBaseUrl).toBe('https://signalr.workflow.test');
+    expect(service.grafanaBaseUrl).toBe('https://grafana.workflow.test');
     expect(service.authentication).toEqual({
       enabled: true,
-      authority: 'https://localhost:8080/realms/workflow-builder',
+      authority: 'https://identity.workflow.test/realms/workflow-builder',
       clientId: 'workflow-builder-spa',
       scope: 'openid profile email',
       audience: 'workflow-builder-api',
     });
   });
 
-  it('normalizes trailing slashes from configured urls', async () => {
+  it('uses the same-origin API proxy when the bootstrap origin is empty', async () => {
     const service = new RuntimeClientConfigService();
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    const fetch = mockConfigRequests('', {
       apiBaseUrl: 'http://localhost:5180/',
       signalRBaseUrl: 'http://localhost:64217/',
       grafanaBaseUrl: 'http://localhost:3000/',
@@ -52,15 +55,14 @@ describe('RuntimeClientConfigService', () => {
         clientId: 'workflow-builder-spa',
         scope: 'openid profile email',
       },
-    }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }));
+    });
 
     await service.load();
 
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/client-config', {
+      credentials: 'omit',
+      cache: 'no-store',
+    });
     expect(service.apiBaseUrl).toBe('http://localhost:5180');
     expect(service.signalRBaseUrl).toBe('http://localhost:64217');
     expect(service.grafanaBaseUrl).toBe('http://localhost:3000');
@@ -69,16 +71,11 @@ describe('RuntimeClientConfigService', () => {
 
   it('defaults missing authentication settings to disabled mode', async () => {
     const service = new RuntimeClientConfigService();
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    mockConfigRequests('', {
       apiBaseUrl: 'http://localhost:5180',
       signalRBaseUrl: 'http://localhost:64217',
       grafanaBaseUrl: 'http://localhost:3000',
-    }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    }));
+    });
 
     await service.load();
 
@@ -91,3 +88,16 @@ describe('RuntimeClientConfigService', () => {
     });
   });
 });
+
+function mockConfigRequests(apiBaseUrl: string, clientConfig: object) {
+  return vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(jsonResponse({ apiBaseUrl }))
+    .mockResolvedValueOnce(jsonResponse(clientConfig));
+}
+
+function jsonResponse(value: object): Response {
+  return new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}

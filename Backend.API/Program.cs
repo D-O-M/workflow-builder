@@ -10,6 +10,7 @@ using Backend.Services.ProcessStepQueue;
 using Backend.Services.PluginRuntimeStatus;
 using Backend.Security.Authentication;
 using Backend.Security.Authorization;
+using Backend.Security.Cors;
 using Backend.Topology;
 using Microsoft.Azure.Cosmos;
 using Microsoft.AspNetCore.Mvc.Authorization;
@@ -133,9 +134,13 @@ public class Program
 
         builder.Services.AddCors(options =>
         {
-            options.AddPolicy("AllowAngularDevClient", policy =>
+            var allowedOrigins = builder.Configuration
+                .GetSection(WorkflowClientOriginPolicy.AllowedOriginsSectionName)
+                .Get<string[]>()
+                ?? [];
+            options.AddPolicy(WorkflowClientOriginPolicy.PolicyName, policy =>
             {
-                policy.SetIsOriginAllowed(IsAllowedDevelopmentOrigin)
+                policy.SetIsOriginAllowed(origin => WorkflowClientOriginPolicy.IsAllowed(origin, allowedOrigins))
                       .AllowAnyHeader()
                       .AllowAnyMethod()
                       .AllowCredentials();
@@ -155,7 +160,7 @@ public class Program
             app.MapScalarApiReference();
         }
 
-        app.UseCors("AllowAngularDevClient");
+        app.UseCors(WorkflowClientOriginPolicy.PolicyName);
         app.UseAuthentication();
         app.UseAuthorization();
 
@@ -173,14 +178,4 @@ public class Program
         configuration[key]
         ?? throw new InvalidOperationException($"Configuration value '{key}' is not configured.");
 
-    private static bool IsAllowedDevelopmentOrigin(string origin)
-    {
-        if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
-        {
-            return false;
-        }
-
-        return uri.IsLoopback
-            || string.Equals(uri.Host, "host.docker.internal", StringComparison.OrdinalIgnoreCase);
-    }
 }

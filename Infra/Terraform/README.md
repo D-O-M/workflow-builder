@@ -126,6 +126,8 @@ Set `deployment_principal_object_id` to the Entra object id of the GitHub OIDC d
 
 Static Web Apps is provisioned but the Angular app is not uploaded by Terraform. Deploy the UI separately, then use the `frontend_url`, `api_url`, and `signalr_url` outputs to verify runtime config from `/api/client-config`.
 
+The GitHub deployment writes `runtime-bootstrap.json` into the Angular build from the deployed Backend.API Container App FQDN. Angular reads that small same-origin file first, then retrieves the full public client configuration from Backend.API. Terraform configures the provisioned Static Web App origin for API and SignalR CORS automatically; set `frontend_allowed_origin` only when a custom frontend domain should replace it.
+
 ## Configuration
 
 Services get only a small bootstrap environment:

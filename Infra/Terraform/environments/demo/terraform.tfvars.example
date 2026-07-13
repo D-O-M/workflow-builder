@@ -22,6 +22,8 @@ enable_container_registry     = true
 enable_keycloak               = false
 authentication_enabled        = false
 enable_static_web_app         = true
+# Optional custom frontend origin. When omitted, CORS uses the provisioned Static Web App URL.
+# frontend_allowed_origin = "https://workflow.example.com"
 enable_projection_worker      = false
 enable_maintenance_worker     = false
 enable_plugin_detector        = true

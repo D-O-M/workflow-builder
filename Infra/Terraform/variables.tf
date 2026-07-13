@@ -420,7 +420,12 @@ variable "allowed_ingress_ip_ranges" {
 variable "frontend_allowed_origin" {
   type        = string
   default     = ""
-  description = "Optional frontend origin for CORS/client configuration notes."
+  description = "Optional frontend origin override for API and SignalR CORS. Defaults to the provisioned Static Web App URL when enabled."
+
+  validation {
+    condition     = trimspace(var.frontend_allowed_origin) == "" || can(regex("^https?://[^/]+/?$", trimspace(var.frontend_allowed_origin)))
+    error_message = "frontend_allowed_origin must be empty or an HTTP(S) origin without a path."
+  }
 }
 
 variable "aspnetcore_environment" {

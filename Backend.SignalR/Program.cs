@@ -1,6 +1,7 @@
 using Backend.Models.Realtime;
 using Backend.Security.Authentication;
 using Backend.Security.Authorization;
+using Backend.Security.Cors;
 using Backend.SignalR.Hubs;
 using Backend.SignalR.Services;
 using Backend.Topology;
@@ -38,9 +39,13 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<ProcessSubscriptionRegistry>();
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAngularDevClient", policy =>
+    var allowedOrigins = builder.Configuration
+        .GetSection(WorkflowClientOriginPolicy.AllowedOriginsSectionName)
+        .Get<string[]>()
+        ?? [];
+    options.AddPolicy(WorkflowClientOriginPolicy.PolicyName, policy =>
     {
-        policy.SetIsOriginAllowed(IsAllowedDevelopmentOrigin)
+        policy.SetIsOriginAllowed(origin => WorkflowClientOriginPolicy.IsAllowed(origin, allowedOrigins))
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
@@ -50,7 +55,7 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
-app.UseCors("AllowAngularDevClient");
+app.UseCors(WorkflowClientOriginPolicy.PolicyName);
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -126,17 +131,6 @@ app.MapPost(
     });
 
 app.Run();
-
-static bool IsAllowedDevelopmentOrigin(string origin)
-{
-    if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
-    {
-        return false;
-    }
-
-    return uri.IsLoopback
-        || string.Equals(uri.Host, "host.docker.internal", StringComparison.OrdinalIgnoreCase);
-}
 
 static async Task<IResult?> AuthorizeInternalPublisherAsync(
     HttpContext httpContext,
