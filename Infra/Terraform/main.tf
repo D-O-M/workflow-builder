@@ -91,6 +91,7 @@ module "app_configuration" {
   name                = module.naming.app_configuration_name
   resource_group_name = module.resource_group.name
   location            = module.resource_group.location
+  sku                 = lower(var.app_configuration_sku)
   tags                = local.tags
 }
 
@@ -427,17 +428,12 @@ module "progress_broadcaster_function" {
   resource_group_name        = module.resource_group.name
   location                   = module.resource_group.location
   storage_account_access_key = module.storage.primary_access_key
-  storage_container_endpoint = "https://${module.storage.account_name}.blob.core.windows.net/${module.storage.container_names["function-releases"]}"
+  storage_container_endpoint = "https://${module.storage.account_name}.blob.core.windows.net/${module.storage.container_names["progress-function-releases"]}"
   identity_ids               = [module.identities.ids.progress_broadcaster]
-  app_settings = merge(local.function_app_config_env_base, {
+  app_settings = merge(local.function_app_config_env_base, local.progress_broadcaster_function_env, {
     "AzureAppConfiguration__ManagedIdentityClientId" = module.identities.client_ids.progress_broadcaster
     "DEPLOYMENT_STORAGE_CONNECTION_STRING"           = module.storage.primary_connection_string
     "AzureWebJobsStorage"                            = module.storage.primary_connection_string
-    # Trigger metadata is resolved by the Functions host before the worker can load App Configuration.
-    "RealtimeCosmos"                       = module.cosmos.primary_connection_string
-    "Realtime__Cosmos__DatabaseName"       = local.app_configuration_settings["Realtime:Cosmos:DatabaseName"]
-    "Realtime__Cosmos__TasksContainerName" = local.app_configuration_settings["Realtime:Cosmos:TasksContainerName"]
-    "Realtime__Cosmos__LeaseContainerName" = local.app_configuration_settings["Realtime:Cosmos:LeaseContainerName"]
   })
   tags = local.tags
 }
@@ -450,14 +446,12 @@ module "plugin_detector_function" {
   resource_group_name        = module.resource_group.name
   location                   = module.resource_group.location
   storage_account_access_key = module.storage.primary_access_key
-  storage_container_endpoint = "https://${module.storage.account_name}.blob.core.windows.net/${module.storage.container_names["function-releases"]}"
+  storage_container_endpoint = "https://${module.storage.account_name}.blob.core.windows.net/${module.storage.container_names["plugin-function-releases"]}"
   identity_ids               = [module.identities.ids.plugin_detector]
-  app_settings = merge(local.function_app_config_env_base, {
+  app_settings = merge(local.function_app_config_env_base, local.plugin_detector_function_env, {
     "AzureAppConfiguration__ManagedIdentityClientId" = module.identities.client_ids.plugin_detector
     "DEPLOYMENT_STORAGE_CONNECTION_STRING"           = module.storage.primary_connection_string
     "AzureWebJobsStorage"                            = module.storage.primary_connection_string
-    # Blob path placeholders are resolved by the Functions host before worker startup.
-    "PluginsBlobContainerName" = local.app_configuration_settings["PluginsBlobContainerName"]
   })
   tags = local.tags
 }

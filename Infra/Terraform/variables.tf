@@ -57,6 +57,23 @@ variable "enable_app_configuration" {
   description = "Create Azure App Configuration and wire services to it."
 }
 
+variable "app_configuration_sku" {
+  type        = string
+  default     = "standard"
+  description = "Azure App Configuration SKU. Standard is the reliable default for the multi-service demo; Free can exhaust its daily request quota during deployment and cold starts."
+
+  validation {
+    condition     = contains(["free", "standard", "premium"], lower(var.app_configuration_sku))
+    error_message = "app_configuration_sku must be free, standard, or premium."
+  }
+}
+
+variable "functions_use_app_configuration" {
+  type        = bool
+  default     = false
+  description = "Load Azure App Configuration synchronously in Flex Consumption workers. Disabled by default because Flex enforces a short host initialization deadline; Terraform supplies each Function's required IConfiguration values as app settings instead."
+}
+
 variable "deployment_principal_object_id" {
   type        = string
   default     = ""

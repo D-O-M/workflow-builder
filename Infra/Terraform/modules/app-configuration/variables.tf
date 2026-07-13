@@ -12,7 +12,12 @@ variable "location" {
 
 variable "sku" {
   type    = string
-  default = "free"
+  default = "standard"
+
+  validation {
+    condition     = contains(["free", "standard", "premium"], lower(var.sku))
+    error_message = "sku must be free, standard, or premium."
+  }
 }
 
 variable "tags" {

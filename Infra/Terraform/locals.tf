@@ -27,7 +27,13 @@ locals {
     processprojectionleases          = { partition_key = "/id" }
   }
 
-  blob_containers = ["plugins", "artifacts", "function-releases"]
+  blob_containers = [
+    "plugins",
+    "artifacts",
+    "function-releases",
+    "progress-function-releases",
+    "plugin-function-releases"
+  ]
 
   service_bus_queues = {
     process_step   = "processsteps"
@@ -206,8 +212,41 @@ locals {
   }
 
   function_app_config_env_base = {
-    "AzureAppConfiguration__Enabled"  = tostring(var.enable_app_configuration)
+    "AzureAppConfiguration__Enabled"  = tostring(var.enable_app_configuration && var.functions_use_app_configuration)
     "AzureAppConfiguration__Endpoint" = local.app_config_endpoint
     "AzureAppConfiguration__Label"    = var.environment_name
+  }
+
+  progress_broadcaster_function_env = var.enable_app_configuration && var.functions_use_app_configuration ? {} : {
+    "AzureCosmos__ConnectionName"                             = "enginedb"
+    "AzureCosmos__DatabaseName"                               = var.cosmos_database_name
+    "ConnectionStrings__TasksDB"                              = local.sql_connection_string
+    "ConnectionStrings__enginedb"                             = module.cosmos.primary_connection_string
+    "ConnectionStrings__RealtimeCosmos"                       = module.cosmos.primary_connection_string
+    "RealtimeCosmos"                                          = module.cosmos.primary_connection_string
+    "Realtime:Cosmos:DatabaseName"                            = var.cosmos_database_name
+    "Realtime:Cosmos:TasksContainerName"                      = "processsteps"
+    "Realtime:Cosmos:LeaseContainerName"                      = "processstepprogressleases"
+    "Realtime__SignalRBaseUrl"                                = local.signalr_url
+    "Realtime__Cosmos__DatabaseName"                          = var.cosmos_database_name
+    "Realtime__Cosmos__ProcessesContainerName"                = "processes"
+    "Realtime__Cosmos__TasksContainerName"                    = "processsteps"
+    "Realtime__Cosmos__ProcessRealtimeSummariesContainerName" = "processrealtimesummaries"
+    "Realtime__Cosmos__ProcessNodeRealtimeContainerName"      = "processnoderealtime"
+    "Realtime__Cosmos__LeaseContainerName"                    = "processstepprogressleases"
+    "Realtime__UseHostedChangeFeed"                           = "true"
+    "Realtime__InternalPublisher__SharedSecret"               = random_password.internal_publisher_secret.result
+  }
+
+  plugin_detector_function_env = var.enable_app_configuration && var.functions_use_app_configuration ? {} : {
+    "AzureCosmos__ConnectionName"                                 = "enginedb"
+    "AzureCosmos__DatabaseName"                                   = var.cosmos_database_name
+    "AzureServiceBus__Queues__PluginControlQueue__ConnectionName" = "plugin-control-queue"
+    "AzureServiceBus__Queues__PluginControlQueue__Name"           = "pluginreloadqueue"
+    "AzureStorage__BlobContainers__Plugins__ContainerName"        = "plugins"
+    "ConnectionStrings__TasksDB"                                  = local.sql_connection_string
+    "ConnectionStrings__enginedb"                                 = module.cosmos.primary_connection_string
+    "ConnectionStrings__plugin-control-queue"                     = module.service_bus.primary_connection_string
+    "PluginsBlobContainerName"                                    = "plugins"
   }
 }

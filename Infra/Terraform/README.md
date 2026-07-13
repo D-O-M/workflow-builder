@@ -25,7 +25,7 @@ Data plane:
 - Azure Cosmos DB database `enginedb` with containers matching `Backend.Topology`
 - Azure Storage containers `plugins` and `artifacts`
 - Azure Service Bus queues `processsteps` and `pluginreloadqueue`
-- Azure App Configuration Free for shared app settings
+- Azure App Configuration Standard for shared app settings
 - optional Key Vault for secret storage and App Configuration Key Vault references
 
 Grafana, Loki, Tempo, Prometheus, AKS, VMs, VMSS, Azure Batch, and active ACA Jobs are intentionally not deployed.
@@ -41,6 +41,8 @@ The demo defaults keep cost low:
 - Storage uses Standard LRS
 - Static Web Apps uses the Free SKU
 - Keycloak and optional workers are disabled unless requested
+
+App Configuration defaults to `standard`. The Free SKU's daily request quota is too small for reliable cold starts across the API, SignalR, Engine, Dispatcher, and Function workers, especially during a deployment when several instances start together. A very small one-service experiment can explicitly set `app_configuration_sku = "free"`, but quota exhaustion presents as slow `AzureAppConfigurationProvider.Load()` timeouts and failed Function trigger synchronization rather than a clear startup error.
 
 Cosmos free tier can only be enabled when creating the Cosmos account. Azure SQL free-offer settings are subscription/region/SKU constrained and are left as documented variables rather than preview-only Terraform attributes; the default uses the stable `Basic` database SKU. Private endpoints add complexity and cost, so `enable_private_endpoints=false` is the default.
 
@@ -134,7 +136,9 @@ Services get only a small bootstrap environment:
 - `AzureAppConfiguration__ManagedIdentityClientId`
 - runtime environment and port values where needed for Container Apps
 
-Azure Functions also receive the binding values that the Functions host must resolve before the isolated .NET worker starts. ProgressBroadcaster gets its `RealtimeCosmos` connection plus database/container/lease names, and PluginDetector gets `PluginsBlobContainerName`; these cannot come exclusively from worker-loaded Azure App Configuration.
+Azure Functions default `functions_use_app_configuration=false`. Flex Consumption gives the worker a short host-initialization window, so synchronously loading App Configuration and its Key Vault references can prevent trigger synchronization. Terraform therefore supplies only each Function's required settings through Function App settings, which the existing environment configuration provider reads normally. Set `functions_use_app_configuration=true` only when startup latency has been proven to fit the Flex limit. Trigger binding values such as `RealtimeCosmos` and `PluginsBlobContainerName` must remain Function App settings because the Functions host resolves them before the isolated worker starts.
+
+Each Flex Function App has its own deployment package container. Do not point multiple apps at one deployment container: deployment history and active package state are scoped through that storage location, and sharing it can cause one app to observe the other app's deployments.
 
 The app loads Azure App Configuration before topology validation, then re-adds environment variables as the final provider. That means ACA and Function App environment variables should stay minimal: App Configuration bootstrap values, managed identity client id, platform-required values such as `AzureWebJobsStorage`, and emergency overrides only. Normal app settings should live in Azure App Configuration.
 
@@ -148,7 +152,7 @@ The demo example uses `ukwest` for the primary resources and `westeurope` for St
 
 Azure SQL and Cosmos DB can be more tightly restricted on trial/free subscriptions than Container Apps or Storage. The demo example keeps the primary app resources in `ukwest` but sets `sql_location` and `cosmos_location` to `swedencentral` so data-plane capacity can be adjusted independently when Azure reports regional provisioning restrictions.
 
-The demo profile enables ProgressBroadcaster and PluginDetector as .NET isolated Flex Consumption Function Apps. Flex uses the Function App resource runtime settings and a deployment blob container, so do not add classic `FUNCTIONS_WORKER_RUNTIME` or `WEBSITE_RUN_FROM_PACKAGE` app settings in Terraform. Some free/trial subscriptions can still restrict App Service/Functions quota; set `enable_progress_broadcaster=false` and `enable_plugin_detector=false` if quota is unavailable.
+The demo profile enables ProgressBroadcaster and PluginDetector as .NET isolated Flex Consumption Function Apps. Flex uses the Function App resource runtime settings and a deployment blob container, so do not add classic `FUNCTIONS_WORKER_RUNTIME` or `WEBSITE_RUN_FROM_PACKAGE` app settings in Terraform. The Azure Flex runtime identifier must be the full `10.0` value; Azure accepts `10` while provisioning but the resulting host cannot initialize or synchronize triggers. Some free/trial subscriptions can still restrict App Service/Functions quota; set `enable_progress_broadcaster=false` and `enable_plugin_detector=false` if quota is unavailable.
 
 ## Security Notes
 

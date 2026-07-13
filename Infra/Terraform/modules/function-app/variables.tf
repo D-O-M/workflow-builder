@@ -37,7 +37,12 @@ variable "app_settings" {
 
 variable "dotnet_version" {
   type    = string
-  default = "10"
+  default = "10.0"
+
+  validation {
+    condition     = var.dotnet_version == "10.0"
+    error_message = "WorkflowBuilder Function Apps currently target the Azure Functions dotnet-isolated 10.0 runtime."
+  }
 }
 
 variable "maximum_instance_count" {
