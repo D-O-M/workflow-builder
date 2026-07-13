@@ -406,16 +406,15 @@ module "static_web_app" {
 }
 
 module "progress_broadcaster_function" {
-  count                           = var.enable_progress_broadcaster ? 1 : 0
-  source                          = "./modules/function-app"
-  name                            = module.naming.function_apps.progress_broadcaster
-  plan_name                       = "${module.naming.function_apps.progress_broadcaster}-plan"
-  resource_group_name             = module.resource_group.name
-  location                        = module.resource_group.location
-  storage_account_name            = module.storage.account_name
-  storage_account_access_key      = module.storage.primary_access_key
-  identity_ids                    = [module.identities.ids.progress_broadcaster]
-  key_vault_reference_identity_id = var.enable_key_vault ? module.identities.ids.progress_broadcaster : null
+  count                      = var.enable_progress_broadcaster ? 1 : 0
+  source                     = "./modules/function-app"
+  name                       = module.naming.function_apps.progress_broadcaster
+  plan_name                  = "${module.naming.function_apps.progress_broadcaster}-flex-plan"
+  resource_group_name        = module.resource_group.name
+  location                   = module.resource_group.location
+  storage_account_access_key = module.storage.primary_access_key
+  storage_container_endpoint = "https://${module.storage.account_name}.blob.core.windows.net/${module.storage.container_names["function-releases"]}"
+  identity_ids               = [module.identities.ids.progress_broadcaster]
   app_settings = merge(local.function_app_config_env_base, {
     "AzureAppConfiguration__ManagedIdentityClientId" = module.identities.client_ids.progress_broadcaster
     "AzureWebJobsStorage"                            = module.storage.primary_connection_string
@@ -424,16 +423,15 @@ module "progress_broadcaster_function" {
 }
 
 module "plugin_detector_function" {
-  count                           = var.enable_plugin_detector ? 1 : 0
-  source                          = "./modules/function-app"
-  name                            = module.naming.function_apps.plugin_detector
-  plan_name                       = "${module.naming.function_apps.plugin_detector}-plan"
-  resource_group_name             = module.resource_group.name
-  location                        = module.resource_group.location
-  storage_account_name            = module.storage.account_name
-  storage_account_access_key      = module.storage.primary_access_key
-  identity_ids                    = [module.identities.ids.plugin_detector]
-  key_vault_reference_identity_id = var.enable_key_vault ? module.identities.ids.plugin_detector : null
+  count                      = var.enable_plugin_detector ? 1 : 0
+  source                     = "./modules/function-app"
+  name                       = module.naming.function_apps.plugin_detector
+  plan_name                  = "${module.naming.function_apps.plugin_detector}-flex-plan"
+  resource_group_name        = module.resource_group.name
+  location                   = module.resource_group.location
+  storage_account_access_key = module.storage.primary_access_key
+  storage_container_endpoint = "https://${module.storage.account_name}.blob.core.windows.net/${module.storage.container_names["function-releases"]}"
+  identity_ids               = [module.identities.ids.plugin_detector]
   app_settings = merge(local.function_app_config_env_base, {
     "AzureAppConfiguration__ManagedIdentityClientId" = module.identities.client_ids.plugin_detector
     "AzureWebJobsStorage"                            = module.storage.primary_connection_string

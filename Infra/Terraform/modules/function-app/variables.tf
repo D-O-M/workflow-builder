@@ -14,23 +14,19 @@ variable "location" {
   type = string
 }
 
-variable "storage_account_name" {
-  type = string
-}
-
 variable "storage_account_access_key" {
   type      = string
   sensitive = true
 }
 
+variable "storage_container_endpoint" {
+  type        = string
+  description = "Blob container endpoint used by Azure Functions Flex Consumption for deployment packages."
+}
+
 variable "identity_ids" {
   type    = list(string)
   default = []
-}
-
-variable "key_vault_reference_identity_id" {
-  type    = string
-  default = null
 }
 
 variable "app_settings" {
@@ -41,7 +37,17 @@ variable "app_settings" {
 
 variable "dotnet_version" {
   type    = string
-  default = "10.0"
+  default = "10"
+}
+
+variable "maximum_instance_count" {
+  type    = number
+  default = 1
+}
+
+variable "instance_memory_in_mb" {
+  type    = number
+  default = 2048
 }
 
 variable "tags" {

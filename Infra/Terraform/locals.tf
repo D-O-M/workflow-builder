@@ -27,7 +27,7 @@ locals {
     processprojectionleases          = { partition_key = "/id" }
   }
 
-  blob_containers = ["plugins", "artifacts"]
+  blob_containers = ["plugins", "artifacts", "function-releases"]
 
   service_bus_queues = {
     process_step   = "processsteps"
@@ -209,7 +209,5 @@ locals {
     "AzureAppConfiguration__Enabled"  = tostring(var.enable_app_configuration)
     "AzureAppConfiguration__Endpoint" = local.app_config_endpoint
     "AzureAppConfiguration__Label"    = var.environment_name
-    "FUNCTIONS_WORKER_RUNTIME"        = "dotnet-isolated"
-    "WEBSITE_RUN_FROM_PACKAGE"        = "1"
   }
 }

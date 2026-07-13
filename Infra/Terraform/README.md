@@ -129,9 +129,9 @@ Services get only a small bootstrap environment:
 - `AzureAppConfiguration__Endpoint`
 - `AzureAppConfiguration__Label`
 - `AzureAppConfiguration__ManagedIdentityClientId`
-- runtime environment and port values where needed
+- runtime environment and port values where needed for Container Apps
 
-The app loads Azure App Configuration before topology validation, then re-adds environment variables as the final provider. That means ACA and Function App environment variables should stay minimal: App Configuration bootstrap values, managed identity client id, port/runtime values, and emergency overrides only. Normal app settings should live in Azure App Configuration.
+The app loads Azure App Configuration before topology validation, then re-adds environment variables as the final provider. That means ACA and Function App environment variables should stay minimal: App Configuration bootstrap values, managed identity client id, platform-required values such as `AzureWebJobsStorage`, and emergency overrides only. Normal app settings should live in Azure App Configuration.
 
 Non-secret settings are stored directly with the environment label. Secrets are stored in Key Vault and referenced from App Configuration when `enable_key_vault=true`; otherwise the demo stores secret values directly in App Configuration.
 
@@ -143,7 +143,7 @@ The demo example uses `ukwest` for the primary resources and `westeurope` for St
 
 Azure SQL and Cosmos DB can be more tightly restricted on trial/free subscriptions than Container Apps or Storage. The demo example keeps the primary app resources in `ukwest` but sets `sql_location` and `cosmos_location` to `swedencentral` so data-plane capacity can be adjusted independently when Azure reports regional provisioning restrictions.
 
-The demo profile enables ProgressBroadcaster and PluginDetector as Linux Consumption Function Apps. Some free/trial subscriptions have App Service total VM quota set to zero, which causes Function plan creation to fail with an additional quota message. Set `enable_progress_broadcaster=false` and `enable_plugin_detector=false` if quota is unavailable.
+The demo profile enables ProgressBroadcaster and PluginDetector as .NET isolated Flex Consumption Function Apps. Flex uses the Function App resource runtime settings and a deployment blob container, so do not add classic `FUNCTIONS_WORKER_RUNTIME` or `WEBSITE_RUN_FROM_PACKAGE` app settings in Terraform. Some free/trial subscriptions can still restrict App Service/Functions quota; set `enable_progress_broadcaster=false` and `enable_plugin_detector=false` if quota is unavailable.
 
 ## Security Notes
 

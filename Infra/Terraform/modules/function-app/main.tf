@@ -3,25 +3,29 @@ resource "azurerm_service_plan" "this" {
   resource_group_name = var.resource_group_name
   location            = var.location
   os_type             = "Linux"
-  sku_name            = "Y1"
+  sku_name            = "FC1"
   tags                = var.tags
 }
 
-resource "azurerm_linux_function_app" "this" {
-  name                            = var.name
-  resource_group_name             = var.resource_group_name
-  location                        = var.location
-  service_plan_id                 = azurerm_service_plan.this.id
-  storage_account_name            = var.storage_account_name
-  storage_account_access_key      = var.storage_account_access_key
-  https_only                      = true
-  key_vault_reference_identity_id = var.key_vault_reference_identity_id
-  app_settings                    = var.app_settings
-  tags                            = var.tags
+resource "azurerm_function_app_flex_consumption" "this" {
+  name                        = var.name
+  resource_group_name         = var.resource_group_name
+  location                    = var.location
+  service_plan_id             = azurerm_service_plan.this.id
+  storage_container_endpoint  = var.storage_container_endpoint
+  storage_container_type      = "blobContainer"
+  storage_authentication_type = "StorageAccountConnectionString"
+  storage_access_key          = var.storage_account_access_key
+  https_only                  = true
+  app_settings                = var.app_settings
+  runtime_name                = "dotnet-isolated"
+  runtime_version             = var.dotnet_version
+  maximum_instance_count      = var.maximum_instance_count
+  instance_memory_in_mb       = var.instance_memory_in_mb
+  tags                        = var.tags
 
   lifecycle {
     ignore_changes = [
-      site_config[0].application_stack[0].dotnet_version,
       zip_deploy_file
     ]
   }
@@ -35,9 +39,5 @@ resource "azurerm_linux_function_app" "this" {
   }
 
   site_config {
-    application_stack {
-      dotnet_version              = var.dotnet_version
-      use_dotnet_isolated_runtime = true
-    }
   }
 }

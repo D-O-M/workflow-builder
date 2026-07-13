@@ -650,12 +650,6 @@ jobs:
             local package_name="$3"
             local package_path
             package_path="$(package_function "$project" "$package_name")"
-            echo "Normalizing Function App $app_name runtime to DOTNET-ISOLATED|10"
-            az functionapp config set \
-              --resource-group "$RESOURCE_GROUP" \
-              --name "$app_name" \
-              --linux-fx-version "DOTNET-ISOLATED|10" \
-              --output none
             echo "Deploying Function App $app_name from $package_path"
             az functionapp deployment source config-zip \
               --resource-group "$RESOURCE_GROUP" \
