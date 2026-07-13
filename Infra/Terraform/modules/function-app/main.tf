@@ -21,6 +21,7 @@ resource "azurerm_linux_function_app" "this" {
 
   lifecycle {
     ignore_changes = [
+      site_config[0].application_stack[0].dotnet_version,
       zip_deploy_file
     ]
   }

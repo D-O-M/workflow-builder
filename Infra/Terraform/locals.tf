@@ -210,5 +210,6 @@ locals {
     "AzureAppConfiguration__Endpoint" = local.app_config_endpoint
     "AzureAppConfiguration__Label"    = var.environment_name
     "FUNCTIONS_WORKER_RUNTIME"        = "dotnet-isolated"
+    "WEBSITE_RUN_FROM_PACKAGE"        = "1"
   }
 }
