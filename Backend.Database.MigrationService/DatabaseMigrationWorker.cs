@@ -40,6 +40,7 @@ internal sealed class DatabaseMigrationWorker(
         }
         catch (Exception exception)
         {
+            Environment.ExitCode = 1;
             activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
             logger.LogError(exception, "Workflow database provisioning failed.");
             throw;

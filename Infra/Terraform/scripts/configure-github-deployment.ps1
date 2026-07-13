@@ -198,6 +198,7 @@ $pluginDetectorFunctionAppName = Get-ObjectPropertyValue $functionApps 'plugin_d
 $storageAccountName = Get-OutputValue $outputs 'storage_account_name'
 $pluginsContainerName = Get-OutputValue $outputs 'plugins_container_name'
 $appConfigurationEndpoint = Get-OutputValue $outputs 'app_configuration_endpoint'
+$keyVaultName = Get-OutputValue $outputs 'key_vault_name'
 $staticWebAppToken = Get-OutputValue $outputs 'static_web_app_deployment_token'
 
 Assert-HasValue 'resource_group_name' $resourceGroupName
@@ -209,6 +210,9 @@ Assert-HasValue 'container_app_names.engine' $engineContainerAppName
 Assert-HasValue 'container_app_names.dispatcher' $dispatcherContainerAppName
 Assert-HasValue 'storage_account_name' $storageAccountName
 Assert-HasValue 'plugins_container_name' $pluginsContainerName
+if ($RunDatabaseMigrations) {
+    Assert-HasValue 'key_vault_name' $keyVaultName
+}
 
 $deployProjectionWorker = Test-HasValue $projectionWorkerContainerAppName
 $deployMaintenanceWorker = Test-HasValue $maintenanceContainerAppName
@@ -255,6 +259,7 @@ Set-GitHubVariable 'PLUGIN_DETECTOR_FUNCTION_APP_NAME' $pluginDetectorFunctionAp
 Set-GitHubVariable 'AZURE_STORAGE_ACCOUNT_NAME' $storageAccountName
 Set-GitHubVariable 'PLUGINS_CONTAINER_NAME' $pluginsContainerName
 Set-GitHubVariable 'AZURE_APP_CONFIGURATION_ENDPOINT' $appConfigurationEndpoint
+Set-GitHubVariable 'AZURE_KEY_VAULT_NAME' $keyVaultName
 Set-GitHubVariable 'PLUGIN_RUNTIME_IDENTIFIER' 'linux-x64'
 Set-GitHubVariable 'AZURE_CLIENT_ID' $AzureClientId
 Set-GitHubVariable 'AZURE_TENANT_ID' $AzureTenantId

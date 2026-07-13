@@ -81,7 +81,7 @@ pwsh ./scripts/configure-github-deployment.ps1 `
   -RunWorkflow
 ```
 
-Run it from `Infra/Terraform`. The script reads `terraform output -json` or `tofu output -json`, sets the GitHub Actions variables and Static Web Apps deployment secret with `gh`, and optionally starts `deploy-azure-demo.yml`. Use `-WhatIf` to preview the `gh` operations, `-SkipStaticWebAppToken` if you want to manage the Static Web Apps token yourself, and `-RunDatabaseMigrations` if the GitHub OIDC identity has App Configuration and Key Vault permissions.
+Run it from `Infra/Terraform`. The script reads `terraform output -json` or `tofu output -json`, sets the GitHub Actions variables and Static Web Apps deployment secret with `gh`, and optionally starts `deploy-azure-demo.yml`. Use `-WhatIf` to preview the `gh` operations, `-SkipStaticWebAppToken` if you want to manage the Static Web Apps token yourself, and `-RunDatabaseMigrations` if the GitHub OIDC identity has Key Vault access.
 
 If the script reports a missing Terraform output after you pull workflow changes, run `tofu apply -refresh-only` or a normal `tofu apply` first so the local state includes the latest output definitions.
 
@@ -98,6 +98,7 @@ BACKEND_DISPATCHER_CONTAINER_APP_NAME = container_app_names.dispatcher
 AZURE_STORAGE_ACCOUNT_NAME            = storage_account_name
 PLUGINS_CONTAINER_NAME                = plugins_container_name
 AZURE_APP_CONFIGURATION_ENDPOINT      = app_configuration_endpoint
+AZURE_KEY_VAULT_NAME                  = key_vault_name
 ```
 
 Optional services use these variables when enabled:
@@ -117,9 +118,9 @@ The GitHub OIDC identity used by the workflows needs enough access to update the
 - permission to update Container Apps in the resource group, such as Container Apps Contributor or Contributor scoped to the demo resource group
 - `Storage Blob Data Contributor` on the storage account when uploading plugin bundles
 - Function App deployment permissions if ProgressBroadcaster or PluginDetector deployment is enabled
-- App Configuration Data Reader plus Key Vault Secrets User if database migrations are run from GitHub
+- `Key Vault Secrets User` if database migrations are run from GitHub
 
-Set `deployment_principal_object_id` to the Entra object id of the GitHub OIDC deployment service principal to let Terraform grant those App Configuration and Key Vault data-plane reads for migrations.
+Set `deployment_principal_object_id` to the Entra object id of the GitHub OIDC deployment service principal to let Terraform grant the deployment data-plane roles. The migration job reads only the SQL and Cosmos connection strings from Key Vault through the authenticated Azure CLI and passes them to the migration service through normal environment configuration. Deployed services continue to load their full configuration from Azure App Configuration and resolve Key Vault references at runtime.
 
 Static Web Apps is provisioned but the Angular app is not uploaded by Terraform. Deploy the UI separately, then use the `frontend_url`, `api_url`, and `signalr_url` outputs to verify runtime config from `/api/client-config`.
 

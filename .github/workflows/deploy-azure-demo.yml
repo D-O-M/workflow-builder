@@ -95,8 +95,8 @@ on:
         description: Blob container for plugin bundle upload.
         required: false
         type: string
-      app_configuration_endpoint:
-        description: Azure App Configuration endpoint for optional database migrations.
+      key_vault_name:
+        description: Azure Key Vault containing migration connection strings.
         required: false
         type: string
       plugin_runtime_identifier:
@@ -186,7 +186,7 @@ on:
       plugins_container_name:
         required: false
         type: string
-      app_configuration_endpoint:
+      key_vault_name:
         required: false
         type: string
       plugin_runtime_identifier:
@@ -241,7 +241,7 @@ jobs:
       plugin-detector-function-app-name: ${{ steps.resolve.outputs.plugin-detector-function-app-name }}
       storage-account-name: ${{ steps.resolve.outputs.storage-account-name }}
       plugins-container-name: ${{ steps.resolve.outputs.plugins-container-name }}
-      app-configuration-endpoint: ${{ steps.resolve.outputs.app-configuration-endpoint }}
+      key-vault-name: ${{ steps.resolve.outputs.key-vault-name }}
       plugin-runtime-identifier: ${{ steps.resolve.outputs.plugin-runtime-identifier }}
       azure-client-id: ${{ steps.resolve.outputs.azure-client-id }}
       azure-tenant-id: ${{ steps.resolve.outputs.azure-tenant-id }}
@@ -278,7 +278,7 @@ jobs:
           INPUT_PLUGIN_DETECTOR_FUNCTION_APP_NAME: ${{ inputs.plugin_detector_function_app_name }}
           INPUT_STORAGE_ACCOUNT_NAME: ${{ inputs.storage_account_name }}
           INPUT_PLUGINS_CONTAINER_NAME: ${{ inputs.plugins_container_name }}
-          INPUT_APP_CONFIGURATION_ENDPOINT: ${{ inputs.app_configuration_endpoint }}
+          INPUT_KEY_VAULT_NAME: ${{ inputs.key_vault_name }}
           INPUT_PLUGIN_RUNTIME_IDENTIFIER: ${{ inputs.plugin_runtime_identifier }}
           INPUT_AZURE_CLIENT_ID: ${{ inputs.azure_client_id }}
           INPUT_AZURE_TENANT_ID: ${{ inputs.azure_tenant_id }}
@@ -310,7 +310,7 @@ jobs:
           VAR_PLUGIN_DETECTOR_FUNCTION_APP_NAME: ${{ vars.PLUGIN_DETECTOR_FUNCTION_APP_NAME }}
           VAR_STORAGE_ACCOUNT_NAME: ${{ vars.AZURE_STORAGE_ACCOUNT_NAME }}
           VAR_PLUGINS_CONTAINER_NAME: ${{ vars.PLUGINS_CONTAINER_NAME }}
-          VAR_APP_CONFIGURATION_ENDPOINT: ${{ vars.AZURE_APP_CONFIGURATION_ENDPOINT }}
+          VAR_KEY_VAULT_NAME: ${{ vars.AZURE_KEY_VAULT_NAME }}
           VAR_PLUGIN_RUNTIME_IDENTIFIER: ${{ vars.PLUGIN_RUNTIME_IDENTIFIER }}
           VAR_AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
           VAR_AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
@@ -365,7 +365,7 @@ jobs:
           plugin_detector_function_app_name="$(first_non_empty "$INPUT_PLUGIN_DETECTOR_FUNCTION_APP_NAME" "$VAR_PLUGIN_DETECTOR_FUNCTION_APP_NAME")"
           storage_account_name="$(first_non_empty "$INPUT_STORAGE_ACCOUNT_NAME" "$VAR_STORAGE_ACCOUNT_NAME")"
           plugins_container_name="$(first_non_empty "$INPUT_PLUGINS_CONTAINER_NAME" "$VAR_PLUGINS_CONTAINER_NAME" "plugins")"
-          app_configuration_endpoint="$(first_non_empty "$INPUT_APP_CONFIGURATION_ENDPOINT" "$VAR_APP_CONFIGURATION_ENDPOINT")"
+          key_vault_name="$(first_non_empty "$INPUT_KEY_VAULT_NAME" "$VAR_KEY_VAULT_NAME")"
           plugin_runtime_identifier="$(first_non_empty "$INPUT_PLUGIN_RUNTIME_IDENTIFIER" "$VAR_PLUGIN_RUNTIME_IDENTIFIER" "linux-x64")"
           azure_client_id="$(first_non_empty "$INPUT_AZURE_CLIENT_ID" "$VAR_AZURE_CLIENT_ID")"
           azure_tenant_id="$(first_non_empty "$INPUT_AZURE_TENANT_ID" "$VAR_AZURE_TENANT_ID")"
@@ -411,8 +411,8 @@ jobs:
           if [ "$deploy_plugin_bundles" = "true" ] && [ -z "$storage_account_name" ]; then
             missing+=("storage_account_name or vars.AZURE_STORAGE_ACCOUNT_NAME")
           fi
-          if [ "$run_database_migrations" = "true" ] && [ -z "$app_configuration_endpoint" ]; then
-            missing+=("app_configuration_endpoint or vars.AZURE_APP_CONFIGURATION_ENDPOINT")
+          if [ "$run_database_migrations" = "true" ] && [ -z "$key_vault_name" ]; then
+            missing+=("key_vault_name or vars.AZURE_KEY_VAULT_NAME")
           fi
 
           if [ "${#missing[@]}" -gt 0 ]; then
@@ -449,7 +449,7 @@ jobs:
             echo "plugin-detector-function-app-name=$plugin_detector_function_app_name"
             echo "storage-account-name=$storage_account_name"
             echo "plugins-container-name=$plugins_container_name"
-            echo "app-configuration-endpoint=$app_configuration_endpoint"
+            echo "key-vault-name=$key_vault_name"
             echo "plugin-runtime-identifier=$plugin_runtime_identifier"
             echo "azure-client-id=$azure_client_id"
             echo "azure-tenant-id=$azure_tenant_id"
@@ -789,9 +789,77 @@ jobs:
           subscription-id: ${{ needs.resolve.outputs.azure-subscription-id }}
 
       - name: Run migration service
+        shell: bash
         env:
           DOTNET_ENVIRONMENT: Production
-          AzureAppConfiguration__Enabled: "true"
-          AzureAppConfiguration__Endpoint: ${{ needs.resolve.outputs.app-configuration-endpoint }}
-          AzureAppConfiguration__Label: ${{ needs.resolve.outputs.target-environment }}
-        run: dotnet run --project Backend.Database.MigrationService/Backend.Database.MigrationService.csproj -c "${{ needs.resolve.outputs.build-configuration }}"
+          KEY_VAULT_NAME: ${{ needs.resolve.outputs.key-vault-name }}
+          RESOURCE_GROUP_NAME: ${{ needs.resolve.outputs.resource-group-name }}
+          BUILD_CONFIGURATION: ${{ needs.resolve.outputs.build-configuration }}
+        run: |
+          set -euo pipefail
+
+          tasks_db="$(az keyvault secret show \
+            --vault-name "$KEY_VAULT_NAME" \
+            --name connectionstrings-tasksdb \
+            --query value \
+            --output tsv)"
+          engine_db="$(az keyvault secret show \
+            --vault-name "$KEY_VAULT_NAME" \
+            --name connectionstrings-enginedb \
+            --query value \
+            --output tsv)"
+
+          echo "::add-mask::$tasks_db"
+          echo "::add-mask::$engine_db"
+
+          sql_server_fqdn="$(printf '%s' "$tasks_db" | sed -n 's/.*Server=tcp:\([^,;]*\).*/\1/p')"
+          sql_server_name="${sql_server_fqdn%%.*}"
+          if [ -z "$sql_server_name" ]; then
+            echo "Could not resolve the Azure SQL server name from the migration connection string." >&2
+            exit 1
+          fi
+
+          runner_ip="$(curl --fail --silent --show-error https://api.ipify.org)"
+          firewall_rule_name="github-actions-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup_firewall_rule() {
+            az sql server firewall-rule delete \
+              --resource-group "$RESOURCE_GROUP_NAME" \
+              --server "$sql_server_name" \
+              --name "$firewall_rule_name" \
+              --output none || true
+          }
+          trap cleanup_firewall_rule EXIT
+
+          az sql server firewall-rule create \
+            --resource-group "$RESOURCE_GROUP_NAME" \
+            --server "$sql_server_name" \
+            --name "$firewall_rule_name" \
+            --start-ip-address "$runner_ip" \
+            --end-ip-address "$runner_ip" \
+            --output none
+
+          export ConnectionStrings__TasksDB="$tasks_db"
+          export ConnectionStrings__enginedb="$engine_db"
+          export AzureAppConfiguration__Enabled=false
+
+          dotnet build \
+            Backend.Database.MigrationService/Backend.Database.MigrationService.csproj \
+            -c "$BUILD_CONFIGURATION"
+
+          for attempt in 1 2 3 4 5; do
+            if dotnet run \
+              --no-build \
+              --no-launch-profile \
+              --project Backend.Database.MigrationService/Backend.Database.MigrationService.csproj \
+              -c "$BUILD_CONFIGURATION"; then
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 5 ]; then
+              echo "Database migration failed after $attempt attempts." >&2
+              exit 1
+            fi
+
+            echo "Database migration attempt $attempt failed; waiting for the SQL firewall rule to propagate."
+            sleep 15
+          done
