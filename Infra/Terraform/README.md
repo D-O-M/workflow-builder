@@ -134,6 +134,8 @@ Services get only a small bootstrap environment:
 - `AzureAppConfiguration__ManagedIdentityClientId`
 - runtime environment and port values where needed for Container Apps
 
+Azure Functions also receive the binding values that the Functions host must resolve before the isolated .NET worker starts. ProgressBroadcaster gets its `RealtimeCosmos` connection plus database/container/lease names, and PluginDetector gets `PluginsBlobContainerName`; these cannot come exclusively from worker-loaded Azure App Configuration.
+
 The app loads Azure App Configuration before topology validation, then re-adds environment variables as the final provider. That means ACA and Function App environment variables should stay minimal: App Configuration bootstrap values, managed identity client id, platform-required values such as `AzureWebJobsStorage`, and emergency overrides only. Normal app settings should live in Azure App Configuration.
 
 Non-secret settings are stored directly with the environment label. Secrets are stored in Key Vault and referenced from App Configuration when `enable_key_vault=true`; otherwise the demo stores secret values directly in App Configuration.

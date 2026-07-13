@@ -1,3 +1,4 @@
+using Azure.Core;
 using Azure.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
@@ -126,13 +127,7 @@ public static class Extensions
 
         if (options.IsUsable)
         {
-            var credentialOptions = new DefaultAzureCredentialOptions();
-            if (!string.IsNullOrWhiteSpace(options.ManagedIdentityClientId))
-            {
-                credentialOptions.ManagedIdentityClientId = options.ManagedIdentityClientId;
-            }
-
-            var credential = new DefaultAzureCredential(credentialOptions);
+            var credential = CreateAzureCredential(options);
             builder.Configuration.AddAzureAppConfiguration(appConfig =>
             {
                 appConfig.Connect(new Uri(options.Endpoint), credential);
@@ -155,6 +150,17 @@ public static class Extensions
         builder.Configuration.AddEnvironmentVariables();
 
         return builder;
+    }
+
+    internal static TokenCredential CreateAzureCredential(WorkflowAzureAppConfigurationOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(options.ManagedIdentityClientId))
+        {
+            return new ManagedIdentityCredential(
+                ManagedIdentityId.FromUserAssignedClientId(options.ManagedIdentityClientId));
+        }
+
+        return new DefaultAzureCredential();
     }
 }
 

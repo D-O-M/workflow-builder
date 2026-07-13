@@ -433,6 +433,11 @@ module "progress_broadcaster_function" {
     "AzureAppConfiguration__ManagedIdentityClientId" = module.identities.client_ids.progress_broadcaster
     "DEPLOYMENT_STORAGE_CONNECTION_STRING"           = module.storage.primary_connection_string
     "AzureWebJobsStorage"                            = module.storage.primary_connection_string
+    # Trigger metadata is resolved by the Functions host before the worker can load App Configuration.
+    "RealtimeCosmos"                       = module.cosmos.primary_connection_string
+    "Realtime__Cosmos__DatabaseName"       = local.app_configuration_settings["Realtime:Cosmos:DatabaseName"]
+    "Realtime__Cosmos__TasksContainerName" = local.app_configuration_settings["Realtime:Cosmos:TasksContainerName"]
+    "Realtime__Cosmos__LeaseContainerName" = local.app_configuration_settings["Realtime:Cosmos:LeaseContainerName"]
   })
   tags = local.tags
 }
@@ -451,6 +456,8 @@ module "plugin_detector_function" {
     "AzureAppConfiguration__ManagedIdentityClientId" = module.identities.client_ids.plugin_detector
     "DEPLOYMENT_STORAGE_CONNECTION_STRING"           = module.storage.primary_connection_string
     "AzureWebJobsStorage"                            = module.storage.primary_connection_string
+    # Blob path placeholders are resolved by the Functions host before worker startup.
+    "PluginsBlobContainerName" = local.app_configuration_settings["PluginsBlobContainerName"]
   })
   tags = local.tags
 }

@@ -1,6 +1,7 @@
+using Azure.Identity;
+using Backend.Topology;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
-using Backend.Topology;
 using Shouldly;
 
 namespace Backend.ServiceDefaults.Tests;
@@ -69,6 +70,28 @@ public sealed class WorkflowAzureAppConfigurationOptionsTests
 
         appConfigurationIndex.ShouldBeGreaterThanOrEqualTo(0);
         finalEnvironmentVariablesIndex.ShouldBeGreaterThan(appConfigurationIndex);
+    }
+
+    [Test]
+    public void Hosted_services_use_the_configured_user_assigned_managed_identity_directly()
+    {
+        var options = new WorkflowAzureAppConfigurationOptions
+        {
+            ManagedIdentityClientId = "identity-client-id"
+        };
+
+        var credential = Extensions.CreateAzureCredential(options);
+
+        credential.ShouldBeOfType<ManagedIdentityCredential>();
+    }
+
+    [Test]
+    public void Local_services_fall_back_to_the_default_credential_chain()
+    {
+        var credential = Extensions.CreateAzureCredential(
+            new WorkflowAzureAppConfigurationOptions());
+
+        credential.ShouldBeOfType<DefaultAzureCredential>();
     }
 
     [Test]
