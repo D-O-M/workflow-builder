@@ -418,7 +418,7 @@ module "progress_broadcaster_function" {
   key_vault_reference_identity_id = var.enable_key_vault ? module.identities.ids.progress_broadcaster : null
   app_settings = merge(local.function_app_config_env_base, {
     "AzureAppConfiguration__ManagedIdentityClientId" = module.identities.client_ids.progress_broadcaster
-    "AzureWebJobsStorage"                            = var.enable_key_vault ? "@Microsoft.KeyVault(SecretUri=${module.key_vault[0].secret_ids["azurewebjobsstorage"]})" : module.storage.primary_connection_string
+    "AzureWebJobsStorage"                            = module.storage.primary_connection_string
   })
   tags = local.tags
 }
@@ -436,7 +436,7 @@ module "plugin_detector_function" {
   key_vault_reference_identity_id = var.enable_key_vault ? module.identities.ids.plugin_detector : null
   app_settings = merge(local.function_app_config_env_base, {
     "AzureAppConfiguration__ManagedIdentityClientId" = module.identities.client_ids.plugin_detector
-    "AzureWebJobsStorage"                            = var.enable_key_vault ? "@Microsoft.KeyVault(SecretUri=${module.key_vault[0].secret_ids["azurewebjobsstorage"]})" : module.storage.primary_connection_string
+    "AzureWebJobsStorage"                            = module.storage.primary_connection_string
   })
   tags = local.tags
 }

@@ -628,7 +628,7 @@ jobs:
             local package_path="$RUNNER_TEMP/functions/$package_name.zip"
             rm -rf "$RUNNER_TEMP/functions/$package_name"
             mkdir -p "$publish_dir"
-            dotnet publish "$project" -c "$BUILD_CONFIGURATION" -o "$publish_dir" /p:UseAppHost=false
+            dotnet publish "$project" -c "$BUILD_CONFIGURATION" -o "$publish_dir" /p:UseAppHost=false >&2
             python3 - "$publish_dir" "$package_path" <<'PY'
           import os
           import sys
@@ -641,7 +641,7 @@ jobs:
                       path = os.path.join(root, name)
                       archive.write(path, os.path.relpath(path, source))
           PY
-            printf '%s' "$package_path"
+            printf '%s\n' "$package_path"
           }
 
           deploy_function() {
