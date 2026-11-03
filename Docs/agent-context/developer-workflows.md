@@ -10,6 +10,8 @@ dotnet run --project Backend.AppHost/Backend.AppHost.csproj
 
 This is the normal way to bring up API, Engine, SignalR, Functions, SQL/Cosmos wiring, observability, and optional seeders together.
 
+For Visual Studio debugging, set `Backend.AppHost` as the startup project and press F5. Both Functions projects explicitly declare the `AzureFunctions` project capability and `<FunctionsExecutionModel>isolated</FunctionsExecutionModel>` so Visual Studio starts the Functions host and attaches to its worker. Keep these declarations when updating the Functions SDK. The host supplies `Functions:Worker:HostEndpoint` dynamically; launching the worker executable directly does not provide it.
+
 ## Targeted Builds
 
 Backend API:
