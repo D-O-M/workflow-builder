@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace PublicHolidayWindow;
 
@@ -12,6 +13,7 @@ public sealed class PublicHolidayWindowPlugin : IPlugin
     public required HolidayWindowInput Input { get; init; }
     public HolidayWindowResult WindowHoliday { get; set; } = default!;
 
+    [ActivatorUtilitiesConstructor]
     public PublicHolidayWindowPlugin()
         : this(CreateHttpClient())
     {

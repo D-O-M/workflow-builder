@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AirportTafOutlook;
 
@@ -12,6 +13,7 @@ public sealed class AirportTafOutlookPlugin : IPlugin
     public required AirportTafInput Input { get; init; }
     public AirportTafResult Taf { get; set; } = default!;
 
+    [ActivatorUtilitiesConstructor]
     public AirportTafOutlookPlugin()
         : this(CreateHttpClient())
     {

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AirportMetarSnapshot;
 
@@ -12,6 +13,7 @@ public sealed class AirportMetarSnapshotPlugin : IPlugin
     public required AirportMetarInput Input { get; init; }
     public AirportMetarResult Metar { get; set; } = default!;
 
+    [ActivatorUtilitiesConstructor]
     public AirportMetarSnapshotPlugin()
         : this(CreateHttpClient())
     {

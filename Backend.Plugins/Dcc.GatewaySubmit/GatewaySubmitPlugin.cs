@@ -5,6 +5,7 @@ using System.Xml.Linq;
 using Backend.Plugins.Configuration.Dcc;
 using Backend.Plugins.Harness;
 using Dcc.Common;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace Dcc.GatewaySubmit;
@@ -21,6 +22,7 @@ public sealed class GatewaySubmitPlugin : IPlugin
     {
     }
 
+    [ActivatorUtilitiesConstructor]
     public GatewaySubmitPlugin(IOptions<GatewayOptions> gatewayOptions)
         : this(new HttpClient(), null, gatewayOptions.Value, ownsHttpClient: true)
     {

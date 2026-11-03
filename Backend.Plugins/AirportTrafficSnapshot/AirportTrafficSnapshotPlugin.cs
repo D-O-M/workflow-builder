@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AirportTrafficSnapshot;
 
@@ -11,6 +12,7 @@ public sealed class AirportTrafficSnapshotPlugin : IPlugin
     public required AirportTrafficInput Input { get; init; }
     public AirportTrafficResult Traffic { get; set; } = default!;
 
+    [ActivatorUtilitiesConstructor]
     public AirportTrafficSnapshotPlugin()
         : this(CreateHttpClient())
     {

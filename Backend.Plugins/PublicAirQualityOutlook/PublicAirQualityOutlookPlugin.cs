@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace PublicAirQualityOutlook;
 
@@ -12,6 +13,7 @@ public sealed class PublicAirQualityOutlookPlugin : IPlugin
     public required AirQualityWindowInput Input { get; init; }
     public AirQualityWindowResult AirQuality { get; set; } = default!;
 
+    [ActivatorUtilitiesConstructor]
     public PublicAirQualityOutlookPlugin()
         : this(CreateHttpClient())
     {

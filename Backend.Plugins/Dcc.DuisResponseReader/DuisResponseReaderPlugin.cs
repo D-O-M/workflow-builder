@@ -1,4 +1,5 @@
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 using Dcc.Common;
 
 namespace Dcc.DuisResponseReader;
@@ -7,6 +8,7 @@ public sealed class DuisResponseReaderPlugin : IPlugin
 {
     private readonly IDccXmlBlobClient? _blobClient;
 
+    [ActivatorUtilitiesConstructor]
     public DuisResponseReaderPlugin()
     {
     }

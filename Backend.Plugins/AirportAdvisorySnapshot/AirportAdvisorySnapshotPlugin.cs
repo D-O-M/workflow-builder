@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AirportAdvisorySnapshot;
 
@@ -11,6 +12,7 @@ public sealed class AirportAdvisorySnapshotPlugin : IPlugin
     public required AirportAdvisoryInput Input { get; init; }
     public AirportAdvisoryResult Advisory { get; set; } = default!;
 
+    [ActivatorUtilitiesConstructor]
     public AirportAdvisorySnapshotPlugin()
         : this(CreateHttpClient())
     {

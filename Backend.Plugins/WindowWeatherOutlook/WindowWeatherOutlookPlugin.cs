@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace WindowWeatherOutlook;
 
@@ -12,6 +13,7 @@ public sealed class WindowWeatherOutlookPlugin : IPlugin
     public required WindowWeatherInput Input { get; init; }
     public WindowWeatherResult Weather { get; set; } = default!;
 
+    [ActivatorUtilitiesConstructor]
     public WindowWeatherOutlookPlugin()
         : this(CreateHttpClient())
     {

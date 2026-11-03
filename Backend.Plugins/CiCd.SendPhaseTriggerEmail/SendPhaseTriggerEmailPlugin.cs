@@ -1,6 +1,7 @@
 using Backend.Plugins.Configuration.CiCd;
 using Backend.Plugins.Harness;
 using CiCd.Common;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace CiCd.SendPhaseTriggerEmail;
@@ -14,6 +15,7 @@ public sealed class SendPhaseTriggerEmailPlugin : IPlugin
     {
     }
 
+    [ActivatorUtilitiesConstructor]
     public SendPhaseTriggerEmailPlugin(IOptions<PhaseTriggerEmailOptions> options)
     {
         _options = options.Value;

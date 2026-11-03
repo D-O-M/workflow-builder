@@ -1,4 +1,5 @@
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 using Dcc.Common;
 
 namespace Dcc.ParseRequestWriter;
@@ -7,6 +8,7 @@ public sealed class ParseRequestWriterPlugin : IPlugin
 {
     private readonly IDccXmlBlobClient? _blobClient;
 
+    [ActivatorUtilitiesConstructor]
     public ParseRequestWriterPlugin()
     {
     }

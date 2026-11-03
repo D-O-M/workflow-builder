@@ -1,4 +1,5 @@
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 using Dcc.Common;
 
 namespace Dcc.DccAlertReader;
@@ -7,6 +8,7 @@ public sealed class DccAlertReaderPlugin : IPlugin
 {
     private readonly IDccXmlBlobClient? _blobClient;
 
+    [ActivatorUtilitiesConstructor]
     public DccAlertReaderPlugin()
     {
     }

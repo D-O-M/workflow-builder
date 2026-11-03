@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace PublicDaylightWindow;
 
@@ -12,6 +13,7 @@ public sealed class PublicDaylightWindowPlugin : IPlugin
     public required DaylightWindowInput Input { get; init; }
     public DaylightWindowResult Daylight { get; set; } = default!;
 
+    [ActivatorUtilitiesConstructor]
     public PublicDaylightWindowPlugin()
         : this(CreateHttpClient())
     {

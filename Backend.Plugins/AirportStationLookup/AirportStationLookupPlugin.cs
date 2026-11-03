@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AirportStationLookup;
 
@@ -11,6 +12,7 @@ public sealed class AirportStationLookupPlugin : IPlugin
     public required AirportStationLookupInput Input { get; init; }
     public AirportStationLookupResult Station { get; set; } = default!;
 
+    [ActivatorUtilitiesConstructor]
     public AirportStationLookupPlugin()
         : this(CreateHttpClient())
     {

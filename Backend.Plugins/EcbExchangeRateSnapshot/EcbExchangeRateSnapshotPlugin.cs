@@ -1,5 +1,6 @@
 using System.Globalization;
 using Backend.Plugins.Harness;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace EcbExchangeRateSnapshot;
 
@@ -10,6 +11,7 @@ public sealed class EcbExchangeRateSnapshotPlugin : IPlugin
     public required EcbExchangeRateInput Input { get; init; }
     public EcbExchangeRateResult Rate { get; set; } = default!;
 
+    [ActivatorUtilitiesConstructor]
     public EcbExchangeRateSnapshotPlugin()
         : this(CreateHttpClient())
     {
