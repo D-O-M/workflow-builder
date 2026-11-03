@@ -214,7 +214,7 @@ export class DashboardPageComponent {
   protected readonly grafanaLogsUrl = computed(() => {
     const blueprintId = this.selectedBlueprintId();
     const expression = blueprintId
-      ? `{blueprint_definition_id="${blueprintId}"}`
+      ? `{service_name=~".+"} | blueprint_definition_id="${blueprintId}"`
       : `{service_name=~".+"}`;
 
     const left = encodeURIComponent(JSON.stringify({

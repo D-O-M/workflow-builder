@@ -63,6 +63,12 @@ For a healthy end-to-end path:
 
 ## Known Brittle Points
 
+### Local observability services
+
+The normal AppHost `http` profile enables Grafana, Loki, Tempo, Prometheus, and Alloy. The `nft` profile disables them intentionally. When `Observability:Enabled=false`, AppHost disables telemetry export and supplies unreachable observability URLs, so the UI cannot load logs or open Grafana. Restart AppHost after changing this setting and reload the frontend to refresh its runtime client configuration. Logs produced while telemetry export was disabled are not backfilled.
+
+Process, step, and blueprint identifiers arrive in Loki as OTLP structured metadata. Query them with a service selector followed by metadata filters, such as `{service_name=~".+"} | process_id="..."`. Live log streams authenticate with bearer headers and resume from the last received cursor when reconnecting.
+
 ### Broadcaster binding config
 
 The function depends on the Cosmos trigger binding resolving correctly at startup. If the broadcaster is disabled or never indexes cleanly, execution can still succeed while live updates fail.

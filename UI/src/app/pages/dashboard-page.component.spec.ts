@@ -343,7 +343,7 @@ describe('DashboardPageComponent', () => {
     await flushSignals();
 
     expect((component as any).historyQueryParams()).toEqual({ blueprintId: 3 });
-    expect(grafanaLogsExpression(component)).toBe('{blueprint_definition_id="3"}');
+    expect(grafanaLogsExpression(component)).toBe('{service_name=~".+"} | blueprint_definition_id="3"');
     expect(decodeURIComponent((component as any).grafanaLogsUrl())).toContain('"from":"now-1h"');
   });
 });

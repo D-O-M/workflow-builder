@@ -304,6 +304,15 @@ describe('ProcessExplorerPageComponent', () => {
     injector.destroy();
   });
 
+  it('filters Grafana logs by process structured metadata', () => {
+    const selectedProcess = createProcessDetail();
+    (component as any).selectedProcess = () => selectedProcess;
+    const url = new URL((component as any).selectedProcessGrafanaLogsUrl());
+    const explore = JSON.parse(url.searchParams.get('left')!);
+
+    expect(explore.queries[0].expr).toBe('{service_name=~".+"} | process_id="process-abc-123456"');
+  });
+
   async function flushSignals(): Promise<void> {
     await Promise.resolve();
     await Promise.resolve();

@@ -344,8 +344,10 @@ public sealed class ObservabilityQueryService
         return from?.ToUniversalTime() ?? DateTimeOffset.UtcNow.AddMinutes(-15);
     }
 
+    // Native OTLP stores invocation identifiers as structured metadata rather than
+    // indexed stream labels. Pipeline filters also accept the legacy scope names.
     private static string BuildProcessStepLogQuery(Guid runtimeProcessStepId) =>
-        $"{{process_step_id=\"{runtimeProcessStepId:D}\"}}";
+        $"{{service_name=~\".+\"}} | process_step_id=\"{runtimeProcessStepId:D}\" or workflow_task_instance_id=\"{runtimeProcessStepId:D}\"";
 
     private static string BuildLegacyProcessStepLogQuery(Guid runtimeProcessStepId) =>
         $"{{workflow_task_instance_id=\"{runtimeProcessStepId:D}\"}}";
@@ -354,7 +356,7 @@ public sealed class ObservabilityQueryService
         $"{{service_name=~\".+\"}} |= \"{runtimeProcessStepId:D}\"";
 
     private static string BuildProcessLogQuery(Guid processId) =>
-        $"{{process_id=\"{processId:D}\"}}";
+        $"{{service_name=~\".+\"}} | process_id=\"{processId:D}\" or workflow_instance_id=\"{processId:D}\"";
 
     private static string BuildLegacyProcessLogQuery(Guid processId) =>
         $"{{workflow_instance_id=\"{processId:D}\"}}";
@@ -455,8 +457,8 @@ public sealed class ObservabilityQueryService
                 Cursor = record.Cursor,
                 Timestamp = record.Timestamp,
                 Message = FormatLogMessage(record.Message),
-                ProcessStepId = TryGetGuidLabel(record.Labels, "process_step_id"),
-                BlueprintNodeId = TryGetGuidLabel(record.Labels, "blueprint.node_id"),
+                ProcessStepId = TryGetProcessStepId(record),
+                BlueprintNodeId = TryGetBlueprintNodeId(record),
                 TaskName = null,
                 PluginName = record.Labels.TryGetValue("plugin_name", out var pluginName) ? pluginName : null,
                 ServiceName = record.Labels.TryGetValue("service_name", out var processServiceName) ? processServiceName : null,
@@ -473,8 +475,8 @@ public sealed class ObservabilityQueryService
             Cursor = record.Cursor,
             Timestamp = record.Timestamp,
             Message = record.Message,
-            ProcessStepId = TryGetGuidLabel(record.Labels, "process_step_id"),
-            BlueprintNodeId = TryGetGuidLabel(record.Labels, "blueprint.node_id"),
+            ProcessStepId = TryGetProcessStepId(record),
+            BlueprintNodeId = TryGetBlueprintNodeId(record),
             TaskName = fallbackPluginName,
             PluginName = fallbackPluginName,
             ServiceName = record.Labels.TryGetValue("service_name", out var fallbackServiceName) ? fallbackServiceName : null,
@@ -689,4 +691,12 @@ public sealed class ObservabilityQueryService
         Guid.TryParse(labelValue, out var parsed)
             ? parsed
             : null;
+
+    private static Guid? TryGetBlueprintNodeId(LokiLogRecord record) =>
+        TryGetGuidLabel(record.Labels, "blueprint_node_id") ??
+        TryGetGuidLabel(record.Labels, "blueprint.node_id");
+
+    private static Guid? TryGetProcessStepId(LokiLogRecord record) =>
+        TryGetGuidLabel(record.Labels, "process_step_id") ??
+        TryGetGuidLabel(record.Labels, "workflow_task_instance_id");
 }

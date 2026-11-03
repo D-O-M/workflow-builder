@@ -13,6 +13,7 @@
         "ASPIRE_ALLOW_UNSECURED_TRANSPORT": "true",
         "ASPIRE_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS": "true",
         "Frontend__Enabled": "false",
+        "Observability__Enabled": "true",
         "AzureServiceBus__Queues__PluginControlQueue__ResourceName": "plugin-control-queue",
         "AzureServiceBus__Queues__PluginControlQueue__ConnectionName": "plugin-control-queue",
         "AzureServiceBus__Queues__PluginControlQueue__Name": "pluginreloadqueue"

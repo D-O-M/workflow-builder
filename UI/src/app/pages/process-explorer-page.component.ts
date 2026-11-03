@@ -76,6 +76,7 @@ import {
   readyRequestState,
 } from '../domain/request-state';
 import { RuntimeClientConfigService } from '../domain/runtime-client-config.service';
+import { LogEventStream } from '../domain/log-event-stream';
 import { TaskDefinitionsService } from '../domain/task-definitions.service';
 import { ITaskDefinition } from '../interfaces/ITaskDefinition';
 import { ProcessSearchDialogComponent } from '../components/process-search-dialog.component';
@@ -144,7 +145,7 @@ export class ProcessExplorerPageComponent {
   private readonly realtimeSummaryOverrides = signal(new Map<string, ProcessSummaryUpdatedEvent>());
   private readonly realtimeNodeOverrides = signal(new Map<string, ProcessStepsUpdatedEvent['nodes'][number]>());
   private readonly liveStepLogs = signal<NodeLogEntryViewModel[]>([]);
-  private stepLogEventSource: EventSource | null = null;
+  private stepLogEventSource: LogEventStream | null = null;
   private readonly routeSelection = toSignal(
     this.route.queryParamMap.pipe(
       map((params): ProcessRouteSelection => {
@@ -626,7 +627,7 @@ export class ProcessExplorerPageComponent {
       queries: [
         {
           refId: 'A',
-          expr: `{process_id="${process.processId}"}`,
+          expr: `{service_name=~".+"} | process_id="${process.processId}"`,
         },
       ],
       range: {

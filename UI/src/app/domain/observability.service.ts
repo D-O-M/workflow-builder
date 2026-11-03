@@ -1,6 +1,8 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { AuthService } from '../auth/auth.service';
+import { LogEventStream } from './log-event-stream';
 import { RuntimeClientConfigService } from './runtime-client-config.service';
 
 export type ObservabilityWindow = '15m' | '1h' | '6h' | '24h' | '7d';
@@ -87,6 +89,7 @@ export interface ProcessLogBatchViewModel {
 export class ObservabilityService {
   private readonly http = inject(HttpClient);
   private readonly runtimeClientConfig = inject(RuntimeClientConfigService);
+  private readonly auth = inject(AuthService);
 
   getProcessSummary(window: ObservabilityWindow, blueprintDefinitionId?: number | null): Observable<ProcessObservabilitySummaryViewModel> {
     let params = new HttpParams().set('window', window);
@@ -185,7 +188,7 @@ export class ObservabilityService {
       to?: string | null;
       cursor?: string | null;
     } = {},
-  ): EventSource {
+  ): LogEventStream {
     const url = new URL(
       `${this.runtimeClientConfig.apiBaseUrl}/api/observability/processes/${processId}/steps/${runtimeProcessStepId}/logs/stream`,
     );
@@ -200,7 +203,7 @@ export class ObservabilityService {
       url.searchParams.set('cursor', options.cursor);
     }
 
-    return new EventSource(url.toString(), { withCredentials: false });
+    return this.createLogStream(url);
   }
 
   createProcessStepLogStream(
@@ -212,7 +215,7 @@ export class ObservabilityService {
       to?: string | null;
       cursor?: string | null;
     } = {},
-  ): EventSource {
+  ): LogEventStream {
     const url = new URL(
       `${this.runtimeClientConfig.apiBaseUrl}/api/blueprints/${blueprintDefinitionId}/processes/${processId}/steps/${blueprintNodeId}/logs/stream`,
     );
@@ -227,7 +230,7 @@ export class ObservabilityService {
       url.searchParams.set('cursor', options.cursor);
     }
 
-    return new EventSource(url.toString(), { withCredentials: false });
+    return this.createLogStream(url);
   }
 
   getProcessLogs(
@@ -266,7 +269,7 @@ export class ObservabilityService {
       to?: string | null;
       cursor?: string | null;
     } = {},
-  ): EventSource {
+  ): LogEventStream {
     const url = new URL(
       `${this.runtimeClientConfig.apiBaseUrl}/api/observability/processes/${processId}/logs/stream`,
     );
@@ -281,6 +284,20 @@ export class ObservabilityService {
       url.searchParams.set('cursor', options.cursor);
     }
 
-    return new EventSource(url.toString(), { withCredentials: false });
+    return this.createLogStream(url);
+  }
+
+  private createLogStream(url: URL): LogEventStream {
+    return new LogEventStream(url, async () => {
+      if (!this.runtimeClientConfig.authentication.enabled) {
+        return null;
+      }
+
+      const token = await this.auth.getAccessToken();
+      if (!token) {
+        throw new Error('Authentication is required to stream logs.');
+      }
+      return token;
+    });
   }
 }
