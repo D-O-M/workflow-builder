@@ -172,7 +172,6 @@ internal class Program
             .WaitFor(cosmosDb)
             .WithReference(sqlDb)
             .WaitFor(sqlDb);
-        WaitForObservability(migrations, observability);
         migrations.WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName);
@@ -193,7 +192,6 @@ internal class Program
             .WithReference(sqlDb)
             .WaitFor(sqlDb)
             .WaitForCompletion(migrations);
-        WaitForObservability(api, observability, includeLogAndMetricBackends: true);
         if (integrationTestsEnabled)
         {
             api.WithHttpEndpoint(
@@ -249,7 +247,6 @@ internal class Program
                     name: "http",
                     env: "ASPNETCORE_HTTP_PORTS")
                 .WithExternalHttpEndpoints();
-            WaitForObservability(signalR, observability);
             ConfigureAuthentication(
                 signalR,
                 authEnabled,
@@ -315,7 +312,6 @@ internal class Program
             .WithReference(sqlDb)
             .WaitFor(sqlDb)
             .WaitForCompletion(migrations);
-        WaitForObservability(engine, observability);
         engine.WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
@@ -371,7 +367,6 @@ internal class Program
                 .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
                 .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
                 .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
-            WaitForObservability(dispatcher, observability);
             ConfigureTelemetryAndObservability(
                 dispatcher,
                 observability);
@@ -389,7 +384,6 @@ internal class Program
                 .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
                 .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
                 .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName);
-            WaitForObservability(projectionWorker, observability);
             ConfigureTelemetryAndObservability(
                 projectionWorker,
                 observability);
@@ -411,7 +405,6 @@ internal class Program
                 .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
                 .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
                 .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.QueueNameEnvironmentVariable, processStepQueueName);
-            WaitForObservability(maintenance, observability);
             ConfigureTelemetryAndObservability(
                 maintenance,
                 observability);
@@ -439,7 +432,6 @@ internal class Program
                 .WaitFor(sqlDb)
                 .WaitForCompletion(migrations)
                 ;
-            WaitForObservability(pluginDetector, observability);
             pluginDetector.WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameEnvironmentVariable, pluginsBlobContainerName)
                 .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.LegacyAliasKey!, pluginsBlobContainerName)
                 .WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
@@ -472,7 +464,6 @@ internal class Program
                 .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessRealtimeSummariesContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessRealtimeSummaries.Name)
                 .WithEnvironment(WorkflowBuilderTopology.Realtime.ProcessNodeRealtimeContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessNodeRealtime.Name)
                 .WithEnvironment(WorkflowBuilderTopology.Realtime.LeaseContainerNameEnvironmentVariable, WorkflowBuilderTopology.Cosmos.Containers.ProcessStepProgressLeases.Name);
-            WaitForObservability(progressBroadcaster, observability);
             if (integrationTestsEnabled)
             {
                 progressBroadcaster.WithEnvironment(WorkflowBuilderTopology.Realtime.UseHostedChangeFeedEnvironmentVariable, "true");
@@ -511,8 +502,6 @@ internal class Program
             {
                 pluginSeeder.WaitFor(signalR);
             }
-
-            WaitForObservability(pluginSeeder, observability);
         }
 
         if (GetBlueprintSeedingEnabled(builder))
@@ -539,8 +528,6 @@ internal class Program
                 blueprintSeeder.WaitFor(keycloak);
             }
 
-            WaitForObservability(blueprintSeeder, observability);
-
             if (pluginSeeder is not null)
             {
                 blueprintSeeder.WaitForCompletion(pluginSeeder);
@@ -560,10 +547,6 @@ internal class Program
             IDistributedApplicationBuilder builder,
             string observabilityRoot)
     {
-        var alloyConfigPath = Path.Combine(observabilityRoot, "alloy", "config.alloy");
-        var lokiConfigPath = Path.Combine(observabilityRoot, "loki", "config.yml");
-        var tempoConfigPath = Path.Combine(observabilityRoot, "tempo", "config.yml");
-        var prometheusConfigPath = Path.Combine(observabilityRoot, "prometheus", "prometheus.yml");
         var grafanaProvisioningPath = Path.Combine(observabilityRoot, "grafana", "provisioning");
 
         var aspireOtlpEndpoint = TryGetConfigurationValue(
@@ -574,7 +557,7 @@ internal class Program
 
         var loki = builder.AddContainer("loki", "grafana/loki:latest")
             .WithArgs("-config.file=/etc/loki/config.yml")
-            .WithBindMount(lokiConfigPath, "/etc/loki/config.yml", isReadOnly: true)
+            .WithContainerFiles("/etc/loki", Path.Combine(observabilityRoot, "loki"))
             .WithHttpEndpoint(
                 targetPort: 3100,
                 port: null,
@@ -583,7 +566,7 @@ internal class Program
 
         var tempo = builder.AddContainer("tempo", "grafana/tempo:latest")
             .WithArgs("-config.file=/etc/tempo/config.yml")
-            .WithBindMount(tempoConfigPath, "/etc/tempo/config.yml", isReadOnly: true)
+            .WithContainerFiles("/etc/tempo", Path.Combine(observabilityRoot, "tempo"))
             .WithHttpEndpoint(
                 targetPort: 3200,
                 port: null,
@@ -595,7 +578,7 @@ internal class Program
                 "--config.file=/etc/prometheus/prometheus.yml",
                 "--storage.tsdb.path=/prometheus",
                 "--web.enable-otlp-receiver")
-            .WithBindMount(prometheusConfigPath, "/etc/prometheus/prometheus.yml", isReadOnly: true)
+            .WithContainerFiles("/etc/prometheus", Path.Combine(observabilityRoot, "prometheus"))
             .WithHttpEndpoint(
                 targetPort: 9090,
                 port: null,
@@ -608,7 +591,7 @@ internal class Program
                 "/etc/alloy/config.alloy",
                 "--storage.path=/var/lib/alloy/data",
                 "--server.http.listen-addr=0.0.0.0:12345")
-            .WithBindMount(alloyConfigPath, "/etc/alloy/config.alloy", isReadOnly: true)
+            .WithContainerFiles("/etc/alloy", Path.Combine(observabilityRoot, "alloy"))
             .WithEnvironment("OBSERVABILITY__ASPIRE_OTLP_ENDPOINT", aspireOtlpEndpoint)
             .WaitFor(loki)
             .WaitFor(tempo)
@@ -631,7 +614,7 @@ internal class Program
             .WithEnvironment("GF_AUTH_ANONYMOUS_ORG_ROLE", "Admin")
             .WithEnvironment("GF_AUTH_DISABLE_LOGIN_FORM", "true")
             .WithEnvironment("GF_SECURITY_ALLOW_EMBEDDING", "true")
-            .WithBindMount(grafanaProvisioningPath, "/etc/grafana/provisioning", isReadOnly: true)
+            .WithContainerFiles("/etc/grafana/provisioning", grafanaProvisioningPath)
             .WaitFor(loki)
             .WaitFor(tempo)
             .WaitFor(prometheus)
@@ -857,27 +840,6 @@ internal class Program
             .WithEnvironment("ClientConfig__Authentication__ClientId", authEnabled ? keycloakSpaClientId : string.Empty)
             .WithEnvironment("ClientConfig__Authentication__Scope", authEnabled ? keycloakScope : string.Empty)
             .WithEnvironment("ClientConfig__Authentication__Audience", authEnabled ? keycloakAudience : string.Empty);
-    }
-
-    static void WaitForObservability<T>(
-        IResourceBuilder<T> resourceBuilder,
-        ObservabilityResources observability,
-        bool includeLogAndMetricBackends = false)
-        where T : IResourceWithWaitSupport
-    {
-        if (!observability.Enabled)
-        {
-            return;
-        }
-
-        resourceBuilder.WaitFor(observability.Alloy!);
-
-        if (includeLogAndMetricBackends)
-        {
-            resourceBuilder
-                .WaitFor(observability.Loki!)
-                .WaitFor(observability.Prometheus!);
-        }
     }
 
     static void ConfigureTelemetryAndObservability<T>(
