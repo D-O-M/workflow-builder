@@ -114,7 +114,7 @@ export class AppShellComponent {
   }
 
   protected login(): void {
-    void this.auth.login(this.router.url);
+    void this.auth.login();
   }
 
   protected logout(): void {

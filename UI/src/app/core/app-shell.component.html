@@ -115,6 +115,15 @@
     </mat-toolbar>
 
     <section class="app-shell__content-body" data-testid="app-shell-content">
+      @if (auth.signInError(); as error) {
+        <div class="app-shell__auth-error" role="alert" data-testid="app-shell-sign-in-error">
+          <mat-icon aria-hidden="true">error_outline</mat-icon>
+          <span>{{ error }}</span>
+          <button mat-stroked-button type="button" (click)="login()" data-testid="app-shell-sign-in-retry">
+            Retry sign in
+          </button>
+        </div>
+      }
       <router-outlet />
     </section>
   </mat-sidenav-content>

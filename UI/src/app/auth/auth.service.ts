@@ -29,9 +29,12 @@ export class AuthService {
 
   private userManager: UserManager | null = null;
   private initializePromise: Promise<void> | null = null;
+  private readonly signInFailure = signal<string | null>(null);
+  private pendingSignInReturnUrl: string | null = null;
 
   readonly isAuthenticated = computed(() => this.authenticated());
   readonly userProfile = computed(() => this.profile());
+  readonly signInError = this.signInFailure.asReadonly();
 
   get authenticationEnabled(): boolean {
     return this.runtimeClientConfig.authentication.enabled;
@@ -77,15 +80,21 @@ export class AuthService {
     return user.access_token ?? null;
   }
 
-  async login(returnUrl = this.router.url): Promise<void> {
+  async login(returnUrl = this.pendingSignInReturnUrl ?? this.router.url): Promise<void> {
+    this.signInFailure.set(null);
     if (!this.authenticationEnabled) {
       this.setDisabledMode();
       return;
     }
 
-    await this.getUserManager().signinRedirect({
-      state: { returnUrl },
-    });
+    this.pendingSignInReturnUrl = returnUrl;
+    try {
+      await this.getUserManager().signinRedirect({
+        state: { returnUrl },
+      });
+    } catch {
+      this.signInFailure.set('Sign in is temporarily unavailable. Please try again.');
+    }
   }
 
   async completeLoginCallback(): Promise<string> {
@@ -151,6 +160,7 @@ export class AuthService {
       redirect_uri: `${origin}/auth/callback`,
       post_logout_redirect_uri: `${origin}/auth/logout-callback`,
       response_type: 'code',
+      requestTimeoutInSeconds: 10,
       scope: auth.scope || 'openid profile email',
       loadUserInfo: true,
       filterProtocolClaims: true,
@@ -161,6 +171,8 @@ export class AuthService {
   }
 
   private applyUser(user: User): void {
+    this.signInFailure.set(null);
+    this.pendingSignInReturnUrl = null;
     this.authenticated.set(true);
     this.profile.set({
       subject: String(user.profile.sub ?? ''),
