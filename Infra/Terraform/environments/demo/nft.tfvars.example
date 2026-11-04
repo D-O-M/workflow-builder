@@ -1,0 +1,21 @@
+# Apply after the normal demo tfvars to create a stable, warm NFT target:
+# tofu apply -var-file=environments/demo/terraform.tfvars -var-file=environments/demo/nft.tfvars
+#
+# Keep this override separate so returning to the low-cost scale-to-zero profile is
+# just a normal apply using terraform.tfvars without this file.
+
+api_min_replicas               = 1
+api_max_replicas               = 1
+engine_min_replicas            = 1
+engine_max_replicas            = 1
+engine_cpu                     = 1
+engine_memory                  = "2Gi"
+dispatcher_min_replicas        = 1
+dispatcher_max_replicas        = 1
+enable_projection_worker       = true
+projection_worker_min_replicas = 1
+projection_worker_max_replicas = 1
+
+# Set this to the exact image tag under test. Terraform cannot infer the tag pushed
+# by the separate GitHub image workflow when creating the worker for the first time.
+projection_worker_image = "<acr>.azurecr.io/workflow-builder/backend-projection-worker:<tag>"

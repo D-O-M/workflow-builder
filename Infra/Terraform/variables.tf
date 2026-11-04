@@ -241,6 +241,16 @@ variable "dispatcher_max_replicas" {
   default = 1
 }
 
+variable "projection_worker_min_replicas" {
+  type    = number
+  default = 0
+}
+
+variable "projection_worker_max_replicas" {
+  type    = number
+  default = 1
+}
+
 variable "default_cpu" {
   type    = number
   default = 0.25

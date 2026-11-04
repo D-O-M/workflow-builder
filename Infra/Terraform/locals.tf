@@ -114,6 +114,11 @@ locals {
       {
         name  = "ASPNETCORE_HTTP_PORTS"
         value = tostring(var.container_port)
+      },
+      {
+        # This deployment switch must restart Engine when projection ownership changes.
+        name  = "Projections__SynchronousEngineUpdatesEnabled"
+        value = tostring(!var.enable_projection_worker)
       }
     ])
     dispatcher = concat(local.app_config_env_base, [
@@ -165,6 +170,8 @@ locals {
     "ClientConfig:ApiBaseUrl"                                  = local.api_url
     "ClientConfig:SignalRBaseUrl"                              = local.signalr_url
     "ClientConfig:GrafanaBaseUrl"                              = "https://grafana.example.invalid"
+    "Observability:LokiBaseUrl"                                = "http://127.0.0.1:3100"
+    "Observability:PrometheusBaseUrl"                          = "http://127.0.0.1:9090"
     "ClientConfig:Authentication:Enabled"                      = tostring(var.authentication_enabled)
     "ClientConfig:Authentication:Authority"                    = var.authentication_enabled ? local.keycloak_authority : ""
     "ClientConfig:Authentication:ClientId"                     = var.authentication_enabled ? var.keycloak_spa_client_id : ""
@@ -188,6 +195,7 @@ locals {
     "Realtime:Cosmos:LeaseContainerName"                       = "processstepprogressleases"
     "Realtime:UseHostedChangeFeed"                             = "true"
     "Realtime:InternalPublisher:BearerToken"                   = ""
+    "PluginRuntime:HeartbeatIntervalSeconds"                   = "10"
     "Projections:SynchronousEngineUpdatesEnabled"              = tostring(!var.enable_projection_worker)
     "AzureStorage:BlobContainers:Plugins:ResourceName"         = "plugins"
     "AzureStorage:BlobContainers:Artifacts:ResourceName"       = "artifacts"

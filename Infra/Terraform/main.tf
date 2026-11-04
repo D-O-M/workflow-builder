@@ -369,8 +369,8 @@ module "projection_worker" {
   container_name               = "backend-projection-worker"
   cpu                          = var.default_cpu
   memory                       = var.default_memory
-  min_replicas                 = 0
-  max_replicas                 = 1
+  min_replicas                 = var.projection_worker_min_replicas
+  max_replicas                 = var.projection_worker_max_replicas
   identity_ids                 = [module.identities.ids.projection_worker]
   registry_server              = startswith(var.projection_worker_image, "${local.acr_login_server}/") ? local.acr_login_server : null
   registry_identity_id         = startswith(var.projection_worker_image, "${local.acr_login_server}/") ? module.identities.ids.projection_worker : null
