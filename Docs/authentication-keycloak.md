@@ -15,12 +15,12 @@ Infra/Keycloak/Realms/workflow-builder-realm.json
 It creates:
 
 - realm: `workflow-builder`
-- admin console username: `admin`
+- admin console login: `admin` / `admin`
 - SPA client: `workflow-builder-spa`
 - API audience/client: `workflow-builder-api`
-- blueprint seeder service-account client: `workflow-builder-blueprint-seeder`
-- progress broadcaster service-account client: `workflow-builder-progress-broadcaster`
-- dev username: `developer`
+- blueprint seeder service-account client: `workflow-builder-blueprint-seeder` / `developer`
+- progress broadcaster service-account client: `workflow-builder-progress-broadcaster` / `developer`
+- dev user: `developer` / `developer`
 - dev roles:
   - `workflowbuilder.admin`
   - `workflowbuilder.blueprint_author`
@@ -28,21 +28,6 @@ It creates:
   - `workflowbuilder.runtime_engineer`
   - `workflowbuilder.auditor`
   - `workflowbuilder.internal_publisher`
-
-AppHost generates separate credentials on first use and persists them in its .NET user-secrets store, so they remain stable across restarts. In the Aspire dashboard, open the corresponding parameter resource and reveal its secret value when you need to sign in:
-
-| Parameter | Used by |
-|---|---|
-| `KeycloakAdminPassword` | The `admin` console login |
-| `KeycloakDeveloperPassword` | The `developer` app login |
-| `BlueprintSeederClientSecret` | The blueprint seeder service account |
-| `ProgressBroadcasterClientSecret` | The progress broadcaster service account in the dev realm |
-
-Existing `Parameters:<name>` configuration values take precedence over generation. Supply your own values through AppHost user-secrets or `Parameters__<name>` environment variables. Remove an old user-secret value if you want Aspire to generate its replacement on the next start. The realm import reads these values from environment placeholders; the blueprint seeder receives the same parameter as its Keycloak client. Credentials are not written into the tracked realm file or application logs.
-
-The progress broadcaster client is available in the realm; runtime publishing continues to use the configured bearer token or internal shared-secret header.
-
-AppHost does not attach a data volume or persistent lifetime to Keycloak, so restarting AppHost creates a fresh development realm with these credentials. If you have added a persistent Keycloak data store yourself, startup import skips an existing realm: update its credentials through the admin console or recreate that local Keycloak store before using changed parameter values. SQL and Cosmos data do not need to be reset.
 
 ## Configuration
 

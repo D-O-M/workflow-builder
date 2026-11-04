@@ -133,15 +133,10 @@ internal class Program
 
         var (serviceBus, processStepQueue, pluginControlQueue) = AddServiceBus(builder);
         var keycloakAdminUsername = builder.AddParameter("KeycloakAdminUsername", "admin");
-        var keycloakAdminPassword = AddGeneratedSecretParameter(builder, "KeycloakAdminPassword");
-        var blueprintSeederClientSecret = AddGeneratedSecretParameter(builder, "BlueprintSeederClientSecret");
+        var keycloakAdminPassword = builder.AddParameter("KeycloakAdminPassword", "admin", secret: true);
+        var blueprintSeederClientSecret = builder.AddParameter("BlueprintSeederClientSecret", "developer", secret: true);
         var keycloak = keycloakEnabled
             ? builder.AddKeycloak("keycloak", 8080, keycloakAdminUsername, keycloakAdminPassword)
-                .WithEnvironment("WORKFLOWBUILDER_DEVELOPER_PASSWORD",
-                    AddGeneratedSecretParameter(builder, "KeycloakDeveloperPassword"))
-                .WithEnvironment("WORKFLOWBUILDER_BLUEPRINT_SEEDER_CLIENT_SECRET", blueprintSeederClientSecret)
-                .WithEnvironment("WORKFLOWBUILDER_PROGRESS_BROADCASTER_CLIENT_SECRET",
-                    AddGeneratedSecretParameter(builder, "ProgressBroadcasterClientSecret"))
                 .WithRealmImport(Path.Combine(repositoryRoot, "Infra", "Keycloak", "Realms"))
             : null;
         var observability = builder.Configuration.GetValue("Observability:Enabled", true)
@@ -686,21 +681,6 @@ internal class Program
 
         return (cosmos, database);
     }
-
-    static IResourceBuilder<ParameterResource> AddGeneratedSecretParameter(
-        IDistributedApplicationBuilder builder,
-        string name) => builder.AddParameter(
-            name,
-            new GenerateParameterDefault
-            {
-                MinLength = 32,
-                Lower = true,
-                Upper = true,
-                Numeric = true,
-                Special = false
-            },
-            secret: true,
-            persist: true);
 
     static IResourceBuilder<SqlServerServerResource> AddSqlServer(
         IDistributedApplicationBuilder builder,

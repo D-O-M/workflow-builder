@@ -72,7 +72,7 @@
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
-      "secret": "${WORKFLOWBUILDER_BLUEPRINT_SEEDER_CLIENT_SECRET}",
+      "secret": "developer",
       "standardFlowEnabled": false,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
@@ -97,7 +97,7 @@
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
-      "secret": "${WORKFLOWBUILDER_PROGRESS_BROADCASTER_CLIENT_SECRET}",
+      "secret": "developer",
       "standardFlowEnabled": false,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
@@ -128,7 +128,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "${WORKFLOWBUILDER_DEVELOPER_PASSWORD}",
+          "value": "developer",
           "temporary": false
         }
       ],
