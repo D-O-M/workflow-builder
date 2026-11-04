@@ -13,7 +13,7 @@ description: >
 
 Start every task here:
 
-Locate the WorkflowBuilder checkout root with `git rev-parse --show-toplevel`. Resolve repository paths from that root and companion skill names through the active session's skill catalog.
+Locate the WorkflowBuilder checkout root, for example with `git rev-parse --show-toplevel` from inside the checkout. Resolve every repository path in this skill from that root. Companion skill names refer to the active session's skill catalog; read each skill from its catalog location.
 
 1. Read `AGENTS.md`.
 2. Read only the relevant docs under `Docs/agent-context/`.

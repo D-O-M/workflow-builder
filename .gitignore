@@ -498,13 +498,16 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
-/Backend.Plugins/_bundles/*
-/PerformanceTests/Plugins/_bundles/*
+# Generated plugin bundles; keep manifests and schemas in plugin source directories
+/Backend.Plugins/_bundles/
+/IntegrationTests/Plugins/_bundles/
+/PerformanceTests/Plugins/_bundles/
 
 # Local-only Codex and validation artifacts
 /.artifacts/
 **/.artifacts/
 /.github/skills/
 /IntegrationTests/WorkflowBuilder.IntegrationTests/LiveRuns/
+/vs_SSMS.exe
 /UI/Codex Installer.exe
 /UI/Microsoft.Services.Store.winmd
