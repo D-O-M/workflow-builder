@@ -14,6 +14,8 @@ It uses:
 
 This lane is the one we expect developers and CI to run by default.
 
+The `scripts/run-apphost-smoke.ps1` helper uses `Parameters__SqlServerPassword` when supplied, otherwise `SqlServerPassword`, and fills any missing alias with the same value. When neither is set, it generates a random SQL password in memory for the smoke process; it does not save or print the password.
+
 Scenarios currently covered:
 - plugin registration happy path
 - duplicate bundle idempotency

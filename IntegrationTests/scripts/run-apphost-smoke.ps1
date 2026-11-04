@@ -46,8 +46,17 @@ Set-EnvironmentDefault -Name "AzureServiceBus__Queues__ProcessStepQueue__Name" -
 Set-EnvironmentDefault -Name "AzureServiceBus__Queues__PluginControlQueue__ResourceName" -DefaultValue $topology.serviceBus.pluginControlQueue.resourceName
 Set-EnvironmentDefault -Name "AzureServiceBus__Queues__PluginControlQueue__ConnectionName" -DefaultValue $topology.serviceBus.pluginControlQueue.connectionName
 Set-EnvironmentDefault -Name "AzureServiceBus__Queues__PluginControlQueue__Name" -DefaultValue $topology.serviceBus.pluginControlQueue.queueName
-Set-EnvironmentDefault -Name "Parameters__SqlServerPassword" -DefaultValue "IntegrationTests_password_123!"
-Set-EnvironmentDefault -Name "SqlServerPassword" -DefaultValue ([Environment]::GetEnvironmentVariable("Parameters__SqlServerPassword"))
+$sqlPassword = [Environment]::GetEnvironmentVariable("Parameters__SqlServerPassword")
+if ([string]::IsNullOrWhiteSpace($sqlPassword))
+{
+    $sqlPassword = [Environment]::GetEnvironmentVariable("SqlServerPassword")
+}
+if ([string]::IsNullOrWhiteSpace($sqlPassword))
+{
+    $sqlPassword = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)) + "aA1!"
+}
+Set-EnvironmentDefault -Name "Parameters__SqlServerPassword" -DefaultValue $sqlPassword
+Set-EnvironmentDefault -Name "SqlServerPassword" -DefaultValue $sqlPassword
 $env:IntegrationTests__StartEngine = if ($StartEngine) { "true" } else { "false" }
 
 $arguments = @(
