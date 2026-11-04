@@ -56,6 +56,23 @@ public sealed class RuntimeServiceBoundaryTests
     }
 
     [Test]
+    public void Remote_nft_uses_the_local_machine_only_as_an_injector()
+    {
+        var nftScript = File.ReadAllText(RepositoryPath("PerformanceTests", "scripts", "run-local-nft.ps1"));
+        var probeSource = File.ReadAllText(
+            RepositoryPath("PerformanceTests", "WorkflowBuilder.PerformanceProbe", "Program.cs"));
+
+        nftScript.ShouldContain("[ValidateSet(\"Local\", \"Remote\")]");
+        nftScript.ShouldContain("$PluginRuntimeIdentifier = if ($remoteTarget) { \"linux-x64\" }");
+        nftScript.ShouldContain("if (-not $remoteTarget)");
+        nftScript.ShouldContain("Publish-NftBundlesToAzure");
+        nftScript.ShouldContain("Import-NftBlueprintsToRemoteApi");
+        nftScript.ShouldContain("Collect-AzureMetrics");
+        probeSource.ShouldContain("AuthenticationHeaderValue(\"Bearer\", accessToken)");
+        probeSource.ShouldContain("hubOptions.AccessTokenProvider");
+    }
+
+    [Test]
     public void Engine_projection_call_sites_are_guarded_by_projection_policy()
     {
         File.ReadAllText(RepositoryPath("Backend.Engine", "StepClaimService.cs"))

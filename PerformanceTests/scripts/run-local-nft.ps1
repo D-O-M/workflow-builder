@@ -1,15 +1,28 @@
 <#
 .SYNOPSIS
-  Runs a local WorkflowBuilder non-functional performance test proof.
+  Runs WorkflowBuilder non-functional tests locally or against a deployed target.
 
 .DESCRIPTION
   Builds deterministic NFT plugin bundles, starts the AppHost in a detached lean profile,
   seeds NFT blueprints/bundles, runs bounded load probes, collects metrics, writes a report,
-  and stops the AppHost at the end.
+  and stops the AppHost at the end. Remote mode uses only the deployed services.
 #>
 
 [CmdletBinding()]
 param(
+  [ValidateSet("Local", "Remote")]
+  [string] $Target = "Local",
+
+  [string] $ApiBaseUrl = "",
+  [string] $AccessToken = $env:WORKFLOWBUILDER_NFT_ACCESS_TOKEN,
+  [string] $AzureResourceGroup = "",
+  [string] $AzureStorageAccountName = "",
+  [string] $AzurePluginsContainerName = "plugins",
+  [string] $PluginRuntimeIdentifier = "",
+  [switch] $SkipAssetSeeding,
+  [ValidateRange(0, 1000)]
+  [int] $WarmupCount = 1,
+
   [ValidateSet("Smoke", "Standard", "Staircase", "Capacity", "Scoreboard")]
   [string] $Profile = "Smoke",
 
@@ -51,10 +64,34 @@ $runRoot = Join-Path $repoRoot ".artifacts\nft\$timestamp"
 $bundleRoot = Join-Path $runRoot "bundles"
 $blueprintRoot = Join-Path $runRoot "blueprints"
 $logRoot = Join-Path $runRoot "logs"
-$apiBaseUrl = "http://localhost:5180"
+$remoteTarget = $Target -eq "Remote"
+if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) {
+  if ($remoteTarget) {
+    throw "-ApiBaseUrl is required when -Target Remote is used."
+  }
+
+  $ApiBaseUrl = "http://localhost:5180"
+}
+$ApiBaseUrl = $ApiBaseUrl.TrimEnd("/")
+if ([string]::IsNullOrWhiteSpace($PluginRuntimeIdentifier)) {
+  $PluginRuntimeIdentifier = if ($remoteTarget) { "linux-x64" } else { "win-x64" }
+}
+if ($remoteTarget -and -not $SkipAssetSeeding) {
+  if ([string]::IsNullOrWhiteSpace($AzureResourceGroup)) {
+    throw "-AzureResourceGroup is required for remote asset seeding."
+  }
+  if ([string]::IsNullOrWhiteSpace($AzureStorageAccountName)) {
+    throw "-AzureStorageAccountName is required for remote asset seeding."
+  }
+}
+$apiHeaders = @{}
+if (-not [string]::IsNullOrWhiteSpace($AccessToken)) {
+  $apiHeaders["Authorization"] = "Bearer $AccessToken"
+}
 $appHostPath = Join-Path $repoRoot "Backend.AppHost\Backend.AppHost.csproj"
 $probeProjectPath = Join-Path $repoRoot "PerformanceTests\WorkflowBuilder.PerformanceProbe\WorkflowBuilder.PerformanceProbe.csproj"
 $scoreboardManifestPath = Join-Path $repoRoot "PerformanceTests\scoreboard-scenarios.json"
+$azureMetricsScriptPath = Join-Path $repoRoot "PerformanceTests\scripts\Collect-AzureNftMetrics.ps1"
 $topologyCatalogPath = Join-Path $repoRoot "BuildScripts\workflowbuilder-topology.json"
 if ([string]::IsNullOrWhiteSpace($BundleCacheRoot)) {
   $BundleCacheRoot = Join-Path $repoRoot ".artifacts\nft-bundle-cache"
@@ -95,6 +132,27 @@ function Convert-ToSingleQuotedPowerShellLiteral([string] $Value) {
 
 function Set-EnvironmentDefault([string] $Name, [string] $Value) {
   [Environment]::SetEnvironmentVariable($Name, $Value)
+}
+
+function Invoke-ApiRequest {
+  param(
+    [Parameter(Mandatory = $true)] [string] $Path,
+    [ValidateSet("Get", "Post")] [string] $Method = "Get",
+    [string] $BodyPath = ""
+  )
+
+  $arguments = @{
+    Uri = "$ApiBaseUrl/$($Path.TrimStart('/'))"
+    Method = $Method
+    Headers = $apiHeaders
+    TimeoutSec = 30
+  }
+  if (-not [string]::IsNullOrWhiteSpace($BodyPath)) {
+    $arguments["InFile"] = $BodyPath
+    $arguments["ContentType"] = "application/json"
+  }
+
+  return Invoke-RestMethod @arguments
 }
 
 function Split-BlueprintKeys([string] $BlueprintKeys) {
@@ -244,7 +302,7 @@ function Stop-ProcessTree([int] $ProcessId) {
 
 function Test-ApiHealth {
   try {
-    $response = Invoke-WebRequest -Uri "$apiBaseUrl/health" -UseBasicParsing -TimeoutSec 5
+    $response = Invoke-WebRequest -Uri "$ApiBaseUrl/health" -Headers $apiHeaders -UseBasicParsing -TimeoutSec 5
     return $response.StatusCode -ge 200 -and $response.StatusCode -lt 300
   }
   catch {
@@ -255,7 +313,7 @@ function Test-ApiHealth {
 function Wait-ForApi {
   $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
   while ((Get-Date) -lt $deadline) {
-    if ($appHostProcess.HasExited) {
+    if (-not $remoteTarget -and $appHostProcess -and $appHostProcess.HasExited) {
       throw "AppHost exited early with code $($appHostProcess.ExitCode). See $appHostStdout and $appHostStderr."
     }
 
@@ -266,14 +324,14 @@ function Wait-ForApi {
     Start-Sleep -Seconds 5
   }
 
-  throw "Timed out waiting for API health at $apiBaseUrl/health."
+  throw "Timed out waiting for API health at $ApiBaseUrl/health."
 }
 
 function Wait-ForBlueprint([string] $BlueprintKey) {
   $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
   while ((Get-Date) -lt $deadline) {
     try {
-      $blueprints = Invoke-RestMethod -Uri "$apiBaseUrl/api/blueprints" -TimeoutSec 10
+      $blueprints = Invoke-ApiRequest -Path "api/blueprints"
       if ($blueprints | Where-Object { $_.key -eq $BlueprintKey }) {
         return
       }
@@ -288,13 +346,47 @@ function Wait-ForBlueprint([string] $BlueprintKey) {
   throw "Timed out waiting for blueprint '$BlueprintKey' to be seeded."
 }
 
-function Wait-ForTaskDefinitions([string[]] $TaskNames) {
+function Get-BlueprintTaskRequirements([string] $BlueprintDirectory) {
+  $requirements = foreach ($file in Get-ChildItem -LiteralPath $BlueprintDirectory -Filter *.blueprint.json -File -Recurse) {
+    $blueprint = Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json
+    foreach ($node in $blueprint.tasks) {
+      if ([string]::IsNullOrWhiteSpace($node.taskDefinitionName)) {
+        continue
+      }
+
+      [pscustomobject]@{
+        name = $node.taskDefinitionName.Trim()
+        major = [int] $node.allowedMajor
+        minor = [int] $node.allowedMinor
+      }
+    }
+  }
+
+  return @($requirements | Sort-Object name, major, minor -Unique)
+}
+
+function Wait-ForTaskDefinitions([object[]] $Requirements) {
+  if ($Requirements.Count -eq 0) {
+    return
+  }
+
+  $missing = @($Requirements | ForEach-Object { "$($_.name) $($_.major).$($_.minor).*" })
   $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
   while ((Get-Date) -lt $deadline) {
     try {
-      $tasks = Invoke-RestMethod -Uri "$apiBaseUrl/Tasks" -TimeoutSec 10
-      $names = @($tasks | ForEach-Object { $_.name })
-      $missing = @($TaskNames | Where-Object { $names -notcontains $_ })
+      $tasks = Invoke-ApiRequest -Path "Tasks"
+      $missing = @(foreach ($requirement in $Requirements) {
+        $definition = $tasks | Where-Object { $_.name -eq $requirement.name } | Select-Object -First 1
+        $matchingVersions = @($definition.versions | Where-Object {
+          $version = $null
+          [Version]::TryParse([string] $_.version, [ref] $version) -and
+            $version.Major -eq $requirement.major -and
+            $version.Minor -eq $requirement.minor
+        })
+        if ($matchingVersions.Count -eq 0) {
+          "$($requirement.name) $($requirement.major).$($requirement.minor).*"
+        }
+      })
       if ($missing.Count -eq 0) {
         return
       }
@@ -306,7 +398,7 @@ function Wait-ForTaskDefinitions([string[]] $TaskNames) {
     Start-Sleep -Seconds 5
   }
 
-  throw "Timed out waiting for task definitions: $($TaskNames -join ', ')."
+  throw "Timed out waiting for task definition version lanes: $($missing -join ', ')."
 }
 
 function Copy-BlueprintSeeds {
@@ -374,7 +466,7 @@ function Get-NftBundleCacheKey {
       "$relativePath|$hash"
     })
 
-  $payload = [string]::Join("`n", $manifest)
+  $payload = [string]::Join("`n", @($manifest) + "runtimeIdentifier|$PluginRuntimeIdentifier")
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
   $hashBytes = [System.Security.Cryptography.SHA256]::HashData($bytes)
   return -join ($hashBytes | ForEach-Object { $_.ToString("x2") })
@@ -429,12 +521,33 @@ function Build-NftBundles {
     "-Configuration",
     "Release",
     "-RuntimeIdentifier",
-    "win-x64",
+    $PluginRuntimeIdentifier,
     "-Overwrite",
     "-Minify"
   )
 
   Copy-CachedNftBundles -CachePath $cachePath -CacheKey $cacheKey -CacheHit $false
+}
+
+function Get-BundleRuntimeIdentifier([string] $Path) {
+  $archive = [System.IO.Compression.ZipFile]::OpenRead($Path)
+  try {
+    $metadataEntry = $archive.GetEntry("bundle.meta.json")
+    if ($null -eq $metadataEntry) {
+      return $null
+    }
+
+    $reader = [System.IO.StreamReader]::new($metadataEntry.Open())
+    try {
+      return ($reader.ReadToEnd() | ConvertFrom-Json).rid
+    }
+    finally {
+      $reader.Dispose()
+    }
+  }
+  finally {
+    $archive.Dispose()
+  }
 }
 
 function Copy-ProductBundles {
@@ -452,18 +565,118 @@ function Copy-ProductBundles {
       "-Configuration",
       "Release",
       "-RuntimeIdentifier",
-      "win-x64",
+      $PluginRuntimeIdentifier,
       "-Overwrite",
       "-Minify"
     )
   }
 
-  $bundles = @(Get-ChildItem -LiteralPath $productionBundleRoot -Filter *.zip -File -ErrorAction SilentlyContinue)
+  $bundles = @(Get-ChildItem -LiteralPath $productionBundleRoot -Filter *.zip -File -ErrorAction SilentlyContinue |
+    Where-Object { (Get-BundleRuntimeIdentifier $_.FullName) -eq $PluginRuntimeIdentifier })
   if ($bundles.Count -eq 0) {
-    throw "Product lane requested, but no production bundles were found in $productionBundleRoot. Re-run with -BuildProductBundles."
+    throw "Product lane requested, but no $PluginRuntimeIdentifier production bundles were found in $productionBundleRoot. Re-run with -BuildProductBundles."
   }
 
   $bundles | Copy-Item -Destination $bundleRoot -Force
+}
+
+function Publish-NftBundlesToAzure {
+  if ($SkipAssetSeeding) {
+    Write-Step "Skipping remote plugin bundle upload."
+    return
+  }
+
+  if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
+    throw "Azure CLI is required for remote NFT asset seeding."
+  }
+
+  & az account show --only-show-errors --output none
+  if ($LASTEXITCODE -ne 0) {
+    throw "Azure CLI is not logged in. Run 'az login' before the remote NFT."
+  }
+
+  foreach ($bundle in Get-ChildItem -LiteralPath $bundleRoot -Filter *.zip -File | Sort-Object Name) {
+    $existsJson = & az storage blob exists `
+      --account-name $AzureStorageAccountName `
+      --container-name $AzurePluginsContainerName `
+      --name $bundle.Name `
+      --auth-mode key `
+      --only-show-errors `
+      --output json
+    if ($LASTEXITCODE -ne 0) {
+      throw "Unable to check whether plugin bundle '$($bundle.Name)' exists in Azure Storage."
+    }
+
+    $exists = ($existsJson | ConvertFrom-Json).exists
+    if ($exists) {
+      Write-Step "Remote plugin bundle $($bundle.Name) already exists; keeping the registered version."
+      continue
+    }
+
+    Write-Step "Uploading remote plugin bundle $($bundle.Name)."
+    & az storage blob upload `
+      --account-name $AzureStorageAccountName `
+      --container-name $AzurePluginsContainerName `
+      --name $bundle.Name `
+      --file $bundle.FullName `
+      --auth-mode key `
+      --overwrite false `
+      --only-show-errors `
+      --output none
+    if ($LASTEXITCODE -ne 0) {
+      throw "Failed to upload plugin bundle '$($bundle.Name)'."
+    }
+  }
+}
+
+function Import-NftBlueprintsToRemoteApi {
+  if ($SkipAssetSeeding) {
+    Write-Step "Skipping remote blueprint import."
+    return
+  }
+
+  $blueprintFiles = @(Get-ChildItem -LiteralPath $blueprintRoot -Filter *.blueprint.json -File -Recurse | Sort-Object FullName)
+  foreach ($blueprintFile in $blueprintFiles) {
+    Write-Step "Importing remote blueprint seed $($blueprintFile.Name)."
+    $null = Invoke-ApiRequest -Path "api/blueprints/import" -Method Post -BodyPath $blueprintFile.FullName
+  }
+}
+
+function Write-AzureDeploymentMetadata {
+  if (-not $remoteTarget -or [string]::IsNullOrWhiteSpace($AzureResourceGroup)) {
+    return
+  }
+
+  try {
+    $apps = @(& az containerapp list `
+      --resource-group $AzureResourceGroup `
+      --only-show-errors `
+      --output json | ConvertFrom-Json)
+    if ($LASTEXITCODE -ne 0) {
+      throw "Azure CLI returned exit code $LASTEXITCODE."
+    }
+
+    $metadata = [ordered]@{
+      capturedUtc = (Get-Date).ToUniversalTime().ToString("O")
+      resourceGroup = $AzureResourceGroup
+      containerApps = @($apps | Sort-Object name | ForEach-Object {
+          [ordered]@{
+            name = $_.name
+            image = $_.properties.template.containers[0].image
+            revision = $_.properties.latestReadyRevisionName
+            cpu = $_.properties.template.containers[0].resources.cpu
+            memory = $_.properties.template.containers[0].resources.memory
+            minReplicas = if ($null -eq $_.properties.template.scale.minReplicas) { 0 } else { $_.properties.template.scale.minReplicas }
+            maxReplicas = $_.properties.template.scale.maxReplicas
+            scaleRules = @($_.properties.template.scale.rules | ForEach-Object { $_.name })
+          }
+        })
+    }
+    $metadata | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $runRoot "azure-deployment.json") -Encoding UTF8
+  }
+  catch {
+    Write-Warning "Unable to capture Azure deployment metadata: $($_.Exception.Message)"
+  }
 }
 
 function Start-AppHost {
@@ -626,10 +839,11 @@ function Invoke-K6Script {
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $summaryPath) | Out-Null
   $logPath = Join-Path (Split-Path -Parent $summaryPath) "$([System.IO.Path]::GetFileNameWithoutExtension($ScriptName)).log"
   $envValues = @{
-    "API_BASE_URL" = $apiBaseUrl
+    "API_BASE_URL" = $ApiBaseUrl
     "BLUEPRINT_KEY" = $BlueprintKey
     "NFT_PROFILE" = $Profile.ToLowerInvariant()
     "K6_SUMMARY_PATH" = $summaryPath
+    "ACCESS_TOKEN" = $AccessToken
   }
 
   foreach ($entry in $EnvironmentOverrides.GetEnumerator()) {
@@ -666,11 +880,16 @@ function Invoke-K6Script {
     throw "Neither local k6 nor Docker is available. Install k6 with winget/choco, or enable Docker for the grafana/k6 fallback."
   }
 
+  $containerApiUri = [UriBuilder]::new($ApiBaseUrl)
+  if (-not $remoteTarget -and $containerApiUri.Uri.IsLoopback) {
+    $containerApiUri.Host = "host.docker.internal"
+  }
   $containerEnv = @{
-    "API_BASE_URL" = "http://host.docker.internal:5180"
+    "API_BASE_URL" = $containerApiUri.Uri.AbsoluteUri.TrimEnd('/')
     "BLUEPRINT_KEY" = $BlueprintKey
     "NFT_PROFILE" = $Profile.ToLowerInvariant()
     "K6_SUMMARY_PATH" = (Convert-ToContainerPath $summaryPath)
+    "ACCESS_TOKEN" = $AccessToken
   }
 
   foreach ($entry in $EnvironmentOverrides.GetEnumerator()) {
@@ -683,13 +902,25 @@ function Invoke-K6Script {
 
   $dockerArgs = @("run", "--rm")
   foreach ($entry in $containerEnv.GetEnumerator()) {
-    $dockerArgs += @("-e", "$($entry.Key)=$($entry.Value)")
+    if ($entry.Key -eq "ACCESS_TOKEN") {
+      $dockerArgs += @("-e", "ACCESS_TOKEN")
+    }
+    else {
+      $dockerArgs += @("-e", "$($entry.Key)=$($entry.Value)")
+    }
   }
   $dockerArgs += @("-v", "${repoRoot}:/repo", "grafana/k6:latest", "run", (Convert-ToContainerPath $scriptPath))
 
-  & docker @dockerArgs 2>&1 | Tee-Object -FilePath $logPath
-  if ($LASTEXITCODE -ne 0) {
-    Add-ScenarioFailure "Docker k6 script $ScriptName crossed thresholds or failed with exit code $LASTEXITCODE."
+  $previousToken = [Environment]::GetEnvironmentVariable("ACCESS_TOKEN")
+  try {
+    [Environment]::SetEnvironmentVariable("ACCESS_TOKEN", $containerEnv["ACCESS_TOKEN"])
+    & docker @dockerArgs 2>&1 | Tee-Object -FilePath $logPath
+    if ($LASTEXITCODE -ne 0) {
+      Add-ScenarioFailure "Docker k6 script $ScriptName crossed thresholds or failed with exit code $LASTEXITCODE."
+    }
+  }
+  finally {
+    [Environment]::SetEnvironmentVariable("ACCESS_TOKEN", $previousToken)
   }
 }
 
@@ -716,7 +947,7 @@ function Invoke-PerformanceProbe {
     "--",
     $Command,
     "--api-base-url",
-    $apiBaseUrl,
+    $ApiBaseUrl,
     "--output",
     $outputPath,
     "--count",
@@ -737,29 +968,100 @@ function Invoke-PerformanceProbe {
   if ($PayloadPath) {
     $arguments += @("--payload", $PayloadPath)
   }
-
   if ($ExtraArguments.Count -gt 0) {
     $arguments += $ExtraArguments
   }
 
-  Invoke-CheckedCommand -FilePath "dotnet" -Arguments $arguments
+  $previousToken = [Environment]::GetEnvironmentVariable("WORKFLOWBUILDER_NFT_ACCESS_TOKEN")
+  try {
+    [Environment]::SetEnvironmentVariable("WORKFLOWBUILDER_NFT_ACCESS_TOKEN", $AccessToken)
+    Invoke-CheckedCommand -FilePath "dotnet" -Arguments $arguments
+  }
+  finally {
+    [Environment]::SetEnvironmentVariable("WORKFLOWBUILDER_NFT_ACCESS_TOKEN", $previousToken)
+  }
+}
+
+function Invoke-RemoteWarmup {
+  if (-not $remoteTarget -or $WarmupCount -le 0) {
+    return
+  }
+
+  Write-Step "Warming the deployed API, Dispatcher, Engine, and plugin runtime with $WarmupCount completed process(es)."
+  $warmupBlueprintKey = if ($Lane -eq "product-lane") { $productBlueprintKey } else { "nft-linear-single-step" }
+  $warmupPayload = if ($Lane -eq "product-lane") { Join-Path $repoRoot "PerformanceTests\payloads\showcase-town-weekend.json" } else { "" }
+  Invoke-PerformanceProbe `
+    -Command "completion" `
+    -OutputName "warmup-process-latencies.csv" `
+    -BlueprintKey $warmupBlueprintKey `
+    -PayloadPath $warmupPayload `
+    -Count $WarmupCount `
+    -Concurrency 1 `
+    -TimeoutSeconds 180
+
+  $warmupPath = Join-Path $runRoot "warmup-process-latencies.csv"
+  $warmupRows = @(Import-Csv -LiteralPath $warmupPath)
+  $completedCount = @($warmupRows | Where-Object { $_.status -eq "Completed" }).Count
+  if ($warmupRows.Count -ne $WarmupCount -or $completedCount -ne $WarmupCount) {
+    throw "Remote warmup completed $completedCount of $WarmupCount process(es). Inspect $warmupPath before measuring performance."
+  }
+}
+
+function Collect-AzureMetrics {
+  param(
+    [datetime] $StartUtc,
+    [datetime] $EndUtc
+  )
+
+  if (-not $remoteTarget -or [string]::IsNullOrWhiteSpace($AzureResourceGroup)) {
+    return
+  }
+
+  try {
+    Invoke-CheckedCommand -FilePath "pwsh" -Arguments @(
+      "-NoLogo",
+      "-NoProfile",
+      "-File",
+      $azureMetricsScriptPath,
+      "-ResourceGroup",
+      $AzureResourceGroup,
+      "-StartUtc",
+      $StartUtc.ToUniversalTime().ToString("O"),
+      "-EndUtc",
+      $EndUtc.ToUniversalTime().ToString("O"),
+      "-OutputPath",
+      (Join-Path $runRoot "azure-metrics.json")
+    )
+  }
+  catch {
+    Write-Warning "Azure metric collection failed; scenario results remain available: $($_.Exception.Message)"
+  }
 }
 
 function Write-RunConfig {
   $config = [ordered]@{
     timestamp = $timestamp
+    target = $Target
     profile = $Profile
     lane = $Lane
     nftBlueprintKey = $nftBlueprintKey
     includeObservability = [bool] $IncludeObservability
-    minimalServices = $true
-    disabledAppHostServices = @(
-      "backend-signalr",
-      "progress-broadcaster",
-      "backend-maintenance",
-      "plugin-detector"
-    )
-    apiBaseUrl = $apiBaseUrl
+    minimalServices = -not $remoteTarget
+    disabledAppHostServices = if ($remoteTarget) { @() } else {
+      @(
+        "backend-signalr",
+        "progress-broadcaster",
+        "backend-maintenance",
+        "plugin-detector"
+      )
+    }
+    apiBaseUrl = $ApiBaseUrl
+    azureResourceGroup = if ($remoteTarget) { $AzureResourceGroup } else { $null }
+    azureStorageAccountName = if ($remoteTarget) { $AzureStorageAccountName } else { $null }
+    pluginRuntimeIdentifier = $PluginRuntimeIdentifier
+    assetSeedingEnabled = -not ($remoteTarget -and $SkipAssetSeeding)
+    warmupCount = if ($remoteTarget) { $WarmupCount } else { 0 }
+    authentication = if ([string]::IsNullOrWhiteSpace($AccessToken)) { "none" } else { "bearer" }
     gitSha = (& git rev-parse HEAD)
     dotnet = (& dotnet --version)
     docker = if (Get-Command docker -ErrorAction SilentlyContinue) { (& docker --version) } else { "<missing>" }
@@ -780,12 +1082,12 @@ function Write-RunConfig {
     capacityStart = $CapacityStart
     capacityMax = $CapacityMax
     capacityTimeoutSeconds = $CapacityTimeoutSeconds
-    pluginRuntimeMaxConcurrentResultFinalizations = $PluginRuntimeMaxConcurrentResultFinalizations
-    pluginRuntimeResultFinalizationQueueCapacity = $PluginRuntimeResultFinalizationQueueCapacity
-    pluginRuntimeResultFinalizationQueueFullMode = $PluginRuntimeResultFinalizationQueueFullMode
-    processStepQueueMaxConcurrentMessages = $ProcessStepQueueMaxConcurrentMessages
-    processStepQueuePrefetchCount = $ProcessStepQueuePrefetchCount
-    processStepQueueMaxAutoLockRenewalMinutes = $ProcessStepQueueMaxAutoLockRenewalMinutes
+    pluginRuntimeMaxConcurrentResultFinalizations = if ($remoteTarget) { $null } else { $PluginRuntimeMaxConcurrentResultFinalizations }
+    pluginRuntimeResultFinalizationQueueCapacity = if ($remoteTarget) { $null } else { $PluginRuntimeResultFinalizationQueueCapacity }
+    pluginRuntimeResultFinalizationQueueFullMode = if ($remoteTarget) { $null } else { $PluginRuntimeResultFinalizationQueueFullMode }
+    processStepQueueMaxConcurrentMessages = if ($remoteTarget) { $null } else { $ProcessStepQueueMaxConcurrentMessages }
+    processStepQueuePrefetchCount = if ($remoteTarget) { $null } else { $ProcessStepQueuePrefetchCount }
+    processStepQueueMaxAutoLockRenewalMinutes = if ($remoteTarget) { $null } else { $ProcessStepQueueMaxAutoLockRenewalMinutes }
   }
 
   $config | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $runRoot "run-config.json") -Encoding UTF8
@@ -847,7 +1149,7 @@ function Get-K6MetricValue([string] $FileName, [string] $MetricName, [string] $V
 }
 
 function Get-BlueprintId([string] $BlueprintKey) {
-  $blueprints = Invoke-RestMethod -Uri "$apiBaseUrl/api/blueprints" -TimeoutSec 10
+  $blueprints = Invoke-ApiRequest -Path "api/blueprints"
   $match = @($blueprints | Where-Object { $_.key -eq $BlueprintKey }) | Select-Object -First 1
   if (-not $match) {
     throw "Blueprint '$BlueprintKey' was not found."
@@ -857,7 +1159,7 @@ function Get-BlueprintId([string] $BlueprintKey) {
 }
 
 function Get-BlueprintIdMap([string] $BlueprintKeys) {
-  $blueprints = Invoke-RestMethod -Uri "$apiBaseUrl/api/blueprints" -TimeoutSec 10
+  $blueprints = Invoke-ApiRequest -Path "api/blueprints"
   $map = @{}
   foreach ($key in (Split-BlueprintKeys $BlueprintKeys)) {
     $match = @($blueprints | Where-Object { $_.key -eq $key }) | Select-Object -First 1
@@ -873,7 +1175,7 @@ function Get-BlueprintIdMap([string] $BlueprintKeys) {
 
 function Test-ProcessTerminal([int] $BlueprintId, [string] $ProcessId) {
   try {
-    $detail = Invoke-RestMethod -Uri "$apiBaseUrl/api/blueprints/$BlueprintId/processes/$ProcessId" -TimeoutSec 10
+    $detail = Invoke-ApiRequest -Path "api/blueprints/$BlueprintId/processes/$ProcessId"
     return ($detail.status -eq "Completed" -or $detail.status -eq "Failed")
   }
   catch {
@@ -1290,28 +1592,33 @@ function Write-Summary {
   }
 
   $summary = @(
-    "# WorkflowBuilder Local NFT Run",
+    "# WorkflowBuilder NFT Run",
     "",
     "- Timestamp: $timestamp",
+    "- Target: $Target",
     "- Profile: $Profile",
     "- Lane: $Lane",
     "- NFT blueprint key: $($runConfig.nftBlueprintKey)",
-    "- Observability included: $([bool]$IncludeObservability)",
-    "- Plugin runtime max concurrent result finalizations: $($runConfig.pluginRuntimeMaxConcurrentResultFinalizations)",
-    "- Plugin result finalization queue capacity: $($runConfig.pluginRuntimeResultFinalizationQueueCapacity)",
-    "- Process-step queue max concurrent messages: $($runConfig.processStepQueueMaxConcurrentMessages)",
-    "- Process-step queue prefetch count: $($runConfig.processStepQueuePrefetchCount)",
-    "- Process-step queue max auto-lock renewal: $($runConfig.processStepQueueMaxAutoLockRenewalMinutes) minute(s)",
-    "- API base URL: $apiBaseUrl",
+    ($(if ($remoteTarget) { "- Deployed service configuration: see azure-deployment.json when AzureResourceGroup is supplied." } else {
+      "- Observability included: $([bool]$IncludeObservability)"
+      "- Plugin runtime max concurrent result finalizations: $($runConfig.pluginRuntimeMaxConcurrentResultFinalizations)"
+      "- Plugin result finalization queue capacity: $($runConfig.pluginRuntimeResultFinalizationQueueCapacity)"
+      "- Process-step queue max concurrent messages: $($runConfig.processStepQueueMaxConcurrentMessages)"
+      "- Process-step queue prefetch count: $($runConfig.processStepQueuePrefetchCount)"
+      "- Process-step queue max auto-lock renewal: $($runConfig.processStepQueueMaxAutoLockRenewalMinutes) minute(s)"
+    }) -join [Environment]::NewLine),
+    "- API base URL: $ApiBaseUrl",
     "- Bundles staged: $bundleCount",
     "- Blueprints staged: $blueprintCount",
     "- Git SHA: $($runConfig.gitSha)",
-    "- .NET SDK: $($runConfig.dotnet)",
-    "- Processor: $($runConfig.processor)",
-    "- Logical processors: $($runConfig.logicalProcessors)",
-    "- Memory: $([Math]::Round([double]$runConfig.memoryBytes / 1GB, 2)) GiB",
-    "- AppHost stdout: $appHostStdout",
-    "- AppHost stderr: $appHostStderr",
+    "- Injector .NET SDK: $($runConfig.dotnet)",
+    "- Injector processor: $($runConfig.processor)",
+    "- Injector logical processors: $($runConfig.logicalProcessors)",
+    "- Injector memory: $([Math]::Round([double]$runConfig.memoryBytes / 1GB, 2)) GiB",
+    ($(if (-not $remoteTarget) {
+      "- AppHost stdout: $appHostStdout"
+      "- AppHost stderr: $appHostStderr"
+    }) -join [Environment]::NewLine),
     "",
     "## Gates",
     "",
@@ -1365,56 +1672,60 @@ $dockerStatsProcess = $null
 $counterProcesses = @()
 $appHostStdout = Join-Path $logRoot "apphost-stdout.log"
 $appHostStderr = Join-Path $logRoot "apphost-stderr.log"
+$runStartedUtc = (Get-Date).ToUniversalTime()
 $scoreboardMode = $Profile -eq "Scoreboard" -or (Split-ScenarioKeys $ScenarioKeys).Count -gt 0
 $scoreboardManifest = if ($scoreboardMode) { Get-ScoreboardManifest } else { $null }
 $scoreboardScenarios = if ($scoreboardMode) { Resolve-ScoreboardScenarios $scoreboardManifest } else { @() }
 
 try {
   Write-RunConfig
-  Stop-StaleAspireAppHost
-
-  if (Test-ApiHealth) {
-    throw "Backend.API is already responding on $apiBaseUrl. Stop the existing app before running the NFT proof."
+  if (-not $remoteTarget) {
+    Stop-StaleAspireAppHost
+    if (Test-ApiHealth) {
+      throw "Backend.API is already responding on $ApiBaseUrl. Stop the existing app before running the NFT proof."
+    }
   }
 
   if (-not $NoBuild) {
-    Invoke-CheckedCommand -FilePath "dotnet" -Arguments @("build", (Join-Path $repoRoot "Backend.API\Backend.API.csproj"), "-c", "Release")
-    Invoke-CheckedCommand -FilePath "dotnet" -Arguments @("build", (Join-Path $repoRoot "Backend.Engine\Backend.Engine.csproj"), "-c", "Release")
     Invoke-CheckedCommand -FilePath "dotnet" -Arguments @("build", $probeProjectPath, "-c", "Release")
-    Invoke-CheckedCommand -FilePath "dotnet" -Arguments @("build", $appHostPath, "-c", "Release")
+    if (-not $remoteTarget) {
+      Invoke-CheckedCommand -FilePath "dotnet" -Arguments @("build", (Join-Path $repoRoot "Backend.API\Backend.API.csproj"), "-c", "Release")
+      Invoke-CheckedCommand -FilePath "dotnet" -Arguments @("build", (Join-Path $repoRoot "Backend.Engine\Backend.Engine.csproj"), "-c", "Release")
+      Invoke-CheckedCommand -FilePath "dotnet" -Arguments @("build", $appHostPath, "-c", "Release")
+    }
   }
 
   Copy-BlueprintSeeds
-  Build-NftBundles
-  if ($Lane -eq "product-lane" -or $Lane -eq "both") {
-    Copy-ProductBundles
+  if (-not ($remoteTarget -and $SkipAssetSeeding)) {
+    Build-NftBundles
+    if ($Lane -eq "product-lane" -or $Lane -eq "both") {
+      Copy-ProductBundles
+    }
   }
 
-  $countersAvailable = Ensure-DotnetCounters
-  $dockerStatsProcess = Start-DockerStatsCapture
+  $countersAvailable = $false
+  if ($remoteTarget) {
+    Publish-NftBundlesToAzure
+    Write-AzureDeploymentMetadata
+  }
+  else {
+    $countersAvailable = Ensure-DotnetCounters
+    $dockerStatsProcess = Start-DockerStatsCapture
 
-  $appHost = Start-AppHost
-  $appHostProcess = $appHost.Process
-  $appHostStdout = $appHost.Stdout
-  $appHostStderr = $appHost.Stderr
+    $appHost = Start-AppHost
+    $appHostProcess = $appHost.Process
+    $appHostStdout = $appHost.Stdout
+    $appHostStderr = $appHost.Stderr
+  }
 
   Write-Step "Waiting for API health and seeded metadata."
   Wait-ForApi
-  Wait-ForTaskDefinitions @(
-    "NftSeedPlugin",
-    "NftBranchAlphaPlugin",
-    "NftBranchBetaPlugin",
-    "NftBranchGammaPlugin",
-    "NftJoinPlugin",
-    "NftSinkPlugin",
-    "NftLinearLaneOnePlugin",
-    "NftLinearLaneTwoPlugin",
-    "NftLinearLaneThreePlugin",
-    "NftLinearLaneFourPlugin",
-    "NftLinearLaneFivePlugin",
-    "NftCollectionSeedPlugin",
-    "NftItemSinkPlugin"
-  )
+  if (-not ($remoteTarget -and $SkipAssetSeeding)) {
+    Wait-ForTaskDefinitions -Requirements @(Get-BlueprintTaskRequirements -BlueprintDirectory $blueprintRoot)
+  }
+  if ($remoteTarget) {
+    Import-NftBlueprintsToRemoteApi
+  }
   if ($Lane -eq "ceiling-lane" -or $Lane -eq "both") {
     $blueprintKeysToWait = if ($scoreboardMode) {
       @($scoreboardScenarios |
@@ -1433,6 +1744,8 @@ try {
   if ($Lane -eq "product-lane" -or $Lane -eq "both") {
     Wait-ForBlueprint $productBlueprintKey
   }
+
+  Invoke-RemoteWarmup
 
   if ($countersAvailable) {
     $counterProcesses += Start-CounterCapture -ProjectName "Backend.API" -OutputName "dotnet-counters-api.csv"
@@ -1483,6 +1796,8 @@ try {
   Write-Step "NFT run completed. Artifacts: $runRoot"
 }
 finally {
+  Collect-AzureMetrics -StartUtc $runStartedUtc -EndUtc ((Get-Date).ToUniversalTime())
+
   foreach ($process in $counterProcesses | Where-Object { $_ }) {
     try { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } catch { }
   }
@@ -1491,12 +1806,12 @@ finally {
     try { Stop-Process -Id $dockerStatsProcess.Id -Force -ErrorAction SilentlyContinue } catch { }
   }
 
-  if ($appHostProcess -and -not $KeepAppHost) {
+  if (-not $remoteTarget -and $appHostProcess -and -not $KeepAppHost) {
     Stop-ProcessTree -ProcessId $appHostProcess.Id
     Stop-StaleAspireAppHost
   }
 
-  if ($KeepAppHost) {
+  if (-not $remoteTarget -and $KeepAppHost) {
     Write-Step "Keeping AppHost running with PID $($appHostProcess.Id)."
   }
 }
