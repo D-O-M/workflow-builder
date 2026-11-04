@@ -6,6 +6,7 @@ using Backend.Interfaces.Repositories;
 using Backend.Interfaces.Utilities;
 using Backend.Models;
 using Backend.PluginAbi;
+using Backend.Utilities;
 
 namespace Backend.Engine;
 
@@ -494,7 +495,9 @@ public class PluginRuntimeOrchestrator : BackgroundService, IPluginRuntimeReload
             workspaceDirectory,
             cancellationToken);
 
-        return new FileInfo(Path.Combine(workspaceDirectory, entryPoint));
+        var extractedEntryPoint = new FileInfo(Path.Combine(workspaceDirectory, entryPoint));
+        PluginEntryPointExecutablePermissionUtility.EnsureExecutable(extractedEntryPoint);
+        return extractedEntryPoint;
     }
 
     private async Task QuarantineTaskVersionAsync(
