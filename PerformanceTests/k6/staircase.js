@@ -8,6 +8,7 @@ const summaryPath = __ENV.K6_SUMMARY_PATH || 'k6-summary-staircase.json';
 const startRate = Number(__ENV.K6_START_RATE || 2);
 const stepRate = Number(__ENV.K6_STEP_RATE || 4);
 const steps = Number(__ENV.K6_STEPS || 5);
+const headers = buildHeaders();
 
 export const processStartFailed = new Rate('process_start_failed');
 
@@ -29,7 +30,7 @@ export const options = {
 };
 
 export function setup() {
-  const blueprints = http.get(`${apiBaseUrl}/api/blueprints`);
+  const blueprints = http.get(`${apiBaseUrl}/api/blueprints`, { headers });
   check(blueprints, { 'blueprints loaded': (res) => res.status === 200 });
 
   const match = blueprints.json().find((blueprint) => blueprint.key === blueprintKey);
@@ -44,12 +45,20 @@ export default function (data) {
   const response = http.post(
     `${apiBaseUrl}/api/blueprints/${data.blueprintId}/processes`,
     JSON.stringify(buildPayload()),
-    { headers: { 'Content-Type': 'application/json' } },
+    { headers },
   );
 
   const accepted = response.status === 202;
   processStartFailed.add(!accepted);
   check(response, { 'process accepted': () => accepted });
+}
+
+function buildHeaders() {
+  const result = { 'Content-Type': 'application/json' };
+  if (__ENV.ACCESS_TOKEN) {
+    result.Authorization = `Bearer ${__ENV.ACCESS_TOKEN}`;
+  }
+  return result;
 }
 
 export function handleSummary(data) {

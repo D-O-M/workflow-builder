@@ -5,6 +5,7 @@ import { Rate, Trend } from 'k6/metrics';
 const apiBaseUrl = (__ENV.API_BASE_URL || 'http://localhost:5180').replace(/\/$/, '');
 const blueprintKey = __ENV.BLUEPRINT_KEY || 'nft-ceiling-fanout-join';
 const summaryPath = __ENV.K6_SUMMARY_PATH || 'k6-summary-completion.json';
+const headers = buildHeaders();
 
 export const processCompletionLatency = new Trend('process_completion_latency', true);
 export const processCompletionFailed = new Rate('process_completion_failed');
@@ -26,7 +27,7 @@ export const options = {
 };
 
 export function setup() {
-  const blueprints = http.get(`${apiBaseUrl}/api/blueprints`);
+  const blueprints = http.get(`${apiBaseUrl}/api/blueprints`, { headers });
   check(blueprints, { 'blueprints loaded': (res) => res.status === 200 });
 
   const match = blueprints.json().find((blueprint) => blueprint.key === blueprintKey);
@@ -42,7 +43,7 @@ export default function (data) {
   const startResponse = http.post(
     `${apiBaseUrl}/api/blueprints/${data.blueprintId}/processes`,
     JSON.stringify(buildPayload()),
-    { headers: { 'Content-Type': 'application/json' } },
+    { headers },
   );
 
   if (startResponse.status !== 202) {
@@ -71,7 +72,7 @@ function waitForTerminalProcess(blueprintId, processId) {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    const response = http.get(`${apiBaseUrl}/api/blueprints/${blueprintId}/processes/${processId}`);
+    const response = http.get(`${apiBaseUrl}/api/blueprints/${blueprintId}/processes/${processId}`, { headers });
     if (response.status === 200) {
       const detail = response.json();
       if (detail.status === 'Completed' || detail.status === 'Failed') {
@@ -83,6 +84,14 @@ function waitForTerminalProcess(blueprintId, processId) {
   }
 
   return { status: 'TimedOut' };
+}
+
+function buildHeaders() {
+  const result = { 'Content-Type': 'application/json' };
+  if (__ENV.ACCESS_TOKEN) {
+    result.Authorization = `Bearer ${__ENV.ACCESS_TOKEN}`;
+  }
+  return result;
 }
 
 function buildPayload() {

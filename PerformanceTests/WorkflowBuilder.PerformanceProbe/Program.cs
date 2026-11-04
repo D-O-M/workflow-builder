@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Backend.Topology;
@@ -85,6 +86,7 @@ static async Task<int> RunRealtimeAsync(CommandOptions options)
     var totalCount = options.GetInt("count", 10);
     var timeout = TimeSpan.FromSeconds(options.GetInt("timeout-seconds", 60));
     var outputPath = options.GetRequired("output");
+    var accessToken = GetAccessToken();
 
     Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
     await using var writer = File.CreateText(outputPath);
@@ -92,9 +94,13 @@ static async Task<int> RunRealtimeAsync(CommandOptions options)
 
     var pending = new ConcurrentDictionary<Guid, TaskCompletionSource<RealtimeCompletion>>();
     await using var connection = new HubConnectionBuilder()
-        .WithUrl($"{config.SignalRBaseUrl}{WorkflowBuilderTopology.Realtime.HubRoute}", options =>
+        .WithUrl($"{config.SignalRBaseUrl.TrimEnd('/')}{WorkflowBuilderTopology.Realtime.HubRoute}", hubOptions =>
         {
-            options.UseDefaultCredentials = false;
+            hubOptions.UseDefaultCredentials = false;
+            if (!string.IsNullOrWhiteSpace(accessToken))
+            {
+                hubOptions.AccessTokenProvider = () => Task.FromResult<string?>(accessToken);
+            }
         })
         .WithAutomaticReconnect()
         .Build();
@@ -397,12 +403,22 @@ static async Task<List<Blueprint>> FindBlueprintsAsync(HttpClient http, IReadOnl
 static HttpClient CreateHttpClient(CommandOptions options)
 {
     var apiBaseUrl = options.GetRequired("api-base-url").TrimEnd('/') + "/";
-    return new HttpClient
+    var client = new HttpClient
     {
         BaseAddress = new Uri(apiBaseUrl, UriKind.Absolute),
         Timeout = TimeSpan.FromSeconds(options.GetInt("http-timeout-seconds", 100))
     };
+    var accessToken = GetAccessToken();
+    if (!string.IsNullOrWhiteSpace(accessToken))
+    {
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+    }
+
+    return client;
 }
+
+static string? GetAccessToken() =>
+    Environment.GetEnvironmentVariable("WORKFLOWBUILDER_NFT_ACCESS_TOKEN");
 
 static bool IsTerminalStatus(string status) =>
     string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase) ||
@@ -434,6 +450,7 @@ static int PrintUsage()
     Console.Error.WriteLine("  WorkflowBuilder.PerformanceProbe completion --api-base-url <url> --blueprint-key <key> --output <csv> [--count 25] [--concurrency 5] [--payload <json>]");
     Console.Error.WriteLine("  WorkflowBuilder.PerformanceProbe completion --api-base-url <url> --blueprint-keys <key1,key2> --output <csv> [--count 25] [--concurrency 5]");
     Console.Error.WriteLine("  WorkflowBuilder.PerformanceProbe realtime --api-base-url <url> --blueprint-key <key> --output <csv> [--count 10] [--payload <json>]");
+    Console.Error.WriteLine("Set WORKFLOWBUILDER_NFT_ACCESS_TOKEN to authenticate HTTP and SignalR requests with a bearer token.");
     return 2;
 }
 

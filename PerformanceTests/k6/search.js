@@ -4,6 +4,7 @@ import { check, sleep } from 'k6';
 const apiBaseUrl = (__ENV.API_BASE_URL || 'http://localhost:5180').replace(/\/$/, '');
 const blueprintKey = __ENV.BLUEPRINT_KEY || 'nft-ceiling-fanout-join';
 const summaryPath = __ENV.K6_SUMMARY_PATH || 'k6-summary-search.json';
+const headers = buildHeaders();
 
 export const options = {
   scenarios: {
@@ -21,7 +22,7 @@ export const options = {
 };
 
 export function setup() {
-  const blueprints = http.get(`${apiBaseUrl}/api/blueprints`);
+  const blueprints = http.get(`${apiBaseUrl}/api/blueprints`, { headers });
   check(blueprints, { 'blueprints loaded': (res) => res.status === 200 });
 
   const match = blueprints.json().find((blueprint) => blueprint.key === blueprintKey);
@@ -49,13 +50,21 @@ export default function (data) {
   const response = http.post(
     `${apiBaseUrl}/api/processes/search`,
     JSON.stringify(body),
-    { headers: { 'Content-Type': 'application/json' } },
+    { headers },
   );
 
   check(response, {
     'search returned page': (res) => res.status === 200 && Array.isArray(res.json('items')),
   });
   sleep(Number(__ENV.K6_THINK_TIME_SECONDS || 0.1));
+}
+
+function buildHeaders() {
+  const result = { 'Content-Type': 'application/json' };
+  if (__ENV.ACCESS_TOKEN) {
+    result.Authorization = `Bearer ${__ENV.ACCESS_TOKEN}`;
+  }
+  return result;
 }
 
 export function handleSummary(data) {

@@ -7,6 +7,7 @@ const blueprintKey = __ENV.BLUEPRINT_KEY || 'nft-ceiling-fanout-join';
 const payloadTemplate = __ENV.PROCESS_PAYLOAD_JSON ? JSON.parse(open(__ENV.PROCESS_PAYLOAD_JSON)) : null;
 const summaryPath = __ENV.K6_SUMMARY_PATH || 'k6-summary-admission.json';
 const scenarioProfile = __ENV.NFT_PROFILE || 'smoke';
+const headers = buildHeaders();
 
 export const processStartAccepted = new Counter('process_start_accepted');
 export const processStartFailed = new Rate('process_start_failed');
@@ -40,7 +41,7 @@ export const options = {
 };
 
 export function setup() {
-  const blueprints = http.get(`${apiBaseUrl}/api/blueprints`);
+  const blueprints = http.get(`${apiBaseUrl}/api/blueprints`, { headers });
   check(blueprints, { 'blueprints loaded': (res) => res.status === 200 });
 
   const match = blueprints.json().find((blueprint) => blueprint.key === blueprintKey);
@@ -56,7 +57,7 @@ export default function (data) {
   const response = http.post(
     `${apiBaseUrl}/api/blueprints/${data.blueprintId}/processes`,
     JSON.stringify(payload),
-    { headers: { 'Content-Type': 'application/json' } },
+    { headers },
   );
 
   const accepted = response.status === 202;
@@ -64,6 +65,14 @@ export default function (data) {
   processStartFailed.add(!accepted);
   check(response, { 'process accepted': () => accepted });
   sleep(Number(__ENV.K6_THINK_TIME_SECONDS || 0));
+}
+
+function buildHeaders() {
+  const result = { 'Content-Type': 'application/json' };
+  if (__ENV.ACCESS_TOKEN) {
+    result.Authorization = `Bearer ${__ENV.ACCESS_TOKEN}`;
+  }
+  return result;
 }
 
 export function handleSummary(data) {
