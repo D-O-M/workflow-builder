@@ -27,6 +27,7 @@ WorkflowBuilder is a blueprint-driven orchestration app. Users design versioned 
 
 ## Read Next
 
+- [Stakeholder roles](Docs/stakeholder-roles/README.md)
 - [Overview](Docs/agent-context/overview.md)
 - [Topology and Runtime](Docs/agent-context/topology-and-runtime.md)
 - [Frontend Map](Docs/agent-context/frontend-map.md)
@@ -36,6 +37,7 @@ WorkflowBuilder is a blueprint-driven orchestration app. Users design versioned 
 
 ## Routing Hints
 
+- For product intent, audiences, or user needs, start with the [stakeholder roles](Docs/stakeholder-roles/README.md). These profiles include needs still to be met.
 - Page, template, routing, Angular state, canvas, or Phases work: read `frontend-map.md`
 - AppHost, Functions, queues, Cosmos, SignalR, or distributed runtime work: read `topology-and-runtime.md`
 - Plugin bundle, harness, manifest, capability, configuration, or seeding work: read `plugin-development.md`

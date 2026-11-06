@@ -11,6 +11,8 @@ WorkflowBuilder lets users:
 
 At a high level, the product is a visual orchestration system backed by a distributed runtime.
 
+For the people WorkflowBuilder serves, their motivations, and the outcomes they need, see the [stakeholder roles](../stakeholder-roles/README.md).
+
 ## Core Mental Model
 
 - `Blueprint Builder` is the design-time surface
