@@ -11,13 +11,14 @@ Public ingress:
 - `backend-signalr` Azure Container App
 - optional Keycloak Azure Container App
 
-Internal/no public ingress:
+Worker Container Apps without public ingress:
 
 - `backend-engine` Azure Container App worker
 - `backend-dispatcher` Azure Container App worker
 - optional `backend-projection-worker`
 - optional `backend-maintenance`
-- optional Function App shells for `progress-broadcaster` and `plugin-detector`
+
+ProgressBroadcaster and PluginDetector use optional Flex Consumption Function Apps with Cosmos and Blob triggers. The Function App module configures HTTPS and relies on Azure's network defaults. These deployments have a different hosting and network boundary from the ingress-free worker Container Apps. [Function App module](modules/function-app/main.tf) · [Deployment views](../../Docs/architecture/deployment.md)
 
 Data plane:
 
@@ -70,7 +71,7 @@ The image workflow can also publish `backend-progress-broadcaster` and `backend-
 - builds and uploads the Angular Static Web App when enabled
 - builds canonical plugin bundles with `BuildScripts/bundle-plugins.ps1` and uploads them to the `plugins` blob container when enabled
 - deploys ProgressBroadcaster and PluginDetector as Function App zip packages when those Terraform resources are enabled
-- optionally runs `Backend.Database.MigrationService` using Azure App Configuration bootstrap values
+- optionally runs `Backend.Database.MigrationService` with SQL and Cosmos connection strings retrieved from Key Vault
 
 After `terraform apply`, the quickest setup path is:
 
@@ -158,9 +159,9 @@ The demo profile enables ProgressBroadcaster and PluginDetector as .NET isolated
 
 ## Security Notes
 
-Only API, SignalR, frontend, and optional Keycloak are public. Worker Container Apps have no external ingress.
+The browser accesses the Static Web App, API, SignalR, and optional Keycloak. Worker Container Apps have no external ingress. Managed data services and Function host endpoints have their own network settings.
 
-`backend-signalr` hosts the public hub and internal broadcaster endpoints in the same app. The internal routes require the `workflowbuilder.internal_publisher` role when authentication is enabled, and a generated `X-WorkflowBuilder-Internal-Publisher` shared secret can be used for auth-disabled demos.
+`backend-signalr` hosts the public hub and the broadcaster endpoints on the same ingress. With user authentication enabled, publisher or admin bearer roles authorize the caller. A matching configured `X-WorkflowBuilder-Internal-Publisher` header also authorizes the caller in either authentication mode. The demo provisions that shared secret. The Development-only fallback and the Azure Keycloak setup steps are described in the [authentication reference](../../Docs/authentication-keycloak.md).
 
 Private endpoint support is scaffolded by variables but not fully implemented in this first pass. Service Bus private endpoints require Premium; the cheap demo uses Basic with public endpoints plus secrets/auth instead of silently changing SKU.
 
@@ -183,7 +184,7 @@ terraform plan -var-file=environments/demo/terraform.tfvars
 terraform apply -var-file=environments/demo/terraform.tfvars
 ```
 
-For local state, copy `environments/demo/terraform.tfvars.example` to `environments/demo/terraform.tfvars`. For remote state, adapt `environments/demo/backend.tf.example`.
+For local state, copy `environments/demo/terraform.tfvars.example` to `environments/demo/terraform.tfvars`. For remote state, copy `environments/demo/backend.tf.example` to `backend.tf` in the root module (`Infra/Terraform`) and fill in the state storage details before initialization.
 
 ## Teardown
 

@@ -9,7 +9,7 @@ WorkflowBuilder lets users:
 3. start process instances from blueprints or phased blueprint series
 4. watch process progress, step state, and logs in near real time
 
-At a high level, the product is a visual orchestration system backed by a distributed runtime.
+For the platform boundary, service responsibilities and recovery paths, follow the [C4 architecture views](../architecture/README.md). To run a Blueprint locally, start with the [first Process tutorial](../tutorials/first-process.md).
 
 For the people WorkflowBuilder serves, their motivations, and the outcomes they need, see the [stakeholder roles](../stakeholder-roles/README.md).
 
@@ -17,7 +17,7 @@ For the people WorkflowBuilder serves, their motivations, and the outcomes they 
 
 - `Blueprint Builder` is the design-time surface
 - `Phases` is the phase-series authoring surface for Data Bridge handoffs between blueprint versions
-- `Start Process` launches a runtime instance from a selected blueprint
+- `Start Process` launches either a Blueprint Process or a Phase Series with a parent Process and child Processes
 - `Process Explorer` shows a readonly graph plus step details and logs
 - `Dashboard` summarizes process outcomes and recent history
 
@@ -25,7 +25,7 @@ For the people WorkflowBuilder serves, their motivations, and the outcomes they 
 
 - `Blueprint`: the authored graph definition stored in SQL
 - `BlueprintVersion`: a versioned snapshot of a blueprint
-- `BlueprintNode`: a placed task inside a blueprint graph
+- `BlueprintNode`: a placed task or native operator in a Blueprint graph
 - `TaskDefinition`: a reusable task capability definition discovered from plugin bundles
 - `TaskVersion`: a concrete executable version of a task definition
 - `Process`: a runtime instance of a blueprint version
@@ -44,6 +44,9 @@ Avoid reintroducing old `workflow`, `execution`, or `run` wording for new domain
 - `Backend.AppHost`: Aspire source of truth for topology and local orchestration
 - `Backend.API`: main HTTP API for blueprints, processes, and client config
 - `Backend.Engine`: process-step queue consumer and plugin runtime execution
+- `Backend.Dispatcher`: delivers durable Step dispatch intents to the queue
+- `Backend.ProjectionWorker`: builds query and realtime projections from canonical state
+- `Backend.Maintenance`: hosts Process start reconciliation and Step finalization recovery
 - `Backend.Engine.Capabilities`: plugin capability contracts and engine-side validators
 - `Backend.Engine/CollectionIteratorExecutionService.cs`: native Collection Iterator execution
 - `Backend.Functions.PluginDetector`: bundle ingestion and task-definition registration
@@ -68,6 +71,8 @@ Avoid reintroducing old `workflow`, `execution`, or `run` wording for new domain
 - Cosmos owns live runtime state:
   - processes
   - process steps
+  - dispatch intents, finalization checkpoints, join/activation records and Phase Series progress
+  - derived query and realtime projections plus change-feed leases
 - Blob Storage owns uploaded and seeded plugin bundles
 - Service Bus moves process-step work and plugin-reload messages
 - SignalR owns live subscriptions and pushes

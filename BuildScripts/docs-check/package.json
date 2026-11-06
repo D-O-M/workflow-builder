@@ -1,0 +1,14 @@
+{
+  "name": "workflowbuilder-docs-check",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "github-slugger": "2.0.0",
+    "markdown-it": "15.0.3",
+    "mermaid": "11.17.2",
+    "playwright": "1.60.0"
+  }
+}

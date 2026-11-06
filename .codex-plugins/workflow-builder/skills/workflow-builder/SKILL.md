@@ -16,7 +16,7 @@ Start every task here:
 Locate the WorkflowBuilder checkout root, for example with `git rev-parse --show-toplevel` from inside the checkout. Resolve every repository path in this skill from that root. Companion skill names refer to the active session's skill catalog; read each skill from its catalog location.
 
 1. Read `AGENTS.md`.
-2. Read only the relevant docs under `Docs/agent-context/`.
+2. Use `Docs/README.md` to find the appropriate tutorial, how-to or reference. Start architecture questions at `Docs/architecture/README.md`.
 3. Load companion skills only for the task areas that need them.
 
 Do not load every companion skill by default.
@@ -39,6 +39,8 @@ The app depends on a working distributed runtime and a working realtime path.
 - `Step` = executed blueprint node in a process
 - `TaskDefinition` = reusable capability in the catalog
 - `Plugin` = packaged executable implementation for a task version
+- `Plugin Capability` = Engine prerequisite declared by a Plugin
+- `Domain Plugin Configuration` = typed shared Plugin configuration under `Backend.Plugins.Configuration`
 - `Phase Series` = ordered set of blueprint versions connected by Data Bridge mappings
 - `Data Bridge` = phase handoff mapping between source output properties and destination inputs
 - `Collection Iterator` = native engine operator for collection fan-out, not a plugin
@@ -142,10 +144,10 @@ Then use normal engineering reasoning. Do not force an unrelated generic skill.
 
 ## Repo-Specific Invariants
 
-- AppHost is the source of truth for distributed wiring.
+- AppHost defines local distributed wiring. The topology catalog defines shared names and contracts. Terraform and the deployment workflows define the Azure demo.
 - Realtime is a first-class product requirement.
 - Plugin bundles are built through `BuildScripts/bundle-plugins.ps1`, not by ad hoc zipping.
-- `Backend.Plugins/_bundles` is ignored by git and is meant to be seeded on wiped startup.
+- `Backend.Plugins/_bundles` is ignored by Git. Build bundles for the Engine host before starting a fresh environment with Plugin seeding enabled.
 - If harness or communication contracts change, rebuild canonical plugin bundles before trusting seeded or uploaded plugins.
 - `Collection Iterator` is engine-native; do not model it as a plugin bundle.
 - The shared canvas public contract is grouped in `blueprint-canvas-contract.ts`; do not reintroduce prop-by-prop canvas APIs.
@@ -185,11 +187,11 @@ Runtime smoke lane, only when AppHost is already running:
 - `Set-Location UI`
 - `npm run test:e2e:runtime`
 
-The Angular build currently passes with an initial bundle budget warning; new build errors are blockers.
+Use the Angular build output to identify current bundle budget warnings and errors.
 
 ## Realtime Diagnostic Frame
 
-When a process-progress issue appears, classify it as:
+For a stale Dashboard, investigate HTTP queries and projections. For log gaps, inspect the log query or stream and telemetry pipeline. For a Process Explorer live graph issue, classify it as:
 
 - execution only
 - broadcaster only

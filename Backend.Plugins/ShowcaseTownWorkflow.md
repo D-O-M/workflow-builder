@@ -1,6 +1,6 @@
-# Showcase Town Workflow
+# Showcase Town Weekend Recommendation Blueprint
 
-This demo chain is a simple linear workflow that shows how the app passes typed IO between plugins while making real public API calls.
+This four-Step Blueprint passes typed outputs between Plugins while making public API calls. [Seed definition](../SeedData/Blueprints/showcase-town-weekend-recommendation.blueprint.json)
 
 ## Plugin order
 
@@ -11,7 +11,7 @@ This demo chain is a simple linear workflow that shows how the app passes typed 
 
 ## Trigger payload
 
-Use this as the workflow's first input:
+Use this as the starting Step's input.
 
 ```json
 {

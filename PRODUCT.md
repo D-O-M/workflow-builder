@@ -6,7 +6,7 @@ product
 
 ## Users
 
-WorkflowBuilder serves builders who author reusable blueprint graphs, operators who start process instances, and engineers who inspect step progress, logs, and runtime failures. They use the app during focused orchestration work, often moving between design-time blueprint structure and runtime process evidence.
+The UI serves Blueprint authors, Process operators and engineers investigating Step progress and failures. For the full set of roles, including business process owners, Plugin developers, platform teams and product owners, see the [stakeholder profiles](Docs/stakeholder-roles/README.md).
 
 ## Product Purpose
 

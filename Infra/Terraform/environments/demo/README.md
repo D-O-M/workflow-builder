@@ -25,6 +25,8 @@ The image override selects the ProjectionWorker image when Terraform first creat
 
 After `terraform apply`, copy the root outputs into GitHub repository or environment variables before running `.github/workflows/deploy-azure-demo.yml`. The important mappings are documented in `Infra/Terraform/README.md`; at minimum the workflow needs the resource group, ACR name/login server, Container App names, storage account, plugin container, and Azure OIDC values.
 
-If your subscription has App Service/Functions quota restrictions, set `enable_progress_broadcaster=false` and `enable_plugin_detector=false`; keep them disabled until the quota is available.
+If your subscription has App Service/Functions quota restrictions, disabling ProgressBroadcaster removes live Process updates. Disabling PluginDetector removes automatic Plugin registration from uploaded bundles. Restore the corresponding Function App before testing either flow.
 
-`backend.tf.example` is optional. Copy it to this folder or the root Terraform folder only when you want remote state.
+For remote state, copy `environments/demo/backend.tf.example` to `backend.tf` in the active root module (`Infra/Terraform`), fill in the state storage details, then initialize from that root.
+
+For Keycloak-backed user authentication, provision the realm and clients as well as enabling the Keycloak and authentication flags. Verify the deployed SPA redirect URI and service audiences before exercising the UI. [Authentication](../../../../Docs/authentication-keycloak.md) · [Deployment views](../../../../Docs/architecture/deployment.md)

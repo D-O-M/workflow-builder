@@ -1,6 +1,41 @@
 @Backend.API_HostAddress = http://localhost:5180
+@blueprintId = 0
 
-GET {{Backend.API_HostAddress}}/weatherforecast/
+# The normal local AppHost uses port 5180. With auth enabled, launch Visual
+# Studio with WORKFLOW_BUILDER_ACCESS_TOKEN set to a local user's access token.
+# Omit the Authorization lines on a local stack with authentication disabled.
+# See ../Docs/how-to/process-api.md for credentials and expected responses.
+
+### Discover the local endpoints and authentication mode
+GET {{Backend.API_HostAddress}}/api/client-config
 Accept: application/json
 
-###
+### Find the ID of the tutorial Blueprint named First score check and set blueprintId above
+GET {{Backend.API_HostAddress}}/api/blueprints
+Authorization: Bearer {{$processEnv WORKFLOW_BUILDER_ACCESS_TOKEN}}
+Accept: application/json
+
+### Start a new Process using the latest saved Blueprint version
+# @name startProcess
+POST {{Backend.API_HostAddress}}/api/blueprints/{{blueprintId}}/processes
+Authorization: Bearer {{$processEnv WORKFLOW_BUILDER_ACCESS_TOKEN}}
+Content-Type: application/json
+
+{
+  "initialTaskInput": {
+    "Name": "Ada",
+    "Score": 7,
+    "Speed": 6
+  }
+}
+
+### Read the accepted Process and its Blueprint nodes
+# @name processDetail
+GET {{Backend.API_HostAddress}}/api/processes/{{startProcess.response.body.$.processId}}
+Authorization: Bearer {{$processEnv WORKFLOW_BUILDER_ACCESS_TOKEN}}
+Accept: application/json
+
+### Read the starting Step's inputs and outputs
+GET {{Backend.API_HostAddress}}/api/blueprints/{{blueprintId}}/processes/{{startProcess.response.body.$.processId}}/steps/{{processDetail.response.body.$.startingBlueprintNodeId}}
+Authorization: Bearer {{$processEnv WORKFLOW_BUILDER_ACCESS_TOKEN}}
+Accept: application/json

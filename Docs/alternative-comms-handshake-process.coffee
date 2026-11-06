@@ -1,4 +1,5 @@
 sequenceDiagram
+    %% Historical proposal. Current Plugin ABI and framed stdout are documented in agent-context/plugin-development.md.
     participant E as Engine
     participant P as PluginRuntime
 

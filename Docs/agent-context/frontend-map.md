@@ -12,7 +12,7 @@ The UI is an Angular 21 app under `UI/`.
 - `/processes/new` -> `StartProcessPageComponent`
 - `/processes` -> `ProcessExplorerPageComponent`
 
-Navigation metadata lives in `UI/src/app/domain/app-navigation.ts`.
+All five product routes use `authGuard`. The app also handles the OIDC callbacks at `/auth/callback` and `/auth/logout-callback`. The shell gets its primary navigation labels from `UI/src/app/domain/app-navigation.ts`. [Sign-in and runtime client config](../authentication-keycloak.md)
 
 ## Page Responsibilities
 
@@ -57,10 +57,11 @@ The Phases page is intentionally still the service/loading/saving shell. Data Br
 
 ### Start Process
 
-- selects a blueprint and initial input
-- starts a process by calling `POST /api/blueprints/{id}/processes`
-- handles dynamic task input forms and runtime overrides
-- uses `blueprint-editor.service.ts`
+- accepts a Blueprint or Phase Series selection, the first task's schema-backed input and optional node overrides
+- starts a Blueprint through `POST /api/blueprints/{id}/processes`, or a Phase Series through `POST /api/phased-blueprints/{id}/processes`
+- opens Process Explorer with the accepted Process ID for a Blueprint, or the first child Process ID for a Phase Series
+
+[First Process tutorial](../tutorials/first-process.md) · [Phase Series handoff and trigger](../how-to/phase-series.md)
 
 ### Process Explorer
 
@@ -148,6 +149,7 @@ Do not reintroduce prop-by-prop canvas inputs or output-per-action APIs.
 
 Key internal layers:
 
+- `canvas-renderer-host.ts` and `canvas-offscreen-render.worker.ts`: choose the main-thread renderer or hand a supported canvas to a worker when offscreen rendering is enabled
 - `canvas-mode-policy.ts`: mode capabilities for `edit`, `readonly`, `bridge-map`, `bridge-source`, and `bridge-target`
 - `canvas-viewport-controller.ts`: zoom, pan, backing-size sync, insets, and client/world math
 - `canvas-interaction-controller.ts`: pointer lifecycle state and explicit interaction effects

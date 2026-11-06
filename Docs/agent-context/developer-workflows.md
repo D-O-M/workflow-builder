@@ -2,13 +2,15 @@
 
 ## Main Local Run Paths
 
-Run the distributed app through AppHost:
+For a first checkout, follow the [first Process tutorial](../tutorials/first-process.md) for prerequisites, a small local Plugin bundle and an expected result. When starting the full showcase catalog, build the canonical bundles below for the Engine's host runtime first. A fresh checkout has no `_bundles` directory and the seeder skips a missing directory.
+
+Start the backend from the repository root:
 
 ```powershell
-dotnet run --project Backend.AppHost/Backend.AppHost.csproj
+dotnet run --project Backend.AppHost/Backend.AppHost.csproj --launch-profile http
 ```
 
-This is the normal way to bring up API, Engine, SignalR, Functions, SQL/Cosmos wiring, observability, and optional seeders together.
+Use the Aspire dashboard URL printed at startup to inspect migrations, platform services and optional seeders. The checked-in `http` launch profile sets `Frontend__Enabled=false`. In a second terminal, run `npm ci` and `npm start` from `UI`, then open the displayed Angular address. Alternatively, add `-- --Frontend:Enabled=true` to the AppHost command to host Angular in Docker. [Deployment views](../architecture/deployment.md) · [Local sign-in](../authentication-keycloak.md)
 
 For Visual Studio debugging, set `Backend.AppHost` as the startup project and press F5. Both Functions projects explicitly declare the `AzureFunctions` project capability and `<FunctionsExecutionModel>isolated</FunctionsExecutionModel>` so Visual Studio starts the Functions host and attaches to its worker. Keep these declarations when updating the Functions SDK. The host supplies `Functions:Worker:HostEndpoint` dynamically; launching the worker executable directly does not provide it.
 
@@ -52,7 +54,7 @@ npm run test:unit
 npm run build
 ```
 
-The Angular build currently passes with an initial bundle budget warning. Treat new build errors as blockers; treat the existing budget warning as known until a bundle-size pass is planned.
+Check the command's exit code and build output for the current bundle budget result.
 
 ## Frontend Playwright
 
@@ -98,7 +100,7 @@ Playwright artifacts are ignored:
 - `UI/playwright-report/`
 - `UI/test-results/`
 
-The PR/manual mocked Playwright workflow is `.github/workflows/ui-playwright.yml`.
+The [mocked Playwright workflow](../../.github/workflows/ui-playwright.yml) runs on UI pull requests and can be started manually. On a clean development machine, install the suite's browsers from `UI` with `npx playwright install chromium firefox webkit`.
 
 ## Frontend Test Conventions
 
@@ -115,8 +117,8 @@ Use the canonical bundle script, not ad hoc publish-and-zip logic:
 
 ```powershell
 pwsh -File BuildScripts/bundle-plugins.ps1 `
-  -RootDir .\\Backend.Plugins `
-  -OutputDir .\\Backend.Plugins\\_bundles `
+  -RootDir Backend.Plugins `
+  -OutputDir Backend.Plugins/_bundles `
   -Configuration Release `
   -RuntimeIdentifier win-x64 `
   -Overwrite
@@ -137,13 +139,15 @@ pwsh -File IntegrationTests/scripts/build-integration-plugin-bundles.ps1
 Use these when changing plugin capabilities, config contracts, harness binding, manifest generation, or runtime capability gating:
 
 ```powershell
-dotnet test Backend.Plugins.Harness.Tests/Backend.Plugins.Harness.Tests.csproj
-dotnet test Backend.PluginLoader.Tests/Backend.PluginLoader.Tests.csproj
-dotnet test Backend.Engine.Tests/Backend.Engine.Tests.csproj
+dotnet test --project Backend.Plugins.Harness.Tests/Backend.Plugins.Harness.Tests.csproj
+dotnet test --project Backend.PluginLoader.Tests/Backend.PluginLoader.Tests.csproj
+dotnet test --project Backend.Engine.Tests/Backend.Engine.Tests.csproj
 dotnet build Backend.slnx
 ```
 
 ## Integration and Smoke Entry Points
+
+The [integration workflow](../../.github/workflows/integration-tests.yml) is started manually. Its runner stops stale local AppHost and integration-test processes before testing. Use a separate session from an interactive runtime smoke check. [Integration scenarios](../../IntegrationTests/README.md)
 
 Main integration suite:
 
@@ -151,7 +155,7 @@ Main integration suite:
 ./IntegrationTests/scripts/run-integration-tests.ps1
 ```
 
-AppHost smoke run:
+Legacy manual smoke using the separate integration AppHost:
 
 ```powershell
 ./IntegrationTests/scripts/run-apphost-smoke.ps1

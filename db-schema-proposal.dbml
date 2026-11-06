@@ -1,3 +1,4 @@
+// Historical schema proposal. See Backend.Database.Relational/BlueprintDbContext.cs and its Migrations folder for the implemented SQL model.
 table Blueprints as BP {
     Id int [primary key]
     Name string

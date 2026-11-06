@@ -1,30 +1,16 @@
 # Realtime and Observability
 
-## Realtime Is a Product Requirement
-
-Live process updates are part of the expected application behavior.
-
-The process explorer depends on them to reflect:
-
-- process status changes
-- step status transitions
-- live progress while a process is running
-- phased process progression
-- native Collection Iterator step progression
-
-If execution succeeds but the UI stays stale, treat that as a real product issue, not cosmetic polish.
+Process Explorer overlays live Process and Step updates on its HTTP data. Dashboard reads aggregate HTTP endpoints. The Process and Step log panes read Loki through the API. Diagnose each surface along its own path. [Runtime interactions](../architecture/interactions.md) · [Operations runbooks](../how-to/operations.md)
 
 ## Required Live-Update Path
 
 1. The API creates or updates process and process-step records.
 2. The engine updates Cosmos `processsteps` documents as execution advances.
 3. `Backend.ProjectionWorker` maintains lightweight realtime projections from canonical process/process-step changes. Engine synchronous projection writes may also run only when `Projections:SynchronousEngineUpdatesEnabled=true`.
-4. `ProgressBroadcasterFunction` listens to the Cosmos `processsteps` container.
-5. The broadcaster builds `ProcessRealtimeBatch` payloads from lightweight realtime projections.
-6. The broadcaster publishes to `Backend.SignalR`.
-7. The frontend connects to `/hubs/processes`.
-8. `process-realtime.service.ts` subscribes to blueprint/process groups.
-9. The UI receives:
+4. Process Explorer connects to `/hubs/processes` and subscribes to the selected Blueprint and Process groups.
+5. The broadcaster observes Cosmos `processsteps` changes and fetches an active-subscription snapshot from SignalR. The Function trigger is defined in every deployment. `Realtime:UseHostedChangeFeed=true` additionally registers a hosted change-feed processor in the worker. Both paths call the same broadcaster. Integration mode and the Azure demo set the flag.
+6. For subscribed identifiers, the broadcaster builds `ProcessRealtimeBatch` payloads from projections and posts them to the SignalR service over HTTP. SignalR delivers the corresponding events to the subscribed groups.
+7. The UI handles:
    - `processSummaryUpdated`
    - `processStepsUpdated`
 
@@ -41,8 +27,9 @@ For a healthy end-to-end path:
 
 - `Backend.Functions.ProgressBroadcaster/ProgressBroadcasterFunction.cs`
   - Cosmos trigger over `processsteps`
-  - projects changed steps into realtime batches from `processrealtimesummaries` and `processnoderealtime`
-  - falls back to source process/process-step loading only to repair missing projections
+- [ProcessProgressBroadcaster](../../Backend.Functions.ProgressBroadcaster/Services/ProcessProgressBroadcaster.cs) and [projection service](../../Backend.Repositories/Processes/ProcessProjectionService.cs)
+  - select active subscriptions and build batches from `processrealtimesummaries` and `processnoderealtime`
+  - fall back to canonical Process/Step state when projections are missing, repairing projections when available
 - `Backend.ProjectionWorker`
   - Cosmos change feed over `processes` and `processsteps`
   - updates `processdirectory`, `processsummaries`, `processrealtimesummaries`, and `processnoderealtime`
@@ -71,7 +58,7 @@ Process, step, and blueprint identifiers arrive in Loki as OTLP structured metad
 
 ### Broadcaster binding config
 
-The function depends on the Cosmos trigger binding resolving correctly at startup. If the broadcaster is disabled or never indexes cleanly, execution can still succeed while live updates fail.
+The Functions host resolves the `RealtimeCosmos` binding and the database, Step container and lease container settings before the worker can handle trigger deliveries. For the additional hosted reader, look for its startup message and failures reading the change feed. If the publisher fails to fetch subscriptions or SignalR rejects a batch, inspect the gateway's warnings and publisher credentials. [Gateway](../../Backend.Functions.ProgressBroadcaster/Services/SignalRProcessGateway.cs) · [Publisher access](../authentication-keycloak.md#api-and-signalr)
 
 ### Projection worker health
 
@@ -83,7 +70,7 @@ ProjectionWorker emits:
 - `projection_worker_failures_total`
 - `projection_worker_lag_ms`
 
-Engine emits `engine_synchronous_projection_updates_enabled`. In production/performance mode this should report `0`, with ProjectionWorker lag staying bounded.
+The Engine emits `engine_synchronous_projection_updates_enabled`. Compare this value to the environment under investigation. The Azure demo example uses synchronous Engine updates and omits ProjectionWorker. The Azure NFT override enables ProjectionWorker and switches the Engine flag off. [Deployment profiles](../architecture/deployment.md)
 
 ### Plugin agent health
 
@@ -110,15 +97,15 @@ Queue mismatches break execution before realtime ever has a chance to work.
 
 ### SignalR base URL and client-config wiring
 
-The frontend uses runtime client-config to discover the SignalR base URL. If client-config points at the wrong host or port, subscriptions fail even if the hub is healthy.
+The frontend loads same-origin `/runtime-bootstrap.json`, then fetches `/api/client-config` from the resulting API address. Inspect the returned hub URL and the browser's connection and subscription status. [Client bootstrap](../../UI/src/app/domain/runtime-client-config.service.ts)
 
 ### Dashboard and Process Explorer dependence
 
-The dashboard’s recent/runtime views and the process explorer’s live graph behavior both depend on the realtime path. Regressions here often surface as “UI stale” symptoms rather than obvious backend failures.
+Dashboard queries the observability HTTP API on page load and when the selected Blueprint or time window changes. Process Explorer loads Process detail over HTTP and overlays SignalR updates. Logs use HTTP queries and authenticated server-sent event streams through the API's Loki client. The Terraform demo supplies no Loki service. [Dashboard queries](../../UI/src/app/pages/dashboard-page.component.ts) · [Process Explorer subscriptions](../../UI/src/app/pages/process-explorer-page.component.ts) · [Log endpoints](../../Backend.API/Controllers/ObservabilityController.cs)
 
 ### Phases dependence
 
-Phased blueprint runtime should not require a separate realtime channel. Phase progression and Data Bridge handoffs must remain observable through the normal process and process-step update path.
+Process Explorer loads the enclosing phased Process over HTTP on selection or refresh. Each selected child Process uses the same Process and Step subscriptions as a standalone Process.
 
 ## Debugging Frame
 

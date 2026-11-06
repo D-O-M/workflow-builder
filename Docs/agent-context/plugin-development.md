@@ -1,5 +1,7 @@
 # Plugin Development
 
+For a working example with source, build commands, registration and a predictable output, see the [Plugin authoring guide](../how-to/plugin-authoring.md).
+
 ## What a Plugin Is
 
 A plugin is the packaged executable implementation behind a `TaskDefinition` version.
@@ -48,7 +50,7 @@ Engine behavior:
 - validates capabilities before starting a plugin runtime agent
 - checks required software, configured endpoint reachability, and required config/secret presence
 - marks versions with missing required capabilities as unrunnable
-- routes a task lane to the newest runnable version
+- groups versions by task definition, major and minor, then routes each lane to its newest runnable patch
 - exposes remediation metadata but does not install missing software in v1
 
 Secrets must stay out of logs, argv, API responses, and manifest examples.
@@ -95,7 +97,7 @@ Do not hand-roll ZIPs or manually repackage plugins.
 
 - canonical output path: `Backend.Plugins/_bundles`
 - `_bundles` is ignored by git
-- AppHost plugin seeding uses this output on a wiped startup when plugin seeding is enabled
+- AppHost Plugin seeding reads this directory when enabled, by default in Development. The seeder skips uploads for existing blob names and still calls the registration service.
 
 The bundle script owns version behavior. Agents should not hand-edit ZIP layout or manually bump bundle versions as a substitute for using the script.
 
@@ -109,13 +111,10 @@ It delegates to the canonical bundle script but targets the integration-test plu
 
 ## Seeding and Registration Flow
 
-1. Canonical bundle ZIPs are uploaded or seeded into the plugins blob container.
-2. `PluginDetector` extracts the bundle and parses:
-   - `manifest.json`
-   - schema files
-3. `PluginBundleProcessingService` validates capability-owned configuration metadata and registers the task version metadata in SQL.
-4. Registration failures are surfaced by the processing service instead of being silently swallowed.
-5. A plugin reload message is emitted so the engine refreshes its runtime catalog.
+1. The seeder uploads missing bundles and calls `PluginBundleProcessingService`. Direct uploads to the Plugins container reach the same service through the Plugin Detector's blob trigger. The detector also scans for unregistered bundles at startup.
+2. The processing service checks quarantine and catalog registration, extracts new bundles, validates their ABI and manifest, and registers task version metadata in SQL.
+3. A Plugin reload message tells the Engine to refresh its catalog. On each Engine, an ABI, capability or runtime health failure can prevent a registered version from serving work.
+4. The ingestion API exposes recorded status and bundle quarantine operations under `/api/admin/plugin-ingestions`. This is separate from an Engine instance's health decision about a running Plugin agent. [Diagnose a Plugin](../how-to/plugin-authoring.md#register-and-exercise-the-task)
 
 ## When to Rebuild Plugins
 

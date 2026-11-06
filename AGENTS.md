@@ -27,6 +27,8 @@ WorkflowBuilder is a blueprint-driven orchestration app. Users design versioned 
 
 ## Read Next
 
+- [Documentation index](Docs/README.md)
+- [C4 views and Engine recovery](Docs/architecture/README.md)
 - [Stakeholder roles](Docs/stakeholder-roles/README.md)
 - [Overview](Docs/agent-context/overview.md)
 - [Topology and Runtime](Docs/agent-context/topology-and-runtime.md)

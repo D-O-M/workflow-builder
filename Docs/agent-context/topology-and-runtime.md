@@ -4,36 +4,9 @@
 
 `Backend.Topology` is the source of truth for runtime topology names, partition-key assumptions, config keys, and realtime routes/events. `Backend.AppHost/Program.cs` consumes those constants when creating local Aspire resources, and `BuildScripts/workflowbuilder-topology.json` is generated from the same catalog for scripts.
 
-Key runtime resources wired there:
+The [container views](../architecture/containers.md) show the running services and stores. The [generated topology catalog](../../BuildScripts/workflowbuilder-topology.json) lists the Cosmos containers and partition keys, Blob containers, Service Bus queues, and realtime contracts. See the [deployment views](../architecture/deployment.md) for which services each environment enables.
 
-- SQL Server database for blueprint and task metadata
-- Cosmos DB database with containers:
-  - `processes`
-  - `processdirectory`
-  - `processsummaries`
-  - `processrealtimesummaries`
-  - `processnoderealtime`
-  - `processsteps`
-  - `processstepdispatches`
-  - `processstepfinalizations`
-  - `processprojectionleases`
-  - `pluginingestionstatuses`
-  - `plugintaskversionruntimestatuses`
-  - `nodeactivations`
-  - `nodejoinstates`
-  - `phasedprocesses`
-  - `phasecorrelations`
-  - `processstepprogressleases`
-- Blob Storage containers:
-  - `plugins`
-  - `artifacts`
-- Service Bus queues for:
-  - process-step execution
-  - plugin reload
-- Grafana, Loki, Tempo, Prometheus, and Alloy for observability
-- API, Engine, Dispatcher, Projection Worker, Maintenance, SignalR, Plugin Detector, Progress Broadcaster, Plugin Seeder, and Blueprint Seeder services
-
-The API currently exposes a fixed external HTTP endpoint on port `5180` in the AppHost. The UI development proxy expects `api/client-config`, `/hubs/processes`, and the SignalR event names in `Backend.Topology` to remain aligned with AppHost and UI runtime config.
+Normal local AppHost startup exposes the API on port `5180`. The integration harness discovers an allocated HTTP endpoint from Aspire. Browser client configuration and SignalR routing must agree with the API and hub addresses in that environment. [AppHost wiring](../../Backend.AppHost/Program.cs) · [Integration fixture](../../IntegrationTests/WorkflowBuilder.IntegrationTests/Infrastructure/DistributedAppTestEnvironment.cs)
 
 Startup validation is intentionally strict. API, Engine, Dispatcher, Projection Worker, Maintenance, PluginDetector, ProgressBroadcaster, and SignalR fail fast when required SQL/Cosmos/Storage/Service Bus/realtime/client config is missing, placeholder-valued, or inconsistent with the canonical topology. AppHost may provide canonical local defaults, but direct service startup must provide explicit valid configuration.
 
@@ -51,7 +24,7 @@ Local development authentication is Keycloak-backed when `Authentication:Enabled
 | `Backend.SignalR` | Hosts `/hubs/processes` subscriptions |
 | `PluginDetector` | Reacts to plugin bundle uploads and registers task versions |
 | `ProgressBroadcaster` | Watches Cosmos process-step changes and publishes SignalR updates |
-| `PluginSeeder` | Seeds canonical bundles from `Backend.Plugins/_bundles` into blob storage |
+| `PluginSeeder` | Uploads canonical bundles from `Backend.Plugins/_bundles` when needed and invokes the shared registration and reload pipeline |
 | `BlueprintSeeder` | Seeds exported blueprints into the API |
 
 ## Design-Time Storage
@@ -67,46 +40,15 @@ SQL owns:
 
 Hand-authored migrations in `Backend.Database.Relational/Migrations` must remain discoverable by the migration service.
 
-## Runtime Flow
-
-```mermaid
-flowchart LR
-  User["User"] --> UI["Angular UI"]
-  UI --> API["Backend.API"]
-  API --> SQL["SQL: blueprints + task metadata"]
-  API --> Cosmos["Cosmos: processes + processsteps"]
-  API --> Dispatch["Cosmos: processstepdispatches"]
-  Dispatch --> Dispatcher["Backend.Dispatcher"]
-  Dispatcher --> Queue["Service Bus: processsteps"]
-  Queue --> Engine["Backend.Engine"]
-  Engine --> Plugin["Plugin runtime / harness"]
-  Plugin --> Cosmos
-  Engine --> Dispatch
-  Cosmos --> Projection["Backend.ProjectionWorker"]
-  Projection --> Cosmos
-  Cosmos --> Broadcaster["ProgressBroadcaster Function"]
-  Broadcaster --> SignalR["Backend.SignalR /hubs/processes"]
-  SignalR --> UI
-```
-
 ## Process Lifecycle
 
-1. The frontend calls `POST /api/blueprints/{id}/processes`.
-2. The API resolves the selected blueprint version and creates initial process state.
-3. The API persists process state, upserts compatibility process directory/summary projections, persists the initial step with durable dispatch intent, then attempts best-effort process-step queue dispatch.
-4. `Backend.Dispatcher` drains durable dispatch intents and sends process-step queue messages. API and Engine may still opportunistically dispatch after intent creation.
-5. `Backend.Engine` consumes the process-step queue.
-6. The engine loads the executable blueprint and resolves the newest runnable task version.
-7. Before launching a plugin runtime agent, the engine validates the plugin manifest capability requirements.
-8. Capability validation includes required software probes, engine-side endpoint checks where configured, and required domain config/secret presence.
-9. After capability validation succeeds, runtime config files are generated and passed to the plugin with repeated `--config` arguments.
-10. The plugin runtime launches the plugin executable through the harness.
-11. The plugin hydrates its required input channels from Cosmos using the invocation envelope identifiers.
-12. The plugin emits framed process-protocol stdout messages; result frames enter bounded finalization, then the engine updates process-step state and durably schedules downstream work as needed.
-13. `Backend.ProjectionWorker` consumes canonical process/process-step changes and maintains query/realtime projections. Engine synchronous projection writes are compatibility behavior.
-14. Cosmos changes in `processsteps` are observed by `ProgressBroadcaster`.
-15. `ProgressBroadcaster` builds realtime batches from lightweight realtime projections and publishes them to SignalR subscribers.
-16. The UI receives `processSummaryUpdated` and `processStepsUpdated` events and refreshes the process explorer state.
+1. A caller submits `POST /api/blueprints/{id}/processes` with the Blueprint definition ID. The API resolves its latest version. A Phase Series can instead start a pinned version according to its phase policy.
+2. The API creates the Process and initial Step, ensures the dispatch intent, attempts an immediate send, then tries to update the start-time projections. Dispatcher drains remaining due intents.
+3. Engine loads the executable Blueprint and checks for an existing finalization checkpoint. New Plugin Steps select a runnable agent in the permitted task lane, claim the Step and send the invocation. Agent initialization and capability checks happen at catalog startup or reload. A native Collection Iterator executes inside Engine.
+4. The Plugin harness hydrates inputs from Cosmos. Its stdout result enters bounded finalization. Engine persists the outcome, schedules downstream work and prepares queue settlement. Redelivery can resume the recorded stage.
+5. Projection Worker updates query and realtime projections. The broadcaster observes Step changes and sends batches for subscribed Blueprint and Process groups to SignalR. Process Explorer consumes the resulting events.
+
+[Runtime interactions](../architecture/interactions.md) · [Engine code and recovery paths](../architecture/engine-execution.md)
 
 ## Process Index And Query Model
 
@@ -152,13 +94,13 @@ New process records include a `start` snapshot with the deterministic initial st
 
 ## Step Finalization Guarantee
 
-Plugin-backed steps and native Collection Iterator steps finalize through the `processstepfinalizations` outbox container. The engine writes a `ResultReceived` checkpoint before mutating step or process state, advances explicit stages as outputs/failures, downstream activation, and phase/process effects become durable, and only acknowledges the process-step queue message after the finalization record reaches `QueueMessageCompletionPrepared`.
+Plugin-backed Steps and native Collection Iterator Steps finalize through the `processstepfinalizations` outbox. Engine writes a `ResultReceived` checkpoint before applying the result, then advances stages as outcome-specific effects become durable. In normal execution it persists `QueueMessageCompletionPrepared` before acknowledging the message. If Maintenance has already recorded `RecoveredWithoutQueueMessage`, later delivery only needs broker completion. [Checkpoint paths and tests](../architecture/engine-execution.md#durable-checkpoints-and-resumption)
 
 Plugin-backed process-step queue messages remain unsettled while the plugin job is active and while queued plugin results are finalized. `Backend.Engine` starts an explicit active-message lock-renewal loop after a step is durably claimed and tracked as active. The loop renews before `LockedUntil` reaches the configured lead time, stops on queue-message completion, abandonment/reset cleanup, plugin-agent crash cleanup, shutdown, or `ProcessStepQueue:MaxActiveRenewalDurationMinutes`, and records renewal, failure, suspected lock-loss, and active-renewal-duration metrics. If renewal or settlement loses the broker lock, redelivery is still safe because step claim, finalization resume, and downstream activation are idempotent.
 
 If a queue message is redelivered for a step with an incomplete finalization record, the engine resumes from the recorded stage instead of re-running the plugin or native operator. Downstream step creation remains idempotent because runtime step ids are deterministic and inserts use create-if-not-exists semantics. Legacy completed or failed steps without a finalization record are treated as already settled.
 
-`Backend.Maintenance` hosts `StepFinalizationRecoveryWorker` for incomplete outbox records that need recovery outside the active queue-message lock. Normal finalization remains inside `Backend.Engine` so claim, plugin result handling, downstream activation, and queue-message completion stay together.
+`Backend.Maintenance` hosts `StepFinalizationRecoveryWorker` for incomplete outbox records that need recovery outside the active queue-message lock. Its loop is disabled by default. Set `FinalizationRecovery:Enabled=true` on the Maintenance service to run it. Normal finalization remains inside Engine. [Maintenance options binding](../../Backend.Maintenance/MaintenanceServiceCollectionExtensions.cs) · [Recovery worker](../../Backend.Maintenance/StepFinalizationRecoveryWorker.cs)
 
 ## Engine Capabilities
 
@@ -212,18 +154,18 @@ Phase handoff mappings are design-time SQL data. Runtime phase correlation and f
 
 ## Plugin Ingestion Path
 
-1. Canonical bundle ZIPs are uploaded to the plugin blob container.
-2. `PluginDetector` records durable ingestion status in `pluginingestionstatuses`, extracts the bundle, reads `manifest.json` and schemas, validates capability/configuration metadata, and registers or updates task versions in SQL.
+1. A bundle ZIP is uploaded to the Plugin Blob container. A Blob trigger or reconciliation pass invokes the shared bundle processor in Plugin Detector. Plugin Seeder also invokes that processor after checking or uploading a seed bundle.
+2. The bundle processor records durable ingestion status in `pluginingestionstatuses`, extracts the bundle, reads `manifest.json` and schemas, validates capability/configuration metadata, and registers task versions in SQL.
 3. Missing/invalid manifests, ABI incompatibility, schema failures, and capability/configuration metadata failures append sanitized failure events and quarantine the bundle in status metadata. Quarantined bundles remain in blob storage, but detector reconciliation skips them until an admin unquarantine operation clears the gate.
 4. Duplicate bundles are recorded as `DuplicateIgnored`; successful bundles are recorded as `Registered`.
 5. Runtime loading failures and stale ABI metadata append operational status for the task version without writing into the SQL task catalog.
-6. The detector emits a plugin reload request so the engine refreshes its in-memory runtime catalog.
+6. On registration the bundle processor emits a reload request. Engine consumes it and refreshes its in-memory runtime catalog.
 
-Plugin ingestion is not hosted by `Backend.Engine`. The engine loads runnable bundles, reports runtime availability, and responds to plugin reload requests; bundle detection, quarantine, SQL registration, ingestion status, and reload request creation remain with `PluginDetector`.
+Engine loads bundles, verifies their runtime requirements and reports availability per Engine instance. See [Plugin registration and reload](../architecture/interactions.md#a-bundle-becomes-a-runnable-plugin) for the handoff from the ingestion services.
 
 ## Local Development Startup
 
-`Backend.AppHost` starts `backend-engine`, `backend-dispatcher`, `backend-projection-worker`, and `backend-maintenance` as separate local services wired to the same SQL, Cosmos, Service Bus, Blob Storage, and observability resources. The split should not add a network hop to normal plugin execution: Engine still consumes process-step messages directly and invokes plugins locally, while Dispatcher, ProjectionWorker, and Maintenance handle async loops around the kernel.
+Normal AppHost startup runs Engine, Dispatcher, Projection Worker and Maintenance as separate services. Engine consumes Step messages and invokes Plugin child processes locally. Dispatcher, Projection Worker and Maintenance own independent worker loops with distinct dependencies. The NFT profile changes which services run. [Deployment views](../architecture/deployment.md)
 
 ## Plugin Runtime Availability
 
@@ -240,7 +182,7 @@ Plugin-agent failures flow through a structured Engine health policy. Protocol m
 - SQL is design-time and catalog state; Cosmos is live runtime state.
 - The engine and dispatcher depend on the process-step queue configuration staying aligned across AppHost, tests, and smoke scripts.
 - ProjectionWorker depends on `processprojectionleases` and the canonical `processes`/`processsteps` change feeds.
-- The progress broadcaster depends on Cosmos binding configuration being correct at startup.
+- Progress Broadcaster consumes the Step change feed. Check the Functions binding and whether the environment additionally enables `Realtime:UseHostedChangeFeed`. [Broadcaster startup](../../Backend.Functions.ProgressBroadcaster/Program.cs)
 - Realtime is part of the normal product flow, not optional observability garnish.
 - Phased blueprint process startup and finalization must keep phase correlation state, process state, and projected process detail in agreement.
 - Collection Iterator behavior is engine-native; do not model it as a plugin bundle.

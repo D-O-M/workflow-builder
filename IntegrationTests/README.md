@@ -12,7 +12,7 @@ It uses:
 - blob upload through the real ingestion pipeline
 - real SQL, Cosmos, storage, Service Bus, SignalR, and function wiring from the main AppHost
 
-This lane is the one we expect developers and CI to run by default.
+Use this suite when changes cross service boundaries. The [GitHub integration workflow](../.github/workflows/integration-tests.yml) runs on manual dispatch. The [UI Playwright workflow](../.github/workflows/ui-playwright.yml) runs the mocked browser suite on UI pull requests.
 
 Scenarios currently covered:
 - plugin registration happy path
@@ -20,6 +20,9 @@ Scenarios currently covered:
 - blueprint authoring + versioning
 - end-to-end process happy path
 - end-to-end process failure path
+- SignalR updates for a selected Blueprint and Process
+- fan-out, joins, partial data transfer and failure on an inbound branch
+- precedence of design-time and runtime input overrides
 - in-memory queue abandon/renew/complete behavior
 
 Run it locally with:
@@ -27,6 +30,8 @@ Run it locally with:
 ```powershell
 ./IntegrationTests/scripts/run-integration-tests.ps1
 ```
+
+Use a machine with a working local AppHost environment. The runner stops stale AppHost and integration-test processes before starting a shared fixture, builds the project unless `-NoBuild` is set, and runs it using Microsoft.Testing.Platform. Run interactive UI smoke checks separately. [Developer workflows](../Docs/agent-context/developer-workflows.md)
 
 Run it in a detached process with live log files:
 

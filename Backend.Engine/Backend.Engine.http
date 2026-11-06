@@ -1,6 +1,10 @@
 @Backend.Engine_HostAddress = http://localhost:5154
 
-GET {{Backend.Engine_HostAddress}}/weatherforecast/
-Accept: application/json
+# The http launch profile uses port 5154. For an Aspire session, use the
+# backend-engine endpoint from that session's resource details.
 
-###
+### Engine readiness
+GET {{Backend.Engine_HostAddress}}/health
+
+### Engine liveness
+GET {{Backend.Engine_HostAddress}}/alive

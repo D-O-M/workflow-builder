@@ -1,59 +1,33 @@
-# WorkflowBuilder
+# WorkflowBuilder UI
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 20.1.0.
+The Angular 21 app provides Dashboard, Blueprint Builder, Phases, Start Process and Process Explorer. Use Node.js 24 and the repository's lockfile. [Frontend map](../Docs/agent-context/frontend-map.md)
 
-## Development server
+## Run against the local AppHost
 
-To start a local development server, run:
+Start the backend from the repository root with `dotnet run --project Backend.AppHost --launch-profile http`. This profile leaves the frontend to a separate terminal. For a new catalog, prepare the sample Plugin before starting AppHost. [First Process tutorial](../Docs/tutorials/first-process.md)
 
-```bash
-ng serve
+In a second PowerShell terminal at the repository root, use the API's **http** endpoint from Aspire. The normal local profile uses port 5180. Read the SignalR URL from that API's client config because Aspire can assign the hub a different port each session.
+
+```powershell
+$env:WORKFLOW_BUILDER_API_PROXY_TARGET = 'http://localhost:5180'
+$config = Invoke-RestMethod "$env:WORKFLOW_BUILDER_API_PROXY_TARGET/api/client-config"
+$env:WORKFLOW_BUILDER_SIGNALR_PROXY_TARGET = $config.signalRBaseUrl
+Set-Location UI
+npm ci
+npm start
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+Open [the local UI](http://localhost:4200). With the development realm enabled, sign in as `developer` with password `developer`. The browser obtains the API and SignalR addresses at startup. If sign-in works but the dashboard fails to load, first check the response from `/api/client-config` and the **backend-api** resource in Aspire. [Local authentication](../Docs/authentication-keycloak.md)
 
-## Code scaffolding
+## Build and test
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+Run from `UI` after `npm ci`.
 
-```bash
-ng generate component component-name
-```
+| Check | Command | Requirements |
+| --- | --- | --- |
+| Unit tests (Vitest) | `npm run test:unit` | Runs the repository unit suite |
+| Application build | `npm run build` | Compiles the production bundle |
+| Mocked Playwright suite | `npm run test:e2e:mocked` | Install browsers once with `npx playwright install chromium firefox webkit` |
+| Runtime Playwright smoke | `npm run test:e2e:runtime` | Running AppHost, API access and the seeded **Showcase Airport Disruption Early Warning** Blueprint |
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
-
-```bash
-ng generate --help
-```
-
-## Building
-
-To build the project run:
-
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Karma](https://karma-runner.github.io) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+The runtime smoke assumes direct access to the application and has no interactive sign-in step. Use a dedicated local no-auth test stack and the proxy settings above for that lane. Keep the normal development stack authenticated when testing the login flow. [Playwright configuration](playwright.config.ts) · [Runtime smoke scenario](e2e/specs/runtime-smoke.spec.ts) · [Developer workflows](../Docs/agent-context/developer-workflows.md)
