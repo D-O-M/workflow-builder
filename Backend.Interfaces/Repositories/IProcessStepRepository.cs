@@ -42,6 +42,25 @@ public interface IProcessStepRepository
         DateTimeOffset startedAt,
         CancellationToken cancellationToken);
 
+    Task<(bool Claimed, ProcessStepRecord? State)> TryClaimGenerationAsync(
+        Guid taskInstanceId,
+        Guid processId,
+        int taskDefinitionId,
+        int allowedMajor,
+        int allowedMinor,
+        int resolvedTaskVersionId,
+        string resolvedTaskVersion,
+        DateTimeOffset startedAt,
+        long generation,
+        CancellationToken cancellationToken) =>
+        generation == 0
+            ? TryClaimProcessStepAsync(taskInstanceId, processId, taskDefinitionId, allowedMajor,
+                allowedMinor, resolvedTaskVersionId, resolvedTaskVersion, startedAt, cancellationToken)
+            : throw new NotSupportedException();
+
+    IAsyncEnumerable<ProcessStepRecord> GetPluginWaitsAsync(CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
     Task<bool> TryResetProcessStepToPendingAsync(
         Guid taskInstanceId,
         Guid processId,

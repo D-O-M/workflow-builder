@@ -5,6 +5,7 @@ internal sealed class IntegrationTestSettings
     private IntegrationTestSettings() { }
 
     public string RunVersion { get; init; } = string.Empty;
+    public int EngineReplicas { get; init; } = 1;
 
     public TimeSpan AppHostStartupTimeout { get; init; } = TimeSpan.FromMinutes(6);
 
@@ -22,7 +23,8 @@ internal sealed class IntegrationTestSettings
 
         return new IntegrationTestSettings
         {
-            RunVersion = $"1.{now:yyMMdd}.{now:HHmm}.{now.Second}"
+            RunVersion = $"1.{now:yyMMdd}.{now:HHmm}.{now.Second}",
+            EngineReplicas = int.Parse(Environment.GetEnvironmentVariable("WORKFLOWBUILDER_TEST_ENGINE_REPLICAS") ?? "1")
         };
     }
 }

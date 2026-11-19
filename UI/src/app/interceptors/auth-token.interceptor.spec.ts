@@ -31,6 +31,11 @@ describe('authTokenInterceptor', () => {
     expect(captured.headers.has('Authorization')).toBe(false);
   });
 
+  it('omits the bearer token on a network-path reference', async () => {
+    const captured = await intercept('//outside.test/api', true, 'token-123');
+    expect(captured.headers.has('Authorization')).toBe(false);
+  });
+
   it('does not attach bearer tokens when authentication is disabled', async () => {
     const captured = await intercept('http://api.local/api/blueprints', false, 'token-123');
 

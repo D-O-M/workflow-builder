@@ -1,0 +1,12 @@
+{
+  "routes": [
+    { "route": "/management", "redirect": "/management/", "statusCode": 301 },
+    { "route": "/management/settings", "rewrite": "/management/index.html" },
+    { "route": "/management/plugins", "rewrite": "/management/index.html" },
+    { "route": "/management/auth/*", "rewrite": "/management/index.html" }
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/management/*", "/api/*", "/hubs/*", "/*.{js,css,json,ico,svg,woff2}"]
+  }
+}

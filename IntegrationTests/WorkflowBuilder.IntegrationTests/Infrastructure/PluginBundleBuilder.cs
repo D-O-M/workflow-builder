@@ -14,6 +14,10 @@ internal sealed class PluginBundleBuilder
 
     public async Task<PluginBundleCatalog> BuildAsync(CancellationToken cancellationToken)
     {
+        var builtBundles = Environment.GetEnvironmentVariable("WORKFLOWBUILDER_TEST_BUNDLE_DIRECTORY");
+        if (!string.IsNullOrWhiteSpace(builtBundles))
+            return ReadBundles(builtBundles);
+
         var outputDir = Path.Combine(
             Path.GetTempPath(),
             "workflow-builder-integration-bundles",
@@ -50,6 +54,11 @@ internal sealed class PluginBundleBuilder
             0,
             $"Plugin bundle build failed.{Environment.NewLine}{standardOutput}{Environment.NewLine}{standardError}");
 
+        return ReadBundles(outputDir);
+    }
+
+    private static PluginBundleCatalog ReadBundles(string outputDir)
+    {
         var bundlePathsByName = Directory
             .EnumerateFiles(outputDir, "*.zip", SearchOption.TopDirectoryOnly)
             .ToDictionary(GetPluginNameFromBundlePath, path => path, StringComparer.Ordinal);

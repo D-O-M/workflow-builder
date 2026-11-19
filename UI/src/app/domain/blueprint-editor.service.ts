@@ -334,7 +334,16 @@ export interface ProcessSearchPageViewModel {
   hasMore: boolean;
 }
 
+export interface PluginWait {
+  pluginName: string;
+  lane: string;
+  reason: string;
+  since: string;
+  resumedAt?: string | null;
+}
+
 export interface ProcessStepViewModel {
+  pluginWait?: PluginWait | null;
   conditionalRule?: ConditionalRule | null;
   conditionalFields?: ITaskPropertyDefinition[];
   selectedChannel?: string | null;
@@ -389,6 +398,7 @@ export interface ProcessStepDetailViewModel {
     reusedFromStepId?: string | null;
     failureMessage?: string | null;
   }[];
+  pluginWait?: PluginWait | null;
   conditionalRule?: ConditionalRule | null;
   conditionalFields?: ITaskPropertyDefinition[];
   selectedChannel?: string | null;

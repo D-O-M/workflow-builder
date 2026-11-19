@@ -22,7 +22,7 @@
       @if (!sidebarCollapsed() || compactViewport()) {
         <div class="app-shell__brand-copy">
           <strong>WorkflowBuilder</strong>
-          <span>Blueprint orchestration</span>
+          <span>{{ navigation.subtitle }}</span>
         </div>
       }
     </div>
@@ -76,6 +76,7 @@
         </nav>
       }
 
+      @if (navigation.productToolbar) {
       <button mat-icon-button type="button" aria-label="Search" data-testid="app-shell-search">
         <mat-icon>search</mat-icon>
       </button>
@@ -85,6 +86,7 @@
       <button mat-icon-button type="button" aria-label="Help" matTooltip="Help" data-testid="app-shell-help">
         <mat-icon>help_outline</mat-icon>
       </button>
+      }
       @if (authEnabled() && !authenticated()) {
         <button
           mat-stroked-button

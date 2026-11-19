@@ -15,9 +15,15 @@ public static class ProcessStepDispatchSchedule
         return (hash & int.MaxValue) % normalizedShardCount;
     }
 
+    public static string CreateMessageId(Guid stepId, long generation) =>
+        generation == 0 ? stepId.ToString("N") : $"{stepId:N}-{generation}";
+
     public static string CreateIntentId(
         string processStepId,
         long dueBucket,
-        int attemptCount) =>
-        $"{processStepId}:{dueBucket}:{attemptCount}";
+        int attemptCount,
+        long generation = 0) =>
+        generation == 0
+            ? $"{processStepId}:{dueBucket}:{attemptCount}"
+            : $"{processStepId}:g{generation}:{dueBucket}:{attemptCount}";
 }

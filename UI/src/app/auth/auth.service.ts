@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { APP_BASE_HREF } from '@angular/common';
 import {
   User,
   UserManager,
@@ -16,6 +17,8 @@ export interface AuthUserProfile {
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
+  private readonly basePath = (inject(APP_BASE_HREF, { optional: true }) ?? '').replace(/\/$/, '');
+  readonly homeRoute = this.basePath ? '/' : '/dashboard';
   private readonly runtimeClientConfig = inject(RuntimeClientConfigService);
   private readonly router = inject(Router);
   private readonly authenticated = signal(!this.runtimeClientConfig.authentication.enabled);
@@ -100,13 +103,13 @@ export class AuthService {
   async completeLoginCallback(): Promise<string> {
     if (!this.authenticationEnabled) {
       this.setDisabledMode();
-      return '/dashboard';
+      return this.homeRoute;
     }
 
     const user = await this.getUserManager().signinRedirectCallback();
     this.applyUser(user);
     const state = user.state as { returnUrl?: unknown } | null;
-    return typeof state?.returnUrl === 'string' ? state.returnUrl : '/dashboard';
+    return typeof state?.returnUrl === 'string' ? state.returnUrl : this.homeRoute;
   }
 
   async logout(): Promise<void> {
@@ -119,7 +122,7 @@ export class AuthService {
     const user = await manager.getUser();
     if (!user) {
       await this.clearUser();
-      await this.router.navigateByUrl('/dashboard');
+      await this.router.navigateByUrl(this.homeRoute);
       return;
     }
 
@@ -157,8 +160,8 @@ export class AuthService {
     return {
       authority: auth.authority,
       client_id: auth.clientId,
-      redirect_uri: `${origin}/auth/callback`,
-      post_logout_redirect_uri: `${origin}/auth/logout-callback`,
+      redirect_uri: `${origin}${this.basePath}/auth/callback`,
+      post_logout_redirect_uri: `${origin}${this.basePath}/auth/logout-callback`,
       response_type: 'code',
       requestTimeoutInSeconds: 10,
       scope: auth.scope || 'openid profile email',

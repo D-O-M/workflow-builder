@@ -714,6 +714,9 @@
                       @for (option of nodeVersionOptions(); track option.version.id) {
                         <mat-option [value]="option.version.id">
                           v{{ option.version.version }}
+                          @if (option.version.runtimeAvailability?.status === 'DisabledByOperator') {
+                            · Disabled by platform operator
+                          }
                         </mat-option>
                       }
                     </mat-select>

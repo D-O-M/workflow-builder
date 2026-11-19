@@ -94,7 +94,7 @@ public sealed class ProcessStepDispatchIntentRepository
         }
 
         record.Status = ProcessStepDispatchStatus.Dispatching;
-        record.MessageId = record.ProcessStepId;
+        record.MessageId = ProcessStepDispatchSchedule.CreateMessageId(Guid.Parse(record.ProcessStepId), record.Generation);
         record.AttemptCount++;
         record.UpdatedAt = now;
         record.DispatchingStartedAt = now;
@@ -123,7 +123,7 @@ public sealed class ProcessStepDispatchIntentRepository
             current =>
             {
                 current.Status = ProcessStepDispatchStatus.Dispatched;
-                current.MessageId = current.ProcessStepId;
+                current.MessageId = ProcessStepDispatchSchedule.CreateMessageId(Guid.Parse(current.ProcessStepId), current.Generation);
                 current.UpdatedAt = dispatchedAt;
                 current.DispatchedAt = dispatchedAt;
                 current.DispatchingStartedAt = null;

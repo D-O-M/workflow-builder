@@ -108,7 +108,8 @@ public enum PluginTaskVersionRuntimeStatus
     UnrunnableMissingConfiguration,
     RuntimeLoadFailed,
     Quarantined,
-    UnknownNotLoaded
+    UnknownNotLoaded,
+    DisabledByOperator
 }
 
 public sealed class PluginTaskVersionRuntimeStatusRecord
@@ -728,6 +729,7 @@ public sealed class ProcessNodeRealtimeStepContribution
 {
     [JsonPropertyName("attemptOrder")]
     public long AttemptOrder { get; init; }
+    public ProcessStepPluginWait? PluginWait { get; init; }
 
     [JsonPropertyName("selectedChannel")]
     public string? SelectedChannel { get; init; }
@@ -885,15 +887,38 @@ public class ProcessStepRecord
     [JsonPropertyName("iterationContext")]
     public ProcessStepIterationContext? IterationContext { get; set; }
 
+    [JsonPropertyName("dispatchGeneration")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long DispatchGeneration { get; set; }
+
+    [JsonPropertyName("pluginWait")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ProcessStepPluginWait? PluginWait { get; set; }
+
     [JsonIgnore]
-    public bool IsDispatchable => Status == ProcessStepStatus.Pending;
+    public bool IsDispatchable => Status == ProcessStepStatus.Pending && PluginWait?.WakeRequested != false;
 
     [JsonPropertyName("dispatch")]
     public ProcessStepDispatchState? Dispatch { get; set; }
 }
 
+public sealed record ProcessStepPluginWait(
+    string PluginName,
+    int TaskDefinitionId,
+    int Major,
+    int Minor,
+    long PolicyRevision,
+    DateTimeOffset Since,
+    DateTimeOffset CheckedAt,
+    bool WakeRequested = false,
+    string Reason = "The Plugin is disabled.",
+    DateTimeOffset? ResumedAt = null);
+
 public sealed class ProcessStepDispatchState
 {
+    [JsonPropertyName("generation")]
+    public long Generation { get; init; }
+
     [JsonPropertyName("activeIntentId")]
     public string? ActiveIntentId { get; set; }
 
@@ -947,6 +972,9 @@ public sealed class ProcessStepDispatchState
 
 public sealed class ProcessStepDispatchIntentRecord
 {
+    [JsonPropertyName("generation")]
+    public long Generation { get; init; }
+
     private string _id = null!;
 
     [JsonPropertyName("id")]

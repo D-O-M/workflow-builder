@@ -60,7 +60,7 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
     {
         EnsureDispatchAvailableForExecution();
 
-        if (step.Status is not ProcessStepStatus.Pending)
+        if (!step.IsDispatchable)
         {
             throw new InvalidOperationException(
                 $"Cannot create a dispatch intent for terminal or claimed process step {step.Id}.");
@@ -170,7 +170,7 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
     {
         EnsureDispatchAvailableForExecution();
 
-        if (step.Status is not ProcessStepStatus.Pending)
+        if (!step.IsDispatchable)
         {
             return false;
         }
@@ -206,7 +206,7 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
     {
         EnsureDispatchAvailableForExecution();
 
-        if (step.Status is not ProcessStepStatus.Pending)
+        if (!step.IsDispatchable)
         {
             return false;
         }
@@ -333,7 +333,7 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
             step = knownStep;
         }
 
-        if (step.Status is not ProcessStepStatus.Pending ||
+        if (!step.IsDispatchable ||
             !IsActiveIntent(step, claimedIntent))
         {
             await MarkIntentSkippedAsync(claimedIntent, leaseId, cancellationToken);
@@ -468,7 +468,8 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
         var partitionKey = ProcessStepDispatchIntentKeys.CreateDuePartitionKey(dueBucket, shard);
         var intent = new ProcessStepDispatchIntentRecord
         {
-            id = CreateIntentId(step.Id, dueBucket, attemptCount),
+            id = ProcessStepDispatchSchedule.CreateIntentId(step.Id, dueBucket, attemptCount, step.DispatchGeneration),
+            Generation = step.DispatchGeneration,
             PartitionKey = partitionKey,
             ProcessStepId = step.Id,
             ProcessId = step.ProcessId,
@@ -592,8 +593,9 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
     private static bool IsActiveIntent(
         ProcessStepRecord step,
         ProcessStepDispatchIntentRecord intent) =>
-        string.IsNullOrWhiteSpace(step.Dispatch?.ActiveIntentId) ||
-        string.Equals(step.Dispatch.ActiveIntentId, intent.Id, StringComparison.Ordinal);
+        step.DispatchGeneration == intent.Generation &&
+        (string.IsNullOrWhiteSpace(step.Dispatch?.ActiveIntentId) ||
+         string.Equals(step.Dispatch.ActiveIntentId, intent.Id, StringComparison.Ordinal));
 
     private static ProcessStepDispatchState ToDispatchState(
         ProcessStepDispatchIntentRecord intent,
@@ -601,11 +603,12 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
         DateTimeOffset nextAttemptAt) =>
         new()
         {
+            Generation = intent.Generation,
             ActiveIntentId = intent.Id,
             DueBucket = intent.DueBucket,
             Shard = intent.Shard,
             Status = status,
-            MessageId = intent.ProcessStepId,
+            MessageId = ProcessStepDispatchSchedule.CreateMessageId(Guid.Parse(intent.ProcessStepId), intent.Generation),
             AttemptCount = intent.AttemptCount,
             CreatedAt = intent.CreatedAt,
             UpdatedAt = intent.UpdatedAt,
@@ -668,6 +671,7 @@ public sealed class ProcessStepDispatchService : IProcessStepDispatcher
             ProcessId = Guid.Parse(step.ProcessId),
             ExecutableBlueprintId = int.Parse(step.BlueprintId, CultureInfo.InvariantCulture),
             ProcessStepId = Guid.Parse(step.Id),
+            DispatchGeneration = step.DispatchGeneration,
             BlueprintNodeId = Guid.Parse(step.BlueprintNodeId)
         };
 }

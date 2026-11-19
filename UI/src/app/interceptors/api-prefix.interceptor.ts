@@ -9,12 +9,12 @@ export const apiPrefixInterceptor: HttpInterceptorFn = (req, next) => {
   const apiBaseUrl = inject(RuntimeClientConfigService).apiBaseUrl;
 
   // Skip absolute URLs
-  if (/^(http|https):\/\//i.test(req.url)) {
+  if (/^(?:https?:)?\/\//i.test(req.url)) {
     return next(req);
   }
 
   const modifiedReq = req.clone({
-    url: `${apiBaseUrl}/${req.url}`.replace(/([^:]\/)\/+/g, '$1')
+    url: `${apiBaseUrl.replace(/\/+$/, '')}/${req.url.replace(/^\/+/, '')}`
   });
 
   return next(modifiedReq);

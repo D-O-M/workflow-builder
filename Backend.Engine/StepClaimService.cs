@@ -61,6 +61,42 @@ public sealed class StepClaimService
         return result;
     }
 
+    public async Task ParkForPluginAsync(
+        StepExecutionContext context,
+        long? policyRevision,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        // The Step ETag arbitrates parking against a concurrent claim, wake or late delivery.
+        while (true)
+        {
+            var step = await GetPersistedStepAsync(context, cancellationToken);
+            if (step.Status != ProcessStepStatus.Pending ||
+                step.DispatchGeneration != context.Message.DispatchGeneration ||
+                step.PluginWait?.WakeRequested == false)
+            {
+                return;
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            step.PluginWait = new ProcessStepPluginWait(
+                context.PluginName, context.TaskDefinitionId, context.AllowedMajor, context.AllowedMinor,
+                Math.Max(policyRevision ?? 0, step.PluginWait?.PolicyRevision ?? 0),
+                step.PluginWait is { ResumedAt: null } priorWait ? priorWait.Since : now,
+                now, Reason: reason);
+            step.UpdatedAt = now;
+            if (await _processStepRepository.TryUpdateProcessStep(step, cancellationToken))
+            {
+                if (_projectionOptions.SynchronousEngineUpdatesEnabled && _processRealtimeProjectionService is not null)
+                {
+                    await _processRealtimeProjectionService.UpsertFromStepAsync(
+                        step, context.BlueprintDefinitionId, context.ExecutableBlueprintId, cancellationToken);
+                }
+                return;
+            }
+        }
+    }
+
     public async Task ResetStepToPendingAsync(
         StepExecutionContext context,
         CancellationToken cancellationToken)
@@ -127,7 +163,7 @@ public sealed class StepClaimService
     {
         var now = DateTimeOffset.UtcNow;
 
-        var (claimed, step) = await _processStepRepository.TryClaimProcessStepAsync(
+        var (claimed, step) = await _processStepRepository.TryClaimGenerationAsync(
             context.ProcessStepId,
             context.ProcessId,
             context.TaskDefinitionId,
@@ -136,6 +172,7 @@ public sealed class StepClaimService
             context.ResolvedTaskVersionId,
             context.BlueprintNode.ResolvedVersion.ToString(),
             now,
+            context.Message.DispatchGeneration,
             cancellationToken);
 
         if (!claimed || step is null)

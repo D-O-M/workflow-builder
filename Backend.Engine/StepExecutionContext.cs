@@ -28,7 +28,9 @@ public class StepExecutionContext
         _queueMessage = queueMessage;
         _executableBlueprint = executableBlueprint;
         _blueprintNode = new Lazy<ExecutableBlueprintNode>(
-            () => _executableBlueprint.NodesById[message.BlueprintNodeId]);
+            // The resolved patch belongs to this invocation. Other Processes can share the
+            // cached Blueprint while a newer patch starts serving the same lane.
+            () => _executableBlueprint.NodesById[message.BlueprintNodeId] with { });
 
         Id = message.ProcessStepId;
     }

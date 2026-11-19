@@ -1622,7 +1622,10 @@ export class BlueprintEditorPageComponent {
     const pluginItems = [...tasks]
       .map((task) => {
         const category = this.getTaskCategory(task);
-        const description = getLatestTaskVersion(task.versions)?.description?.trim() || 'Available task';
+        const disabled = task.versions.filter(version => version.runtimeAvailability?.status === 'DisabledByOperator');
+        const description = disabled.length && disabled.length === task.versions.length
+          ? 'Disabled by platform operator'
+          : getLatestTaskVersion(task.versions)?.description?.trim() || 'Available task';
         const displayName = this.taskDefinitionDisplayName(task);
 
         return {

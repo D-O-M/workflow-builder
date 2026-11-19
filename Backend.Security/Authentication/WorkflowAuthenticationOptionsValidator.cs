@@ -7,7 +7,7 @@ public sealed class WorkflowAuthenticationOptionsValidator
 {
     public ValidateOptionsResult Validate(string? name, WorkflowAuthenticationOptions options)
     {
-        if (!options.Enabled)
+        if (!options.Enabled && !options.ManagementEnabled)
         {
             return ValidateOptionsResult.Success;
         }
@@ -15,7 +15,7 @@ public sealed class WorkflowAuthenticationOptionsValidator
         var errors = new List<string>();
         if (!options.Keycloak.Enabled)
         {
-            errors.Add("Authentication:Keycloak:Enabled must be true when Authentication:Enabled is true.");
+            errors.Add("Authentication:Keycloak:Enabled must be true when product or management authentication is enabled.");
         }
 
         if (string.IsNullOrWhiteSpace(options.Keycloak.Authority))

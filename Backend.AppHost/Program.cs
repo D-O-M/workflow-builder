@@ -56,6 +56,7 @@ internal class Program
             "Projections:SynchronousEngineUpdatesEnabled",
             !nftEnabled);
         var frontendEnabled = builder.Configuration.GetValue("Frontend:Enabled", true);
+        var managementEnabled = builder.Configuration.GetValue("EngineManagement:Enabled", authEnabled && !nftEnabled);
         var signalREnabled = builder.Configuration.GetValue("SignalR:Enabled", !nftMinimalServices || frontendEnabled);
         var dispatcherEnabled = builder.Configuration.GetValue("Dispatcher:Enabled", true);
         var recoveryEnabled = dispatcherEnabled && builder.Configuration.GetValue("ProcessRecovery:Enabled",
@@ -217,6 +218,10 @@ internal class Program
 
         api.WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
             .WithEnvironment("ProcessRecovery__Enabled", recoveryEnabled.ToString())
+            .WithEnvironment("EngineManagement__Enabled", managementEnabled.ToString())
+            .WithEnvironment("Authentication__ManagementEnabled", (managementEnabled && keycloakEnabled).ToString())
+            .WithEnvironment("EngineManagement__WritesEnabled",
+                builder.Configuration.GetValue("EngineManagement:WritesEnabled", true).ToString())
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
             .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
@@ -317,6 +322,7 @@ internal class Program
             .WaitForCompletion(migrations);
         engine.WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
             .WithEnvironment("ProcessRecovery__Enabled", recoveryEnabled.ToString())
+            .WithEnvironment("EngineManagement__Enabled", managementEnabled.ToString())
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
             .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameEnvironmentVariable, pluginsBlobContainerName)
@@ -363,6 +369,7 @@ internal class Program
                     "backend-dispatcher")
                 .WithEnvironment("ProcessRecovery__Enabled", recoveryEnabled.ToString())
                 .WithReference(sqlDb)
+                .WithEnvironment("EngineManagement__Enabled", managementEnabled.ToString())
                 .WithReference(cosmos, connectionName: cosmosConnectionName)
                 .WaitFor(cosmosDb)
                 .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)

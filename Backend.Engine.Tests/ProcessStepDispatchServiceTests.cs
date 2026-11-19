@@ -6,6 +6,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Backend.Database.State.Objects;
 using Backend.Dispatcher;
+using Backend.Database.Relational.Entities;
+using Backend.Services.EngineManagement;
+using Backend.Services.PluginRuntimeStatus;
+using Moq;
 using Backend.Interfaces.Queues;
 using Backend.Interfaces.Repositories;
 using Backend.Models;
@@ -19,6 +23,64 @@ namespace Backend.Engine.Tests;
 
 public sealed class ProcessStepDispatchServiceTests
 {
+    [Test]
+    public async Task Waiting_step_survives_a_cold_fleet_and_a_failed_wake_send()
+    {
+        var repository = new InMemoryProcessStepRepository();
+        var intents = new InMemoryProcessStepDispatchIntentRepository();
+        var writer = new ProcessStepQueueWriterSpy();
+        var dispatch = CreateService(repository, intents, writer);
+        var step = CreateStep();
+        var ct = CancellationToken.None;
+        repository.States[Guid.Parse(step.Id)] = step;
+        await dispatch.TryDispatchAsync(step, ct);
+        var original = writer.Messages.Single();
+        var now = DateTimeOffset.UtcNow;
+        step.PluginWait = new ProcessStepPluginWait("Email", 7, 1, 2, 3, now, now);
+        (await dispatch.TryDispatchAsync(step, ct)).ShouldBeFalse();
+
+        var policy = new EnginePolicySnapshot(3, new Dictionary<string, ManagedSetting>(), new HashSet<int> { 7 }, new HashSet<int>());
+        var policies = new Mock<IEnginePolicyReader>();
+        policies.Setup(reader => reader.ReadAsync(ct)).ReturnsAsync(() => policy);
+        var versions = new Mock<ITaskDefinitionRepository>();
+        versions.Setup(reader => reader.GetAll(ct)).ReturnsAsync([
+            new TaskDefinitionInfo(123, 7, "Email", "", new Version(1, 2, 3), TaskVersionState.Registered, new())
+        ]);
+        var runtime = new InMemoryPluginTaskVersionRuntimeStatusStore();
+        var recovery = new WaitingPluginStepRecovery(repository, versions.Object, runtime,
+            policies.Object, dispatch, new());
+
+        await recovery.RunAsync(ct);
+        writer.Messages.Count.ShouldBe(1);
+        policy = policy with { Revision = 4, DisabledPlugins = new HashSet<int>(), DisabledVersions = new HashSet<int> { 123 } };
+        await recovery.RunAsync(ct);
+        writer.Messages.Count.ShouldBe(1);
+
+        // Enabling the exact patch makes the persisted wait eligible even with no Engine heartbeat.
+        policy = policy with { Revision = 5, DisabledVersions = new HashSet<int>() };
+        writer.ThrowOnEnqueueAttempts = 1;
+        await recovery.RunAsync(ct);
+        step.PluginWait!.WakeRequested.ShouldBeTrue();
+        step.DispatchGeneration.ShouldBe(1L);
+        writer.Messages.Count.ShouldBe(1);
+        await Task.Delay(30);
+
+        // A replacement worker sees the reserved wake after a crash. Multiple recovery passes
+        // reuse the same generation and existing intent once the send succeeds.
+        var restarted = new WaitingPluginStepRecovery(repository, versions.Object, runtime,
+            policies.Object, dispatch, new());
+        await restarted.RunAsync(ct);
+        await restarted.RunAsync(ct);
+        writer.Messages.Count.ShouldBe(2);
+        var resumed = writer.Messages.Last();
+        resumed.ProcessId.ShouldBe(original.ProcessId);
+        resumed.ProcessStepId.ShouldBe(original.ProcessStepId);
+        ProcessStepDispatchSchedule.CreateMessageId(resumed.ProcessStepId, resumed.DispatchGeneration)
+            .ShouldNotBe(ProcessStepDispatchSchedule.CreateMessageId(original.ProcessStepId, original.DispatchGeneration));
+        resumed.DispatchGeneration.ShouldBe(1);
+        original.DispatchGeneration.ShouldBe(0);
+    }
+
     [Test]
     public async Task EnsureDispatchIntent_creates_active_intent_projection()
     {
@@ -64,7 +126,12 @@ public sealed class ProcessStepDispatchServiceTests
 
         queueWriter.ThrowOnEnqueueAttempts = 0;
         await Task.Delay(20);
-        var dispatchedCount = await service.DrainDueDispatchesAsync(10, CancellationToken.None);
+        // One bounded scan may not cover the elapsed 1 ms buckets under load.
+        var dispatchedCount = 0;
+        for (var poll = 0; dispatchedCount == 0 && poll < 256; poll++)
+        {
+            dispatchedCount = await service.DrainDueDispatchesAsync(10, CancellationToken.None);
+        }
 
         dispatchedCount.ShouldBe(1);
         queueWriter.Messages.Count.ShouldBe(1);
@@ -321,6 +388,14 @@ public sealed class ProcessStepDispatchServiceTests
 
         public int GetProcessStepByIdCalls { get; set; }
 
+        public async IAsyncEnumerable<ProcessStepRecord> GetPluginWaitsAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.CompletedTask;
+            foreach (var step in States.Values.Where(item => item.PluginWait is not null).ToArray())
+                yield return step;
+        }
+
         public Task<IReadOnlyList<ProcessStepRecord>> GetDueStepDispatchesAsync(
             DateTimeOffset now,
             int maxItemCount,
@@ -506,8 +581,11 @@ public sealed class ProcessStepDispatchServiceTests
         public Task<ProcessStepRecord> UpdateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<bool> TryUpdateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+        public Task<bool> TryUpdateProcessStep(ProcessStepRecord state, CancellationToken cancellationToken)
+        {
+            States[Guid.Parse(state.Id)] = state;
+            return Task.FromResult(true);
+        }
 
         public Task<bool> TryUpdateStepDispatchAsync(
             Guid processStepId,

@@ -1,6 +1,8 @@
 using Azure.Messaging.ServiceBus;
 using Backend.Database.Relational;
 using Backend.Interfaces.Repositories;
+using Backend.Services.EngineManagement;
+using Backend.Services.PluginRuntimeStatus;
 using Microsoft.EntityFrameworkCore;
 using Backend.Interfaces.Queues;
 using Backend.Repositories;
@@ -17,8 +19,9 @@ public static class DispatcherServiceCollectionExtensions
         IConfiguration configuration,
         IHostEnvironment environment)
     {
+        var managementEnabled = configuration.GetValue<bool>("EngineManagement:Enabled");
         var processRecoveryEnabled = configuration.GetValue<bool>("ProcessRecovery:Enabled");
-        if (processRecoveryEnabled)
+        if (managementEnabled || processRecoveryEnabled)
         {
             var sql = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(configuration, environment);
             services.AddDbContextPool<BlueprintDbContext>(options => options.UseSqlServer(sql));
@@ -27,6 +30,15 @@ public static class DispatcherServiceCollectionExtensions
         {
             services.AddRelationalDataRepositories();
             services.AddScoped<ProcessRecoveryExecutor>();
+        }
+        if (managementEnabled)
+        {
+            services.AddScoped<IEnginePolicyReader, EngineManagementStore>();
+            services.AddScoped<ITaskDefinitionRepository, TaskDefinitionRepository>();
+            services.AddSingleton(configuration.GetSection("PluginRuntimeStatus").Get<PluginRuntimeStatusOptions>()
+                ?? new PluginRuntimeStatusOptions());
+            services.AddScoped<WaitingPluginStepRecovery>();
+            services.AddHostedService<WaitingPluginStepWorker>();
         }
 
         var cosmosConnectionString = LocalDevelopmentResourceSettings.GetCosmosConnectionString(

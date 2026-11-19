@@ -1,7 +1,3 @@
-using System.Security.Claims;
-using System.Text.Encodings.Web;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using System.Net;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
@@ -46,17 +42,6 @@ public sealed partial class AuthenticationEndpointTests
         finally
         {
             EnvironmentLock.Release();
-        }
-    }
-
-    private sealed class TestRoleHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger,
-        UrlEncoder encoder) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
-    {
-        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
-        {
-            if (!Request.Headers.TryGetValue("Test-Role", out var role)) return Task.FromResult(AuthenticateResult.NoResult());
-            var identity = new ClaimsIdentity([new Claim("sub", "operator-test"), new Claim(ClaimTypes.Role, role.ToString())], Scheme.Name);
-            return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name)));
         }
     }
 }

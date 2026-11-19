@@ -44,6 +44,7 @@ public class PluginRuntimeAgent
 
     private string _name = string.Empty;
     public string Name => _name;
+    public PluginLaunchConfiguration? LaunchSettings { get; private set; }
 
     public PluginRuntimeAgent(
         IConfiguration configuration,
@@ -76,10 +77,12 @@ public class PluginRuntimeAgent
     public async Task InitialiseAsync(
         FileInfo entryPoint,
         PluginAgentIdentity identity,
-        CancellationToken token)
+        CancellationToken token,
+        PluginLaunchConfiguration? launchSettings = null)
     {
         ArgumentNullException.ThrowIfNull(entryPoint);
         _identity = identity;
+        LaunchSettings = launchSettings;
         _name = identity.DisplayName;
         _stopRequested = 0;
         _policyStopRequested = 0;
@@ -95,7 +98,7 @@ public class PluginRuntimeAgent
             _resultFinalizationQueue,
             _agentTelemetry,
             _healthEventBus,
-            _logger);
+            _logger, Redact);
         _runTask = Run(entryPoint, token);
 
         try
@@ -114,9 +117,10 @@ public class PluginRuntimeAgent
         FileInfo fileInfo,
         CancellationToken cancellationToken)
     {
+        IReadOnlyList<FileInfo> configFiles = [];
         try
         {
-            _processCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _processCancellation = new CancellationTokenSource();
 
             await using var stdinStream = _commsStream.Reader.AsStream(leaveOpen: true);
             var cosmosConnectionName =
@@ -218,10 +222,17 @@ public class PluginRuntimeAgent
                     GetConnectionStringSegment(cosmosConnectionString, "AccountEndpoint") ?? "<unknown>");
             }
 
-            var configFiles = await _pluginRuntimeConfigurationService.PrepareConfigurationFilesAsync(
-                fileInfo,
-                Name,
-                cancellationToken);
+            configFiles = LaunchSettings is { } settings
+                ? await _pluginRuntimeConfigurationService.WriteFilesAsync(settings, Name, cancellationToken)
+                : await _pluginRuntimeConfigurationService.PrepareConfigurationFilesAsync(fileInfo, Name, cancellationToken);
+
+            if (LaunchSettings is { } launch)
+            {
+                foreach (var key in Environment.GetEnvironmentVariables().Keys.OfType<string>().Where(launch.IsPrivateEngineVariable))
+                {
+                    environmentVariables[key] = null;
+                }
+            }
 
             var cmd = CreateCommand(fileInfo, configFiles)
                 .WithEnvironmentVariables(environmentVariables)
@@ -245,7 +256,7 @@ public class PluginRuntimeAgent
                         await OnOutput(stdOut.Text, _processCancellation?.Token ?? cancellationToken);
                         break;
                     case StandardErrorCommandEvent stdErr:
-                        _logger.LogError("{PluginName} Error: {ErrorText}", Name, stdErr.Text);
+                        _logger.LogError("{PluginName} Error: {ErrorText}", Name, Redact(stdErr.Text));
                         break;
                     case ExitedCommandEvent exited:
                         await FlushBufferedOutputAsync(
@@ -311,7 +322,17 @@ public class PluginRuntimeAgent
             _readySignal.TrySetException(ex);
             throw;
         }
+        finally
+        {
+            if (configFiles.Count > 0)
+            {
+                try { configFiles[0].Directory!.Delete(recursive: true); }
+                catch (IOException) { _logger.LogWarning("Could not clean configuration files for {PluginName}.", Name); }
+            }
+        }
     }
+
+    private string Redact(string message) => LaunchSettings?.Redact(message) ?? message;
 
     private Command CreateCommand(FileInfo fileInfo, IReadOnlyList<FileInfo> configFiles)
     {
@@ -483,12 +504,8 @@ public class PluginRuntimeAgent
             Interlocked.Exchange(ref _policyStopRequested, 1);
         }
 
-        if (_processCancellation is not null)
-        {
-            _processCancellation.Cancel();
-            _processCancellation.Dispose();
-            _processCancellation = null;
-        }
+        var processCancellation = _processCancellation;
+        processCancellation?.Cancel();
 
         if (_process is not null)
         {
@@ -508,6 +525,20 @@ public class PluginRuntimeAgent
                 _process.Dispose();
                 _process = null;
             }
+        }
+        try
+        {
+            if (_runTask is not null) await _runTask.WaitAsync(cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested && _runTask?.IsCompleted == true)
+        {
+            // Startup failures were delivered through the ready signal. Stopping the
+            // process also cancels CliWrap's read loop; its finally owns file cleanup.
+        }
+        finally
+        {
+            processCancellation?.Dispose();
+            _processCancellation = null;
         }
     }
 

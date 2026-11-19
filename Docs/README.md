@@ -10,6 +10,7 @@
 
 | Task | Guide |
 | --- | --- |
+| Configure capability settings, rotate secrets, or disable a Plugin | [Engine management](how-to/engine-management.md) |
 | Route a Process using a typed rule | [Conditional Branch](how-to/conditional-branch.md) |
 | Pass data between phases and resume a waiting Phase Series | [Phase Series and Data Bridge](how-to/phase-series.md) |
 | Authenticate a caller, start a Process, and retrieve its Steps | [Process API](how-to/process-api.md) |

@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Backend.Interfaces.Utilities;
 using Backend.Models;
@@ -12,9 +10,11 @@ public interface IPluginRuntimeConfigurationService
         FileInfo pluginEntryPoint,
         string pluginDisplayName,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<FileInfo>> WriteFilesAsync(
+        PluginLaunchConfiguration settings, string pluginDisplayName, CancellationToken cancellationToken);
 }
 
-public sealed class PluginRuntimeConfigurationService : IPluginRuntimeConfigurationService
+public sealed class PluginRuntimeConfigurationService : IPluginRuntimeConfigurationService, IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -24,6 +24,7 @@ public sealed class PluginRuntimeConfigurationService : IPluginRuntimeConfigurat
     private readonly IConfiguration _configuration;
     private readonly IPluginManifestParsingUtility _manifestParser;
     private readonly ILogger<PluginRuntimeConfigurationService> _logger;
+    private readonly PluginConfigurationWorkspace _workspace;
 
     public PluginRuntimeConfigurationService(
         IConfiguration configuration,
@@ -33,6 +34,7 @@ public sealed class PluginRuntimeConfigurationService : IPluginRuntimeConfigurat
         _configuration = configuration;
         _manifestParser = manifestParser;
         _logger = logger;
+        _workspace = new PluginConfigurationWorkspace(GetConfigurationFileRoot());
     }
 
     public async Task<IReadOnlyList<FileInfo>> PrepareConfigurationFilesAsync(
@@ -40,35 +42,44 @@ public sealed class PluginRuntimeConfigurationService : IPluginRuntimeConfigurat
         string pluginDisplayName,
         CancellationToken cancellationToken)
     {
-        var workspaceDirectory = FindWorkspaceDirectory(pluginEntryPoint);
-        var manifest = await _manifestParser.ReadAsync(workspaceDirectory.FullName, cancellationToken);
+        var manifest = await PluginLaunchConfiguration.ReadManifestAsync(pluginEntryPoint, _manifestParser, cancellationToken);
+        var settings = await PluginLaunchConfiguration.ResolveAsync(manifest, _configuration, null, null, cancellationToken);
+        return await WriteFilesAsync(settings, pluginDisplayName, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<FileInfo>> WriteFilesAsync(
+        PluginLaunchConfiguration settings, string pluginDisplayName, CancellationToken cancellationToken)
+    {
+        var manifest = settings.Manifest;
         if (manifest is null || manifest.Configuration.Requirements.Count == 0)
         {
             return [];
         }
 
-        var resolvedByDomain = ResolveValues(pluginDisplayName, manifest.Configuration.Requirements);
+        var resolvedByDomain = ResolveValues(settings.Values, pluginDisplayName, manifest.Configuration.Requirements);
         if (resolvedByDomain.Count == 0)
         {
             return [];
         }
 
-        var root = GetConfigurationFileRoot();
-        Directory.CreateDirectory(root);
-
+        var directory = _workspace.CreateLaunchDirectory();
         var files = new List<FileInfo>();
-        foreach (var domain in resolvedByDomain.OrderBy(entry => entry.Key, StringComparer.Ordinal))
+        try
         {
-            var json = JsonSerializer.Serialize(domain.Value.Tree, JsonOptions);
-            var hash = ComputeHash(json);
-            var filePath = Path.Combine(root, $"{SanitizeFileName(domain.Key)}-{hash}.json");
-            if (!File.Exists(filePath))
+            foreach (var domain in resolvedByDomain.OrderBy(entry => entry.Key, StringComparer.Ordinal))
             {
-                await File.WriteAllTextAsync(filePath, json, Encoding.UTF8, cancellationToken);
-                ProtectFile(filePath);
+                var file = new FileInfo(Path.Combine(directory.FullName, $"{files.Count}.json"));
+                var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+                if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                await using var stream = file.Open(options);
+                await JsonSerializer.SerializeAsync(stream, domain.Value.Tree, JsonOptions, cancellationToken);
+                files.Add(file);
             }
-
-            files.Add(new FileInfo(filePath));
+        }
+        catch
+        {
+            directory.Delete(recursive: true);
+            throw;
         }
 
         _logger.LogInformation(
@@ -78,14 +89,14 @@ public sealed class PluginRuntimeConfigurationService : IPluginRuntimeConfigurat
         return files;
     }
 
-    private Dictionary<string, ResolvedDomainConfiguration> ResolveValues(
+    private static Dictionary<string, ResolvedDomainConfiguration> ResolveValues(IConfiguration configuration,
         string pluginDisplayName,
         IReadOnlyCollection<ManifestFileConfigurationRequirementInfo> requirements)
     {
         var domains = new Dictionary<string, ResolvedDomainConfiguration>(StringComparer.Ordinal);
         foreach (var requirement in requirements.OrderBy(requirement => requirement.Key, StringComparer.Ordinal))
         {
-            var section = _configuration.GetSection(requirement.Key);
+            var section = configuration.GetSection(requirement.Key);
             if (!section.Exists() || section.Value is null && !section.GetChildren().Any())
             {
                 if (requirement.Required)
@@ -149,57 +160,13 @@ public sealed class PluginRuntimeConfigurationService : IPluginRuntimeConfigurat
                 child => child.Value is not null ? (object?)child.Value : CopyChildren(child),
                 StringComparer.Ordinal);
 
-    private DirectoryInfo FindWorkspaceDirectory(FileInfo pluginEntryPoint)
-    {
-        var current = pluginEntryPoint.Directory;
-        while (current is not null)
-        {
-            if (File.Exists(Path.Combine(current.FullName, "manifest.json")))
-            {
-                return current;
-            }
-
-            current = current.Parent;
-        }
-
-        throw new FileNotFoundException(
-            $"Could not find manifest.json for plugin entry point '{pluginEntryPoint.FullName}'.");
-    }
-
     private string GetConfigurationFileRoot() =>
         Path.GetFullPath(
             _configuration["PluginRuntime:ConfigurationFileRoot"]
-            ?? Path.Combine(Path.GetTempPath(), "workflow-builder-plugin-config"));
+            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData,
+                Environment.SpecialFolderOption.DoNotVerify), "WorkflowBuilder", "PluginRuntime"));
 
-    private static string ComputeHash(string json)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(json));
-        return Convert.ToHexString(bytes)[..16].ToLowerInvariant();
-    }
-
-    private static string SanitizeFileName(string value)
-    {
-        var builder = new StringBuilder(value.Length);
-        foreach (var character in value)
-        {
-            builder.Append(char.IsAsciiLetterOrDigit(character) || character is '-' or '_'
-                ? character
-                : '-');
-        }
-
-        return builder.Length == 0 ? "plugin-config" : builder.ToString();
-    }
-
-    private static void ProtectFile(string filePath)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            File.SetAttributes(filePath, File.GetAttributes(filePath) | FileAttributes.Temporary);
-            return;
-        }
-
-        File.SetUnixFileMode(filePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-    }
+    public void Dispose() => _workspace.Dispose();
 
     private sealed record ResolvedDomainConfiguration(Dictionary<string, object?> Tree);
 }

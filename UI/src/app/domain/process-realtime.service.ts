@@ -6,7 +6,7 @@ import {
   IHttpConnectionOptions,
   LogLevel,
 } from '@microsoft/signalr';
-import type { ProcessStepIterationViewModel } from './blueprint-editor.service';
+import type { PluginWait, ProcessStepIterationViewModel } from './blueprint-editor.service';
 import { Subject } from 'rxjs';
 import { AuthService } from '../auth/auth.service';
 import { RuntimeClientConfigService } from './runtime-client-config.service';
@@ -28,6 +28,7 @@ export interface ProcessSummaryUpdatedEvent {
 }
 
 export interface ProcessStepDelta {
+  pluginWait?: PluginWait | null;
   instanceId: string;
   blueprintNodeId: string;
   selectedChannel?: string | null;

@@ -108,7 +108,13 @@ public class ProcessStepRepository
         return results;
     }
 
-    public async Task<(bool Claimed, ProcessStepRecord? State)> TryClaimProcessStepAsync(
+    public Task<(bool Claimed, ProcessStepRecord? State)> TryClaimProcessStepAsync(
+        Guid taskInstanceId, Guid processId, int taskDefinitionId, int allowedMajor, int allowedMinor,
+        int resolvedTaskVersionId, string resolvedTaskVersion, DateTimeOffset startedAt, CancellationToken cancellationToken) =>
+        TryClaimGenerationAsync(taskInstanceId, processId, taskDefinitionId, allowedMajor, allowedMinor,
+            resolvedTaskVersionId, resolvedTaskVersion, startedAt, 0, cancellationToken);
+
+    public async Task<(bool Claimed, ProcessStepRecord? State)> TryClaimGenerationAsync(
         Guid taskInstanceId,
         Guid processId,
         int taskDefinitionId,
@@ -117,6 +123,7 @@ public class ProcessStepRepository
         int resolvedTaskVersionId,
         string resolvedTaskVersion,
         DateTimeOffset startedAt,
+        long generation,
         CancellationToken cancellationToken)
     {
         var operations = new List<PatchOperation>
@@ -131,6 +138,19 @@ public class ProcessStepRepository
             PatchOperation.Set("/startedAt", startedAt)
         };
 
+        if (generation > 0)
+        {
+            var waitingStep = await GetAsync(taskInstanceId.ToString(), new PartitionKey(processId.ToString()), cancellationToken);
+            if (waitingStep is null || waitingStep.DispatchGeneration != generation || !waitingStep.IsDispatchable)
+            {
+                return (false, null);
+            }
+            if (waitingStep.PluginWait is { ResumedAt: null })
+            {
+                operations.Add(PatchOperation.Set("/pluginWait/resumedAt", startedAt));
+            }
+        }
+
         try
         {
             var response = await Container.PatchItemAsync<ProcessStepRecord>(
@@ -139,7 +159,7 @@ public class ProcessStepRepository
                 operations,
                 new PatchItemRequestOptions
                 {
-                    FilterPredicate = "FROM c WHERE c.status = 'Pending'"
+                    FilterPredicate = DispatchableGenerationFilter(generation)
                 },
                 cancellationToken);
 
@@ -181,6 +201,32 @@ public class ProcessStepRepository
         }
     }
 
+    private static string DispatchableGenerationFilter(long generation)
+    {
+        var matchesGeneration = generation == 0
+            ? "(NOT IS_DEFINED(c.dispatchGeneration) OR c.dispatchGeneration = 0)"
+            : FormattableString.Invariant($"c.dispatchGeneration = {generation}");
+        return $"FROM c WHERE c.status = 'Pending' AND {matchesGeneration} AND " +
+               "(NOT IS_DEFINED(c.pluginWait) OR IS_NULL(c.pluginWait) OR c.pluginWait.wakeRequested = true)";
+    }
+
+    public async IAsyncEnumerable<ProcessStepRecord> GetPluginWaitsAsync(
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var query = new QueryDefinition(
+            "SELECT * FROM c WHERE c.status = 'Pending' AND IS_OBJECT(c.pluginWait) " +
+            "AND (NOT IS_DEFINED(c.pluginWait.resumedAt) OR IS_NULL(c.pluginWait.resumedAt))");
+        using var pages = Container.GetItemQueryIterator<ProcessStepRecord>(query);
+        while (pages.HasMoreResults)
+        {
+            var page = await pages.ReadNextAsync(cancellationToken);
+            foreach (var step in page)
+            {
+                yield return step;
+            }
+        }
+    }
+
     public async Task<List<ProcessStepRecord>> GetProcessStepsForProcess(
         Guid processId,
         CancellationToken cancellationToken)
@@ -209,6 +255,7 @@ public class ProcessStepRepository
             SELECT TOP @maxItemCount *
             FROM c
             WHERE c.status = 'Pending'
+              AND (NOT IS_DEFINED(c.pluginWait) OR IS_NULL(c.pluginWait) OR c.pluginWait.wakeRequested = true)
               AND (
                 NOT IS_DEFINED(c.dispatch)
                 OR IS_NULL(c.dispatch)
@@ -244,6 +291,7 @@ public class ProcessStepRepository
             SELECT VALUE COUNT(1)
             FROM c
             WHERE c.status = 'Pending'
+              AND (NOT IS_DEFINED(c.pluginWait) OR IS_NULL(c.pluginWait) OR c.pluginWait.wakeRequested = true)
               AND (
                 NOT IS_DEFINED(c.dispatch)
                 OR IS_NULL(c.dispatch)
@@ -270,6 +318,7 @@ public class ProcessStepRepository
             SELECT TOP 1 *
             FROM c
             WHERE c.status = 'Pending'
+              AND (NOT IS_DEFINED(c.pluginWait) OR IS_NULL(c.pluginWait) OR c.pluginWait.wakeRequested = true)
               AND (
                 NOT IS_DEFINED(c.dispatch)
                 OR IS_NULL(c.dispatch)
@@ -293,7 +342,7 @@ public class ProcessStepRepository
         TimeSpan leaseDuration,
         CancellationToken cancellationToken)
     {
-        if (state.Status is not ProcessStepStatus.Pending)
+        if (!state.IsDispatchable)
         {
             return (false, null);
         }
@@ -306,7 +355,7 @@ public class ProcessStepRepository
         var dispatch = CreateClaimedDispatchState(state, leaseId, now, leaseDuration);
         var options = new PatchItemRequestOptions
         {
-            FilterPredicate = "FROM c WHERE c.status = 'Pending'"
+            FilterPredicate = DispatchableGenerationFilter(state.DispatchGeneration)
         };
         if (!string.IsNullOrWhiteSpace(state.ETag))
         {
@@ -462,7 +511,7 @@ public class ProcessStepRepository
                 ],
                 new PatchItemRequestOptions
                 {
-                    FilterPredicate = "FROM c WHERE c.status = 'Pending'"
+                    FilterPredicate = DispatchableGenerationFilter(dispatch.Generation)
                 },
                 cancellationToken);
 

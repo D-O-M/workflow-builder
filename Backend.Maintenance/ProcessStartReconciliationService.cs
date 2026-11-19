@@ -307,7 +307,7 @@ public sealed class ProcessStartReconciliationService
         }
 
         var dispatchIntentRepaired = false;
-        if (initialStep.Status is ProcessStepStatus.Pending)
+        if (initialStep.IsDispatchable)
         {
             var previousActiveIntentId = initialStep.Dispatch?.ActiveIntentId;
             var hadActiveIntentProjection = HasActiveIntentProjection(initialStep);

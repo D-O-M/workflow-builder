@@ -5,6 +5,7 @@ public sealed class WorkflowAuthenticationOptions
     public const string SectionName = "Authentication";
 
     public bool Enabled { get; set; }
+    public bool ManagementEnabled { get; set; }
 
     public WorkflowKeycloakOptions Keycloak { get; set; } = new();
 }

@@ -16,6 +16,9 @@ public class BlueprintDbContext : DbContext
 
     public DbSet<TaskDefinition> TaskDefinitions => Set<TaskDefinition>();
     public DbSet<TaskVersion> TaskVersions => Set<TaskVersion>();
+    public DbSet<EngineFleetPolicy> EngineFleetPolicies => Set<EngineFleetPolicy>();
+    public DbSet<EngineManagementChange> EngineManagementChanges => Set<EngineManagementChange>();
+    public DbSet<EnginePolicyObservation> EnginePolicyObservations => Set<EnginePolicyObservation>();
 
     public DbSet<BlueprintNode> BlueprintNodes => Set<BlueprintNode>();
     public DbSet<BlueprintConnection> BlueprintConnections => Set<BlueprintConnection>();
@@ -32,6 +35,29 @@ public class BlueprintDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<EngineFleetPolicy>(entity =>
+        {
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.Revision).IsConcurrencyToken();
+            entity.HasData(new EngineFleetPolicy { Id = 1, Revision = 0 });
+        });
+        modelBuilder.Entity<EngineManagementChange>(entity =>
+        {
+            entity.HasKey(e => e.Revision);
+            entity.Property(e => e.Revision).ValueGeneratedNever();
+            entity.Property(e => e.Action).HasMaxLength(64);
+            entity.Property(e => e.Target).HasMaxLength(512);
+        });
+        modelBuilder.Entity<EnginePolicyObservation>(entity =>
+        {
+            entity.HasKey(e => e.EngineId);
+            entity.Property(e => e.EngineId).HasMaxLength(128);
+            entity.Property(e => e.FailureCode).HasMaxLength(64);
+            entity.Property(e => e.LastSeenAt).HasConversion(
+                time => time.UtcDateTime,
+                time => new DateTimeOffset(DateTime.SpecifyKind(time, DateTimeKind.Utc)));
+            entity.HasIndex(e => e.LastSeenAt);
+        });
         // -----------------------------
         // BlueprintDefinitions (BD)
         // -----------------------------

@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Backend.Engine\Backend.Engine.csproj" />
     <ProjectReference Include="..\Backend.Plugins\Dcc.Common\Dcc.Common.csproj" />
     <ProjectReference Include="..\Backend.Plugins\Dcc.DccAlertReader\Dcc.DccAlertReader.csproj" />
     <ProjectReference Include="..\Backend.Plugins\Dcc.DeviceAlertReader\Dcc.DeviceAlertReader.csproj" />
@@ -17,7 +18,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="Shouldly" />
     <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\Backend.Plugins\Dcc.GatewaySubmit\manifest.json" Link="Fixtures/Gateway/manifest.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Backend.Plugins\TownFinalScore\manifest.json" Link="Fixtures/Town/manifest.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

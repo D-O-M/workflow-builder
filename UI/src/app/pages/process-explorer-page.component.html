@@ -363,6 +363,13 @@
             }
           </ul>
         }
+        @if (selectedPluginWait(); as wait) {
+          <section class="app-state-card" data-testid="process-explorer-plugin-wait">
+            <h3>{{ wait.resumedAt ? 'Resumed with' : 'Waiting for' }} {{ wait.pluginName }}</h3>
+            <p>Lane {{ wait.lane }} · {{ wait.since | date:'medium' }}@if (wait.resumedAt) { – {{ wait.resumedAt | date:'medium' }} }</p>
+            <p>{{ wait.reason }}</p>
+          </section>
+        }
         @if (selectedStepFailureMessage()) {
           <aside class="process-explorer-page__failure-banner" data-testid="process-explorer-step-failure">
             <mat-icon>error</mat-icon>

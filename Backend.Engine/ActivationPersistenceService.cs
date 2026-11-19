@@ -255,6 +255,10 @@ public sealed class ActivationPersistenceService
             StringComparer.Ordinal);
         foreach (var step in scheduledSteps)
         {
+            if (!step.IsDispatchable)
+            {
+                continue;
+            }
             var dispatchIntent = await _processStepDispatcher.EnsureDispatchIntentAsync(
                 step,
                 timestamp,
@@ -279,10 +283,10 @@ public sealed class ActivationPersistenceService
 
         foreach (var step in scheduledSteps)
         {
-            await _processStepDispatcher.TryDispatchAsync(
-                step,
-                dispatchIntentsByStepId[step.Id],
-                cancellationToken);
+            if (dispatchIntentsByStepId.TryGetValue(step.Id, out var intent))
+            {
+                await _processStepDispatcher.TryDispatchAsync(step, intent, cancellationToken);
+            }
         }
 
         var activationsByStepId = activations.ToDictionary(

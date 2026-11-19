@@ -6,7 +6,9 @@ using OpenTelemetry.Metrics;
 
 AspireEndpointEnvironment.PreferAspireHttpPortsOverInheritedUrls();
 
-var builder = Host.CreateApplicationBuilder(args);
+const string recoveryArgument = "--resume-waiting-steps";
+var runRecoveryOnce = args.Contains(recoveryArgument, StringComparer.Ordinal);
+var builder = Host.CreateApplicationBuilder(args.Where(argument => argument != recoveryArgument).ToArray());
 builder.AddServiceDefaults();
 WorkflowBuilderTopologyValidator.ValidateDispatcher(builder.Configuration);
 
@@ -23,4 +25,14 @@ builder.Services.AddDispatcherInfrastructure(
 builder.Services.AddDispatcherWorker(
     builder.Configuration);
 
-await builder.Build().RunAsync();
+using var host = builder.Build();
+if (runRecoveryOnce)
+{
+    // Scheduled Container Apps jobs exit after this pass. They never start the long-lived worker.
+    await using var scope = host.Services.CreateAsyncScope();
+    await scope.ServiceProvider.GetRequiredService<WaitingPluginStepRecovery>().RunAsync(CancellationToken.None);
+}
+else
+{
+    await host.RunAsync();
+}

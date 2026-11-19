@@ -7,6 +7,8 @@ public interface IAgentManager
     void UnregisterAgent(int agentId);
     PluginRuntimeAgent GetAgent(int agentId);
     bool TryAcquireStepSlot(int agentId);
+    void CloseAdmission(int agentId);
+    void OpenAdmission(int agentId);
     void ReleaseStepSlot(int agentId);
     int GetActiveStepCount(int agentId);
 }
@@ -16,6 +18,7 @@ public class AgentManager : IAgentManager
     private readonly Dictionary<int, PluginRuntimeAgent> _agents = new();
     private readonly Dictionary<int, int> _activeStepCounts = new();
     private readonly Lock _sync = new();
+    private readonly HashSet<int> _draining = [];
 
     public void RegisterAgent(int agentId, PluginRuntimeAgent agent)
     {
@@ -27,6 +30,7 @@ public class AgentManager : IAgentManager
             }
 
             _agents[agentId] = agent;
+            _draining.Remove(agentId);
             _activeStepCounts.TryAdd(agentId, 0);
         }
     }
@@ -57,6 +61,7 @@ public class AgentManager : IAgentManager
         lock (_sync)
         {
             _agents.Remove(agentId);
+            _draining.Remove(agentId);
             _activeStepCounts.Remove(agentId);
         }
     }
@@ -65,7 +70,7 @@ public class AgentManager : IAgentManager
     {
         lock (_sync)
         {
-            if (!_agents.ContainsKey(agentId))
+            if (!_agents.ContainsKey(agentId) || _draining.Contains(agentId))
             {
                 return false;
             }
@@ -74,6 +79,22 @@ public class AgentManager : IAgentManager
             _activeStepCounts[agentId] = activeSteps + 1;
             return true;
         }
+    }
+
+    public void CloseAdmission(int agentId)
+    {
+        lock (_sync)
+        {
+            if (_agents.ContainsKey(agentId))
+            {
+                _draining.Add(agentId);
+            }
+        }
+    }
+
+    public void OpenAdmission(int agentId)
+    {
+        lock (_sync) _draining.Remove(agentId);
     }
 
     public void ReleaseStepSlot(int agentId)

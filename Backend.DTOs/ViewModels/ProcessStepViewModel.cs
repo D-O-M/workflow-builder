@@ -21,6 +21,7 @@ public sealed class ProcessStepViewModel
     public DateTimeOffset? StartedAt { get; init; }
     public DateTimeOffset? CompletedAt { get; init; }
     public DateTimeOffset? FailedAt { get; init; }
+    public ProcessPluginWaitViewModel? PluginWait { get; init; }
     public string? FailureMessage { get; init; }
     public string? InputChannelName { get; init; }
     public List<string> OutputChannelNames { get; init; } = [];

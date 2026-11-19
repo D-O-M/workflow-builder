@@ -67,10 +67,22 @@ locals {
   ]
 
   app_config_env_by_service = {
-    api = concat(local.app_config_env_base, [
+    api = concat(local.app_config_env_base, local.management_env, [
+      {
+        name  = "Authentication__ManagementEnabled"
+        value = tostring(var.enable_engine_management)
+      },
       {
         name  = "ProcessRecovery__Enabled"
         value = tostring(var.enable_process_recovery)
+      },
+      {
+        name  = "EngineManagement__WritesEnabled"
+        value = tostring(var.enable_engine_management_writes)
+      },
+      {
+        name  = "EngineManagement__ManagedIdentityClientId"
+        value = module.identities.client_ids.api
       },
       {
         name  = "AzureAppConfiguration__ManagedIdentityClientId"
@@ -107,10 +119,14 @@ locals {
         value = local.frontend_origin
       }
     ])
-    engine = concat(local.app_config_env_base, [
+    engine = concat(local.app_config_env_base, local.management_env, [
       {
         name  = "ProcessRecovery__Enabled"
         value = tostring(var.enable_process_recovery)
+      },
+      {
+        name  = "EngineManagement__ManagedIdentityClientId"
+        value = module.identities.client_ids.engine
       },
       {
         name  = "AzureAppConfiguration__ManagedIdentityClientId"
@@ -134,6 +150,10 @@ locals {
       {
         name  = "ProcessRecovery__Enabled"
         value = tostring(var.enable_process_recovery)
+      },
+      {
+        name  = "EngineManagement__Enabled"
+        value = tostring(var.enable_engine_management)
       },
       {
         name  = "AzureAppConfiguration__ManagedIdentityClientId"
@@ -192,7 +212,7 @@ locals {
     "ClientConfig:Authentication:Audience"                     = var.authentication_enabled ? var.keycloak_api_audience : ""
     "Cors:AllowedOrigins:0"                                    = local.frontend_origin
     "Authentication:Enabled"                                   = tostring(var.authentication_enabled)
-    "Authentication:Keycloak:Enabled"                          = tostring(var.authentication_enabled && var.enable_keycloak)
+    "Authentication:Keycloak:Enabled"                          = tostring((var.authentication_enabled || var.enable_engine_management) && var.enable_keycloak)
     "Authentication:Keycloak:Authority"                        = local.keycloak_authority
     "Authentication:Keycloak:Realm"                            = var.keycloak_realm
     "Authentication:Keycloak:Audience"                         = var.keycloak_api_audience

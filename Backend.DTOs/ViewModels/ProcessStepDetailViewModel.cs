@@ -2,6 +2,8 @@ using System.Text.Json;
 
 namespace Backend.Models.ViewModels;
 
+public sealed record ProcessPluginWaitViewModel(string PluginName, string Lane, string Reason, DateTimeOffset Since, DateTimeOffset? ResumedAt);
+
 public sealed class ProcessStepDetailViewModel
 {
     public Guid? RuntimeStepId { get; init; }
@@ -19,6 +21,7 @@ public sealed class ProcessStepDetailViewModel
     public DateTimeOffset? StartedAt { get; init; }
     public DateTimeOffset? EndedAt { get; init; }
     public double? DurationMs { get; init; }
+    public ProcessPluginWaitViewModel? PluginWait { get; init; }
     public string? FailureMessage { get; init; }
     public JsonElement? Inputs { get; init; }
     public JsonElement? Outputs { get; init; }

@@ -6,6 +6,7 @@ public static class WorkflowAuthorizationPolicies
     public const string BlueprintAuthor = nameof(BlueprintAuthor);
     public const string ProcessOperator = nameof(ProcessOperator);
     public const string RuntimeEngineer = nameof(RuntimeEngineer);
+    public const string ManagementIdentity = nameof(ManagementIdentity);
     public const string Auditor = nameof(Auditor);
     public const string Admin = nameof(Admin);
     public const string InternalPublisher = nameof(InternalPublisher);

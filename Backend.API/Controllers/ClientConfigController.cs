@@ -38,21 +38,19 @@ public sealed class ClientConfigController : ControllerBase
             ?? throw new InvalidOperationException($"{WorkflowBuilderTopology.ClientConfig.SignalRBaseUrlKey} is not configured.");
         var grafanaBaseUrl = NormalizeBaseUrl(_options.GrafanaBaseUrl)
             ?? throw new InvalidOperationException($"{WorkflowBuilderTopology.ClientConfig.GrafanaBaseUrlKey} is not configured.");
-        var authentication = ResolveAuthentication(_options.Authentication, _authOptions);
+        var authentication = ResolveAuthentication(_options.Authentication.Enabled ?? _authOptions.Enabled);
 
         return Ok(new ClientRuntimeConfigViewModel(
             apiBaseUrl,
             signalRBaseUrl,
             grafanaBaseUrl,
             authentication,
-            new ClientRuntimeFeaturesViewModel(_branchOptions.Enabled, _processRecoveryEnabled)));
+            new ClientRuntimeFeaturesViewModel(_branchOptions.Enabled, _processRecoveryEnabled),
+            ResolveAuthentication(_authOptions.Enabled || _authOptions.ManagementEnabled)));
     }
 
-    private static ClientRuntimeAuthenticationViewModel ResolveAuthentication(
-        ClientRuntimeAuthenticationOptions clientOptions,
-        WorkflowAuthenticationOptions authOptions)
+    private ClientRuntimeAuthenticationViewModel ResolveAuthentication(bool enabled)
     {
-        var enabled = clientOptions.Enabled ?? authOptions.Enabled;
         if (!enabled)
         {
             return new ClientRuntimeAuthenticationViewModel(
@@ -63,6 +61,8 @@ public sealed class ClientConfigController : ControllerBase
                 Audience: string.Empty);
         }
 
+        var clientOptions = _options.Authentication;
+        var authOptions = _authOptions;
         return new ClientRuntimeAuthenticationViewModel(
             Enabled: true,
             Authority: NormalizeBaseUrl(clientOptions.Authority) ?? NormalizeBaseUrl(authOptions.Keycloak.Authority) ?? string.Empty,
@@ -89,7 +89,8 @@ public sealed class ClientConfigController : ControllerBase
         string SignalRBaseUrl,
         string GrafanaBaseUrl,
         ClientRuntimeAuthenticationViewModel Authentication,
-        ClientRuntimeFeaturesViewModel Features);
+        ClientRuntimeFeaturesViewModel Features,
+        ClientRuntimeAuthenticationViewModel ManagementAuthentication);
 
     public sealed record ClientRuntimeFeaturesViewModel(bool ConditionalBranchAuthoring, bool ProcessRecoveryEnabled);
 

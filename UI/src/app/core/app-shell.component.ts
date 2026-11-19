@@ -24,7 +24,7 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map, startWith } from 'rxjs';
-import { APP_PRIMARY_NAV_ITEMS } from '../domain/app-navigation';
+import { SHELL_NAVIGATION } from '../domain/app-navigation';
 import { AuthService } from '../auth/auth.service';
 import { NavigationDrawerService } from '../domain/navigation-drawer.service';
 
@@ -56,7 +56,8 @@ export class AppShellComponent {
   private readonly navigationDrawer = inject(NavigationDrawerService);
   protected readonly auth = inject(AuthService);
 
-  protected readonly navItems = APP_PRIMARY_NAV_ITEMS;
+  protected readonly navigation = inject(SHELL_NAVIGATION);
+  protected readonly navItems = this.navigation.items;
   protected readonly sidebarCollapsed = this.navigationDrawer.collapsed;
   protected readonly compactViewport = signal(this.isCompactViewport());
   protected readonly mobileSidebarOpen = signal(false);

@@ -152,6 +152,7 @@ public sealed class ProcessProjectionService
             StartedAt = CalculateAggregateStartedAt(taskStates),
             EndedAt = endedAt,
             DurationMs = CalculateDurationMs(CalculateAggregateStartedAt(taskStates), endedAt),
+            PluginWait = DescribeWait(taskStates?.Select(step => step.PluginWait)),
             FailureMessage = taskStates?.FirstOrDefault(step => step.Status == ProcessStepStatus.Failed)?.ErrorMessage,
             Inputs = SerializePayloads(taskState?.InputData),
             Outputs = SerializePayloads(taskState?.OutputData),
@@ -775,6 +776,17 @@ public sealed class ProcessProjectionService
             PendingTaskCount = projection.PendingStepCount,
         };
 
+    private static ProcessPluginWaitViewModel? DescribeWait(IEnumerable<ProcessStepPluginWait?>? waits)
+    {
+        var waitsByRecency = waits?.OfType<ProcessStepPluginWait>().ToArray();
+        var wait = waitsByRecency?.Where(item => item.ResumedAt is null).MinBy(item => item.Since)
+            ?? waitsByRecency?.MaxBy(item => item.ResumedAt);
+        return wait is null ? null : new ProcessPluginWaitViewModel(
+            wait.PluginName, $"{wait.Major}.{wait.Minor}",
+            wait.WakeRequested && wait.ResumedAt is null ? "Checking Plugin availability." : wait.Reason,
+            wait.Since, wait.ResumedAt);
+    }
+
     private static ProcessStepViewModel BuildNodeViewModel(
         BlueprintNode blueprintNode,
         IReadOnlyDictionary<Guid, IReadOnlyList<ProcessStepRecord>> processStepsByBlueprintNodeId)
@@ -808,6 +820,7 @@ public sealed class ProcessProjectionService
                 ? taskStates.Max(step => step.CompletedAt)
                 : null,
             FailedAt = taskStates?.Where(step => step.FailedAt.HasValue).Max(step => step.FailedAt),
+            PluginWait = DescribeWait(taskStates?.Select(step => step.PluginWait)),
             FailureMessage = taskStates?.FirstOrDefault(step => step.Status == ProcessStepStatus.Failed)?.ErrorMessage,
             Position = new CoordinatesViewModel
             {
@@ -863,6 +876,7 @@ public sealed class ProcessProjectionService
                 ? taskStates.Max(step => step.CompletedAt)
                 : null,
             FailedAt = taskStates.Where(step => step.FailedAt.HasValue).Max(step => step.FailedAt),
+            PluginWait = DescribeWait(taskStates.Select(step => step.PluginWait)),
             FailureMessage = taskStates.FirstOrDefault(step => step.Status == ProcessStepStatus.Failed)?.ErrorMessage,
             UpdatedAt = taskStates.Where(step => step.UpdatedAt.HasValue).Max(step => step.UpdatedAt),
         };
@@ -903,6 +917,7 @@ public sealed class ProcessProjectionService
             StartedAt = projection.StartedAt,
             CompletedAt = projection.CompletedAt,
             FailedAt = projection.FailedAt,
+            PluginWait = DescribeWait(projection.StepContributions.Values.Select(step => step.PluginWait)),
             FailureMessage = projection.FailureSummary?.Message,
             UpdatedAt = projection.UpdatedAt,
         };

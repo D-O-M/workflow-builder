@@ -4,6 +4,47 @@ import { ProcessExplorerPage } from '../pages/process-explorer-page';
 import { processDetail, stepDetail } from '../fixtures/workflow-fixtures';
 
 test.describe('Process Explorer', () => {
+  test.describe('Plugin wait history', () => {
+    test.use({ timezoneId: 'UTC' });
+
+    test('shows the active Plugin wait and its persisted timing after the Step resumes', async ({ page, workflowApi: _workflowApi }) => {
+      const process = processDetail();
+      const node = process.nodes[0]!;
+      const step = stepDetail(node.instanceId);
+      const wait = {
+        pluginName: 'Weather Lookup',
+        lane: '1.0',
+        reason: 'A Plugin disable rule prevents this lane from serving the Step.',
+        since: '2026-05-12T10:10:07.000Z',
+        resumedAt: null as string | null,
+      };
+      process.status = 'InProgress';
+      node.status = step.status = 'Pending';
+      node.pluginWait = step.pluginWait = wait;
+      const path = `**/api/blueprints/${process.blueprintDefinitionId}/processes/${process.processId}`;
+      await page.route(path, route => route.fulfill({ json: process }));
+      await page.route(`${path}/steps/${node.instanceId}`, route => route.fulfill({ json: step }));
+
+      const explorer = new ProcessExplorerPage(page);
+      await page.goto(`/processes?e2e=1&blueprintId=${process.blueprintDefinitionId}&processId=${process.processId}`);
+      await explorer.openFirstStep();
+      const section = page.getByTestId('process-explorer-plugin-wait');
+      await expect(section.getByRole('heading')).toHaveText('Waiting for Weather Lookup');
+      await expect(section.locator('p')).toHaveText(['Lane 1.0 · May 12, 2026, 10:10:07 AM', wait.reason]);
+
+      wait.resumedAt = '2026-05-12T10:12:19.000Z';
+      node.status = step.status = 'Completed';
+      process.status = 'Completed';
+      await page.reload();
+      await explorer.openFirstStep();
+      await expect(section.getByRole('heading')).toHaveText('Resumed with Weather Lookup');
+      await expect(section.locator('p')).toHaveText([
+        'Lane 1.0 · May 12, 2026, 10:10:07 AM – May 12, 2026, 10:12:19 AM',
+        wait.reason,
+      ]);
+    });
+  });
+
   test('shows the versioned rule and individual routing decisions when reopening a Process', async ({ page, workflowApi: _workflowApi }) => {
     const detail = processDetail();
     const branch = detail.nodes[0]!;

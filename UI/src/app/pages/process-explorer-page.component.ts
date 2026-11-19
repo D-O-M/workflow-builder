@@ -357,6 +357,7 @@ export class ProcessExplorerPageComponent {
         return {
           ...node,
           status: delta.status,
+          pluginWait: delta.pluginWait === undefined ? node.pluginWait : delta.pluginWait,
           selectedChannel: delta.selectedChannel === undefined ? node.selectedChannel : delta.selectedChannel,
           selectedChannels: delta.iterations?.length
             ? [...new Set(delta.iterations.flatMap(item => item.selectedChannel ? [item.selectedChannel] : []))]
@@ -538,6 +539,12 @@ export class ProcessExplorerPageComponent {
   protected readonly selectedStepDurationMs = computed(() =>
     this.selectedStepDetail()?.durationMs ?? null,
   );
+  protected readonly selectedPluginWait = computed(() => {
+    const live = this.realtimeNodeOverrides()?.get(this.selectedStepInstanceId() ?? '');
+    return live?.pluginWait === undefined
+      ? this.selectedStepDetail()?.pluginWait ?? this.selectedProcessStepNode()?.pluginWait
+      : live.pluginWait;
+  });
   protected readonly selectedStepFailureMessage = computed(() =>
     this.selectedStepDetail()?.failureMessage
     ?? this.selectedProcessStepNode()?.failureMessage

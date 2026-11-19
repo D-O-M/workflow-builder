@@ -31,6 +31,7 @@ public sealed class PluginRuntimeProtocolSession
     private readonly PluginRuntimeAgentTelemetry _telemetry;
     private readonly PluginAgentHealthEventBus _healthEventBus;
     private readonly ILogger _logger;
+    private readonly Func<string, string> _redact;
     private readonly object _sync = new();
     private readonly HashSet<Guid> _inFlightJobs = [];
 
@@ -39,7 +40,7 @@ public sealed class PluginRuntimeProtocolSession
         PluginResultFinalizationQueue resultFinalizationQueue,
         PluginRuntimeAgentTelemetry telemetry,
         PluginAgentHealthEventBus healthEventBus,
-        ILogger logger)
+        ILogger logger, Func<string, string>? redact = null)
     {
         _identity = identity;
         _pluginName = identity.DisplayName;
@@ -47,6 +48,7 @@ public sealed class PluginRuntimeProtocolSession
         _telemetry = telemetry;
         _healthEventBus = healthEventBus;
         _logger = logger;
+        _redact = redact ?? (message => message);
         LastHeartbeatAt = DateTimeOffset.UtcNow;
     }
 
@@ -92,14 +94,11 @@ public sealed class PluginRuntimeProtocolSession
             _telemetry.RecordProtocolError(_pluginName, ex);
             await PublishHealthEventAsync(
                 PluginAgentHealthEventType.ProtocolMalformed,
-                exception: ex,
-                message: $"Malformed plugin process protocol frame: {ex.Message}",
+                message: "Malformed Plugin process protocol frame.",
                 cancellationToken: cancellationToken);
             _logger.LogWarning(
-                ex,
-                "Malformed plugin process protocol frame from {PluginName}: {Output}",
-                _pluginName,
-                outputLine);
+                "Malformed plugin process protocol frame from {PluginName}.",
+                _pluginName);
             return PluginRuntimeProtocolLineDisposition.Malformed;
         }
 
@@ -121,10 +120,9 @@ public sealed class PluginRuntimeProtocolSession
             await PublishHealthEventAsync(
                 PluginAgentHealthEventType.ProtocolMalformed,
                 processStepIds: message.JobId is Guid jobId ? [jobId] : null,
-                exception: ex,
+                message: "Invalid Plugin process protocol frame.",
                 cancellationToken: cancellationToken);
             _logger.LogWarning(
-                ex,
                 "Invalid plugin process protocol frame from {PluginName}.",
                 _pluginName);
             return PluginRuntimeProtocolLineDisposition.Malformed;
@@ -178,6 +176,10 @@ public sealed class PluginRuntimeProtocolSession
         try
         {
             result = PluginProcessMessageSerializer.ReadResultPayload(message);
+            if (result.ErrorMessage is not null)
+            {
+                result = result with { ErrorMessage = _redact(result.ErrorMessage) };
+            }
         }
         catch (Exception ex)
         {
@@ -185,10 +187,9 @@ public sealed class PluginRuntimeProtocolSession
             await PublishHealthEventAsync(
                 PluginAgentHealthEventType.ProtocolMalformed,
                 processStepIds: message.JobId is Guid jobId ? [jobId] : null,
-                exception: ex,
+                message: "Invalid Plugin result protocol frame.",
                 cancellationToken: cancellationToken);
             _logger.LogWarning(
-                ex,
                 "Invalid plugin result protocol frame from {PluginName}.",
                 _pluginName);
             return PluginRuntimeProtocolLineDisposition.Malformed;
@@ -244,7 +245,7 @@ public sealed class PluginRuntimeProtocolSession
         var payload = PluginProcessMessageSerializer.ReadPayload<PluginProcessLogPayload>(message);
         if (!string.IsNullOrWhiteSpace(payload?.Message))
         {
-            _logger.LogInformation("{PluginName}: {PluginLogMessage}", _pluginName, payload.Message);
+            _logger.LogInformation("{PluginName}: {PluginLogMessage}", _pluginName, _redact(payload.Message));
         }
 
         return PluginRuntimeProtocolLineDisposition.Log;
@@ -257,7 +258,7 @@ public sealed class PluginRuntimeProtocolSession
             "Plugin runtime {PluginName} emitted protocol error for job {ProcessStepId}: {ErrorMessage}",
             _pluginName,
             message.JobId,
-            payload?.Message ?? "<missing error payload>");
+            _redact(payload?.Message ?? "<missing error payload>"));
         return PluginRuntimeProtocolLineDisposition.Error;
     }
 

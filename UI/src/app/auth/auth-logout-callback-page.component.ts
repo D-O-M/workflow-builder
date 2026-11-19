@@ -38,7 +38,7 @@ export class AuthLogoutCallbackPageComponent {
   private async complete(): Promise<void> {
     try {
       await this.auth.completeLogoutCallback();
-      await this.router.navigateByUrl('/dashboard');
+      await this.router.navigateByUrl(this.auth.homeRoute);
     } catch (error) {
       this.error.set(error instanceof Error ? error.message : 'Unable to complete sign-out.');
     }

@@ -2,6 +2,7 @@ using Backend.Database.State.Objects;
 using Backend.Interfaces.Repositories;
 using Backend.Models.ViewModels;
 using Backend.Services.PluginRuntimeStatus;
+using Backend.Services.EngineManagement;
 
 namespace Backend.API.Services;
 
@@ -10,18 +11,23 @@ public sealed class TaskCatalogQueryService
     private readonly ITaskDefinitionRepository _taskDefinitionRepository;
     private readonly IPluginTaskVersionRuntimeStatusStore _runtimeStatusStore;
     private readonly PluginRuntimeStatusOptions _runtimeStatusOptions;
+    private readonly EngineManagementStore? _management;
+    private readonly bool _managementEnabled;
 
     public TaskCatalogQueryService(
         ITaskDefinitionRepository taskDefinitionRepository,
         IPluginTaskVersionRuntimeStatusStore runtimeStatusStore,
-        PluginRuntimeStatusOptions runtimeStatusOptions)
+        PluginRuntimeStatusOptions runtimeStatusOptions, EngineManagementStore? management = null,
+        IConfiguration? configuration = null)
     {
         _taskDefinitionRepository = taskDefinitionRepository;
         _runtimeStatusStore = runtimeStatusStore;
         _runtimeStatusOptions = runtimeStatusOptions;
+        _management = management;
+        _managementEnabled = configuration?.GetValue<bool>("EngineManagement:Enabled") == true;
     }
 
-    public async Task<List<TaskDefinitionViewModel>> GetTaskCatalogAsync(CancellationToken cancellationToken)
+    public async Task<List<TaskDefinitionViewModel>> GetTaskCatalogAsync(CancellationToken cancellationToken, bool applyManagementPolicy = true)
     {
         var taskDefinitions = await _taskDefinitionRepository.GetAllTaskDefinitionViewModels(cancellationToken);
         var taskVersionIds = taskDefinitions
@@ -44,6 +50,8 @@ public sealed class TaskCatalogQueryService
             .GroupBy(record => record.TaskVersionId)
             .ToDictionary(group => group.Key, group => group.ToArray());
 
+        var policy = applyManagementPolicy && _managementEnabled && _management is not null
+            ? await _management.ReadAsync(cancellationToken) : null;
         return
         [
             .. taskDefinitions.Select(definition => definition with
@@ -52,7 +60,9 @@ public sealed class TaskCatalogQueryService
                 [
                     .. definition.Versions.Select(version => version with
                     {
-                        RuntimeAvailability = Aggregate(
+                        RuntimeAvailability = policy?.IsDisabled(definition.Id, version.Id) == true
+                            ? new() { Status = nameof(PluginTaskVersionRuntimeStatus.DisabledByOperator), Message = "Disabled by platform operator." }
+                            : Aggregate(
                             recordsByTaskVersionId.TryGetValue(version.Id, out var records)
                                 ? records
                                 : [])

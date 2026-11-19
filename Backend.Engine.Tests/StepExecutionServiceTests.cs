@@ -41,6 +41,42 @@ public sealed class StepExecutionServiceTests
     }
 
     [Test]
+    public async Task Disabled_lane_parks_before_settlement_and_tolerates_duplicate_delivery()
+    {
+        var catalog = new PluginRuntimeCatalog();
+        var route = CreateTaskVersion();
+        catalog.ReplaceRoutes([route], new Dictionary<PluginRuntimeLane, TaskDefinitionInfo>(),
+            [new PluginRuntimeLane(route.TaskDefinitionId, route.Version.Major, route.Version.Minor)], 7);
+        var fixture = CreateFixture();
+        ProcessStepPluginWait? durableWait = null;
+        var writes = 0;
+        fixture.StepRepository.Setup(repo => repo.GetProcessStepById(
+                fixture.Context.ProcessStepId, fixture.Context.ProcessId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new ProcessStepRecord { Status = ProcessStepStatus.Pending, PluginWait = durableWait });
+        fixture.StepRepository.Setup(repo => repo.TryUpdateProcessStep(It.IsAny<ProcessStepRecord>(), It.IsAny<CancellationToken>()))
+            .Returns<ProcessStepRecord, CancellationToken>((step, _) =>
+            {
+                if (++writes == 1) throw new InvalidOperationException("Storage write interrupted");
+                fixture.QueueMessage.CompleteCount.ShouldBe(0);
+                durableWait = step.PluginWait;
+                return Task.FromResult(true);
+            });
+        var agents = new Mock<IAgentManager>();
+        var service = CreateService(catalog, Mock.Of<IPluginRuntimeReloader>(), agents.Object, fixture);
+
+        await Should.ThrowAsync<InvalidOperationException>(() => service.StartPluginStepAsync(fixture.Context, CancellationToken.None));
+        fixture.QueueMessage.CompleteCount.ShouldBe(0);
+        await service.StartPluginStepAsync(fixture.Context, CancellationToken.None);
+        await service.StartPluginStepAsync(fixture.Context, CancellationToken.None);
+
+        durableWait!.PolicyRevision.ShouldBe(7);
+        durableWait.TaskDefinitionId.ShouldBe(route.TaskDefinitionId);
+        writes.ShouldBe(2);
+        fixture.QueueMessage.CompleteCount.ShouldBe(2);
+        agents.Verify(manager => manager.TryAcquireStepSlot(It.IsAny<int>()), Times.Never);
+    }
+
+    [Test]
     public async Task StartPluginStepAsync_uses_catalog_route_after_reload()
     {
         var catalog = new PluginRuntimeCatalog();
@@ -88,7 +124,7 @@ public sealed class StepExecutionServiceTests
             .Returns(true);
         var fixture = CreateFixture();
         fixture.StepRepository
-            .Setup(repository => repository.TryClaimProcessStepAsync(
+            .Setup(repository => repository.TryClaimGenerationAsync(
                 It.IsAny<Guid>(),
                 It.IsAny<Guid>(),
                 It.IsAny<int>(),
@@ -97,6 +133,7 @@ public sealed class StepExecutionServiceTests
                 It.IsAny<int>(),
                 It.IsAny<string>(),
                 It.IsAny<DateTimeOffset>(),
+                0,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((false, (ProcessStepRecord?)null));
         var service = CreateService(catalog, reloader.Object, agentManager.Object, fixture);
@@ -404,7 +441,9 @@ public sealed class StepExecutionServiceTests
             blueprint);
         var stepRepository = new Mock<IProcessStepRepository>();
         var processRepository = new Mock<IProcessInstanceRepository>();
-        return new Fixture(context, queueMessage, stepRepository, processRepository);
+        var fixture = new Fixture(context, queueMessage, stepRepository, processRepository);
+        SetupPersistedStep(fixture, ProcessStepStatus.Pending);
+        return fixture;
     }
 
     private static void SetupPersistedStep(

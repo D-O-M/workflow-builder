@@ -6,6 +6,7 @@ export interface RuntimeClientConfig {
   grafanaBaseUrl: string;
   features?: { conditionalBranchAuthoring?: boolean; processRecoveryEnabled?: boolean };
   authentication?: RuntimeAuthenticationConfig;
+  managementAuthentication?: RuntimeAuthenticationConfig;
 }
 
 export interface RuntimeAuthenticationConfig {
@@ -24,7 +25,7 @@ interface RuntimeBootstrapConfig {
 export class RuntimeClientConfigService {
   private config: RuntimeClientConfig | null = null;
 
-  async load(): Promise<void> {
+  async load(surface: 'product' | 'management' = 'product'): Promise<void> {
     const bootstrapResponse = await fetch('/runtime-bootstrap.json', {
       credentials: 'omit',
       cache: 'no-store',
@@ -47,7 +48,9 @@ export class RuntimeClientConfigService {
       signalRBaseUrl: this.normalizeBaseUrl(config.signalRBaseUrl),
       grafanaBaseUrl: this.normalizeBaseUrl(config.grafanaBaseUrl),
       features: config.features,
-      authentication: this.normalizeAuthentication(config.authentication),
+      authentication: this.normalizeAuthentication(
+        surface === 'management' ? config.managementAuthentication ?? config.authentication : config.authentication,
+      ),
     };
   }
 

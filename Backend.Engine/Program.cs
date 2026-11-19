@@ -12,6 +12,7 @@ using Backend.Services.PluginReloadQueue;
 using Backend.Services.PluginBundles;
 using Backend.Services.ProcessStepQueue;
 using Backend.Services.PluginRuntimeStatus;
+using Backend.Services.EngineManagement;
 using Backend.Topology;
 using Backend.Utilities;
 using Backend.Interfaces.Repositories;
@@ -84,6 +85,14 @@ builder.Services.AddSingleton(_ => new CosmosClient(
         UseSystemTextJsonSerializerWithOptions = CosmosSerialization.CreateJsonOptions()
     }));
 builder.Services.AddRelationalDataRepositories();
+if (builder.Configuration.GetValue<bool>("EngineManagement:Enabled"))
+{
+    builder.Services.AddEngineManagement();
+}
+else
+{
+    builder.Services.AddSingleton<ManagementSettingsCatalog>();
+}
 builder.Services.AddProcessState(
     databaseName: builder.Configuration[WorkflowBuilderTopology.Cosmos.DatabaseNameKey]!,
     registerProjectionServices: synchronousProjectionUpdatesEnabled);
@@ -246,6 +255,8 @@ builder.Services.AddHostedService<PluginReloadConsumer>();
 
 var app = builder.Build();
 _ = app.Services.GetRequiredService<EngineProjectionTelemetry>();
+// Reclaim private launch files from previous Engine crashes even when every Plugin is disabled.
+_ = app.Services.GetRequiredService<IPluginRuntimeConfigurationService>();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

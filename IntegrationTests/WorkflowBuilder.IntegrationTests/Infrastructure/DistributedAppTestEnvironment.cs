@@ -5,6 +5,7 @@ using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
 using Azure.Storage.Blobs;
+using Backend.Database.Relational;
 using Backend.Database.State.Objects;
 using Backend.Models.ViewModels;
 using Backend.Repositories;
@@ -12,6 +13,7 @@ using Backend.Topology;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace WorkflowBuilder.IntegrationTests.Infrastructure;
@@ -86,6 +88,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
                 "AzureCosmos:PersistData=false",
                 "IntegrationTests:Enabled=true",
                 "ProcessRecovery:Enabled=true",
+                "EngineManagement:Enabled=true",
                 $"{WorkflowBuilderTopology.Storage.ResourceNameKey}=integration-storage",
                 $"{WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ResourceNameKey}={WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ResourceName}",
                 $"{WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameKey}={PluginsBlobContainerName}",
@@ -110,6 +113,17 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
             },
             cancellationToken);
 
+        var engine = builder.Resources.OfType<ProjectResource>().Single(project => project.Name == "backend-engine");
+        builder.CreateResourceBuilder(engine).WithReplicas(settings.EngineReplicas);
+        if (settings.EngineReplicas > 1)
+        {
+            var dispatcher = builder.Resources.OfType<ProjectResource>().Single(project => project.Name == "backend-dispatcher");
+            var recoveryJob = builder.AddProject("pilot-dispatcher-job", dispatcher.GetProjectMetadata().ProjectPath)
+                .WithArgs("--resume-waiting-steps")
+                .WithExplicitStart();
+            foreach (var annotation in dispatcher.Annotations.OfType<EnvironmentCallbackAnnotation>())
+                recoveryJob.Resource.Annotations.Add(annotation);
+        }
         builder.Services.AddLogging(logging =>
         {
             logging.ClearProviders();
@@ -249,6 +263,65 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
 
         throw new InvalidOperationException(
             $"Could not resolve the repository root from '{Directory.GetCurrentDirectory()}' or '{AppContext.BaseDirectory}'.");
+    }
+
+    public async Task<BlueprintDbContext> OpenCatalogDatabaseAsync(CancellationToken cancellationToken)
+    {
+        var connectionString = await _app.GetConnectionStringAsync(WorkflowBuilderTopology.Sql.TasksDbConnectionName, cancellationToken)
+            ?? throw new InvalidOperationException("Integration catalog connection is unavailable.");
+        return new BlueprintDbContext(new DbContextOptionsBuilder<BlueprintDbContext>().UseSqlServer(connectionString).Options);
+    }
+
+    public async Task WithStoppedFleetAsync(Func<Task> whileStopped, CancellationToken cancellationToken)
+    {
+        var notifications = _app.Services.GetRequiredService<ResourceNotificationService>();
+        var commands = _app.Services.GetRequiredService<ResourceCommandService>();
+        var workers = new Dictionary<string, string>();
+        await foreach (var change in notifications.WatchAsync(cancellationToken))
+        {
+            if (change.Resource.Name is "backend-engine" or "backend-dispatcher" &&
+                change.Snapshot.State?.Text == KnownResourceStates.Running)
+                workers[change.ResourceId] = change.Resource.Name;
+            if (workers.Count == Settings.EngineReplicas + 1) break;
+        }
+
+        var stopped = new List<string>();
+        try
+        {
+            foreach (var (id, name) in workers)
+            {
+                var result = await commands.ExecuteCommandAsync(id, KnownResourceCommands.StopCommand, cancellationToken);
+                if (!result.Success) throw new InvalidOperationException($"Could not stop {id}: {result.Message}");
+                stopped.Add(id);
+                await notifications.WaitForResourceAsync(name, state => state.ResourceId == id &&
+                    (KnownResourceStates.TerminalStates.Contains(state.Snapshot.State?.Text) ||
+                     state.Snapshot.State?.Text == KnownResourceStates.NotStarted), cancellationToken);
+            }
+            IntegrationProgressLog.Write($"[pilot] Verified {Settings.EngineReplicas} Engines and the regular Dispatcher are stopped.");
+            await whileStopped();
+        }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(Settings.ResourceTimeout);
+            await Task.WhenAll(stopped.Select(async id =>
+            {
+                var result = await commands.ExecuteCommandAsync(id, KnownResourceCommands.StartCommand, cleanup.Token);
+                if (!result.Success) throw new InvalidOperationException($"Could not restart {id}: {result.Message}");
+            }));
+        }
+    }
+
+    public async Task RunDispatcherJobAsync(CancellationToken cancellationToken)
+    {
+        const string name = "pilot-dispatcher-job";
+        var result = await _app.Services.GetRequiredService<ResourceCommandService>()
+            .ExecuteCommandAsync(name, KnownResourceCommands.StartCommand, cancellationToken);
+        if (!result.Success) throw new InvalidOperationException($"Could not run the Dispatcher job: {result.Message}");
+        var notifications = _app.Services.GetRequiredService<ResourceNotificationService>();
+        var completed = await notifications.WaitForResourceAsync(name,
+            state => KnownResourceStates.TerminalStates.Contains(state.Snapshot.State?.Text), cancellationToken);
+        if (completed.Snapshot.ExitCode != 0)
+            throw new InvalidOperationException($"Dispatcher recovery job exited with code {completed.Snapshot.ExitCode}.");
     }
 
     public async Task<List<TaskDefinitionViewModel>> GetTasksAsync(CancellationToken cancellationToken)

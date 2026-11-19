@@ -45,6 +45,24 @@ variable "enable_private_endpoints" {
   description = "Reserved toggle for future private endpoint wiring. The cheap demo defaults to public PaaS endpoints with secrets/auth."
 }
 
+variable "enable_engine_management" {
+  type        = bool
+  default     = false
+  description = "Enable the authenticated management plane after all Engines and dispatchers support policy revisions."
+}
+
+variable "enable_engine_management_writes" {
+  type        = bool
+  default     = false
+  description = "Allow mutations after the fleet and wake job have been upgraded and verified."
+}
+
+variable "engine_management_recovery_cron" {
+  type        = string
+  default     = "* * * * *"
+  description = "UTC cron schedule for checking parked Plugin Steps, once per minute by default."
+}
+
 variable "enable_key_vault" {
   type        = bool
   default     = true

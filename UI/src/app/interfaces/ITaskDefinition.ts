@@ -8,6 +8,7 @@ export interface ITaskDefinition {
 }
 
 export interface ITaskVersion {
+    runtimeAvailability?: { status: string; runnable: boolean; message?: string | null };
     id: number;
     version: `${number}.${number}.${number}`;
     state: 'Registered' | 'Active' | 'Draining' | 'Superseded' | 'Failed';

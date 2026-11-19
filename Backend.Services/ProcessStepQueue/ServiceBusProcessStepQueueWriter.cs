@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Azure.Messaging.ServiceBus;
 using Backend.Interfaces.Queues;
+using Backend.Interfaces.Repositories;
 using Backend.Plugins.Communication;
 using Microsoft.Extensions.Logging;
 
@@ -27,7 +28,7 @@ public sealed class ServiceBusProcessStepQueueWriter : IProcessStepQueueWriter
             BinaryData.FromBytes(JsonSerializer.SerializeToUtf8Bytes(message)))
         {
             ContentType = "application/json",
-            MessageId = message.ProcessStepId.ToString("N")
+            MessageId = ProcessStepDispatchSchedule.CreateMessageId(message.ProcessStepId, message.DispatchGeneration)
         };
 
         _logger.LogInformation(
@@ -55,7 +56,7 @@ public sealed class ServiceBusProcessStepQueueWriter : IProcessStepQueueWriter
                 BinaryData.FromBytes(JsonSerializer.SerializeToUtf8Bytes(message)))
             {
                 ContentType = "application/json",
-                MessageId = message.ProcessStepId.ToString("N")
+                MessageId = ProcessStepDispatchSchedule.CreateMessageId(message.ProcessStepId, message.DispatchGeneration)
             };
 
             if (!batch.TryAddMessage(queueMessage))

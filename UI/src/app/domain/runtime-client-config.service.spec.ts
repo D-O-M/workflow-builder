@@ -91,6 +91,19 @@ describe('RuntimeClientConfigService', () => {
     });
   });
 
+  it('uses the management identity provider when product sign-in is disabled', async () => {
+    const service = new RuntimeClientConfigService();
+    mockConfigRequests('', {
+      apiBaseUrl: '', signalRBaseUrl: '', grafanaBaseUrl: '',
+      authentication: { enabled: false },
+      managementAuthentication: {
+        enabled: true, authority: 'https://identity.test', clientId: 'management', scope: 'openid',
+      },
+    });
+    await service.load('management');
+    expect(service.authentication.enabled).toBe(true);
+    expect(service.authentication.clientId).toBe('management');
+  });
 });
 
 function mockConfigRequests(apiBaseUrl: string, clientConfig: object) {

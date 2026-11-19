@@ -1,0 +1,89 @@
+<main class="app-page management" data-testid="engine-management">
+  <div class="management-content">
+    @if (signedInDeployment) {
+      <section class="fleet-panel" aria-label="Fleet application status">
+        <div class="fleet-heading">
+          <div class="fleet-icon"><mat-icon>dns</mat-icon></div>
+          <div><h2>Engine fleet</h2>
+            @if (fleet(); as state) {
+              <span class="muted">Revision {{ state.revision }} · {{ state.engines.length }} reporting {{ state.engines.length === 1 ? 'Engine' : 'Engines' }}</span>
+            }
+          </div>
+          @if (fleet(); as state) { <span class="state" [class.applied]="state.status === 'Applied'">{{ state.status }}</span> }
+          <button mat-icon-button aria-label="Refresh management data" [disabled]="busy()" (click)="refresh()"><mat-icon>refresh</mat-icon></button>
+        </div>
+        @if (fleet()?.engines?.length) {
+          <details>
+            <summary>Engine status</summary>
+            @for (engine of fleet()!.engines; track engine.engineId) {
+              <div class="engine-row"><code>{{ engine.engineId }}</code>
+                <span>{{ engine.appliedRevision === null ? 'Awaiting application' : 'Applied revision ' + engine.appliedRevision }}</span>
+                <time>{{ engine.lastSeenAt | date:'shortTime' }}</time>
+                @if (engine.failureCode) { <strong>{{ engine.failureCode }}</strong> }
+              </div>
+            }
+          </details>
+        }
+        @if (fleetError() && !error()) { <p role="status">{{ fleetError() }}</p> }
+        @if (fleet()?.writesEnabled === false) { <p role="status">Management is read-only during rollout.</p> }
+      </section>
+    }
+
+    @if (error()) { <p class="notice error" role="alert">{{ error() }}</p> }
+    @if (lastSave() !== null) { <p class="notice saved" role="status">Saved revision {{ lastSave() }}.</p> }
+    @if (loading() || busy()) { <mat-progress-bar mode="indeterminate" aria-label="Updating management data" /> }
+
+    @if (settingsPage) {
+      @for (group of groups(); track group.name) {
+        <section class="catalog-group">
+          <header><mat-icon>tune</mat-icon><h2>{{ group.name }}</h2></header>
+          @for (field of group.fields; track field.key) {
+            <article class="catalog-row">
+              <div class="row-copy"><h3><code>{{ field.key }}</code></h3>
+                @if (field.description) { <p>{{ field.description }}</p> }
+                <div class="metadata">
+                  @if (field.secret) { <span><mat-icon>lock</mat-icon> Write-only secret</span> }
+                  <span>{{ field.kind }}</span><span>{{ field.required ? 'Required' : 'Optional' }}</span>
+                  <span>{{ field.overridden ? 'Managed override' : 'Deployment configuration' }}</span>
+                </div>
+                @if (field.overridden && !field.secret) { <code class="value">{{ field.value }}</code> }
+              </div>
+              <div class="actions">
+                @if (field.overridden) {
+                  <button mat-button [disabled]="readOnly()" (click)="change({action:'remove', setting:field})">Remove override</button>
+                }
+                <button mat-stroked-button [disabled]="readOnly()" (click)="change({action:'edit', setting:field})">{{ field.secret ? (field.overridden ? 'Replace secret' : 'Set secret') : 'Edit' }}</button>
+              </div>
+            </article>
+          }
+        </section>
+      } @empty {
+        @if (!loading() && !error()) { <p>No configurable capabilities are declared for this deployment.</p> }
+      }
+    } @else {
+      @for (plugin of plugins(); track plugin.id) {
+        <section class="catalog-group">
+          <header><mat-icon>extension</mat-icon><div class="row-copy"><h2>{{ plugin.displayName || plugin.name }}</h2>
+            @if (plugin.displayName && plugin.name !== plugin.displayName) { <code class="muted">{{ plugin.name }}</code> }
+          </div>
+            <button mat-stroked-button [disabled]="readOnly()" (click)="change({ action:'toggle', plugin, version:null, enable:!plugin.enabled })">{{ plugin.enabled ? 'Disable Plugin' : 'Enable Plugin' }}</button>
+          </header>
+          @for (version of plugin.versions; track version.id) {
+            <article class="catalog-row">
+              <div class="row-copy"><h3><code>{{ version.version }}</code></h3>
+                <div class="metadata"><span>Lane {{ version.lane }}</span>
+                  <span>{{ version.effectiveEnabled ? version.status : 'Disabled by operator' }}</span>
+                  @if (version.serving) { <strong>Serving</strong> }
+                </div>
+              </div>
+              <button mat-button [disabled]="readOnly() || !plugin.enabled"
+                (click)="change({action:'toggle', plugin, version, enable:!version.enabled})">{{ version.enabled ? 'Disable version' : 'Enable version' }}</button>
+            </article>
+          }
+        </section>
+      } @empty {
+        @if (!loading() && !error()) { <p>No Plugins are registered.</p> }
+      }
+    }
+  </div>
+</main>

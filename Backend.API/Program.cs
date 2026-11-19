@@ -8,6 +8,7 @@ using Backend.Interfaces.Repositories;
 using Backend.Repositories;
 using Backend.Services.ProcessStepQueue;
 using Backend.Services.PluginRuntimeStatus;
+using Backend.Services.EngineManagement;
 using Backend.Security.Authentication;
 using Backend.Security.Authorization;
 using Backend.Security.Cors;
@@ -96,6 +97,7 @@ public class Program
         builder.Services.AddScoped<TaskCatalogQueryService>();
         builder.Services.AddSingleton<IPhasedProcessSearchReader, PhasedProcessSearchReader>();
         builder.Services.AddScoped<PhasedProcessSearchService>();
+        builder.Services.AddEngineManagement();
         builder.Services.AddScoped<BlueprintPortabilityService>();
         builder.Services.AddScoped<ProcessQueryService>();
         builder.Services.AddScoped<ProcessRecoveryService>();

@@ -3,6 +3,38 @@
   "version": 1,
   "newProjectRoot": "projects",
   "projects": {
+    "engine-management": {
+      "projectType": "application",
+      "root": "projects/engine-management",
+      "sourceRoot": "projects/engine-management/src",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "browser": "projects/engine-management/src/main.ts",
+            "index": "projects/engine-management/src/index.html",
+            "baseHref": "/management/",
+            "tsConfig": "projects/engine-management/tsconfig.app.json",
+            "styles": ["projects/engine-management/src/styles.scss"],
+            "outputPath": { "base": "dist/workflow-builder/browser/management", "browser": "" },
+            "outputHashing": "all"
+          },
+          "configurations": {
+            "production": {},
+            "development": { "optimization": false, "sourceMap": true, "outputHashing": "none" }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": {
+            "buildTarget": "engine-management:build:development",
+            "servePath": "/management",
+            "port": 4201
+          }
+        }
+      }
+    },
     "workflow-builder": {
       "projectType": "application",
       "schematics": {

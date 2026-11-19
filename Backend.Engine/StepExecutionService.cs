@@ -70,14 +70,38 @@ public sealed class StepExecutionService : IStepExecutionService, IPluginAgentHe
         StepExecutionContext context,
         CancellationToken cancellationToken)
     {
-        if (!await TryResolvePluginRuntimeAsync(context, cancellationToken))
+        if (!await TryResolvePluginRuntimeAsync(context, cancellationToken) ||
+            !_agentManager.TryAcquireStepSlot(context.ResolvedTaskVersionId))
         {
-            return StepStartResult.Deferred;
-        }
+            string? waitReason = null;
+            if (_pluginRuntimeCatalog.TryGetDisabledLane(
+                context.TaskDefinitionId, context.AllowedMajor, context.AllowedMinor, out var policyRevision))
+            {
+                waitReason = "A Plugin disable rule prevents this lane from serving the Step.";
+            }
+            else if (_pluginRuntimeCatalog.TryGetDrainingLane(
+                context.TaskDefinitionId, context.AllowedMajor, context.AllowedMinor, out policyRevision))
+            {
+                waitReason = "The Engine is applying a configuration change to this Plugin.";
+            }
 
-        if (!_agentManager.TryAcquireStepSlot(context.ResolvedTaskVersionId))
-        {
-            return StepStartResult.Deferred;
+            if (waitReason is null && context.Message.DispatchGeneration == 0)
+            {
+                var step = await _stepClaimService.GetPersistedStepAsync(context, cancellationToken);
+                if (step.DispatchGeneration == 0 && step.IsDispatchable)
+                {
+                    return StepStartResult.Deferred;
+                }
+                await context.CompleteMessageAsync(cancellationToken);
+                return StepStartResult.AlreadySettled;
+            }
+
+            // A previously parked Step whose patch is still unavailable must go back to its
+            // durable wait. Retrying the broker delivery alone would exhaust delivery attempts.
+            await _stepClaimService.ParkForPluginAsync(context, waitReason is null ? null : policyRevision,
+                waitReason ?? "Waiting for a compatible Plugin patch to become runnable.", cancellationToken);
+            await context.CompleteMessageAsync(cancellationToken);
+            return StepStartResult.AlreadySettled;
         }
 
         StepClaimResult claim;
@@ -395,6 +419,12 @@ public sealed class StepExecutionService : IStepExecutionService, IPluginAgentHe
         {
             context.ApplyPluginRuntime(resolution);
             return true;
+        }
+
+        if (_pluginRuntimeCatalog.TryGetDisabledLane(context.TaskDefinitionId, context.AllowedMajor, context.AllowedMinor, out _) ||
+            _pluginRuntimeCatalog.TryGetDrainingLane(context.TaskDefinitionId, context.AllowedMajor, context.AllowedMinor, out _))
+        {
+            return false;
         }
 
         await _pluginRuntimeReloader.ReloadAsync(cancellationToken);

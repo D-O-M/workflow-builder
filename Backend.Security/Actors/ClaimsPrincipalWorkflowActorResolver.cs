@@ -26,7 +26,7 @@ public sealed class ClaimsPrincipalWorkflowActorResolver : IWorkflowActorResolve
 
     public WorkflowActor Resolve(ClaimsPrincipal? principal)
     {
-        if (!_options.Value.Enabled)
+        if (!_options.Value.Enabled && principal?.Identity?.AuthenticationType != WorkflowAuthenticationSchemes.ManagementBearer)
         {
             return DevelopmentActor();
         }

@@ -22,7 +22,7 @@ public sealed class StepClaimServiceTests
     {
         var fixture = CreateFixture(ProcessStatus.Pending, ProcessStepStatus.Pending);
         fixture.StepRepository
-            .Setup(repository => repository.TryClaimProcessStepAsync(
+            .Setup(repository => repository.TryClaimGenerationAsync(
                 fixture.Context.ProcessStepId,
                 fixture.Context.ProcessId,
                 fixture.Context.TaskDefinitionId,
@@ -31,6 +31,7 @@ public sealed class StepClaimServiceTests
                 fixture.Context.ResolvedTaskVersionId,
                 fixture.Context.BlueprintNode.ResolvedVersion.ToString(),
                 It.IsAny<DateTimeOffset>(),
+                0,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, fixture.Step));
         var service = CreateService(fixture);
@@ -73,7 +74,7 @@ public sealed class StepClaimServiceTests
     {
         var fixture = CreateFixture(ProcessStatus.Pending, ProcessStepStatus.Pending);
         fixture.StepRepository
-            .Setup(repository => repository.TryClaimProcessStepAsync(
+            .Setup(repository => repository.TryClaimGenerationAsync(
                 fixture.Context.ProcessStepId,
                 fixture.Context.ProcessId,
                 fixture.Context.TaskDefinitionId,
@@ -82,6 +83,7 @@ public sealed class StepClaimServiceTests
                 fixture.Context.ResolvedTaskVersionId,
                 fixture.Context.BlueprintNode.ResolvedVersion.ToString(),
                 It.IsAny<DateTimeOffset>(),
+                0,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, fixture.Step));
         var service = CreateService(fixture, new EngineProjectionOptions
@@ -121,7 +123,7 @@ public sealed class StepClaimServiceTests
     {
         var fixture = CreateFixture(ProcessStatus.InProgress, ProcessStepStatus.Completed);
         fixture.StepRepository
-            .Setup(repository => repository.TryClaimProcessStepAsync(
+            .Setup(repository => repository.TryClaimGenerationAsync(
                 It.IsAny<Guid>(),
                 It.IsAny<Guid>(),
                 It.IsAny<int>(),
@@ -130,6 +132,7 @@ public sealed class StepClaimServiceTests
                 It.IsAny<int>(),
                 It.IsAny<string>(),
                 It.IsAny<DateTimeOffset>(),
+                0,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((false, (ProcessStepRecord?)null));
         var service = CreateService(fixture);

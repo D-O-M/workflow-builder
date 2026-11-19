@@ -40,18 +40,37 @@ public static class WorkflowSecurityServiceCollectionExtensions
                     ConfigureJwtBearer(options, authOptions, environment);
                     configureJwtBearer?.Invoke(options);
                 });
-            services.AddTransient<IClaimsTransformation, KeycloakRoleClaimsTransformation>();
         }
         else
         {
-            services
+            var authentication = services
                 .AddAuthentication(WorkflowAuthenticationSchemes.Development)
                 .AddScheme<AuthenticationSchemeOptions, DevelopmentWorkflowAuthenticationHandler>(
                     WorkflowAuthenticationSchemes.Development,
                     _ => { });
+            if (authOptions.ManagementEnabled)
+            {
+                authentication.AddJwtBearer(WorkflowAuthenticationSchemes.ManagementBearer, options =>
+                {
+                    ConfigureJwtBearer(options, authOptions, environment);
+                    options.TokenValidationParameters.AuthenticationType = WorkflowAuthenticationSchemes.ManagementBearer;
+                });
+            }
         }
 
-        services.AddAuthorization(AddWorkflowAuthorizationPolicies);
+        if (authOptions.Enabled || authOptions.ManagementEnabled)
+            services.AddTransient<IClaimsTransformation, KeycloakRoleClaimsTransformation>();
+
+        services.AddAuthorization(options =>
+        {
+            AddWorkflowAuthorizationPolicies(options);
+            options.AddPolicy(WorkflowAuthorizationPolicies.ManagementIdentity, policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                if (!authOptions.Enabled && authOptions.ManagementEnabled)
+                    policy.AddAuthenticationSchemes(WorkflowAuthenticationSchemes.ManagementBearer);
+            });
+        });
         return services;
     }
 

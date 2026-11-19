@@ -1,3 +1,5 @@
+import { InjectionToken } from '@angular/core';
+
 export interface AppNavItem {
   id: string;
   label: string;
@@ -13,3 +15,12 @@ export const APP_PRIMARY_NAV_ITEMS: AppNavItem[] = [
   { id: 'start-process', label: 'Start Process', route: '/processes/new', icon: 'play_circle', exact: true },
   { id: 'processes', label: 'Processes', route: '/processes', icon: 'receipt_long', exact: true },
 ];
+
+export const SHELL_NAVIGATION = new InjectionToken('WorkflowBuilder shell navigation', {
+  providedIn: 'root',
+  factory: () => ({
+    items: APP_PRIMARY_NAV_ITEMS,
+    subtitle: 'Blueprint orchestration',
+    productToolbar: true,
+  }),
+});

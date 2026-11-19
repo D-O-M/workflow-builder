@@ -567,6 +567,12 @@ jobs:
           deploy_app "$SIGNALR_APP" "backend-signalr"
           deploy_app "$ENGINE_APP" "backend-engine"
           deploy_app "$DISPATCHER_APP" "backend-dispatcher"
+          # The optional scheduled recovery job uses the same Dispatcher release.
+          jobs="$(az containerapp job list --resource-group "$RESOURCE_GROUP" --query "[?tags.workflowbuilder_role=='engine-management-recovery' && tags.workflowbuilder_dispatcher=='$DISPATCHER_APP'].name" -o tsv)"
+          for job in $jobs; do
+            az containerapp job update --name "$job" --resource-group "$RESOURCE_GROUP" \
+              --image "$(image_ref backend-dispatcher)" --output none
+          done
 
           if [ "$DEPLOY_PROJECTION" = "true" ]; then
             deploy_app "$PROJECTION_APP" "backend-projection-worker"

@@ -12,6 +12,8 @@ public interface IPluginRuntimeCapabilityService
         CancellationToken cancellationToken);
 
     EngineCapabilityInventory GetInventory();
+    Task<CapabilityValidationReport> ValidateAsync(
+        PluginLaunchConfiguration settings, string pluginDisplayName, CancellationToken cancellationToken);
 }
 
 public sealed class PluginRuntimeCapabilityService : IPluginRuntimeCapabilityService
@@ -19,15 +21,20 @@ public sealed class PluginRuntimeCapabilityService : IPluginRuntimeCapabilitySer
     private readonly IPluginManifestParsingUtility _manifestParser;
     private readonly ICapabilityValidationService _capabilityValidationService;
     private readonly ILogger<PluginRuntimeCapabilityService> _logger;
+    private readonly ICommandCapabilityProbe _commandProbe;
+    private readonly IEndpointCapabilityProbe _endpointProbe;
 
     public PluginRuntimeCapabilityService(
         IPluginManifestParsingUtility manifestParser,
         ICapabilityValidationService capabilityValidationService,
-        ILogger<PluginRuntimeCapabilityService> logger)
+        ILogger<PluginRuntimeCapabilityService> logger,
+        ICommandCapabilityProbe commandProbe, IEndpointCapabilityProbe endpointProbe)
     {
         _manifestParser = manifestParser;
         _capabilityValidationService = capabilityValidationService;
         _logger = logger;
+        _commandProbe = commandProbe;
+        _endpointProbe = endpointProbe;
     }
 
     public EngineCapabilityInventory GetInventory() =>
@@ -38,17 +45,37 @@ public sealed class PluginRuntimeCapabilityService : IPluginRuntimeCapabilitySer
         string pluginDisplayName,
         CancellationToken cancellationToken)
     {
-        var workspaceDirectory = FindWorkspaceDirectory(pluginEntryPoint);
-        var manifest = await _manifestParser.ReadAsync(workspaceDirectory.FullName, cancellationToken);
+        var manifest = await PluginLaunchConfiguration.ReadManifestAsync(pluginEntryPoint, _manifestParser, cancellationToken);
+        return await ValidateManifestAsync(manifest, _capabilityValidationService, pluginDisplayName, null, cancellationToken);
+    }
+
+    public Task<CapabilityValidationReport> ValidateAsync(
+        PluginLaunchConfiguration settings, string pluginDisplayName, CancellationToken cancellationToken) =>
+        ValidateManifestAsync(settings.Manifest, new CapabilityValidationService(settings.Values, _commandProbe, _endpointProbe),
+            pluginDisplayName, settings, cancellationToken);
+
+    private async Task<CapabilityValidationReport> ValidateManifestAsync(
+        ManifestFile? manifest, ICapabilityValidationService validator, string pluginDisplayName,
+        PluginLaunchConfiguration? settings, CancellationToken cancellationToken)
+    {
         if (manifest is null || manifest.Capabilities.Requirements.Count == 0)
         {
             return new CapabilityValidationReport();
         }
 
-        var report = await _capabilityValidationService.ValidateAsync(
-            manifest.Capabilities.Requirements.Select(MapCapability).ToArray(),
-            manifest.Configuration.Requirements.Select(MapConfiguration).ToArray(),
+        var report = await validator.ValidateAsync(
+            settings?.CapabilityChecks ?? manifest.Capabilities.Requirements.Select(MapCapability).ToArray(),
+            settings?.ConfigurationChecks ?? manifest.Configuration.Requirements.Select(MapConfiguration).ToArray(),
             cancellationToken);
+
+        if (settings is not null)
+        {
+            report = report with { Results = report.Results.Select(result => result with
+            {
+                Message = result.Message is null ? null : settings.Redact(result.Message),
+                Remediation = result.Remediation is null ? null : settings.Redact(result.Remediation)
+            }).ToArray() };
+        }
 
         foreach (var failure in report.Results.Where(result => result.Status != CapabilityValidationStatus.Satisfied))
         {
@@ -64,24 +91,7 @@ public sealed class PluginRuntimeCapabilityService : IPluginRuntimeCapabilitySer
         return report;
     }
 
-    private DirectoryInfo FindWorkspaceDirectory(FileInfo pluginEntryPoint)
-    {
-        var current = pluginEntryPoint.Directory;
-        while (current is not null)
-        {
-            if (File.Exists(Path.Combine(current.FullName, "manifest.json")))
-            {
-                return current;
-            }
-
-            current = current.Parent;
-        }
-
-        throw new FileNotFoundException(
-            $"Could not find manifest.json for plugin entry point '{pluginEntryPoint.FullName}'.");
-    }
-
-    private static CapabilityRequirementDescriptor MapCapability(
+    internal static CapabilityRequirementDescriptor MapCapability(
         ManifestFileCapabilityRequirementInfo requirement) =>
         new()
         {

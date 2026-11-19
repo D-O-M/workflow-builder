@@ -24,6 +24,7 @@ Scenarios currently covered:
 - fan-out, joins, partial data transfer and failure on an inbound branch
 - precedence of design-time and runtime input overrides
 - in-memory queue abandon/renew/complete behavior
+- fleet policy application, durable Plugin waits, and resumption of the original Step
 
 Run it locally with:
 
@@ -44,6 +45,15 @@ Use `-NoBuild` when you already have a fresh build and want a quicker rerun:
 ```powershell
 ./IntegrationTests/scripts/run-integration-tests.ps1 -NoBuild
 ```
+
+To exercise the management pilot with two Engine replicas, run the following from the repository root. The pilot records a charge in a temporary receipt directory and completes an unrelated Process while the next Step is parked. It stops both Engines and the regular Dispatcher, runs the one-shot Dispatcher to enqueue the parked Step, then restarts the fleet and verifies that the resumed Process completes with exactly one charge. The integration fixture uses disposable storage and writes the fleet policy through the catalog because user authentication is disabled in this fixture.
+
+```powershell
+$env:WORKFLOWBUILDER_TEST_ENGINE_REPLICAS = '2'
+dotnet test --project IntegrationTests/WorkflowBuilder.IntegrationTests/WorkflowBuilder.IntegrationTests.csproj --treenode-filter '/*/*/EngineManagementPilotTests/*'
+```
+
+For a repeat run against the same Plugin sources, set `WORKFLOWBUILDER_TEST_BUNDLE_DIRECTORY` to the output of `IntegrationTests/scripts/build-integration-plugin-bundles.ps1`. Each test deployment still receives a fresh catalog and storage.
 
 ## Legacy smoke lane
 

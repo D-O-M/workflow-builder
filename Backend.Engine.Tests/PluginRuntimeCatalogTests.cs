@@ -11,6 +11,26 @@ namespace Backend.Engine.Tests;
 public sealed class PluginRuntimeCatalogTests
 {
     [Test]
+    public void Closing_admission_drains_admitted_work_before_replacement()
+    {
+        var manager = new AgentManager();
+        // This test exercises registration and admission without starting a child process.
+        var agent = (PluginRuntimeAgent)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(PluginRuntimeAgent));
+        manager.RegisterAgent(42, agent);
+        manager.TryAcquireStepSlot(42).ShouldBeTrue();
+        manager.CloseAdmission(42);
+        manager.TryAcquireStepSlot(42).ShouldBeFalse();
+        manager.GetActiveStepCount(42).ShouldBe(1);
+        manager.GetAgent(42).ShouldBeSameAs(agent);
+        manager.ReleaseStepSlot(42);
+        manager.GetActiveStepCount(42).ShouldBe(0);
+        manager.UnregisterAgent(42);
+        manager.TryAcquireStepSlot(42).ShouldBeFalse();
+        manager.RegisterAgent(42, agent);
+        manager.TryAcquireStepSlot(42).ShouldBeTrue();
+    }
+
+    [Test]
     public void TryResolvePluginRuntime_returns_configured_route_for_lane()
     {
         var catalog = new PluginRuntimeCatalog();

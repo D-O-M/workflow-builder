@@ -267,6 +267,7 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
             ProcessStepId = step.Id,
             Status = step.Status,
             SelectedChannel = step.OutputData?.Count == 1 && step.OutputData.Keys.First() is "True" or "False" ? step.OutputData.Keys.First() : null,
+            PluginWait = step.PluginWait,
             IterationContext = step.IterationContext,
             ResolvedTaskVersionId = step.ResolvedTaskVersionId,
             ResolvedTaskVersion = step.ResolvedTaskVersion,

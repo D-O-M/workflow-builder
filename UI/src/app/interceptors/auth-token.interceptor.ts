@@ -39,6 +39,7 @@ function isClientConfigRequest(url: string): boolean {
 }
 
 function isWorkflowApiRequest(url: string, apiBaseUrl: string): boolean {
+  if (url.startsWith('//')) return false;
   if (!/^(http|https):\/\//i.test(url)) {
     return true;
   }

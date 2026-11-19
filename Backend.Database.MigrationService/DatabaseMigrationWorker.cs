@@ -265,6 +265,8 @@ internal sealed class DatabaseMigrationWorker(
             SELECT *
             FROM c
             WHERE c.status = 'Pending'
+              AND (NOT IS_DEFINED(c.pluginWait) OR IS_NULL(c.pluginWait))
+              AND (NOT IS_DEFINED(c.dispatchGeneration) OR c.dispatchGeneration = 0)
               AND (
                 NOT IS_DEFINED(c.dispatch)
                 OR IS_NULL(c.dispatch)

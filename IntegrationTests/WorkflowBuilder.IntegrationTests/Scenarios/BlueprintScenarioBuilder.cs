@@ -123,6 +123,38 @@ internal static class BlueprintScenarioBuilder
             middleDesignTimeOverrides: null,
             cancellationToken);
 
+    public static async Task<(BlueprintScenario ChargeThenTransform, int IndependentDefinitionId, int IndependentVersionId)>
+        CreateManagementPilotBlueprintsAsync(DistributedAppTestEnvironment environment, CancellationToken cancellationToken)
+    {
+        var tasks = await environment.GetTasksAsync(cancellationToken);
+        var version = environment.Settings.RunVersion;
+        var charge = Guid.NewGuid();
+        var transform = Guid.NewGuid();
+        var result = Guid.NewGuid();
+        var chain = await CreateBlueprintAsync(environment, new BlueprintInputModel
+        {
+            Name = $"Charge and transform {charge:N}",
+            StartingBlueprintNodeId = charge,
+            Tasks =
+            [
+                CreateTask(charge, GetTaskVersion(tasks, PluginBundleCatalog.RecoveryProbePlugin, version), 100, 100,
+                    outgoingConnections: [CreateConnection(transform, "Success", ("Receipt", "NormalizedName"))]),
+                CreateTask(transform, GetTaskVersion(tasks, PluginBundleCatalog.TransformPlugin, version), 400, 100,
+                    CreateOverrides(("Score", 4)), [CreateConnection(result, "Success")]),
+                CreateTask(result, GetTaskVersion(tasks, PluginBundleCatalog.ResultPlugin, version), 700, 100)
+            ]
+        }, cancellationToken);
+        var seed = Guid.NewGuid();
+        var independent = await CreateBlueprintAsync(environment, new BlueprintInputModel
+        {
+            Name = $"Independent seed {seed:N}",
+            StartingBlueprintNodeId = seed,
+            Tasks = [CreateTask(seed, GetTaskVersion(tasks, PluginBundleCatalog.SeedPlugin, version), 100, 100)]
+        }, cancellationToken);
+        return (new(chain.BlueprintDefinitionId, chain.BlueprintVersionId, charge, transform, result),
+            independent.BlueprintDefinitionId, independent.BlueprintVersionId);
+    }
+
     public static Task<BlueprintScenario> CreateFailurePathAsync(
         DistributedAppTestEnvironment environment,
         CancellationToken cancellationToken) =>

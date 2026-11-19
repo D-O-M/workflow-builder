@@ -12,6 +12,7 @@ public sealed class ProcessStepDelta
     public DateTimeOffset? StartedAt { get; init; }
     public DateTimeOffset? CompletedAt { get; init; }
     public DateTimeOffset? FailedAt { get; init; }
+    public ViewModels.ProcessPluginWaitViewModel? PluginWait { get; init; }
     public string? FailureMessage { get; init; }
     public DateTimeOffset? UpdatedAt { get; init; }
 }
