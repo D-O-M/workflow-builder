@@ -49,6 +49,20 @@ export const routes: Routes = [
     },
   },
   {
+    path: 'processes/phase-series/:definitionId/:parentId',
+    loadComponent: () => import('./pages/phase-series-overview-page.component')
+      .then(module => module.PhaseSeriesOverviewPageComponent),
+    canActivate: [authGuard],
+    data: { shellTitle: 'Process Explorer', navId: 'processes' },
+  },
+  {
+    path: 'processes/phase-series',
+    loadComponent: () => import('./pages/phase-series-list-page.component')
+      .then(module => module.PhaseSeriesListPageComponent),
+    canActivate: [authGuard],
+    data: { shellTitle: 'Process Explorer', navId: 'processes' },
+  },
+  {
     path: 'processes',
     component: ProcessExplorerPageComponent,
     canActivate: [authGuard],

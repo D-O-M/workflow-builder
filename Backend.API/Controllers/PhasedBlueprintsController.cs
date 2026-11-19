@@ -164,4 +164,32 @@ public sealed class PhasedBlueprintsController : ControllerBase
             return NotFound();
         }
     }
+
+    [HttpGet("{id:int}/processes/{processId:guid}/overview")]
+    public async Task<ActionResult<PhasedProcessOverviewViewModel>> GetProcessOverview(
+        int id, Guid processId, [FromServices] PhasedProcessOverviewService overview)
+    {
+        try
+        {
+            return Ok(await overview.GetOverviewAsync(id, processId, HttpContext.RequestAborted));
+        }
+        catch (EntityNotFoundException)
+        {
+            return NotFound();
+        }
+    }
+
+    [HttpGet("{id:int}/processes/{processId:guid}/handoffs/{sourcePhaseId:guid}")]
+    public async Task<ActionResult<PhasedProcessHandoffViewModel>> GetProcessHandoff(
+        int id, Guid processId, Guid sourcePhaseId, [FromServices] PhasedProcessOverviewService overview)
+    {
+        try
+        {
+            return Ok(await overview.GetHandoffAsync(id, processId, sourcePhaseId, HttpContext.RequestAborted));
+        }
+        catch (EntityNotFoundException)
+        {
+            return NotFound();
+        }
+    }
 }

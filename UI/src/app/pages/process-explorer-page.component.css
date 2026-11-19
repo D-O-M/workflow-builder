@@ -411,6 +411,11 @@
   color: var(--app-status-info);
 }
 
+.process-explorer-page__parent-link {
+  color: var(--app-status-info);
+  text-underline-offset: .14em;
+}
+
 .process-explorer-page__rail-divider {
   width: 1.7rem;
   height: 1px;

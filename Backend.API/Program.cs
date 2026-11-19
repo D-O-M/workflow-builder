@@ -92,7 +92,10 @@ public class Program
             provider.GetRequiredService<ProcessStepDispatchService>());
         builder.Services.AddScoped<BlueprintProcessService>();
         builder.Services.AddScoped<PhasedBlueprintProcessService>();
+        builder.Services.AddScoped<PhasedProcessOverviewService>();
         builder.Services.AddScoped<TaskCatalogQueryService>();
+        builder.Services.AddSingleton<IPhasedProcessSearchReader, PhasedProcessSearchReader>();
+        builder.Services.AddScoped<PhasedProcessSearchService>();
         builder.Services.AddScoped<BlueprintPortabilityService>();
         builder.Services.AddScoped<ProcessQueryService>();
         builder.Services.AddScoped<ProcessRecoveryService>();

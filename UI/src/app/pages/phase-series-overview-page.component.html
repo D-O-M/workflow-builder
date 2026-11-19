@@ -1,0 +1,105 @@
+<section class="app-page" aria-label="Phase Series overview" data-testid="phase-series-overview">
+  <div class="series-workspace">
+    <a class="back-link" routerLink="/processes/phase-series" queryParamsHandling="preserve">
+      <mat-icon aria-hidden="true">arrow_back</mat-icon>Phase Series search
+    </a>
+    @if (overview(); as series) {
+      <header class="workspace-header">
+        <div><p class="series-version">Phase Series · Version {{ series.phasedBlueprintVersionNumber }}</p>
+          <h1>{{ series.phasedBlueprintName }}</h1>
+        </div>
+        <span class="status" [attr.data-status]="series.status">{{ labels[series.status] }}</span>
+      </header>
+
+      <dl class="metadata">
+        <div class="parent-id">
+          <dt>Parent Process ID</dt>
+          <dd><code>{{ series.phasedProcessId }}</code>
+            <button class="copy-button" type="button" aria-label="Copy parent Process ID" title="Copy parent Process ID" (click)="copyId(series.phasedProcessId)">
+              <mat-icon aria-hidden="true">content_copy</mat-icon>
+            </button>
+            <span role="status" class="sr-only">{{ copied() }}</span>
+          </dd>
+        </div>
+        <div><dt>Started</dt><dd>{{ series.createdAt | date:'d MMM y, HH:mm:ss' }}</dd></div>
+        <div><dt>Last updated</dt><dd>{{ (series.updatedAt ?? series.createdAt) | date:'d MMM y, HH:mm:ss' }}</dd></div>
+      </dl>
+    }
+
+    @if (error()) {
+      <div class="feedback" role="alert">{{ error() }}
+        @if (!invalidLink()) { <button class="text-action" type="button" [disabled]="busy()" (click)="refresh()">Retry</button> }
+      </div>
+    } @else if (!overview()) {
+      <p class="feedback" role="status">Loading Phase Series overview…</p>
+    }
+
+    @if (overview(); as series) {
+      <section class="phase-section" aria-labelledby="phases-heading">
+        <header class="phase-heading">
+          <div><h2 id="phases-heading">Phase progress</h2>
+            <p>{{ completedCount() }} of {{ phases().length }} completed
+              @if (current(); as phase) {
+                @if (series.status === 'WaitingForTrigger') { <span> · Waiting for a trigger for {{ phase.phaseName }}</span> }
+                @else if (series.status === 'Failed') { <span> · Failed at {{ phase.phaseName }}</span> }
+                @else if (series.status === 'InProgress') { <span> · {{ phase.phaseName }} in progress</span> }
+              }
+            </p>
+          </div>
+          <button type="button" class="action" [disabled]="busy()" (click)="refresh()">
+            <mat-icon aria-hidden="true">refresh</mat-icon>Refresh
+          </button>
+        </header>
+        <ol class="phase-list">
+          @for (phase of phases(); track phase.phaseId) {
+            <li class="phase" data-testid="phase-series-phase">
+              <span class="ordinal" aria-hidden="true" [attr.data-status]="phaseStatus(phase)">{{ phase.phaseIndex + 1 }}</span>
+              <div class="phase-body">
+                <div class="phase-title"><h3>{{ phase.phaseName }}</h3>
+                  <span class="status" [attr.data-status]="phaseStatus(phase)">{{ labels[phaseStatus(phase)] }}</span>
+                </div>
+                <p class="blueprint">{{ phase.blueprintName }}
+                  @if (phase.blueprintVersionNumber !== null && phase.blueprintVersionNumber !== undefined) { · Version {{ phase.blueprintVersionNumber }} }
+                  @else if (phase.blueprintVersionId) { · Blueprint version ID {{ phase.blueprintVersionId }} }
+                  @else if (phase.versionPolicy === 'Latest') { · Latest at phase start }
+                </p>
+                @if (phase.startedAt || phase.completedAt) {
+                  <p class="timing">
+                    @if (phase.startedAt) { <span>Started {{ phase.startedAt | date:'d MMM y, HH:mm:ss' }}</span> }
+                    @if (phase.completedAt) { <span>Finished {{ phase.completedAt | date:'d MMM y, HH:mm:ss' }}</span> }
+                  </p>
+                }
+                @if (phase.failureMessage) { <p class="failure">{{ phase.failureMessage }}</p> }
+                @if (phase.childProcessId) {
+                  <a class="child-link" routerLink="/processes"
+                     queryParamsHandling="merge"
+                     [queryParams]="{blueprintId: phase.blueprintDefinitionId, processId: phase.childProcessId, parentDefinitionId: series.phasedBlueprintDefinitionId, parentId: series.phasedProcessId}"
+                     [attr.aria-label]="'Open child Process for phase ' + (phase.phaseIndex + 1) + ', ' + phase.phaseName"
+                     data-testid="phase-series-open-child">
+                    Open child Process <mat-icon aria-hidden="true">arrow_forward</mat-icon>
+                  </a>
+                }
+                @if (outgoing().get(phase.phaseId)) {
+                  <div class="bridge">
+                    <button type="button" class="bridge-toggle" data-testid="phase-series-handoff"
+                            [attr.aria-expanded]="expandedPhase() === phase.phaseId"
+                            [attr.aria-controls]="'handoff-' + phase.phaseId" (click)="toggleHandoff(phase.phaseId)">
+                      <mat-icon aria-hidden="true">{{ expandedPhase() === phase.phaseId ? 'expand_more' : 'chevron_right' }}</mat-icon>
+                      Data Bridge values
+                    </button>
+                    <div [id]="'handoff-' + phase.phaseId">
+                      @if (expandedPhase() === phase.phaseId) {
+                        <app-phase-series-handoff [definitionId]="series.phasedBlueprintDefinitionId" [parentId]="series.phasedProcessId"
+                          [sourceId]="phase.phaseId" [sourceStatus]="phase.status"/>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            </li>
+          }
+        </ol>
+      </section>
+    }
+  </div>
+</section>

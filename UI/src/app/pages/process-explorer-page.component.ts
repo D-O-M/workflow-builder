@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import { DatePipe, NgClass } from '@angular/common';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -40,8 +40,6 @@ import {
   BlueprintProcessActivityViewModel,
   BlueprintProcessHistoryEntryViewModel,
   BlueprintViewModel,
-  PhasedProcessDetailViewModel,
-  PhasedProcessPhaseViewModel,
   ProcessDetailViewModel,
   ProcessSearchRequest,
   ProcessStepDetailViewModel,
@@ -83,6 +81,7 @@ import { ProcessSearchDialogComponent } from '../components/process-search-dialo
 import type { RecoveryDialogData } from '../components/process-recovery-dialog.component';
 import { summarizeConditionalRule } from '../domain/conditional-rule';
 import { buildProcessCanvasNodes } from '../domain/process-canvas-model';
+import { PhaseSeriesExplorerService, PhaseSeriesOverview, PhaseSeriesPhase } from '../domain/phase-series-explorer.service';
 
 interface ProcessRouteSelection {
   blueprintId: number | null;
@@ -112,6 +111,7 @@ interface ProcessStepStatusCounts {
 @Component({
   selector: 'app-process-explorer-page',
   imports: [
+    RouterLink,
     ReactiveFormsModule,
     MatButtonModule,
     MatChipsModule,
@@ -135,6 +135,7 @@ interface ProcessStepStatusCounts {
 })
 export class ProcessExplorerPageComponent {
   private readonly blueprintService = inject(BlueprintEditorService);
+  private readonly phaseSeriesService = inject(PhaseSeriesExplorerService);
   private readonly dialog = inject(MatDialog);
   private readonly processRealtime = inject(ProcessRealtimeService);
   private readonly observabilityService = inject(ObservabilityService);
@@ -142,6 +143,15 @@ export class ProcessExplorerPageComponent {
   private readonly taskDefinitionsService = inject(TaskDefinitionsService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
+  protected readonly parentNavigation = toSignal(this.route.queryParamMap.pipe(map(params => {
+    const definitionId = Number(params.get('parentDefinitionId'));
+    const parentId = params.get('parentId');
+    return {
+      requestedLink: Number.isSafeInteger(definitionId) && definitionId > 0 && parentId
+        ? ['/processes/phase-series', definitionId, parentId] : null,
+      search: { q: params.get('q'), status: params.get('status') },
+    };
+  })));
   private readonly canvasViewport = viewChild(BlueprintCanvasComponent);
   private readonly refreshVersion = signal(0);
   private readonly preferredProcessId = signal<string | null>(null);
@@ -383,13 +393,13 @@ export class ProcessExplorerPageComponent {
         ),
       ),
       ({ phasedBlueprintDefinitionId, phasedProcessId }) =>
-        this.blueprintService.getPhasedProcess(phasedBlueprintDefinitionId, phasedProcessId),
-      'Unable to load the phased process.',
+        this.phaseSeriesService.overview(phasedBlueprintDefinitionId, phasedProcessId),
+      'Unable to load the Phase Series overview.',
     ),
-    { initialValue: idleRequestState<PhasedProcessDetailViewModel>() },
+    { initialValue: idleRequestState<PhaseSeriesOverview>() },
   );
   protected readonly phasedProcessLoading = computed(() => this.selectedPhasedProcessState().status === 'loading');
-  protected readonly selectedPhasedProcess = computed<PhasedProcessDetailViewModel | null>(() => {
+  protected readonly selectedPhasedProcess = computed<PhaseSeriesOverview | null>(() => {
     const state = this.selectedPhasedProcessState();
     return isReadyRequestState(state) ? state.data : null;
   });
@@ -1423,12 +1433,12 @@ export class ProcessExplorerPageComponent {
 
   protected trackPhasedProcessPhase(
     _: number,
-    phase: PhasedProcessPhaseViewModel,
+    phase: PhaseSeriesPhase,
   ): string {
     return phase.phaseId;
   }
 
-  protected selectPhaseProcess(phase: PhasedProcessPhaseViewModel): void {
+  protected selectPhaseProcess(phase: PhaseSeriesPhase): void {
     if (!phase.childProcessId) {
       return;
     }

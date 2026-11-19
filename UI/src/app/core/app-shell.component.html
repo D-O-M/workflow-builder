@@ -37,8 +37,6 @@
           [attr.data-testid]="'app-shell-nav-' + item.id"
           [class.is-active]="activeNavId() === item.id"
           [routerLink]="[item.route]"
-          routerLinkActive="is-active"
-          [routerLinkActiveOptions]="{ exact: item.exact ?? false }"
           [attr.aria-current]="activeNavId() === item.id ? 'page' : null"
           (click)="closeNavigationDrawer()"
         >
@@ -50,7 +48,7 @@
   </mat-sidenav>
 
   <mat-sidenav-content class="app-shell__content">
-    <mat-toolbar class="app-shell__toolbar" data-testid="app-shell-toolbar">
+    <mat-toolbar class="app-shell__toolbar" [class.has-explorer-views]="activeNavId() === 'processes'" data-testid="app-shell-toolbar">
       <button
         mat-icon-button
         type="button"
@@ -68,6 +66,15 @@
       </div>
 
       <span class="app-shell__toolbar-spacer"></span>
+
+      @if (activeNavId() === 'processes') {
+        <nav class="app-shell__explorer-views" aria-label="Process Explorer views">
+          <a routerLink="/processes" routerLinkActive="is-current" ariaCurrentWhenActive="page"
+             [routerLinkActiveOptions]="{ paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' }">Processes</a>
+          <a routerLink="/processes/phase-series" routerLinkActive="is-current" ariaCurrentWhenActive="location"
+             data-testid="process-explorer-phase-series-link">Phase Series</a>
+        </nav>
+      }
 
       <button mat-icon-button type="button" aria-label="Search" data-testid="app-shell-search">
         <mat-icon>search</mat-icon>

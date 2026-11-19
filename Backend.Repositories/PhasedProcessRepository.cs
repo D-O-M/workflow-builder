@@ -43,6 +43,28 @@ public sealed class PhasedProcessRepository
         return record;
     }
 
+    public async Task<PhasedProcessOverviewState> GetOverviewAsync(
+        Guid phasedProcessId, int phasedBlueprintDefinitionId, CancellationToken cancellationToken)
+    {
+        var query = new QueryDefinition("""
+            SELECT c.phasedBlueprintVersionId, c.status, c.createdAt, c.updatedAt, c.currentPhaseId,
+                   ARRAY(SELECT p.phaseId, p.phaseIndex, p.phaseName, p.blueprintDefinitionId, p.blueprintVersionId,
+                                p.childProcessId, p.status, p.startedAt, p.completedAt, p.failureMessage
+                         FROM p IN c.phases) AS phases
+            FROM c WHERE c.id = @id
+            """).WithParameter("@id", phasedProcessId.ToString());
+        var options = new QueryRequestOptions { PartitionKey = new PartitionKey(phasedBlueprintDefinitionId.ToString()) };
+        using var feed = Container.GetItemQueryIterator<PhasedProcessOverviewState>(query, requestOptions: options);
+        while (feed.HasMoreResults)
+        {
+            var page = await feed.ReadNextAsync(cancellationToken);
+            if (page.Count > 0)
+                return page.First();
+        }
+
+        throw new EntityNotFoundException<PhasedProcessRecord>(phasedProcessId.ToString());
+    }
+
     public async Task<PhasedProcessRecord> UpdateAsync(
         PhasedProcessRecord record,
         CancellationToken cancellationToken) =>

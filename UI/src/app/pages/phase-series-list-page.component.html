@@ -1,0 +1,73 @@
+<section class="app-page" aria-labelledby="series-heading" data-testid="phase-series-list">
+  <div class="series-workspace">
+    <header class="workspace-header">
+      <div>
+        <h1 id="series-heading">Phase Series</h1>
+      </div>
+    </header>
+
+    <form class="search-panel" [formGroup]="form" (ngSubmit)="submit()" aria-label="Search Phase Series">
+      <label class="search-field" for="series-query">Series name or parent Process ID
+        <span class="input-with-icon">
+          <mat-icon aria-hidden="true">search</mat-icon>
+          <input type="search" id="series-query" formControlName="q" maxlength="200" placeholder="Series name or exact parent ID" data-testid="phase-series-search">
+        </span>
+      </label>
+      <label for="series-status">Status
+        <select id="series-status" formControlName="status" data-testid="phase-series-status">
+          <option value="">All statuses</option>
+          @for (status of statusOptions; track status[0]) {
+            <option [value]="status[0]">{{ status[1] }}</option>
+          }
+        </select>
+      </label>
+      <button class="action primary" type="submit" data-testid="phase-series-apply">Search</button>
+      @if (filters().q || filters().status || formError()) {
+        <button class="text-action" type="button" (click)="clear()">Clear filters</button>
+      }
+      @if (formError()) {
+        <p class="feedback" role="alert">{{ formError() }}</p>
+      }
+    </form>
+
+    <section class="results" aria-labelledby="results-heading" [attr.aria-busy]="busy()">
+      <div class="results-heading">
+        <h2 id="results-heading">Started series</h2>
+        @if (rows().length) { <span>{{ rows().length }} shown</span> }
+      </div>
+      @if (rows().length) {
+        <ul class="result-list">
+          @for (row of rows(); track row.phasedProcessId) {
+            <li>
+              <a class="result-row" [routerLink]="['/processes/phase-series', row.phasedBlueprintDefinitionId, row.phasedProcessId]"
+                 queryParamsHandling="preserve" data-testid="phase-series-result">
+                <div class="result-name">
+                  <strong>{{ row.phasedBlueprintName }}</strong>
+                  <span>Version {{ row.phasedBlueprintVersionNumber }}
+                    <span aria-hidden="true"> · </span><span class="identifier" [title]="row.phasedProcessId">{{ row.phasedProcessId }}</span>
+                  </span>
+                </div>
+                <div class="progress-cell">
+                  <span>{{ row.completedPhaseCount }} of {{ row.phaseCount }} phases completed</span>
+                  @if (row.currentPhaseName) { <small>{{ row.currentPhaseName }}</small> }
+                </div>
+                <time [attr.datetime]="row.createdAt" [title]="'Started ' + (row.createdAt | date:'medium')">{{ row.createdAt | date:'d MMM y, HH:mm' }}</time>
+                <span class="status" [attr.data-status]="row.status">{{ labels[row.status] }}</span>
+                <mat-icon class="chevron" aria-hidden="true">chevron_right</mat-icon>
+              </a>
+            </li>
+          }
+        </ul>
+      } @else if (!cursor() && !busy() && !error() && !formError()) {
+        <p class="empty">No started Phase Series match this search.</p>
+      }
+      @if (error()) {
+        <div class="feedback" role="alert">{{ error() }} <button class="text-action" type="button" (click)="load()">Retry</button></div>
+      } @else if (busy()) {
+        <p class="feedback" role="status">Loading series…</p>
+      } @else if (cursor()) {
+        <button class="action load-more" type="button" (click)="load()" data-testid="phase-series-next">Load more series</button>
+      }
+    </section>
+  </div>
+</section>

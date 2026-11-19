@@ -13,6 +13,7 @@ import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { Subject, of } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProcessExplorerPageComponent } from './process-explorer-page.component';
+import { PhaseSeriesExplorerService } from '../domain/phase-series-explorer.service';
 import {
   BlueprintEditorService,
   BlueprintProcessActivityViewModel,
@@ -237,6 +238,7 @@ describe('ProcessExplorerPageComponent', () => {
 
     const providers: Provider[] = [
       { provide: BlueprintEditorService, useValue: editorService },
+      { provide: PhaseSeriesExplorerService, useValue: { overview: vi.fn() } },
       {
         provide: TaskDefinitionsService,
         useValue: {

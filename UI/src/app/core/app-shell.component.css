@@ -115,6 +115,30 @@
   flex: 1 1 auto;
 }
 
+.app-shell__explorer-views {
+  display: flex;
+  gap: .2rem;
+  padding: .2rem;
+  border: 1px solid var(--app-outline);
+  border-radius: var(--app-radius-medium);
+}
+
+.app-shell__explorer-views a {
+  padding: .35rem .75rem;
+  border-radius: var(--app-radius-small);
+  color: var(--app-text-secondary);
+  font-size: .875rem;
+  font-weight: 600;
+  line-height: 1.45;
+  text-decoration: none;
+}
+
+.app-shell__explorer-views a:hover,
+.app-shell__explorer-views a.is-current {
+  background: var(--app-status-info-container);
+  color: var(--app-status-info);
+}
+
 .app-shell__profile-button {
   min-width: 2.5rem;
   min-height: 2.5rem;
@@ -152,6 +176,19 @@
 }
 
 @media (max-width: 760px) {
+  .app-shell__toolbar.has-explorer-views {
+    height: auto;
+    flex-wrap: wrap;
+    padding-block: .35rem;
+    gap: .2rem;
+  }
+
+  .app-shell__explorer-views {
+    order: 1;
+    width: 100%;
+    justify-content: center;
+  }
+
   .app-shell__toolbar {
     padding-inline: 0.5rem;
   }

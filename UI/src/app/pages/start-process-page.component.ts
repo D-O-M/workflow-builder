@@ -543,23 +543,21 @@ export class StartProcessPageComponent {
         nodeOverrides: this.collectRuntimeOverrides(),
       };
       const phaseSeriesId = this.selectedPhaseSeriesId();
-      let processId: string;
       if (phaseSeriesId !== null) {
         const phasedResponse = await firstValueFrom(this.blueprintService.startPhasedProcess(
           phaseSeriesId,
           processPayload,
         ));
-        processId = phasedResponse.childProcessId;
         this.successMessage.set(`Phase series accepted with id ${phasedResponse.phasedProcessId}.`);
-      } else {
-        const response = await firstValueFrom(this.blueprintService.startProcess(
-          this.form.controls.blueprintId.value,
-          processPayload,
-        ));
-        processId = response.processId;
-        this.successMessage.set(`Process accepted with id ${processId}.`);
+        await this.router.navigate(['/processes/phase-series', phasedResponse.phasedBlueprintDefinitionId, phasedResponse.phasedProcessId]);
+        return;
       }
 
+      const { processId } = await firstValueFrom(this.blueprintService.startProcess(
+        this.form.controls.blueprintId.value,
+        processPayload,
+      ));
+      this.successMessage.set(`Process accepted with id ${processId}.`);
       await this.router.navigate(['/processes'], {
         queryParams: {
           blueprintId: this.form.controls.blueprintId.value,

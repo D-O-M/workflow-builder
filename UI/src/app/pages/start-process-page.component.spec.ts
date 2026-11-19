@@ -438,12 +438,7 @@ describe('StartProcessPageComponent', () => {
       initialTaskInput: {},
       nodeOverrides: {},
     });
-    expect(router.navigate).toHaveBeenCalledWith(['/processes'], {
-      queryParams: {
-        blueprintId: 1,
-        processId: 'phase-process-123',
-      },
-    });
+    expect(router.navigate).toHaveBeenCalledWith(['/processes/phase-series', 10, 'phased-process-123']);
   });
 
   it('recomputes the initialisation step gate when form validity changes', async () => {

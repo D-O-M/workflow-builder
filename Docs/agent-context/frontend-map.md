@@ -11,8 +11,9 @@ The UI is an Angular 21 app under `UI/`.
 - `/phases` -> `PhasesPageComponent`
 - `/processes/new` -> `StartProcessPageComponent`
 - `/processes` -> `ProcessExplorerPageComponent`
+- `/processes/phase-series` and `/processes/phase-series/:definitionId/:parentId` -> Phase Series search and parent overview
 
-All five product routes use `authGuard`. The app also handles the OIDC callbacks at `/auth/callback` and `/auth/logout-callback`. The shell gets its primary navigation labels from `UI/src/app/domain/app-navigation.ts`. [Sign-in and runtime client config](../authentication-keycloak.md)
+The product routes use `authGuard`. The app also handles the OIDC callbacks at `/auth/callback` and `/auth/logout-callback`. The shell gets its primary navigation labels from `UI/src/app/domain/app-navigation.ts`. [Sign-in and runtime client config](../authentication-keycloak.md)
 
 ## Page Responsibilities
 
@@ -59,13 +60,15 @@ The Phases page is intentionally still the service/loading/saving shell. Data Br
 
 - accepts a Blueprint or Phase Series selection, the first task's schema-backed input and optional node overrides
 - starts a Blueprint through `POST /api/blueprints/{id}/processes`, or a Phase Series through `POST /api/phased-blueprints/{id}/processes`
-- opens Process Explorer with the accepted Process ID for a Blueprint, or the first child Process ID for a Phase Series
+- opens the accepted Process for a Blueprint, or the parent overview for a Phase Series
 
 [First Process tutorial](../tutorials/first-process.md) · [Phase Series handoff and trigger](../how-to/phase-series.md)
 
 ### Process Explorer
 
 - lists blueprints/processes and process history
+- finds started Phase Series by name, parent ID, and status, and links their ordered phases to child Processes
+- uses `phase-series-explorer.service.ts` for paginated parent search, overview refresh, and on-demand Data Bridge values
 - loads readonly process graphs and step details
 - hosts the right-side step drawer, tabs, logs, and advanced search
 - relies on:

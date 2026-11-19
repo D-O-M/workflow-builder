@@ -629,8 +629,10 @@
               @if (selectedPhasedProcess(); as phasedProcess) {
                 <header>
                   <div>
-                    <p class="app-hero-card__eyebrow">Phased process</p>
-                    <h2>{{ phasedProcess.phasedBlueprintName }}</h2>
+                    <p class="app-hero-card__eyebrow">Phase Series</p>
+                    <h2><a class="process-explorer-page__parent-link" data-testid="process-explorer-parent-link"
+                      [routerLink]="['/processes/phase-series', process.phase.phasedBlueprintDefinitionId, process.phase.phasedProcessId]"
+                      [queryParams]="parentNavigation()?.search">{{ phasedProcess.phasedBlueprintName }}</a></h2>
                     <span>Version {{ phasedProcess.phasedBlueprintVersionNumber }} · {{ compactProcessId(phasedProcess.phasedProcessId) }}</span>
                   </div>
                   <span
@@ -677,6 +679,8 @@
                 <div class="process-explorer-page__phase-state is-error">
                   <mat-icon>error</mat-icon>
                   <span>{{ selectedPhasedProcessError() }}</span>
+                  <a [routerLink]="['/processes/phase-series', process.phase.phasedBlueprintDefinitionId, process.phase.phasedProcessId]"
+                     [queryParams]="parentNavigation()?.search">Open Phase Series overview</a>
                 </div>
               }
             </section>
@@ -706,6 +710,10 @@
               <mat-icon>error</mat-icon>
               <strong>Explorer needs attention</strong>
               <p>{{ errorMessage() }}</p>
+              @if (parentNavigation()?.requestedLink; as parentLink) {
+                <a mat-stroked-button [routerLink]="parentLink" [queryParams]="parentNavigation()?.search"
+                   data-testid="process-explorer-unavailable-child-parent">Return to Phase Series overview</a>
+              }
             } @else if (loading() || searchResultsLoading() || detailLoading()) {
               <mat-progress-spinner diameter="48" mode="indeterminate" />
               <strong>Preparing the debugger</strong>
