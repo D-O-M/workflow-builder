@@ -34,3 +34,7 @@ Follow the C4 views from the system boundary to the Engine's recovery checkpoint
 | UI routes, canvas and runtime subscriptions | [Frontend map](agent-context/frontend-map.md) · [Realtime and observability](agent-context/realtime-and-observability.md) |
 
 When changing a contract, update its reference and the guide that exercises it. The [documentation review register](reconciliation.md) records the evidence behind this refresh, open decisions and commands for checking links and diagrams.
+
+## Engineering audits
+
+The [November 2026 codebase audit](audits/2026-11-codebase/README.md) records source findings, reproduced defects, verification results and feedback from all seven stakeholder-role reviews.
