@@ -53,6 +53,7 @@ public class BlueprintRepository : IBlueprintRepository
         {
             nodesById[nodeEntity.Id] = nodeEntity.NodeKind switch
             {
+                BlueprintNodeKind.ConditionalBranch => CreateExecutableConditionalBranch(nodeEntity),
                 BlueprintNodeKind.CollectionIterator => CreateExecutableCollectionIteratorNode(nodeEntity),
                 _ => CreateExecutablePluginTaskNode(nodeEntity)
             };
@@ -152,6 +153,30 @@ public class BlueprintRepository : IBlueprintRepository
             OutputChannels = outputChannels,
             InboundBindings = [],
             DesignTimeInputOverrides = DeserializeJsonMap(nodeEntity.DesignTimeInputOverridesJson)
+        };
+    }
+
+    private static ExecutableBlueprintNode CreateExecutableConditionalBranch(BlueprintNode node)
+    {
+        var fields = JsonSerializer.Deserialize<List<ConditionalField>>(node.ConditionalFieldsJson!, JsonOptions)!;
+        ExecutableBlueprintChannel Channel(string name) => new()
+        {
+            Name = name,
+            Properties = fields.ToDictionary(field => field.Name, field => field.Kind, StringComparer.Ordinal),
+            OutboundBindings = []
+        };
+        return new ExecutableBlueprintNode
+        {
+            Id = node.Id,
+            Name = "Conditional Branch",
+            NodeKind = ExecutableBlueprintNodeKind.ConditionalBranch,
+            ConditionalRule = JsonSerializer.Deserialize<ConditionalRule>(node.ConditionalRuleJson!, JsonOptions),
+            ConditionalFields = fields,
+            ResolvedVersion = new Version(0, 0, 0),
+            InputChannel = Channel("Input"),
+            OutputChannels = new(StringComparer.Ordinal) { ["True"] = Channel("True"), ["False"] = Channel("False") },
+            InboundBindings = [],
+            DesignTimeInputOverrides = []
         };
     }
 
@@ -292,7 +317,7 @@ public class BlueprintRepository : IBlueprintRepository
             DisplayName = displayName,
         };
 
-        var blueprintVersion = await AddVersionEntities(
+        var (blueprintVersion, startingId) = await AddVersionEntities(
             definition,
             versionNumber: 1,
             startingBlueprintNodeId: model.StartingBlueprintNodeId,
@@ -308,7 +333,7 @@ public class BlueprintRepository : IBlueprintRepository
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(
                     version => version.StartingBlueprintNodeId,
-                    model.StartingBlueprintNodeId),
+                    startingId),
                 cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -329,7 +354,7 @@ public class BlueprintRepository : IBlueprintRepository
         }
 
         var nextVersion = definition.Versions.Count == 0 ? 1 : definition.Versions.Max(version => version.Version) + 1;
-        var createdVersion = await AddVersionEntities(
+        var (createdVersion, startingId) = await AddVersionEntities(
             definition,
             nextVersion,
             model.StartingBlueprintNodeId,
@@ -346,14 +371,14 @@ public class BlueprintRepository : IBlueprintRepository
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(
                     version => version.StartingBlueprintNodeId,
-                    model.StartingBlueprintNodeId),
+                    startingId),
                 cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return await GetBlueprintVersionViewModel(createdVersion.Id, cancellationToken);
     }
 
-    private async Task<BlueprintVersion> AddVersionEntities(
+    private async Task<(BlueprintVersion Version, Guid StartingId)> AddVersionEntities(
         BlueprintDefinition definition,
         int versionNumber,
         Guid startingBlueprintNodeId,
@@ -367,13 +392,31 @@ public class BlueprintRepository : IBlueprintRepository
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
+        BlueprintBranchSchema? branchSchema = null;
+        if (tasks.Any(task => ParseBlueprintNodeKind(task.NodeKind) == BlueprintNodeKind.ConditionalBranch))
+        {
+            var ids = tasks.Where(task => task.TaskDefinitionId.HasValue).Select(task => task.TaskDefinitionId!.Value).Distinct().ToList();
+            var definitions = await _context.TaskDefinitions.AsNoTracking()
+                .Include(d => d.Versions).ThenInclude(v => v.Channels).ThenInclude(c => c.Properties)
+                .Where(d => ids.Contains(d.Id)).AsSplitQuery().ToDictionaryAsync(d => d.Id, cancellationToken);
+            branchSchema = new BlueprintBranchSchema(tasks, definitions);
+        }
+
+        // IDs sent by the Builder or a portable file may already identify Steps in older Processes.
+        // Give each persisted version its own physical IDs, preserving the logical keys used in exports.
+        var requestedIds = tasks.Select(task => task.InstanceId).ToArray();
+        var occupied = await _context.BlueprintNodes.Where(node => requestedIds.Contains(node.Id))
+            .Select(node => new { node.Id, node.PortableTaskKey })
+            .ToDictionaryAsync(node => node.Id, node => node.PortableTaskKey ?? node.Id, cancellationToken);
         var instancesById = new Dictionary<Guid, BlueprintNode>(tasks.Count);
         foreach (var task in tasks)
         {
-            var instanceId = task.InstanceId == Guid.Empty ? Guid.NewGuid() : task.InstanceId;
+            var alreadyUsed = occupied.TryGetValue(task.InstanceId, out var existingKey);
+            var instanceId = alreadyUsed || task.InstanceId == Guid.Empty ? Guid.NewGuid() : task.InstanceId;
             var entity = new BlueprintNode
             {
                 Id = instanceId,
+                PortableTaskKey = task.PortableTaskKey ?? (alreadyUsed ? existingKey : null),
                 BlueprintVersion = blueprintVersion,
                 NodeKind = ParseBlueprintNodeKind(task.NodeKind),
                 TaskDefinitionId = ParseBlueprintNodeKind(task.NodeKind) == BlueprintNodeKind.PluginTask
@@ -389,11 +432,20 @@ public class BlueprintRepository : IBlueprintRepository
                 DesignTimeInputOverridesJson = SerializeJsonMap(task.DesignTimeInputOverrides),
             };
 
+            if (entity.NodeKind == BlueprintNodeKind.ConditionalBranch)
+            {
+                var fields = branchSchema!.Resolve(task.InstanceId);
+                var issue = ConditionalRuleEngine.Validate(task.ConditionalRule, fields).FirstOrDefault();
+                if (issue is not null)
+                    throw new InvalidDataException($"{issue.Path}: {issue.Message}");
+                entity.ConditionalRuleJson = JsonSerializer.Serialize(task.ConditionalRule, JsonOptions);
+                entity.ConditionalFieldsJson = JsonSerializer.Serialize(fields, JsonOptions);
+            }
             blueprintVersion.BlueprintNodes.Add(entity);
-            instancesById[entity.Id] = entity;
+            instancesById[task.InstanceId] = entity;
         }
 
-        if (!instancesById.ContainsKey(startingBlueprintNodeId))
+        if (!instancesById.TryGetValue(startingBlueprintNodeId, out var startingNode))
         {
             throw new InvalidDataException("StartingBlueprintNodeId must reference a task in tasks[].");
         }
@@ -441,7 +493,7 @@ public class BlueprintRepository : IBlueprintRepository
         }
 
         definition.Versions.Add(blueprintVersion);
-        return blueprintVersion;
+        return (blueprintVersion, startingNode.Id);
     }
 
     private async Task<string> GenerateUniqueBlueprintKey(string displayName, CancellationToken cancellationToken)
@@ -517,14 +569,16 @@ public class BlueprintRepository : IBlueprintRepository
 
     private BlueprintNodeViewModel MapBlueprintTask(BlueprintNode taskInstance)
     {
-        if (taskInstance.NodeKind == BlueprintNodeKind.CollectionIterator)
+        if (taskInstance.NodeKind is BlueprintNodeKind.CollectionIterator or BlueprintNodeKind.ConditionalBranch)
         {
             return new BlueprintNodeViewModel
             {
                 InstanceId = taskInstance.Id,
-                NodeKind = BlueprintNodeKind.CollectionIterator.ToString(),
+                NodeKind = taskInstance.NodeKind.ToString(),
+                ConditionalRule = taskInstance.ConditionalRuleJson is null ? null : JsonSerializer.Deserialize<ConditionalRule>(taskInstance.ConditionalRuleJson, JsonOptions),
+                ConditionalFields = taskInstance.ConditionalFieldsJson is null ? [] : JsonSerializer.Deserialize<List<ConditionalField>>(taskInstance.ConditionalFieldsJson, JsonOptions) ?? [],
                 TaskDefinitionId = null,
-                CollectionIteratorItemKind = NormalizeCollectionIteratorItemKind(taskInstance.CollectionIteratorItemKind),
+                CollectionIteratorItemKind = taskInstance.NodeKind == BlueprintNodeKind.CollectionIterator ? NormalizeCollectionIteratorItemKind(taskInstance.CollectionIteratorItemKind) : null,
                 AllowedMajor = 0,
                 AllowedMinor = 0,
                 ResolvedVersionId = 0,

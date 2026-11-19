@@ -1,3 +1,4 @@
+import { conditionalRuleIssues } from './conditional-rule';
 import { ConnectionModel, resolveEffectivePropertyMappings } from './connection-model';
 import { NodeModel } from './node-model';
 
@@ -11,6 +12,7 @@ export type BlueprintValidationIssueCode =
   | 'connection.mapping.sourceMissing'
   | 'connection.mapping.targetMissing'
   | 'connection.mapping.typeMismatch'
+  | 'node.conditionalBranch.invalid'
   | 'node.collectionIterator.start'
   | 'node.unreachable'
   | 'node.input.requiredMissing'
@@ -75,6 +77,15 @@ export function validateBlueprintGraph(input: BlueprintValidationInput): Bluepri
       'Collection Iterator must be triggered by an upstream collection output.',
       { nodeId: startingNode.id },
     ));
+  }
+
+  for (const node of nodes.filter(node => node.nodeKind === 'ConditionalBranch')) {
+    const incoming = connectionsByTarget.get(node.id) ?? [];
+    const messages = conditionalRuleIssues(node.conditionalRule, node.inputPropertyDefinitions);
+    if (incoming.length !== 1) messages.unshift('Connect one upstream output channel to the Conditional Branch input.');
+    messages.forEach((message, i) => issues.push(errorIssue(
+      'conditional:' + node.id + ':' + i, 'node.conditionalBranch.invalid', message, { nodeId: node.id },
+    )));
   }
 
   for (const connection of connections) {
@@ -309,6 +320,8 @@ function addUnusedOutputWarnings(
   connectionsBySource: ReadonlyMap<number, readonly ConnectionModel[]>,
 ): void {
   for (const node of nodes) {
+    // Either outcome may intentionally terminate, and pass-through fields may remain unused.
+    if (node.nodeKind === 'ConditionalBranch') continue;
     const outgoingConnections = connectionsBySource.get(node.id) ?? [];
     if (outgoingConnections.length === 0) {
       continue;

@@ -9,6 +9,8 @@ public sealed class BlueprintNodeViewModel
 
     public string NodeKind { get; init; } = "PluginTask";
     public int? TaskDefinitionId { get; init; }
+    public ConditionalRule? ConditionalRule { get; init; }
+    public List<ConditionalField> ConditionalFields { get; init; } = [];
     public string? CollectionIteratorItemKind { get; init; }
     public int AllowedMajor { get; init; }
     public int AllowedMinor { get; init; }

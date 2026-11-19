@@ -505,7 +505,7 @@ public class ProcessStepRepository
                 operations,
                 new PatchItemRequestOptions
                 {
-                    FilterPredicate = "FROM c WHERE c.status != 'Completed' AND c.status != 'Failed'"
+                    FilterPredicate = "FROM c WHERE c.status IN ('Pending', 'InProgress')"
                 },
                 cancellationToken: cancellationToken);
         }
@@ -544,7 +544,7 @@ public class ProcessStepRepository
                 operations,
                 new PatchItemRequestOptions
                 {
-                    FilterPredicate = "FROM c WHERE c.status != 'Completed' AND c.status != 'Failed'"
+                    FilterPredicate = "FROM c WHERE c.status IN ('Pending', 'InProgress')"
                 },
                 cancellationToken: cancellationToken);
         }

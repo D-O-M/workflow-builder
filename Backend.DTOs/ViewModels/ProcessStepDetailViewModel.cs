@@ -7,6 +7,9 @@ public sealed class ProcessStepDetailViewModel
     public required Guid BlueprintNodeId { get; init; }
     public required string Name { get; init; }
     public string NodeKind { get; init; } = "PluginTask";
+    public ConditionalRule? ConditionalRule { get; init; }
+    public List<ConditionalField> ConditionalFields { get; init; } = [];
+    public string? SelectedChannel { get; init; }
     public string? CollectionIteratorItemKind { get; init; }
     public int RuntimeStepCount { get; init; }
     public required string Status { get; init; }
@@ -29,6 +32,7 @@ public sealed class ProcessStepIterationViewModel
     public required string SourceIteratorStepId { get; init; }
     public required string SourceIteratorBlueprintNodeId { get; init; }
     public required int ItemIndex { get; init; }
+    public string? SelectedChannel { get; init; }
     public required string ItemKey { get; init; }
     public required string Status { get; init; }
 }

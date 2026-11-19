@@ -1010,6 +1010,15 @@ export class CanvasNodeRenderer {
         this.surface.ctx.lineTo(centerX - 5.5, centerY + 5.5);
         this.surface.ctx.stroke();
         break;
+      case 'Skipped':
+        this.surface.ctx.beginPath();
+        this.surface.ctx.moveTo(centerX - 5, centerY - 5);
+        this.surface.ctx.lineTo(centerX + 1, centerY);
+        this.surface.ctx.lineTo(centerX - 5, centerY + 5);
+        this.surface.ctx.moveTo(centerX + 5, centerY - 5);
+        this.surface.ctx.lineTo(centerX + 5, centerY + 5);
+        this.surface.ctx.stroke();
+        break;
       case 'InProgress':
         this.surface.ctx.beginPath();
         this.surface.ctx.arc(centerX, centerY, 6.4, -Math.PI * 0.88, Math.PI * 0.62);

@@ -56,6 +56,7 @@ public sealed class PhasedBlueprintProcessService
             .FirstOrDefault()
             ?? throw new InvalidDataException("Phased blueprint versions must contain at least one phase.");
         var firstBlueprintVersionId = await ResolveBlueprintVersionIdAsync(firstPhase, cancellationToken);
+        await ValidateOutgoingTransitionAsync(version, firstPhase, firstBlueprintVersionId, cancellationToken);
         var acceptedAt = DateTimeOffset.UtcNow;
         var phasedProcessId = Guid.NewGuid();
         var childProcessId = Guid.NewGuid();
@@ -173,6 +174,8 @@ public sealed class PhasedBlueprintProcessService
         var acceptedAt = DateTimeOffset.UtcNow;
         PhasedProcessRecord parent;
         PhasedProcessPhaseRecord phaseRecord;
+        var sourcePhase = version.Phases.Single(phase => phase.Id == transition.SourcePhaseId);
+        IReadOnlyDictionary<Guid, Guid>? targetNodeIds = null;
         for (var attempt = 0; attempt < MaxUpdateAttempts; attempt++)
         {
             parent = await _phasedProcessRepository.GetAsync(
@@ -194,6 +197,18 @@ public sealed class PhasedBlueprintProcessService
                 };
             }
 
+            if (attempt == 0)
+            {
+                if (sourcePhase.VersionPolicy == PhasedBlueprintPhaseVersionPolicy.Latest ||
+                    targetPhase.VersionPolicy == PhasedBlueprintPhaseVersionPolicy.Latest)
+                {
+                    var sourceVersionId = parent.Phases.Single(p => p.PhaseId == sourcePhase.Id.ToString()).BlueprintVersionId
+                        ?? throw new InvalidDataException("The completed source phase has no recorded Blueprint version.");
+                    targetNodeIds = await _phasedBlueprintRepository.ValidateResolvedTransitionAsync(
+                        transition, sourceVersionId, targetBlueprintVersionId, cancellationToken);
+                }
+                await ValidateOutgoingTransitionAsync(version, targetPhase, targetBlueprintVersionId, cancellationToken);
+            }
             phaseRecord.ChildProcessId = reservedChildProcessId.ToString();
             phaseRecord.BlueprintVersionId = targetBlueprintVersionId;
             phaseRecord.Status = PhasedProcessStatus.InProgress;
@@ -219,7 +234,7 @@ public sealed class PhasedBlueprintProcessService
             Guid.Parse(correlation.PhasedProcessId),
             correlation.PhasedBlueprintDefinitionId,
             cancellationToken);
-        var nodeOverrides = BuildTriggeredNodeOverrides(parent, transition, model.NodeOverrides);
+        var nodeOverrides = BuildTriggeredNodeOverrides(parent, transition, model.NodeOverrides, targetNodeIds);
         var metadata = CreatePhaseMetadata(parent, targetPhase);
         try
         {
@@ -341,6 +356,18 @@ public sealed class PhasedBlueprintProcessService
                 ?? throw new InvalidDataException("Pinned phases must reference a blueprint version.")
         };
 
+    private async Task ValidateOutgoingTransitionAsync(PhasedBlueprintVersion version, PhasedBlueprintPhase sourcePhase,
+        int sourceVersionId, CancellationToken cancellationToken)
+    {
+        var outgoing = version.Transitions.SingleOrDefault(t => t.SourcePhaseId == sourcePhase.Id);
+        if (outgoing is null) return;
+        var destination = version.Phases.Single(phase => phase.Id == outgoing.DestinationPhaseId);
+        if (sourcePhase.VersionPolicy == PhasedBlueprintPhaseVersionPolicy.Latest ||
+            destination.VersionPolicy == PhasedBlueprintPhaseVersionPolicy.Latest)
+            await _phasedBlueprintRepository.ValidateResolvedTransitionAsync(outgoing, sourceVersionId,
+                await ResolveBlueprintVersionIdAsync(destination, cancellationToken), cancellationToken);
+    }
+
     private static Dictionary<string, JsonElement> BuildTriggerCorrelationValues(
         PhasedBlueprintTransition transition,
         IReadOnlyDictionary<string, JsonElement> triggerInput)
@@ -363,7 +390,8 @@ public sealed class PhasedBlueprintProcessService
     private static Dictionary<Guid, Dictionary<string, JsonElement>> BuildTriggeredNodeOverrides(
         PhasedProcessRecord parent,
         PhasedBlueprintTransition transition,
-        IReadOnlyDictionary<Guid, Dictionary<string, JsonElement>> baseNodeOverrides)
+        IReadOnlyDictionary<Guid, Dictionary<string, JsonElement>> baseNodeOverrides,
+        IReadOnlyDictionary<Guid, Guid>? targetNodeIds)
     {
         var nodeOverrides = CloneNodeOverrides(baseNodeOverrides);
         if (!parent.PhaseResults.TryGetValue(transition.SourcePhaseId.ToString(), out var handoffResult))
@@ -374,12 +402,13 @@ public sealed class PhasedBlueprintProcessService
 
         foreach (var mapping in transition.HandoffMappings)
         {
-            if (handoffResult.TryGetValue(BuildHandoffResultKey(mapping), out var handoffValue))
+            if (handoffResult.TryGetValue(PhasedProcessFinalizationService.BuildHandoffResultKey(mapping), out var handoffValue))
             {
-                if (!nodeOverrides.TryGetValue(mapping.TargetBlueprintNodeId, out var propertyOverrides))
+                var targetId = targetNodeIds?[mapping.TargetBlueprintNodeId] ?? mapping.TargetBlueprintNodeId;
+                if (!nodeOverrides.TryGetValue(targetId, out var propertyOverrides))
                 {
                     propertyOverrides = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-                    nodeOverrides[mapping.TargetBlueprintNodeId] = propertyOverrides;
+                    nodeOverrides[targetId] = propertyOverrides;
                 }
 
                 propertyOverrides[mapping.TargetProperty] = handoffValue.Clone();
@@ -388,9 +417,6 @@ public sealed class PhasedBlueprintProcessService
 
         return nodeOverrides;
     }
-
-    private static string BuildHandoffResultKey(PhasedBlueprintHandoffMapping mapping) =>
-        $"{mapping.TargetBlueprintNodeId:N}:{mapping.TargetProperty}";
 
     private static ProcessPhaseMetadata CreatePhaseMetadata(
         PhasedProcessRecord parent,

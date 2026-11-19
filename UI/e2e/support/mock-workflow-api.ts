@@ -26,6 +26,10 @@ import {
   taskDefinitions,
 } from '../fixtures/workflow-fixtures';
 
+import type { ConditionalRule } from '../../src/app/domain/conditional-rule';
+import type { NodeKind } from '../../src/app/domain/node-model';
+import type { ITaskPropertyDefinition } from '../../src/app/interfaces/ITaskDefinition';
+
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 interface MockWorkflowApiOptions {
@@ -36,7 +40,9 @@ interface MockWorkflowApiOptions {
 
 interface BlueprintNodeInputModel {
   readonly instanceId: string;
-  readonly nodeKind?: string | null;
+  readonly nodeKind?: NodeKind | null;
+  readonly conditionalRule?: ConditionalRule | null;
+  readonly conditionalFields?: ITaskPropertyDefinition[] | null;
   readonly taskDefinitionId?: number | null;
   readonly collectionIteratorItemKind?: string | null;
   readonly allowedMajor: number;
@@ -88,6 +94,7 @@ export class MockWorkflowApi {
       apiBaseUrl: 'http://127.0.0.1:4200',
       signalRBaseUrl: 'http://127.0.0.1:4200',
       grafanaBaseUrl: 'http://127.0.0.1:3000',
+      features: { conditionalBranchAuthoring: true },
     }));
     await page.route('**/tasks', (route) => this.fulfillJson(route, taskDefinitions));
     await page.route('**/hubs/processes/negotiate**', (route) => this.fulfillJson(route, {
@@ -119,6 +126,7 @@ export class MockWorkflowApi {
           apiBaseUrl: 'http://127.0.0.1:4200',
           signalRBaseUrl: 'http://127.0.0.1:4200',
           grafanaBaseUrl: 'http://127.0.0.1:3000',
+          features: { conditionalBranchAuthoring: true },
         });
         return;
       }
@@ -305,7 +313,9 @@ export class MockWorkflowApi {
         const version = definition?.versions[0];
         return {
           instanceId: task.instanceId,
-          nodeKind: task.nodeKind === 'CollectionIterator' ? 'CollectionIterator' : 'PluginTask',
+          nodeKind: task.nodeKind ?? 'PluginTask',
+          conditionalRule: task.conditionalRule,
+          conditionalFields: task.conditionalFields,
           taskDefinitionId: task.taskDefinitionId ?? null,
           collectionIteratorItemKind: task.collectionIteratorItemKind ?? null,
           allowedMajor: task.allowedMajor,

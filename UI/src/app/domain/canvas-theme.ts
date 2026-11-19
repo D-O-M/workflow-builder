@@ -82,6 +82,12 @@ export const CanvasTheme = {
       border: 'rgba(100, 116, 139, 0.28)',
       badgeFill: 'rgba(100, 116, 139, 0.12)',
     },
+    Skipped: {
+      accent: '#64748b',
+      text: '#475569',
+      border: 'rgba(100, 116, 139, 0.4)',
+      badgeFill: 'rgba(100, 116, 139, 0.16)',
+    },
     NotExecuted: {
       accent: '#cbd5e1',
       text: '#667085',

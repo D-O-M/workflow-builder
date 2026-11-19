@@ -373,6 +373,20 @@ describe('BlueprintCanvasComponent', () => {
         expect([...blockedTargetNodeIds]).toEqual([1, 2, 3]);
     });
 
+    it('lets True and False reach a shared successor while blocking duplicate edges on the same outcome', () => {
+        const snapshot = {
+            nodeById: new Map([[1, { base: { nodeKind: 'ConditionalBranch' } }]]),
+            nodes: [],
+            connections: [
+                { from: { id: 7 }, to: { id: 1 }, anchor: 0 },
+                { from: { id: 1 }, to: { id: 2 }, anchor: 1 },
+            ],
+        };
+        const blocked = (anchor: number): Set<number> => (component as any).getBlockedTargetNodeIds(snapshot, { from: 1, anchor });
+        expect([...blocked(1)]).toEqual([1, 7, 2]);
+        expect([...blocked(2)]).toEqual([1, 7]);
+    });
+
     it('only treats Collection Iterator as eligible for collection output drags', () => {
         const source = createSourceNode({ town: 'String', ids: 'Guid[]' });
         const iterator = createIteratorNode();

@@ -13,6 +13,7 @@ public sealed class ExportedBlueprintNodeInputModel
 
     public string? TaskDefinitionName { get; init; }
 
+    public ConditionalRule? ConditionalRule { get; init; }
     public string? CollectionIteratorItemKind { get; init; }
 
     [Range(0, int.MaxValue)]

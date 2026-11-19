@@ -69,13 +69,36 @@ public sealed class ActivationPersistenceService
             return new ActivationPersistenceResult(0);
         }
 
-        _processStepDispatcher.EnsureDispatchAvailableForExecution();
+        var activeIntents = plan.Intents.Where(intent => !intent.IsSkipped).ToList();
+        if (activeIntents.Count > 0)
+        {
+            _processStepDispatcher.EnsureDispatchAvailableForExecution();
+        }
+        foreach (var skipped in plan.Intents.Where(intent => intent.IsSkipped))
+        {
+            var (_, step) = await _processStepRepository.CreateProcessStepIfNotExists(new ProcessStepRecord
+            {
+                Id = skipped.ProcessStepId.ToString(),
+                BlueprintNodeId = skipped.DestinationNode.Id.ToString(),
+                ProcessId = skipped.ProcessId.ToString(),
+                BlueprintId = skipped.ExecutableBlueprintId.ToString(),
+                IterationContext = skipped.IterationContext,
+                Status = ProcessStepStatus.Skipped,
+                CreatedAt = timestamp,
+                UpdatedAt = timestamp
+            }, cancellationToken);
+            if (step.Status != ProcessStepStatus.Skipped)
+            {
+                throw new InvalidOperationException($"Step {step.Id} was already activated on a different route.");
+            }
+            await TryProjectRealtimeStepAsync(step, skipped.BlueprintDefinitionId, skipped.ExecutableBlueprintId, cancellationToken);
+        }
 
         var scheduledCount = 0;
         var effectiveBatchSize = Math.Max(1, batchSize);
         var readyActivations = new List<ActivationIntent>(Math.Min(plan.Intents.Count, effectiveBatchSize));
 
-        foreach (var intent in plan.Intents)
+        foreach (var intent in activeIntents)
         {
             readyActivations.Add(intent);
             if (readyActivations.Count < effectiveBatchSize)
@@ -124,14 +147,11 @@ public sealed class ActivationPersistenceService
                     BlueprintId = observation.ExecutableBlueprintId.ToString(),
                     BlueprintNodeId = observation.DestinationBlueprintNodeId.ToString(),
                     RequiredBindingIds = requiredBindingIds,
-                    ReceivedSources = new Dictionary<string, InputHydrationSource>(StringComparer.Ordinal)
-                    {
-                        [observation.Source.BindingId] = CloneSource(observation.Source)
-                    },
                     CreatedAt = timestamp,
                     UpdatedAt = timestamp
                 };
 
+                ApplyBindingDisposition(state, observation);
                 var (created, createdState) = await _nodeJoinStateRepository.CreateJoinStateIfNotExistsAsync(
                     state,
                     cancellationToken);
@@ -145,7 +165,10 @@ public sealed class ActivationPersistenceService
             }
 
             state.RequiredBindingIds = requiredBindingIds;
-            state.ReceivedSources[observation.Source.BindingId] = CloneSource(observation.Source);
+            if (!ApplyBindingDisposition(state, observation))
+            {
+                return ToSnapshot(state);
+            }
             state.UpdatedAt = timestamp;
 
             if (await _nodeJoinStateRepository.TryUpdateJoinStateAsync(state, cancellationToken))
@@ -156,6 +179,25 @@ public sealed class ActivationPersistenceService
 
         throw new InvalidOperationException(
             $"Could not update join state for node {observation.DestinationBlueprintNodeId} in process {observation.ProcessId}.");
+    }
+
+    private static bool ApplyBindingDisposition(NodeJoinStateRecord state, JoinSourceObservation observation)
+    {
+        var bindingId = observation.Source.BindingId;
+        if (observation.IsInactive)
+        {
+            if (state.ReceivedSources.ContainsKey(bindingId))
+            {
+                throw new InvalidOperationException($"Join binding {bindingId} was already active.");
+            }
+            return state.InactiveBindingIds.Add(bindingId);
+        }
+
+        if (state.InactiveBindingIds.Contains(bindingId))
+        {
+            throw new InvalidOperationException($"Join binding {bindingId} was already inactive.");
+        }
+        return state.ReceivedSources.TryAdd(bindingId, CloneSource(observation.Source));
     }
 
     private async Task<int> CreateAndDispatchStepsAsync(
@@ -361,7 +403,8 @@ public sealed class ActivationPersistenceService
             state.ActivationMaterialized,
             Guid.TryParse(state.MaterializedProcessStepId, out var processStepId)
                 ? processStepId
-                : null);
+                : null,
+            state.InactiveBindingIds.ToHashSet(StringComparer.Ordinal));
 
     private static InputHydrationPlan CloneInputHydrationPlan(InputHydrationPlan plan) =>
         new()

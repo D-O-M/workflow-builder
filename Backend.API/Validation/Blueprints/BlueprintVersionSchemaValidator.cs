@@ -20,6 +20,20 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
         BlueprintVersionInputModel model,
         CancellationToken ct = default)
     {
+        try
+        {
+            return await ValidateGraphAsync(model, ct);
+        }
+        catch (InvalidDataException error)
+        {
+            var invalid = new BlueprintValidationResult();
+            invalid.Add("graph.route.invalid", error.Message, "tasks");
+            return invalid;
+        }
+    }
+
+    private async Task<BlueprintValidationResult> ValidateGraphAsync(BlueprintVersionInputModel model, CancellationToken ct)
+    {
         var result = new BlueprintValidationResult();
         if (model.Tasks.Count == 0)
         {
@@ -47,8 +61,34 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
         var inputPropertiesByNodeId = new Dictionary<Guid, Dictionary<string, string>>();
         var outputPropertiesByNodeId = new Dictionary<Guid, Dictionary<string, Dictionary<string, string>>>();
 
+        var hasBranches = model.Tasks.Any(task => ParseNodeKind(task.NodeKind) == BlueprintNodeKind.ConditionalBranch);
+        var branchSchemas = new BlueprintBranchSchema(model.Tasks, taskDefinitionsById);
+        var requiredInputs = new Dictionary<Guid, List<string>>();
+
         foreach (var task in model.Tasks)
         {
+            if (ParseNodeKind(task.NodeKind) == BlueprintNodeKind.ConditionalBranch)
+            {
+                var path = $"tasks[{nodeIndex[task.InstanceId]}]";
+                if (task.TaskDefinitionId.HasValue || task.DesignTimeInputOverrides.Count > 0 || task.InstanceId == model.StartingBlueprintNodeId)
+                    result.Add("task.conditionalBranch.input", "Conditional Branch requires an upstream channel and cannot have a Plugin or input overrides.", path);
+                try
+                {
+                    var fields = branchSchemas.Resolve(task.InstanceId);
+                    var properties = fields.ToDictionary(field => field.Name, field => field.Kind, StringComparer.Ordinal);
+                    inputPropertiesByNodeId[task.InstanceId] = properties;
+                    outputPropertiesByNodeId[task.InstanceId] = new(StringComparer.Ordinal) { ["True"] = properties, ["False"] = properties };
+                    foreach (var issue in ConditionalRuleEngine.Validate(task.ConditionalRule, fields))
+                        result.Add("task.conditionalBranch.rule", issue.Message, $"{path}.conditionalRule{issue.Path[4..]}");
+                }
+                catch (InvalidDataException error)
+                {
+                    result.Add("task.conditionalBranch.input", error.Message, path);
+                }
+                continue;
+            }
+            if (task.ConditionalRule is not null)
+                result.Add("task.conditionalBranch.kind", "Only Conditional Branch can define a rule.", $"tasks[{nodeIndex[task.InstanceId]}].conditionalRule");
             if (ParseNodeKind(task.NodeKind) == BlueprintNodeKind.CollectionIterator)
             {
                 if (!TryNormalizeCollectionIteratorItemKind(task.CollectionIteratorItemKind, out var itemKind))
@@ -60,6 +100,7 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
                     continue;
                 }
 
+                requiredInputs[task.InstanceId] = ["items"];
                 inputPropertiesByNodeId[task.InstanceId] = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     ["items"] = WorkflowPropertyTypeName.ToCollectionKindName(itemKind)
@@ -116,6 +157,7 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
                 continue;
             }
 
+            requiredInputs[task.InstanceId] = inputChannel.Properties.Where(p => p.IsRequired).Select(p => p.Name).ToList();
             inputPropertiesByNodeId[task.InstanceId] = inputChannel.Properties.ToDictionary(
                 property => property.Name,
                 property => WorkflowPropertyTypeName.Format(property.Kind, property.IsCollection),
@@ -145,7 +187,8 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
             return result;
         }
 
-        var incomingTargetProperties = new Dictionary<Guid, HashSet<string>>();
+        var routes = hasBranches ? BlueprintRouteAvailability.From(model.Tasks) : null;
+        var coverage = new Dictionary<(Guid Target, string Property), int>();
         foreach (var task in model.Tasks)
         {
             var sourceOutputs = outputPropertiesByNodeId[task.InstanceId];
@@ -176,6 +219,12 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
                         .Select(property => (property, property))
                         .ToList();
 
+                if (ParseNodeKind(model.Tasks[nodeIndex[connection.ConnectedBlueprintNodeId]].NodeKind) == BlueprintNodeKind.ConditionalBranch &&
+                    (effectiveMappings.Count != sourceProperties.Count || effectiveMappings.Any(m => m.Item1 != m.Item2)))
+                    result.Add("graph.conditionalBranch.mapping", "A Conditional Branch receives every field with its original name.",
+                        $"tasks[{nodeIndex[task.InstanceId]}].outgoingConnections[{connectionIndex}].propertyMappings");
+
+                var route = routes?.Output(task.InstanceId, connection.ChannelName ?? "") ?? BlueprintRouteAvailability.Always;
                 foreach (var (sourceProperty, targetProperty) in effectiveMappings)
                 {
                     if (!sourceProperties.ContainsKey(sourceProperty))
@@ -206,13 +255,10 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
                         continue;
                     }
 
-                    if (!incomingTargetProperties.TryGetValue(connection.ConnectedBlueprintNodeId, out var targetSet))
-                    {
-                        targetSet = new HashSet<string>(StringComparer.Ordinal);
-                        incomingTargetProperties[connection.ConnectedBlueprintNodeId] = targetSet;
-                    }
-
-                    if (!targetSet.Add(targetProperty))
+                    var key = (connection.ConnectedBlueprintNodeId, targetProperty);
+                    var overlaps = coverage.TryGetValue(key, out var previous) && (routes?.Overlap(previous, route) ?? true);
+                    coverage[key] = routes?.Union(previous, route) ?? BlueprintRouteAvailability.Always;
+                    if (overlaps)
                     {
                         result.Add(
                             "graph.connection.mapping.duplicateTarget",
@@ -223,6 +269,20 @@ public sealed class BlueprintVersionSchemaValidator : IBlueprintVersionValidator
             }
         }
 
+        if (routes is not null)
+        {
+            foreach (var (target, properties) in requiredInputs)
+            {
+                if (target == model.StartingBlueprintNodeId) continue;
+                foreach (var property in properties)
+                {
+                    if (!model.Tasks[nodeIndex[target]].DesignTimeInputOverrides.ContainsKey(property) &&
+                        coverage.GetValueOrDefault((target, property)) != routes.NodeRoute(target))
+                        result.Add("graph.route.requiredMissing", $"Required input '{property}' needs a mapping on every route to this Step.",
+                            $"tasks[{nodeIndex[target]}]");
+                }
+            }
+        }
         return result;
     }
 

@@ -1,3 +1,5 @@
+import type { ConditionalRule } from './conditional-rule';
+import { createBlueprintConditionalBranchNodeModel } from './blueprint-editor-node-factory';
 import { NodeKind, NodeModel, TaskPropertyBaseType, TaskPropertyType } from './node-model';
 import { compareTaskVersions, getTaskVersionLane } from './task-version-utils';
 import type { ITaskDefinition, ITaskPropertyDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
@@ -9,13 +11,15 @@ export interface ProcessCanvasDetail {
 export interface ProcessCanvasNode {
   readonly taskDefinitionId: number;
   readonly nodeKind?: NodeKind | null;
+  readonly conditionalFields?: ITaskPropertyDefinition[];
+  readonly conditionalRule?: ConditionalRule | null;
   readonly collectionIteratorItemKind?: TaskPropertyBaseType | null;
   readonly allowedMajor: number;
   readonly allowedMinor: number;
   readonly resolvedVersionId: number;
   readonly resolvedVersion?: string | null;
   readonly name: string;
-  readonly status: 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+  readonly status: 'Skipped' | 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   readonly position: {
     readonly x: number;
     readonly y: number;
@@ -34,6 +38,12 @@ export function buildProcessCanvasNodes(
   );
 
   return detail.nodes.map((node, index) => {
+    if (node.nodeKind === 'ConditionalBranch') {
+      return createBlueprintConditionalBranchNodeModel({
+        nodeId: index + 1, coordinates: node.position, fields: node.conditionalFields,
+        rule: node.conditionalRule, renderStatus: node.status, failureMessage: node.failureMessage,
+      });
+    }
     if (node.nodeKind === 'CollectionIterator') {
       const itemKind = node.collectionIteratorItemKind ?? 'String';
       const collectionKind: TaskPropertyType = `${itemKind}[]`;

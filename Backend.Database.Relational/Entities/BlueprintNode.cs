@@ -3,7 +3,8 @@ namespace Backend.Database.Relational.Entities;
 public enum BlueprintNodeKind
 {
     PluginTask = 0,
-    CollectionIterator = 1
+    CollectionIterator = 1,
+    ConditionalBranch = 2
 }
 
 public class BlueprintNode
@@ -19,6 +20,10 @@ public class BlueprintNode
     public TaskDefinition? TaskDefinition { get; set; }
 
     public string? CollectionIteratorItemKind { get; set; }
+
+    public Guid? PortableTaskKey { get; set; }
+    public string? ConditionalRuleJson { get; set; }
+    public string? ConditionalFieldsJson { get; set; }
 
     public int AllowedMajor { get; set; }
     public int AllowedMinor { get; set; }

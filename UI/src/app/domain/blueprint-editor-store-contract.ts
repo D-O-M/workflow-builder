@@ -1,3 +1,4 @@
+import type { ConditionalRule } from './conditional-rule';
 import { ConnectionModel, ConnectionPropertyMappingModel } from './connection-model';
 import { NodeModel, Point, TaskPropertyBaseType, TaskPropertyType } from './node-model';
 import { ITaskDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
@@ -19,6 +20,15 @@ export interface BlueprintTaskNodeCreateRequest {
 export interface BlueprintCollectionIteratorCreateRequest {
   readonly placement: BlueprintNodePlacement;
   readonly itemKind?: TaskPropertyBaseType | null;
+}
+
+export interface BlueprintConditionalBranchCreateRequest {
+  readonly placement: BlueprintNodePlacement;
+}
+
+export interface BlueprintConditionalRuleUpdate {
+  readonly nodeId: number;
+  readonly rule: ConditionalRule;
 }
 
 export interface BlueprintConnectionEndpoint {

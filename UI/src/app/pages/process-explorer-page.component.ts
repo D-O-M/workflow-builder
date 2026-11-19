@@ -80,6 +80,7 @@ import { LogEventStream } from '../domain/log-event-stream';
 import { TaskDefinitionsService } from '../domain/task-definitions.service';
 import { ITaskDefinition } from '../interfaces/ITaskDefinition';
 import { ProcessSearchDialogComponent } from '../components/process-search-dialog.component';
+import { summarizeConditionalRule } from '../domain/conditional-rule';
 import { buildProcessCanvasNodes } from '../domain/process-canvas-model';
 
 interface ProcessRouteSelection {
@@ -101,6 +102,7 @@ type StepInspectorTab = 'inputs' | 'outputs' | 'dataflow' | 'logs';
 interface ProcessStepStatusCounts {
   total: number;
   completed: number;
+  skipped: number;
   failed: number;
   running: number;
   pending: number;
@@ -143,7 +145,14 @@ export class ProcessExplorerPageComponent {
   private readonly refreshVersion = signal(0);
   private readonly preferredProcessId = signal<string | null>(null);
   private readonly realtimeSummaryOverrides = signal(new Map<string, ProcessSummaryUpdatedEvent>());
-  private readonly realtimeNodeOverrides = signal(new Map<string, ProcessStepsUpdatedEvent['nodes'][number]>());
+  private readonly realtimeNodes = signal<{
+    processId: string;
+    byInstance: ReadonlyMap<string, ProcessStepsUpdatedEvent['nodes'][number]>;
+  } | null>(null);
+  private readonly realtimeNodeOverrides = computed(() => {
+    const update = this.realtimeNodes();
+    return update?.processId === this.fetchedProcess()?.processId ? update?.byInstance : undefined;
+  });
   private readonly liveStepLogs = signal<NodeLogEntryViewModel[]>([]);
   private stepLogEventSource: LogEventStream | null = null;
   private readonly routeSelection = toSignal(
@@ -326,7 +335,7 @@ export class ProcessExplorerPageComponent {
       status: summaryOverride?.status ?? process.status,
       updatedAt: summaryOverride?.updatedAt ?? process.updatedAt,
       nodes: process.nodes.map((node) => {
-        const delta = nodeOverrides.get(node.instanceId);
+        const delta = nodeOverrides?.get(node.instanceId);
         if (!delta) {
           return node;
         }
@@ -334,6 +343,11 @@ export class ProcessExplorerPageComponent {
         return {
           ...node,
           status: delta.status,
+          selectedChannel: delta.selectedChannel === undefined ? node.selectedChannel : delta.selectedChannel,
+          selectedChannels: delta.iterations?.length
+            ? [...new Set(delta.iterations.flatMap(item => item.selectedChannel ? [item.selectedChannel] : []))]
+            : node.selectedChannels,
+          iterations: delta.iterations ?? node.iterations,
           resolvedVersionId: delta.resolvedVersionId,
           resolvedVersion: delta.resolvedVersion ?? node.resolvedVersion,
           startedAt: delta.startedAt ?? node.startedAt,
@@ -390,7 +404,7 @@ export class ProcessExplorerPageComponent {
       return 'No steps';
     }
 
-    return `${counts.completed}/${counts.total} steps completed`;
+    return `${counts.completed}/${counts.total - counts.skipped} steps completed`;
   });
   protected readonly selectedProcessLastActivityLabel = computed(() => {
     const process = this.selectedProcess();
@@ -467,15 +481,27 @@ export class ProcessExplorerPageComponent {
     const state = this.selectedStepState();
     return isErrorRequestState(state) ? state.message : null;
   });
+  protected readonly conditionalSummary = computed(() => {
+    const rule = this.selectedProcessStepNode()?.conditionalRule ?? this.selectedStepDetail()?.conditionalRule;
+    return rule ? summarizeConditionalRule(rule, true, this.selectedProcessStepNode()?.conditionalFields ?? this.selectedStepDetail()?.conditionalFields) : null;
+  });
+  protected readonly chosenChannel = computed(() => this.selectedProcessStepNode()?.selectedChannel ?? this.selectedStepDetail()?.selectedChannel);
+  protected readonly decisionIterations = computed(() =>
+    this.realtimeNodeOverrides()?.get(this.selectedStepInstanceId() ?? '')?.iterations
+    ?? this.selectedStepDetail()?.iterations ?? this.selectedProcessStepNode()?.iterations ?? []);
   protected readonly selectedStepTitle = computed(() =>
     this.selectedStepDetail()?.name
     ?? this.selectedProcessStepNode()?.name
     ?? 'Step details',
   );
   protected readonly selectedStepStatus = computed(() =>
-    this.selectedStepDetail()?.status
+    this.realtimeNodeOverrides()?.get(this.selectedStepInstanceId() ?? '')?.status
+    ?? this.selectedStepDetail()?.status
     ?? this.selectedProcessStepNode()?.status
     ?? 'NotExecuted',
+  );
+  protected readonly selectedStepIsConditional = computed(() =>
+    (this.selectedProcessStepNode()?.nodeKind ?? this.selectedStepDetail()?.nodeKind) === 'ConditionalBranch',
   );
   protected readonly selectedStepResolvedVersion = computed(() =>
     this.selectedStepDetail()?.resolvedVersion
@@ -513,7 +539,8 @@ export class ProcessExplorerPageComponent {
   protected readonly selectedStepSummaryLine = computed(() => {
     const version = this.selectedStepResolvedVersion();
     const logCount = this.stepLogCount();
-    const versionLabel = version ? `Version ${version}` : 'Version not resolved';
+    const versionLabel = this.selectedStepIsConditional() ? 'Native Step'
+      : version ? `Version ${version}` : 'Version not resolved';
     const logLabel = logCount === 1 ? '1 log entry' : `${logCount} log entries`;
 
     return `${versionLabel} · ${logLabel}`;
@@ -799,12 +826,16 @@ export class ProcessExplorerPageComponent {
         return [];
       }
 
+      const chosenChannels = node.selectedChannel ? [node.selectedChannel] : node.selectedChannels;
       return node.outgoingConnections.flatMap((connection) => {
         const toNode = nodeByInstanceId.get(connection.blueprintNodeId);
         if (!toNode) {
           return [];
         }
 
+        const channel = connection.channelName ?? fromNode.outputChannelNameForAnchor(connection.anchor);
+        const pathNotTaken = node.status === 'Completed' && !!channel &&
+          !!chosenChannels?.length && !chosenChannels.includes(channel);
         return [new ConnectionModel(
           fromNode,
           toNode,
@@ -813,6 +844,7 @@ export class ProcessExplorerPageComponent {
           connection.position,
           crypto.randomUUID(),
           connection.propertyMappings,
+          pathNotTaken,
         )];
       });
     });
@@ -992,6 +1024,8 @@ export class ProcessExplorerPageComponent {
     this.processRealtime.reconnected$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
+        this.realtimeNodes.set(null);
+        this.realtimeSummaryOverrides.set(new Map());
         this.refreshVersion.update((current) => current + 1);
       });
 
@@ -1263,6 +1297,8 @@ export class ProcessExplorerPageComponent {
 
   protected statusLabel(status: string): string {
     switch (status) {
+      case 'Skipped':
+        return 'Path not taken';
       case 'Completed':
         return 'Succeeded';
       case 'InProgress':
@@ -1280,6 +1316,8 @@ export class ProcessExplorerPageComponent {
 
   protected statusIcon(status: string): string {
     switch (status) {
+      case 'Skipped':
+        return 'skip_next';
       case 'Completed':
         return 'check_circle';
       case 'InProgress':
@@ -1397,6 +1435,7 @@ export class ProcessExplorerPageComponent {
       counts.running > 0 ? `${counts.running} running` : null,
       counts.failed > 0 ? `${counts.failed} failed` : null,
       counts.pending > 0 ? `${counts.pending} waiting` : null,
+      counts.skipped > 0 ? `${counts.skipped} skipped` : null,
     ].filter((part): part is string => part !== null);
 
     return parts.length > 0 ? parts.join(' · ') : 'All task steps have settled';
@@ -1425,7 +1464,7 @@ export class ProcessExplorerPageComponent {
     this.historyDrawerOpen.set(blueprintId !== null && preferredProcessId === null);
     this.closeStepDrawer();
     this.realtimeSummaryOverrides.set(new Map());
-    this.realtimeNodeOverrides.set(new Map());
+    this.realtimeNodes.set(null);
     if (historyPanelMode !== 'search-results') {
       this.resetSearchResultsState();
     }
@@ -1507,14 +1546,14 @@ export class ProcessExplorerPageComponent {
       return;
     }
 
-    this.realtimeNodeOverrides.update((currentOverrides) => {
-      const nextOverrides = new Map(currentOverrides);
+    this.realtimeNodes.update((currentUpdate) => {
+      const nodes = new Map(currentUpdate?.processId === activeProcessId ? currentUpdate.byInstance : undefined);
       for (const update of relevantUpdates) {
         for (const node of update.nodes) {
-          nextOverrides.set(node.instanceId, node);
+          nodes.set(node.instanceId, node);
         }
       }
-      return nextOverrides;
+      return { processId: activeProcessId, byInstance: nodes };
     });
   }
 
@@ -1584,6 +1623,9 @@ export class ProcessExplorerPageComponent {
     return nodes.reduce<ProcessStepStatusCounts>((counts, node) => {
       counts.total += 1;
       switch (node.status) {
+        case 'Skipped':
+          counts.skipped += 1;
+          break;
         case 'Completed':
           counts.completed += 1;
           break;
@@ -1602,6 +1644,7 @@ export class ProcessExplorerPageComponent {
     }, {
       total: 0,
       completed: 0,
+      skipped: 0,
       failed: 0,
       running: 0,
       pending: 0,

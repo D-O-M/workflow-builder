@@ -434,7 +434,7 @@ export class StartProcessPageComponent {
     }
 
     return blueprintVersion.tasks
-      .filter((task) => task.instanceId !== blueprintVersion.startingBlueprintNodeId)
+      .filter((task) => task.instanceId !== blueprintVersion.startingBlueprintNodeId && task.nodeKind !== 'ConditionalBranch')
       .map((task) => {
         if (task.nodeKind === 'CollectionIterator') {
           return {

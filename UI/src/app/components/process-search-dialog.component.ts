@@ -1025,7 +1025,7 @@ export class ProcessSearchDialogComponent {
             ? this.blueprintEditor.resolveVersionForLane(taskDefinition, task.allowedMajor, task.allowedMinor, task.resolvedVersionId)
             : null;
           const nodeKey = `${blueprint.id}:${task.instanceId}`;
-          const taskName = task.nodeKind === 'CollectionIterator'
+          const taskName = task.nodeKind === 'ConditionalBranch' ? 'Conditional Branch' : task.nodeKind === 'CollectionIterator'
             ? 'Collection Iterator'
             : taskDefinition?.name ?? `Task ${task.taskDefinitionId ?? 0}`;
 

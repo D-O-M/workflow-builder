@@ -1244,7 +1244,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         const target = this.getNodeByCoordinates(
             world,
             sourceNode,
-            ...this.getNodesConnectedTo(sourceNode),
+            ...this.connectionNeighbors(drag),
         );
 
         if (target) {
@@ -1311,7 +1311,7 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         const target = this.getNodeByCoordinates(
             world,
             sourceNode,
-            ...this.getNodesConnectedTo(sourceNode),
+            ...this.connectionNeighbors(drag),
         );
         const targetPort = target ? this.getInputPortAt(target, world) : null;
         const snap = target?.inputAnchorSnap();
@@ -1645,8 +1645,10 @@ export class BlueprintCanvasComponent implements AfterViewInit, OnDestroy {
         );
     }
 
-    private getNodesConnectedTo(node: RenderedNode): RenderedNode[] {
-        return this.renderSnapshot().getConnectedNodes(node.id);
+    private connectionNeighbors(drag: DragConnectionState): RenderedNode[] {
+        const snapshot = this.renderSnapshot();
+        const neighbors = this.hitTester.connectionNeighborIds(snapshot, drag);
+        return Array.from(neighbors, id => snapshot.nodeById.get(id)!);
     }
 
     private getBlockedTargetNodeIds(

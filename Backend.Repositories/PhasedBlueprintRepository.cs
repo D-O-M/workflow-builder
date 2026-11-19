@@ -380,6 +380,65 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
         var sourceNodes = await LoadBlueprintNodesAsync(sourceBlueprintVersionId, cancellationToken);
         var destinationNodes = await LoadBlueprintNodesAsync(destinationBlueprintVersionId, cancellationToken);
 
+        ValidateTransitionMappings(transition, sourceNodes, destinationNodes);
+    }
+
+    public async Task<Dictionary<Guid, Guid>> ResolveHandoffNodeIdsAsync(
+        int blueprintVersionId, IEnumerable<Guid> mappedNodeIds, CancellationToken cancellationToken)
+    {
+        var ids = mappedNodeIds.Distinct().ToArray();
+        if (ids.Length == 0) return [];
+        var originalKeys = await _context.BlueprintNodes.AsNoTracking()
+            .Where(n => ids.Contains(n.Id))
+            .Select(n => new { n.Id, Key = n.PortableTaskKey ?? n.Id })
+            .ToDictionaryAsync(n => n.Id, n => n.Key, cancellationToken);
+        var keys = originalKeys.Values.Distinct().ToArray();
+        var currentNodes = await _context.BlueprintNodes.AsNoTracking()
+            .Where(n => n.BlueprintVersionId == blueprintVersionId && keys.Contains(n.PortableTaskKey ?? n.Id))
+            .Select(n => new { n.Id, Key = n.PortableTaskKey ?? n.Id }).ToListAsync(cancellationToken);
+        var byKey = currentNodes.ToLookup(n => n.Key);
+        var resolved = new Dictionary<Guid, Guid>();
+        foreach (var id in ids)
+        {
+            if (!originalKeys.TryGetValue(id, out var key) || byKey[key].Count() != 1)
+                throw new InvalidDataException($"Data Bridge node '{id}' cannot be resolved in Blueprint version {blueprintVersionId}.");
+            resolved[id] = byKey[key].Single().Id;
+        }
+        return resolved;
+    }
+
+    public async Task<Dictionary<Guid, Guid>> ValidateResolvedTransitionAsync(
+        PhasedBlueprintTransition transition, int sourceVersionId, int targetVersionId, CancellationToken cancellationToken)
+    {
+        var sourceIds = await ResolveHandoffNodeIdsAsync(sourceVersionId, transition.HandoffMappings
+            .Select(m => m.SourceBlueprintNodeId).OfType<Guid>(), cancellationToken);
+        var targetIds = await ResolveHandoffNodeIdsAsync(targetVersionId,
+            transition.HandoffMappings.Select(m => m.TargetBlueprintNodeId), cancellationToken);
+        var resolved = new PhasedBlueprintTransitionInputModel
+        {
+            HandoffMappings = transition.HandoffMappings.Select(m => new PhasedBlueprintHandoffMappingInputModel
+            {
+                SourceKind = m.SourceKind.ToString(),
+                SourceBlueprintNodeId = m.SourceBlueprintNodeId is Guid sourceId ? sourceIds[sourceId] : null,
+                SourceChannelName = m.SourceChannelName, SourceProperty = m.SourceProperty,
+                TargetBlueprintNodeId = targetIds[m.TargetBlueprintNodeId], TargetProperty = m.TargetProperty
+            }).ToList(),
+            CorrelationMappings = transition.CorrelationMappings.Select(m => new PhasedBlueprintCorrelationMappingInputModel
+            {
+                SourceResultProperty = m.SourceResultProperty, TriggerProperty = m.TriggerProperty
+            }).ToList()
+        };
+        var sourceNodes = await LoadBlueprintNodesAsync(sourceVersionId, cancellationToken);
+        var targetNodes = await LoadBlueprintNodesAsync(targetVersionId, cancellationToken);
+        ValidateTransitionMappings(resolved, sourceNodes, targetNodes);
+        return targetIds;
+    }
+
+    private static void ValidateTransitionMappings(PhasedBlueprintTransitionInputModel transition,
+        IReadOnlyDictionary<Guid, BlueprintNode> sourceNodes, IReadOnlyDictionary<Guid, BlueprintNode> destinationNodes)
+    {
+        var routes = sourceNodes.Values.Any(n => n.NodeKind == BlueprintNodeKind.ConditionalBranch)
+            ? BlueprintRouteAvailability.From(sourceNodes.Values) : null;
         var targetProperties = new HashSet<string>(StringComparer.Ordinal);
         var targetResultProperties = new HashSet<string>(StringComparer.Ordinal);
         foreach (var mapping in transition.HandoffMappings)
@@ -419,6 +478,15 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
                 throw new InvalidDataException("Output handoff mappings must reference a source channel.");
             }
 
+            if (destinationNode.NodeKind == BlueprintNodeKind.ConditionalBranch)
+                throw new InvalidDataException("A Data Bridge cannot override the incoming payload of a Conditional Branch.");
+            if (routes is not null && routes.Output(sourceNodeId, mapping.SourceChannelName) != BlueprintRouteAvailability.Always)
+            {
+                var required = destinationNode.NodeKind == BlueprintNodeKind.CollectionIterator ||
+                    ResolveConcreteVersion(destinationNode).InputChannels.Single().Properties.Any(p => p.Name == mapping.TargetProperty && p.IsRequired);
+                if (required || transition.CorrelationMappings.Any(c => c.SourceResultProperty == mapping.TargetProperty))
+                    throw new InvalidDataException($"Handoff '{mapping.TargetProperty}' must be available on every conditional route.");
+            }
             var sourceProperties = GetOutputProperties(sourceNode, mapping.SourceChannelName);
             if (!sourceProperties.TryGetValue(mapping.SourceProperty, out var sourceKindName))
             {
@@ -484,6 +552,7 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
         var nodes = await _context.BlueprintNodes
             .AsNoTracking()
             .Where(node => node.BlueprintVersionId == blueprintVersionId)
+            .Include(node => node.OutgoingConnections)
             .Include(node => node.TaskDefinition!)
                 .ThenInclude(taskDefinition => taskDefinition.Versions)
                     .ThenInclude(taskVersion => taskVersion.Channels)
@@ -520,6 +589,8 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
 
     private static Dictionary<string, string> GetInputProperties(BlueprintNode node)
     {
+        if (node.NodeKind == BlueprintNodeKind.ConditionalBranch)
+            return BranchProperties(node);
         if (node.NodeKind == BlueprintNodeKind.CollectionIterator)
         {
             var itemKind = NormalizeCollectionIteratorItemKind(node.CollectionIteratorItemKind);
@@ -536,8 +607,14 @@ public sealed class PhasedBlueprintRepository : IPhasedBlueprintRepository
             StringComparer.Ordinal);
     }
 
+    private static Dictionary<string, string> BranchProperties(BlueprintNode node) =>
+        (System.Text.Json.JsonSerializer.Deserialize<List<ConditionalField>>(node.ConditionalFieldsJson!,
+            System.Text.Json.JsonSerializerOptions.Web) ?? []).ToDictionary(f => f.Name, f => f.Kind, StringComparer.Ordinal);
+
     private static Dictionary<string, string> GetOutputProperties(BlueprintNode node, string channelName)
     {
+        if (node.NodeKind == BlueprintNodeKind.ConditionalBranch)
+            return channelName is "True" or "False" ? BranchProperties(node) : [];
         if (node.NodeKind == BlueprintNodeKind.CollectionIterator)
         {
             var itemKind = NormalizeCollectionIteratorItemKind(node.CollectionIteratorItemKind);

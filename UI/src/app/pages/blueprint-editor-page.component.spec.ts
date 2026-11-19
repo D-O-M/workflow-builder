@@ -1,3 +1,4 @@
+import { RuntimeClientConfigService } from '../domain/runtime-client-config.service';
 import '@angular/compiler';
 import {
   EnvironmentInjector,
@@ -268,6 +269,7 @@ describe('BlueprintEditorPageComponent', () => {
 
     const providers: Provider[] = [
       BlueprintEditorStore,
+      { provide: RuntimeClientConfigService, useValue: { conditionalBranchAuthoring: true } },
       { provide: BlueprintEditorService, useValue: editorService },
       {
         provide: TaskDefinitionsService,

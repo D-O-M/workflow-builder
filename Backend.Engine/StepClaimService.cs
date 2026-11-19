@@ -82,7 +82,7 @@ public sealed class StepClaimService
             return StepResetResult.AlreadyPending;
         }
 
-        if (step.Status is ProcessStepStatus.Completed or ProcessStepStatus.Failed)
+        if (step.Status is ProcessStepStatus.Completed or ProcessStepStatus.Failed or ProcessStepStatus.Skipped)
         {
             return StepResetResult.AlreadyTerminal;
         }

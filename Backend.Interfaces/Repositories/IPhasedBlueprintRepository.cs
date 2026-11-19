@@ -14,6 +14,12 @@ public interface IPhasedBlueprintRepository
 
     Task<PhasedBlueprintVersion> GetVersionGraphAsync(int phasedBlueprintVersionId, CancellationToken cancellationToken);
 
+    Task<Dictionary<Guid, Guid>> ResolveHandoffNodeIdsAsync(
+        int blueprintVersionId, IEnumerable<Guid> mappedNodeIds, CancellationToken cancellationToken);
+
+    Task<Dictionary<Guid, Guid>> ValidateResolvedTransitionAsync(
+        PhasedBlueprintTransition transition, int sourceVersionId, int targetVersionId, CancellationToken cancellationToken);
+
     Task<int> GetLatestVersionIdAsync(int phasedBlueprintDefinitionId, CancellationToken cancellationToken);
 
     Task<PhasedBlueprintViewModel> CreateAsync(PhasedBlueprintInputModel model, CancellationToken cancellationToken);

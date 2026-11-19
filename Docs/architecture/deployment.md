@@ -67,3 +67,11 @@ The demo uses a generated shared secret for the broadcaster. Authentication and 
 | Azure NFT override | The load injector stays local. The override keeps API, Engine, Dispatcher and ProjectionWorker at one replica each, enabling asynchronous projections. The other demo settings come from the base file. |
 
 [Terraform deployment guide](../../Infra/Terraform/README.md) · [Azure NFT overrides](../../Infra/Terraform/environments/demo/nft.tfvars.example) · [Performance test runner](../../PerformanceTests/README.md) · [Operational diagnosis](../how-to/operations.md)
+
+## Enabling Conditional Branch authoring
+
+The API enables Conditional Branch authoring in Development. In Production, enable it after the additive Blueprint database migration and the updated API, Engine, Dispatcher, Maintenance, projection and progress services, and UI have been deployed. Drain older Engine replicas before enabling authoring so every consumer understands the new node kind. The integration AppHost opts in for its API.
+
+Set `Features__ConditionalBranchAuthoring__Enabled=true` on the API and restart its replicas. Confirm that `GET /api/client-config` returns `features.conditionalBranchAuthoring: true`. Publish a test Blueprint and exercise both outcomes. Verify the selected output and skipped Steps in Process Explorer and confirm the Process completes.
+
+To suspend new branch versions, set the API variable to `false` and restart its replicas. The API then rejects Blueprint creation, versioning and imports containing a Conditional Branch. Keep branch-capable workers deployed while saved versions are available for Process starts or recovery.

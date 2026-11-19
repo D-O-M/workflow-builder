@@ -511,6 +511,48 @@ public sealed class ProcessProjectionServiceTests
         node.CompletedAt.ShouldBe(DateTimeOffset.Parse("2026-04-21T00:12:02Z"));
     }
 
+    [Test]
+    public async Task Partial_branch_contributions_wait_for_canonical_completion_and_ignore_late_statuses()
+    {
+        var service = new ProcessRealtimeProjectionService(new InMemoryProcessRealtimeProjectionRepository());
+        var processId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var process = new ProcessInstanceRecord
+        {
+            id = processId.ToString(), BlueprintId = "7", CreatedAt = now, Status = ProcessStatus.InProgress,
+            ExecutionProgress = new() { TotalStepCount = 3 }
+        };
+        var step = new ProcessStepRecord
+        {
+            Id = Guid.NewGuid().ToString(), ProcessId = processId.ToString(), BlueprintId = "7", BlueprintNodeId = nodeId.ToString(),
+            Status = ProcessStepStatus.Skipped, CreatedAt = now, UpdatedAt = now
+        };
+        await service.UpsertFromProcessAsync(process, 3, 7, CancellationToken.None);
+        await service.UpsertFromStepAsync(step, 3, 7, CancellationToken.None);
+        var partial = await service.GetSummaryAsync(processId, CancellationToken.None);
+        partial!.Status.ShouldBe(ProcessStatus.InProgress);
+        partial.TotalStepCount.ShouldBe(3);
+        partial.SkippedStepCount.ShouldBe(1);
+        process.Status = ProcessStatus.Completed;
+        process.ExecutionProgress.CompletedStepIds.UnionWith(["decision", "active"]);
+        process.ExecutionProgress.SkippedStepIds.Add(step.Id);
+        await service.UpsertFromProcessAsync(process, 3, 7, CancellationToken.None);
+        step.Status = ProcessStepStatus.Pending;
+        await service.UpsertFromStepAsync(step, 3, 7, CancellationToken.None);
+        process.Status = ProcessStatus.InProgress;
+        process.ExecutionProgress = new() { TotalStepCount = 9 };
+        await service.UpsertFromProcessAsync(process, 3, 7, CancellationToken.None);
+        var settled = await service.GetSummaryAsync(processId, CancellationToken.None);
+        settled!.Status.ShouldBe(ProcessStatus.Completed);
+        settled.TotalStepCount.ShouldBe(3);
+        settled.CompletedStepCount.ShouldBe(2);
+        settled.SkippedStepCount.ShouldBe(1);
+        settled.PendingStepCount.ShouldBe(0);
+        var node = (await service.GetNodeProjectionsAsync(processId, [nodeId], CancellationToken.None)).Single();
+        node.AggregateStatus.ShouldBe(ProcessStepStatus.Skipped);
+    }
+
     private static async Task<TaskDefinition> SeedTaskDefinitionWithChannelsAsync(
         Backend.Database.Relational.BlueprintDbContext context,
         string name,
@@ -809,12 +851,13 @@ public sealed class ProcessProjectionServiceTests
             return Task.FromResult(summary);
         }
 
-        public Task<ProcessRealtimeSummaryProjectionRecord> UpsertSummaryAsync(
+        public Task<bool> TrySaveSummaryAsync(
             ProcessRealtimeSummaryProjectionRecord record,
+            bool create,
             CancellationToken cancellationToken)
         {
             _summaries[record.Id] = record;
-            return Task.FromResult(record);
+            return Task.FromResult(true);
         }
 
         public Task<ProcessNodeRealtimeProjectionRecord?> GetNodeAsync(

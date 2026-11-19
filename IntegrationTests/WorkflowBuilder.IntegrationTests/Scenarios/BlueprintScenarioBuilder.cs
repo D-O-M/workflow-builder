@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Backend.Models;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
 using Shouldly;
@@ -32,6 +33,55 @@ internal static class BlueprintScenarioBuilder
         Guid JoinBlueprintNodeId);
 
     private sealed record TaskVersionReference(int TaskDefinitionId, string Version);
+
+    public sealed record ConditionalScenario(int DefinitionId, int VersionId, Guid Seed, Guid DirectBranch,
+        Guid Transform, Guid Branch, Guid TrueTask, Guid FalseTask, Guid SharedTask);
+
+    public static async Task<ConditionalScenario> CreateConditionalScenarioAsync(
+        DistributedAppTestEnvironment environment, CancellationToken cancellationToken)
+    {
+        var tasks = await environment.GetTasksAsync(cancellationToken);
+        var version = environment.Settings.RunVersion;
+        var seed = GetTaskVersion(tasks, PluginBundleCatalog.SeedPlugin, version);
+        var transform = GetTaskVersion(tasks, PluginBundleCatalog.TransformPlugin, version);
+        var result = GetTaskVersion(tasks, PluginBundleCatalog.ResultPlugin, version);
+        var seedId = Guid.NewGuid();
+        var direct = Guid.NewGuid();
+        var transformId = Guid.NewGuid();
+        var branch = Guid.NewGuid();
+        var yes = Guid.NewGuid();
+        var no = Guid.NewGuid();
+        var shared = Guid.NewGuid();
+        var blueprint = await CreateBlueprintAsync(environment, new BlueprintInputModel
+        {
+            Name = $"conditional-rejoin-{Guid.NewGuid():N}",
+            StartingBlueprintNodeId = seedId,
+            Tasks =
+            [
+                CreateTask(seedId, seed, 0, 100, outgoingConnections: [CreateConnection(direct, "Success")]),
+                Conditional(direct, "Score", "6", transformId, transformId, 250),
+                CreateTask(transformId, transform, 500, 100, outgoingConnections: [CreateConnection(branch, "Success")]),
+                Conditional(branch, "FinalScore", "18", yes, no, 750),
+                CreateTask(yes, result, 1000, 0, outgoingConnections: [CreateConnection(shared, "Success", ("Summary","Message"), ("FinalScore","FinalScore"))]),
+                CreateTask(no, result, 1000, 200, outgoingConnections: [CreateConnection(shared, "Success", ("Summary","Message"), ("FinalScore","FinalScore"))]),
+                CreateTask(shared, result, 1250, 100)
+            ]
+        }, cancellationToken);
+        return new(blueprint.BlueprintDefinitionId, blueprint.BlueprintVersionId, seedId, direct, transformId, branch, yes, no, shared);
+
+        static BlueprintNodeInputModel Conditional(Guid id, string field, string threshold, Guid onTrue, Guid onFalse, int x) => new()
+        {
+            InstanceId = id,
+            NodeKind = "ConditionalBranch",
+            Position = new CoordinatesViewModel { X = x, Y = 100 },
+            ConditionalRule = new ConditionalRule
+            {
+                Kind = "comparison", Field = field, Operator = "gte",
+                Operands = [new() { Literal = JsonSerializer.SerializeToElement(threshold) }]
+            },
+            OutgoingConnections = [CreateConnection(onTrue, "True"), CreateConnection(onFalse, "False")]
+        };
+    }
 
     public static Task<BlueprintScenario> CreateHappyPathAsync(
         DistributedAppTestEnvironment environment,

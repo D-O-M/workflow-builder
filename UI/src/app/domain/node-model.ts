@@ -1,3 +1,4 @@
+import type { ConditionalRule } from './conditional-rule';
 import { ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 import { CanvasNodeLayoutCache } from './canvas-node-layout-cache';
 import {
@@ -31,8 +32,8 @@ export interface Rect {
 }
 
 export type Side = 'left' | 'right' | 'top' | 'bottom';
-export type NodeRenderStatus = 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
-export type NodeKind = 'PluginTask' | 'CollectionIterator' | 'DataBridge';
+export type NodeRenderStatus = 'Skipped' | 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+export type NodeKind = 'PluginTask' | 'CollectionIterator' | 'ConditionalBranch' | 'DataBridge';
 export type NodeVisualKind = 'TaskCard' | 'CollectionIteratorOperator' | 'DataBridge';
 export type DataBridgeKind = 'input' | 'output';
 export type TaskPropertyBaseType = 'String' | 'Integer' | 'Decimal' | 'Boolean' | 'Guid' | 'Date' | 'DateTime' | 'Enum';
@@ -144,6 +145,7 @@ export class NodeModel {
         public nodeKind: NodeKind = 'PluginTask',
         public collectionIteratorItemKind: TaskPropertyBaseType | null = null,
         public instanceId: string | null = null,
+        public conditionalRule: ConditionalRule | null = null,
     ) {}
 
     withExpanded(expanded: boolean): NodeModel {
@@ -182,6 +184,7 @@ export class NodeModel {
             this.nodeKind,
             this.collectionIteratorItemKind,
             this.instanceId,
+            this.conditionalRule,
         );
     }
 
@@ -221,6 +224,7 @@ export class NodeModel {
             this.nodeKind,
             this.collectionIteratorItemKind,
             instanceId,
+            this.conditionalRule,
         );
     }
 

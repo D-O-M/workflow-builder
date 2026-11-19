@@ -8,8 +8,9 @@ public interface IProcessRealtimeProjectionRepository
         Guid processId,
         CancellationToken cancellationToken);
 
-    Task<ProcessRealtimeSummaryProjectionRecord> UpsertSummaryAsync(
+    Task<bool> TrySaveSummaryAsync(
         ProcessRealtimeSummaryProjectionRecord record,
+        bool create,
         CancellationToken cancellationToken);
 
     Task<ProcessNodeRealtimeProjectionRecord?> GetNodeAsync(

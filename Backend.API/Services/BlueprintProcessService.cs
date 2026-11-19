@@ -429,6 +429,9 @@ public sealed class BlueprintProcessService
                 throw new InvalidDataException($"Node override references unknown blueprint node '{nodeId}'.");
             }
 
+            if (node.NodeKind == ExecutableBlueprintNodeKind.ConditionalBranch && overrides.Count > 0)
+                throw new InvalidDataException("Conditional Branch receives its entire input from its connected output channel.");
+
             foreach (var overrideKey in overrides.Keys)
             {
                 if (!node.InputChannel.Properties.TryGetValue(overrideKey, out var propertyKindName))

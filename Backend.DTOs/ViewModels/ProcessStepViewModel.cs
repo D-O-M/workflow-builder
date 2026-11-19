@@ -4,6 +4,10 @@ public sealed class ProcessStepViewModel
 {
     public required Guid InstanceId { get; init; }
     public string NodeKind { get; init; } = "PluginTask";
+    public ConditionalRule? ConditionalRule { get; init; }
+    public List<ConditionalField> ConditionalFields { get; init; } = [];
+    public List<string>? SelectedChannels { get; init; }
+    public string? SelectedChannel { get; init; }
     public string? CollectionIteratorItemKind { get; init; }
     public int RuntimeStepCount { get; init; }
     public required int TaskDefinitionId { get; init; }

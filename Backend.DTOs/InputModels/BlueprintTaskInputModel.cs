@@ -21,6 +21,9 @@ public sealed class BlueprintNodeInputModel
     [Range(1, int.MaxValue)]
     public int? TaskDefinitionId { get; init; }
 
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Guid? PortableTaskKey { get; init; }
+    public ConditionalRule? ConditionalRule { get; init; }
     public string? CollectionIteratorItemKind { get; init; }
 
     [Required]

@@ -1,3 +1,4 @@
+import type { ConditionalRule } from './conditional-rule';
 import { ITaskPropertyDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
 import { NodeKind, NodeModel, NodeRenderStatus, Point, TaskPropertyBaseType, TaskPropertyType } from './node-model';
 import { normalizeTaskPropertyDefinitions, taskPropertyKindMap } from './task-property-form-utils';
@@ -19,6 +20,7 @@ export interface BlueprintCollectionIteratorNodeModelRequest {
   readonly nodeId: number;
   readonly coordinates: Point;
   readonly itemKind: TaskPropertyBaseType | null;
+  readonly enumValues?: readonly string[];
   readonly instanceId?: string | null;
   readonly expanded?: boolean;
 }
@@ -26,6 +28,7 @@ export interface BlueprintCollectionIteratorNodeModelRequest {
 export interface BlueprintNodeSnapshotModel {
   readonly id: number;
   readonly nodeKind: NodeKind;
+  readonly conditionalRule: ConditionalRule | null;
   readonly collectionIteratorItemKind: TaskPropertyBaseType | null;
   readonly taskDefinitionId: number;
   readonly allowedMajor: number;
@@ -115,6 +118,27 @@ export function createBlueprintPluginTaskNodeModel(request: BlueprintPluginTaskN
   );
 }
 
+export function createBlueprintConditionalBranchNodeModel(request: {
+  nodeId: number;
+  coordinates: Point;
+  fields?: readonly ITaskPropertyDefinition[] | null;
+  rule?: ConditionalRule | null;
+  instanceId?: string | null;
+  renderStatus?: NodeRenderStatus | null;
+  failureMessage?: string | null;
+}): NodeModel {
+  const fields = cloneBlueprintPropertyDefinitions(request.fields ?? []);
+  const properties = taskPropertyKindMap(fields);
+  return new NodeModel(
+    request.nodeId, 0, 0, 0, 0, 'Native', 'Conditional Branch',
+    request.coordinates.x, request.coordinates.y, 320, 236,
+    'Input', ['True', 'False'], false, request.renderStatus ?? null, request.failureMessage ?? null,
+    properties, { True: properties, False: properties }, {}, fields, 'Input',
+    ['True', 'False'], { True: fields, False: fields }, false, 'ConditionalBranch',
+    null, request.instanceId ?? null, request.rule ?? { kind: 'all', children: [] },
+  );
+}
+
 export function createBlueprintCollectionIteratorNodeModel(request: BlueprintCollectionIteratorNodeModelRequest): NodeModel {
   const concreteItemKind = request.itemKind ?? 'String';
   const inputProperties: Record<string, TaskPropertyType> = {
@@ -129,14 +153,14 @@ export function createBlueprintCollectionIteratorNodeModel(request: BlueprintCol
     name: 'items',
     kind: `${concreteItemKind}[]`,
     required: true,
-    enumValues: [],
+    enumValues: [...(request.enumValues ?? [])],
   }];
   const outputChannelPropertyDefinitions: Record<string, ITaskPropertyDefinition[]> = {
     Item: [{
       name: 'item',
       kind: concreteItemKind,
       required: true,
-      enumValues: [],
+      enumValues: [...(request.enumValues ?? [])],
     }],
   };
 
@@ -242,6 +266,7 @@ export function instantiateBlueprintNodeSnapshot(snapshot: BlueprintNodeSnapshot
     snapshot.nodeKind,
     snapshot.collectionIteratorItemKind,
     snapshot.instanceId,
+    structuredClone(snapshot.conditionalRule),
   );
 }
 
@@ -273,6 +298,7 @@ export function snapshotBlueprintNodeModel(node: NodeModel): BlueprintNodeSnapsh
     outputChannelDisplayNames: [...node.outputChannelDisplayNames],
     outputChannelPropertyDefinitions: cloneBlueprintOutputChannelPropertyDefinitions(node.outputChannelPropertyDefinitions),
     instanceId: node.instanceId,
+    conditionalRule: structuredClone(node.conditionalRule),
   };
 }
 
@@ -318,6 +344,7 @@ function recreateBlueprintNodeModel(
     node.nodeKind,
     node.collectionIteratorItemKind,
     node.instanceId,
+    node.conditionalRule,
   );
 }
 

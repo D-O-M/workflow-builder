@@ -2,7 +2,9 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Backend.API.Validation.Blueprints;
+using Backend.API.Infrastructure;
 using Backend.Models.InputModels;
+using Microsoft.Extensions.Options;
 using Shouldly;
 
 namespace Backend.API.Tests.Validation;
@@ -23,6 +25,19 @@ public sealed class BlueprintVersionValidatorPipelineTests
     {
         public Task<BlueprintValidationResult> ValidateAsync(BlueprintVersionInputModel model, CancellationToken ct = default)
             => Task.FromResult(new BlueprintValidationResult());
+    }
+
+    [Test]
+    [Arguments(false, "ConditionalBranch", false)]
+    [Arguments(true, "ConditionalBranch", true)]
+    [Arguments(false, "PluginTask", true)]
+    public async Task Conditional_authoring_gate_applies_only_to_branch_versions(bool enabled, string nodeKind, bool accepted)
+    {
+        var gate = new ConditionalBranchAuthoringValidator(Options.Create(new ConditionalBranchAuthoringOptions { Enabled = enabled }));
+        var result = await gate.ValidateAsync(new BlueprintVersionInputModel { Tasks = [new() { NodeKind = nodeKind }] });
+        result.IsValid.ShouldBe(accepted);
+        if (!accepted)
+            result.Errors[0].Code.ShouldBe("feature.conditionalBranch.disabled");
     }
 
     [Test]

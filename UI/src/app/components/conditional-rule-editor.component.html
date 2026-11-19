@@ -1,0 +1,116 @@
+@if (rule(); as current) {
+  <fieldset [class.nested]="depth() > 1">
+    <legend>{{ current.kind === 'comparison' ? 'Condition' : 'Group' }}</legend>
+    <div class="rule-actions">
+      <label class="check"><input type="checkbox" [checked]="!!current.negated" (change)="toggleNot()" /> NOT</label>
+      @if (depth() > 1) {
+        <div class="sibling-actions">
+          <button #upButton type="button" mat-icon-button [disabled]="siblingIndex() === 0"
+            [attr.aria-label]="current.kind === 'comparison' ? 'Move condition up' : 'Move group up'" (click)="move.emit(-1)"><mat-icon>arrow_upward</mat-icon></button>
+          <button #downButton type="button" mat-icon-button [disabled]="siblingIndex() === siblingCount() - 1"
+            [attr.aria-label]="current.kind === 'comparison' ? 'Move condition down' : 'Move group down'" (click)="move.emit(1)"><mat-icon>arrow_downward</mat-icon></button>
+          <button type="button" mat-icon-button [attr.aria-label]="current.kind === 'comparison' ? 'Remove condition' : 'Remove group'" (click)="remove.emit()"><mat-icon>delete_outline</mat-icon></button>
+        </div>
+      } @else if (current.kind === 'comparison') {
+        <button type="button" mat-button (click)="wrapInGroup(current)">Wrap in group</button>
+      }
+    </div>
+    @if (current.kind === 'comparison') {
+      <label>Field
+        <select #field [value]="current.field" (change)="setField(current, field.value)">
+          <option value="" disabled [selected]="!current.field">Choose a field</option>
+          @if (current.field && !left()) {
+            <option [value]="current.field" selected disabled>{{ current.field }} (unavailable)</option>
+          }
+          @for (property of fields(); track property.name) {
+            <option [value]="property.name" [selected]="property.name === current.field">{{ property.name }} · {{ property.kind }}</option>
+          }
+        </select>
+      </label>
+      @if (left()) {
+        <label>Comparison
+          <select #comparison [value]="current.operator" (change)="setOperator(current, comparison.value)">
+            @if (!operator()) { <option [value]="current.operator" selected disabled>{{ current.operator || 'Choose a comparison' }}</option> }
+            @for (op of operators(); track op.id) {
+              <option [value]="op.id" [selected]="op.id === current.operator">{{ op.label }}</option>
+            }
+          </select>
+        </label>
+      }
+      @if (changedTypes()) {
+        <p class="review">Changed fields: {{ changedTypes() }}</p>
+        <button type="button" mat-button (click)="confirmTypes(current)">Confirm field types</button>
+      }
+      @if (operator(); as op) {
+        @if (op.ignoreCase) {
+          <label class="check"><input type="checkbox" [checked]="!!current.ignoreCase" (change)="toggleCase(current)" /> Ignore case</label>
+        }
+        @for (operand of current.operands; track $index; let i = $index) {
+          <div class="operand">
+            <label>Operand {{ i + 1 }}
+              <select #mode (change)="updateOperand(current, i, mode.value === 'field' ? {field: ''} : {})">
+                <option value="literal" [selected]="operand.field == null">Literal value</option>
+                <option value="field" [selected]="operand.field != null" [disabled]="!candidates().length">Field value</option>
+              </select>
+            </label>
+            @if (operand.field != null) {
+              <label>Compare with field {{ i + 1 }}
+                <select #rhs (change)="updateOperand(current, i, {field: rhs.value})">
+                  <option value="" [selected]="!operand.field" disabled>Choose a field</option>
+                  @for (candidate of candidates(); track candidate.name) {
+                    <option [value]="candidate.name" [selected]="candidate.name === operand.field">{{ candidate.name }} · {{ candidate.kind }}</option>
+                  }
+                </select>
+              </label>
+            } @else if (operandKind() === 'Enum' || operandKind() === 'Boolean') {
+              <label>Value {{ i + 1 }}
+                <select #value (change)="setLiteral(current, i, value.value)">
+                  <option value="" [selected]="operand.literal == null" disabled>Choose a value</option>
+                  @for (option of (operandKind() === 'Boolean' ? ['true', 'false'] : left()?.enumValues ?? []); track option) {
+                    <option [value]="option" [selected]="'' + operand.literal === option">{{ option }}</option>
+                  }
+                </select>
+              </label>
+            } @else {
+              <label>Value {{ i + 1 }}
+                <input #value [type]="operandKind() === 'Date' ? 'date' : 'text'"
+                  [attr.inputmode]="operandKind() === 'Decimal' ? 'decimal' : operandKind() === 'Integer' ? 'numeric' : 'text'"
+                  [placeholder]="operandKind() === 'DateTime' ? '2026-11-06T09:30:00Z' : ''"
+                  [value]="operand.literal ?? ''" (input)="setLiteral(current, i, value.value)" />
+              </label>
+            }
+            @if (current.operands.length > op.minOperands) {
+              <button type="button" mat-button (click)="removeOperand(current, i)">Remove value</button>
+            }
+          </div>
+        }
+        @if (current.operands.length < op.maxOperands) {
+          <button type="button" mat-button (click)="updateOperand(current, current.operands.length, {})">Add value</button>
+        }
+      }
+    } @else {
+      <label>Match conditions
+        <select #group (change)="setGroupKind(current, group.value)">
+          <option value="all" [selected]="current.kind === 'all'">All (AND)</option>
+          <option value="any" [selected]="current.kind === 'any'">Any (OR)</option>
+        </select>
+      </label>
+      @for (child of current.children; track $index; let i = $index) {
+        <app-conditional-rule-editor #childEditor [rule]="child" [fields]="fields()" [depth]="depth() + 1"
+          [siblingIndex]="i" [siblingCount]="current.children.length" (move)="moveChild(current, i, $event)"
+          (ruleChange)="changeChild(current, i, $event)" (remove)="changeChild(current, i)" />
+      }
+      @if (depth() < maxDepth) {
+        <div class="group-actions">
+          <button type="button" mat-button (click)="addChild(current, false)">Add condition</button>
+          @if (depth() < maxDepth - 1) {
+            <button type="button" mat-button (click)="addChild(current, true)">Add group</button>
+          }
+        </div>
+      }
+    }
+  </fieldset>
+  @if (summary(); as expression) {
+    <p class="rule-summary"><strong>Rule summary</strong>{{ expression }}</p>
+  }
+}

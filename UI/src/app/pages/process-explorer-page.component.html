@@ -307,15 +307,35 @@
           <article class="process-explorer-page__metric">
             <mat-icon>flag_circle</mat-icon>
             <span>Ended</span>
-            <strong>{{ selectedStepEndedAt() ? (selectedStepEndedAt() | date: 'dd MMM, HH:mm:ss') : 'Still open' }}</strong>
+            <strong>{{ selectedStepEndedAt() ? (selectedStepEndedAt() | date: 'dd MMM, HH:mm:ss') : selectedStepStatus() === 'Skipped' ? statusLabel('Skipped') : 'Still open' }}</strong>
           </article>
           <article class="process-explorer-page__metric">
             <mat-icon>deployed_code</mat-icon>
-            <span>Resolved version</span>
-            <strong>{{ selectedStepResolvedVersion() ?? 'Pending' }}</strong>
+            @if (selectedStepIsConditional()) {
+              <span>Rule version</span>
+              <strong>Blueprint v{{ selectedProcess()?.blueprintVersionNumber }}</strong>
+            } @else {
+              <span>Resolved version</span>
+              <strong>{{ selectedStepResolvedVersion() ?? 'Pending' }}</strong>
+            }
           </article>
         </div>
 
+        @if (conditionalSummary(); as summary) {
+          <section class="process-explorer-page__tab-body" data-testid="process-conditional-decision">
+            <h4>Branch decision</h4>
+            <p>{{ summary }}</p>
+            @if (chosenChannel(); as channel) { <strong>Selected output · {{ channel }}</strong> }
+          </section>
+        }
+        @if (decisionIterations().length) {
+          <ul aria-label="Iteration outcomes">
+            @for (item of decisionIterations(); track item.runtimeStepId) {
+              <li>Item {{ item.itemIndex + 1 }} · {{ statusLabel(item.status) }} @if (item.selectedChannel) { · {{ item.selectedChannel }} }
+              </li>
+            }
+          </ul>
+        }
         @if (selectedStepFailureMessage()) {
           <aside class="process-explorer-page__failure-banner" data-testid="process-explorer-step-failure">
             <mat-icon>error</mat-icon>

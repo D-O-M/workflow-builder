@@ -90,6 +90,7 @@ export function getDefaultBlueprintConnectionMappings(
   to: NodeModel,
   anchor: number,
 ): ConnectionPropertyMappingModel[] {
+  if (to.nodeKind === 'ConditionalBranch') return [];
   const sourceProperties = from.outputPropertiesForAnchor(anchor);
   if (to.nodeKind === 'CollectionIterator') {
     const collectionProperty = Object.entries(sourceProperties)

@@ -1,3 +1,4 @@
+import { RuntimeClientConfigService } from '../domain/runtime-client-config.service';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -12,6 +13,8 @@ import {
   viewChild,
   viewChildren,
 } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { ConditionalRuleEditorComponent } from '../components/conditional-rule-editor.component';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import {
   MatAutocompleteModule,
@@ -71,7 +74,7 @@ import {
 import { applyBlueprintCanvasStoreEvent } from '../domain/blueprint-canvas-store-action-utility';
 
 interface TaskLibraryItem {
-  kind: 'plugin' | 'collectionIterator';
+  kind: 'plugin' | 'collectionIterator' | 'conditionalBranch';
   task?: ITaskDefinition;
   displayName: string;
   icon: string;
@@ -138,6 +141,7 @@ const NODE_UPGRADE_WARNING_MESSAGE = 'A newer task version is available for this
     MatTooltipModule,
     BlueprintCanvasComponent,
     DynamicFormFieldComponent,
+    ConditionalRuleEditorComponent,
   ],
   templateUrl: './blueprint-editor-page.component.html',
   styleUrl: './blueprint-editor-page.component.css',
@@ -151,6 +155,7 @@ export class BlueprintEditorPageComponent {
 
   protected readonly editor = inject(BlueprintEditorService);
   protected readonly editorStore = inject(BlueprintEditorStore);
+  private readonly clientConfig = inject(RuntimeClientConfigService);
   private readonly dialog = inject(MatDialog);
   private readonly taskDefinitions = inject(TaskDefinitionsService);
   private readonly builderInput = inject(BuilderInputService);
@@ -694,8 +699,12 @@ export class BlueprintEditorPageComponent {
       this.blueprintNameTouched.set(false);
       this.versionPinNotice.set(createsNewVersion);
       this.scheduleUiTask(() => this.canvasViewport()?.viewport.focus());
-    } catch {
-      this.saveErrorMessage.set('Unable to save the blueprint. Check the connection and try again.');
+    } catch (error) {
+      const errors: unknown = error instanceof HttpErrorResponse ? error.error?.errors : undefined;
+      const messages = Array.isArray(errors)
+        ? errors.flatMap(issue => typeof issue?.message === 'string' ? [issue.message] : [])
+        : [];
+      this.saveErrorMessage.set(messages.join(' ') || 'Unable to save the blueprint. Check the connection and try again.');
     } finally {
       this.saving.set(false);
     }
@@ -949,8 +958,8 @@ export class BlueprintEditorPageComponent {
   }
 
   protected addLibraryItemFromDrawer(item: TaskLibraryItem): void {
-    if (item.kind === 'collectionIterator') {
-      this.addCollectionIteratorFromDrawer();
+    if (item.kind === 'collectionIterator' || item.kind === 'conditionalBranch') {
+      this.addNativeOperatorFromDrawer(item.kind);
       return;
     }
 
@@ -985,17 +994,20 @@ export class BlueprintEditorPageComponent {
     }
   }
 
-  protected addCollectionIteratorFromDrawer(): void {
+  protected addNativeOperatorFromDrawer(kind: 'collectionIterator' | 'conditionalBranch'): void {
     const viewportCenter = this.canvasViewport()?.viewport.centerWorld() ?? { x: 420, y: 260 };
     const stagger = (this.editorStore.nodes().length % 5) * this.gridSize * 2;
-    const node = this.editorStore.createCollectionIteratorNode({
+    const request = {
       placement: {
         coordinates: {
           x: viewportCenter.x + stagger,
           y: viewportCenter.y + stagger * 0.45,
         },
       },
-    });
+    };
+    const node = kind === 'conditionalBranch'
+      ? this.editorStore.createConditionalBranchNode(request)
+      : this.editorStore.createCollectionIteratorNode(request);
     this.scheduleUiTask(() => {
       this.canvasViewport()?.viewport.centerOnNode(node.id);
       this.canvasViewport()?.viewport.focus();
@@ -1171,6 +1183,13 @@ export class BlueprintEditorPageComponent {
 
   protected staticOverrideKindLabel(field: DynamicFieldDefinition): string {
     return taskPropertyKindLabel(field.kind);
+  }
+
+  protected branchDestination(node: NodeModel, outcome: string): string {
+    const targets = this.editorStore.connections()
+      .filter(edge => edge.from.id === node.id && node.outputChannelNameForAnchor(edge.anchor) === outcome)
+      .map(edge => edge.to.name);
+    return targets.length ? targets.join(', ') : 'Ends this path';
   }
 
   protected iteratorBindingStatus(node: NodeModel): string {
@@ -1619,7 +1638,18 @@ export class BlueprintEditorPageComponent {
       })
       .sort((left, right) => left.displayName.localeCompare(right.displayName));
 
-    return [collectionIterator, ...pluginItems];
+    const conditionalBranch: TaskLibraryItem = {
+      kind: 'conditionalBranch',
+      displayName: 'Conditional Branch',
+      icon: 'alt_route',
+      categoryLabel: 'Logic',
+      description: 'Choose the True or False path using rules',
+      tone: 'logic',
+      searchText: 'conditional branch decision condition if else true false logic rules',
+    };
+    return this.clientConfig.conditionalBranchAuthoring
+      ? [collectionIterator, conditionalBranch, ...pluginItems]
+      : [collectionIterator, ...pluginItems];
   }
 
   protected taskDefinitionDisplayName(task: ITaskDefinition | null | undefined): string {

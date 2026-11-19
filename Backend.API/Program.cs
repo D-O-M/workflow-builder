@@ -98,6 +98,8 @@ public class Program
         builder.Services.AddScoped<ObservabilityQueryService>();
         builder.Services.Configure<ClientRuntimeConfigOptions>(
             builder.Configuration.GetSection(WorkflowBuilderTopology.ClientConfig.SectionName));
+        builder.Services.Configure<ConditionalBranchAuthoringOptions>(
+            builder.Configuration.GetSection(ConditionalBranchAuthoringOptions.SectionName));
         builder.Services.Configure<ObservabilityOptions>(
             builder.Configuration.GetSection(ObservabilityOptions.SectionName));
         builder.Services.AddHttpClient<LokiQueryClient>((serviceProvider, client) =>
@@ -126,6 +128,7 @@ public class Program
             new Backend.API.Validation.Blueprints.BlueprintVersionValidatorPipeline(
                 new Backend.API.Validation.Blueprints.IBlueprintVersionValidator[]
                 {
+                    ActivatorUtilities.CreateInstance<Backend.API.Validation.Blueprints.ConditionalBranchAuthoringValidator>(sp),
                     ActivatorUtilities.CreateInstance<Backend.API.Validation.Blueprints.BlueprintVersionGraphValidator>(sp),
                     ActivatorUtilities.CreateInstance<Backend.API.Validation.Blueprints.BlueprintVersionSchemaValidator>(sp)
                 }));

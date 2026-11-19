@@ -832,6 +832,7 @@
 }
 
 .status-surface--pending,
+.status-surface--skipped,
 .status-surface--notexecuted {
   background: var(--app-surface-muted);
   color: var(--app-text-secondary);

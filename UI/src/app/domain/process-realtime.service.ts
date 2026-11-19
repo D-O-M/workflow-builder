@@ -6,6 +6,7 @@ import {
   IHttpConnectionOptions,
   LogLevel,
 } from '@microsoft/signalr';
+import type { ProcessStepIterationViewModel } from './blueprint-editor.service';
 import { Subject } from 'rxjs';
 import { AuthService } from '../auth/auth.service';
 import { RuntimeClientConfigService } from './runtime-client-config.service';
@@ -19,6 +20,7 @@ export interface ProcessSummaryUpdatedEvent {
   status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   createdAt: string;
   updatedAt?: string | null;
+  skippedTaskCount?: number;
   completedTaskCount: number;
   failedTaskCount: number;
   inProgressTaskCount: number;
@@ -28,7 +30,9 @@ export interface ProcessSummaryUpdatedEvent {
 export interface ProcessStepDelta {
   instanceId: string;
   blueprintNodeId: string;
-  status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+  selectedChannel?: string | null;
+  iterations?: ProcessStepIterationViewModel[];
+  status: 'Skipped' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   resolvedVersionId: number;
   resolvedVersion?: string | null;
   startedAt?: string | null;

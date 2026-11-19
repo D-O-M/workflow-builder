@@ -100,6 +100,109 @@ public sealed class PhasedBlueprintRepositoryTests
     }
 
     [Test]
+    public async Task Latest_phase_handoffs_follow_logical_nodes_and_revalidate_the_selected_versions()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var fields = new Dictionary<string, WorkflowPropertyKind> { ["deviceId"] = WorkflowPropertyKind.Guid };
+        var source = await SeedSingleNodeBlueprintAsync(database.Context, "Latest sender", [], fields);
+        var target = await SeedSingleNodeBlueprintAsync(database.Context, "Latest receiver", fields, []);
+        var repository = new PhasedBlueprintRepository(database.Context);
+        var transition = new PhasedBlueprintTransition
+        {
+            HandoffMappings = [new()
+            {
+                SourceBlueprintNodeId = source.NodeId, SourceChannelName = "Result", SourceProperty = "deviceId",
+                TargetBlueprintNodeId = target.NodeId, TargetProperty = "deviceId"
+            }],
+            CorrelationMappings = [new() { SourceResultProperty = "deviceId", TriggerProperty = "deviceId" }]
+        };
+
+        async Task<BlueprintNode> AddNextVersionAsync(BlueprintSeed previous)
+        {
+            var original = (await database.Context.BlueprintNodes.FindAsync(previous.NodeId))!;
+            var replacement = new BlueprintNode
+            {
+                Id = Guid.NewGuid(), PortableTaskKey = original.PortableTaskKey ?? original.Id,
+                BlueprintVersion = new BlueprintVersion
+                {
+                    BlueprintDefinitionId = previous.DefinitionId, Version = 2, CreatedAt = DateTimeOffset.UtcNow
+                },
+                TaskDefinitionId = original.TaskDefinitionId, AllowedMajor = original.AllowedMajor, AllowedMinor = original.AllowedMinor
+            };
+            database.Context.BlueprintNodes.Add(replacement);
+            await database.Context.SaveChangesAsync();
+            replacement.BlueprintVersion.StartingBlueprintNodeId = replacement.Id;
+            await database.Context.SaveChangesAsync();
+            return replacement;
+        }
+
+        var latestSource = await AddNextVersionAsync(source);
+        var latestTarget = await AddNextVersionAsync(target);
+        var sources = await repository.ResolveHandoffNodeIdsAsync(latestSource.BlueprintVersionId, [source.NodeId], CancellationToken.None);
+        var targets = await repository.ValidateResolvedTransitionAsync(transition,
+            latestSource.BlueprintVersionId, latestTarget.BlueprintVersionId, CancellationToken.None);
+        sources[source.NodeId].ShouldBe(latestSource.Id);
+        targets[target.NodeId].ShouldBe(latestTarget.Id);
+
+        var conditional = new BlueprintNode
+        {
+            Id = Guid.NewGuid(), NodeKind = BlueprintNodeKind.ConditionalBranch, BlueprintVersionId = latestSource.BlueprintVersionId,
+            OutgoingConnections = [new() { Id = Guid.NewGuid(), DestinationBlueprintNode = latestSource, ChannelName = "True", Side = "left" }]
+        };
+        database.Context.BlueprintNodes.Add(conditional);
+        await database.Context.SaveChangesAsync();
+        var error = await Should.ThrowAsync<InvalidDataException>(() => repository.ValidateResolvedTransitionAsync(transition,
+            latestSource.BlueprintVersionId, latestTarget.BlueprintVersionId, CancellationToken.None));
+        error.Message.ShouldContain("every conditional route");
+        var previousTargets = await repository.ValidateResolvedTransitionAsync(transition, source.VersionId, latestTarget.BlueprintVersionId, CancellationToken.None);
+        previousTargets[target.NodeId].ShouldBe(latestTarget.Id);
+    }
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Conditional_output_cannot_supply_required_handoff_or_correlation(bool requiredTarget)
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var fields = new Dictionary<string, WorkflowPropertyKind> { ["deviceId"] = WorkflowPropertyKind.Guid };
+        var source = await SeedSingleNodeBlueprintAsync(database.Context, "Register", [], fields);
+        var target = await SeedSingleNodeBlueprintAsync(database.Context, "Receive", fields, []);
+        var sourceNode = await database.Context.BlueprintNodes.FindAsync(source.NodeId);
+        var branch = new BlueprintNode
+        {
+            Id = Guid.NewGuid(), NodeKind = BlueprintNodeKind.ConditionalBranch, BlueprintVersionId = source.VersionId,
+            ConditionalFieldsJson = """[{"name":"deviceId","kind":"Guid","required":true}]"""
+        };
+        database.Context.BlueprintNodes.Add(branch);
+        database.Context.BlueprintConnections.Add(new BlueprintConnection
+        {
+            Id = Guid.NewGuid(), SourceBlueprintNode = sourceNode, DestinationBlueprintNode = branch, ChannelName = "Result", Side = "left"
+        });
+        if (!requiredTarget)
+        {
+            var node = await database.Context.BlueprintNodes.FindAsync(target.NodeId);
+            node!.TaskDefinition!.Versions.Single().InputChannels.Single().Properties.Single().IsRequired = false;
+        }
+        await database.Context.SaveChangesAsync();
+
+        var first = CreatePhase(Guid.NewGuid(), 0, "Register", source);
+        var second = CreatePhase(Guid.NewGuid(), 1, "Receive", target);
+        var series = new PhasedBlueprintInputModel
+        {
+            Name = "Registration", Phases = [first, second],
+            Transitions = [new() {
+                TransitionId = Guid.NewGuid(), SourcePhaseId = first.PhaseId, DestinationPhaseId = second.PhaseId,
+                HandoffMappings = [new() { SourceKind = "Output", SourceBlueprintNodeId = branch.Id, SourceProperty = "deviceId",
+                    SourceChannelName = "True", TargetBlueprintNodeId = target.NodeId, TargetProperty = "deviceId" }],
+                CorrelationMappings = requiredTarget ? [] : [new() { SourceResultProperty = "deviceId", TriggerProperty = "deviceId" }]
+            }]
+        };
+        var error = await Should.ThrowAsync<InvalidDataException>(() =>
+            new PhasedBlueprintRepository(database.Context).CreateAsync(series, CancellationToken.None));
+        error.Message.ShouldContain("every conditional route");
+    }
+
+    [Test]
     public async Task CreateAsync_allows_handoff_to_non_start_destination_node()
     {
         await using var database = await SqliteBlueprintDb.CreateAsync();

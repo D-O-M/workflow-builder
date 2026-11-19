@@ -20,6 +20,7 @@ sequenceDiagram
   participant H as StepMessage<br/>Handler
   participant F as StepFinalization<br/>Service
   participant I as CollectionIterator<br/>ExecutionService
+  participant B as ConditionalBranch<br/>ExecutionService
   participant E as StepExecution<br/>Service
   participant A as PluginRuntime<br/>Agent
   H->>H: Load executable Blueprint and look up finalization
@@ -27,6 +28,9 @@ sequenceDiagram
     H->>F: Resume from checkpoint
   else New Collection Iterator
     H->>I: ExecuteAsync
+  else Conditional Branch
+    H->>B: Claim, hydrate typed input and evaluate the rule
+    B->>F: Checkpoint the selected channel or evaluation failure
   else New Plugin Step
     H->>E: StartPluginStepAsync
     E->>E: Resolve task lane and acquire agent slot
@@ -67,6 +71,10 @@ sequenceDiagram
 ```
 
 For a join, the planner examines inbound observations and can recalculate the plan after loading join readiness. Persistence creates deterministic child Steps and records their dispatch intents before marking the joined activation materialized. Each child returns through the Step queue. An interrupted enqueue can therefore be retried without creating a second child. [Activation planner](../../Backend.Engine/ActivationPlanner.cs) · [Activation persistence](../../Backend.Engine/ActivationPersistenceService.cs) · [Finalization service](../../Backend.Engine/StepFinalizationService.cs)
+
+A Conditional Branch stores its input on the chosen `True` or `False` output channel. The planner records bindings on the other outcome as inactive and propagates inactivity through skipped Steps. A join waits for every incoming binding to become active or inactive. It receives the active sources, or becomes skipped if all its bindings are inactive. Each iterator item resolves its own joins and skipped Steps. Process progress counts completed and skipped Step IDs separately when deciding whether all work has settled.
+
+If an Engine stops between claiming a Conditional Branch and saving its result, redelivery can repeat the pure rule evaluation. After the decision is durable, recovery uses the saved output to replay the routing effects. Inactive bindings and skipped Step IDs have stable identities, so replay can resume a partially recorded route. [Native decision execution](../../Backend.Engine/ConditionalBranchExecutionService.cs)
 
 ## Durable checkpoints and resumption
 

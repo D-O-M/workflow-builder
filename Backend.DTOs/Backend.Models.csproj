@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="..\UI\src\app\domain\conditional-operators.json" LogicalName="Backend.Models.ConditionalOperators.json" />
     <ProjectReference Include="..\Backend.Database.Relational\Backend.Database.Relational.csproj" />
     <ProjectReference Include="..\Backend.PluginAbi\Backend.PluginAbi.csproj" />
   </ItemGroup>

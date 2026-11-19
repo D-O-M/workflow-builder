@@ -95,7 +95,8 @@ public sealed class ObservabilityQueryService
                 {
                     BlueprintNodeId = task.Id,
                     TaskDefinitionId = task.TaskDefinitionId ?? 0,
-                    TaskName = task.NodeKind == Backend.Database.Relational.Entities.BlueprintNodeKind.CollectionIterator
+                    TaskName = task.NodeKind == Backend.Database.Relational.Entities.BlueprintNodeKind.ConditionalBranch ? "Conditional Branch" :
+                        task.NodeKind == Backend.Database.Relational.Entities.BlueprintNodeKind.CollectionIterator
                         ? "Collection Iterator"
                         : task.TaskDefinition?.Name ?? "Task",
                     SuccessfulCount = matchingEvents.Count(entry => entry.EventName == "step.completed"),

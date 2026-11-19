@@ -26,10 +26,24 @@ public sealed class ProcessRealtimeProjectionRepository : IProcessRealtimeProjec
             new PartitionKey(processId.ToString()),
             cancellationToken);
 
-    public async Task<ProcessRealtimeSummaryProjectionRecord> UpsertSummaryAsync(
+    public async Task<bool> TrySaveSummaryAsync(
         ProcessRealtimeSummaryProjectionRecord record,
-        CancellationToken cancellationToken) =>
-        (await _summaries.UpsertAsync(record, cancellationToken)).Resource;
+        bool create,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (create)
+                await _summaries.CreateAsync(record, cancellationToken);
+            else
+                await _summaries.ReplaceAsync(record, cancellationToken, record.ETag);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed or HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
 
     public Task<ProcessNodeRealtimeProjectionRecord?> GetNodeAsync(
         Guid processId,

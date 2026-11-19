@@ -219,6 +219,7 @@ builder.Services.AddSingleton<StepClaimService>();
 builder.Services.AddSingleton<ActivationPlanner>();
 builder.Services.AddTransient<ActivationPersistenceService>();
 builder.Services.AddTransient<CollectionIteratorExecutionService>();
+builder.Services.AddTransient<ConditionalBranchExecutionService>();
 builder.Services.AddTransient<ICollectionIteratorExecutionService>(provider => provider.GetRequiredService<CollectionIteratorExecutionService>());
 builder.Services.AddSingleton<ProcessLifecycleTelemetry>();
 builder.Services.AddSingleton<ProcessStepDispatchTelemetry>();

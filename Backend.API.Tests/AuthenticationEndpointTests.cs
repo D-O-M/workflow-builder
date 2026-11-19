@@ -13,7 +13,7 @@ using Shouldly;
 
 namespace Backend.API.Tests;
 
-public sealed class AuthenticationEndpointTests
+public sealed partial class AuthenticationEndpointTests
 {
     private static readonly SemaphoreSlim EnvironmentLock = new(1, 1);
 
@@ -61,6 +61,7 @@ public sealed class AuthenticationEndpointTests
             config.Authentication.Enabled.ShouldBeTrue();
             config.Authentication.Authority.ShouldBe("https://localhost:8080/realms/workflow-builder");
             config.Authentication.ClientId.ShouldBe("workflow-builder-spa");
+            config.Features.ConditionalBranchAuthoring.ShouldBeTrue();
         }
         finally
         {
@@ -112,7 +113,10 @@ public sealed class AuthenticationEndpointTests
         string ApiBaseUrl,
         string SignalRBaseUrl,
         string GrafanaBaseUrl,
-        ClientConfigAuthenticationResponse Authentication);
+        ClientConfigAuthenticationResponse Authentication,
+        ClientFeaturesResponse Features);
+
+    private sealed record ClientFeaturesResponse(bool ConditionalBranchAuthoring);
 
     private sealed record ClientConfigAuthenticationResponse(
         bool Enabled,

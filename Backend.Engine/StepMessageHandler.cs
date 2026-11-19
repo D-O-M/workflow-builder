@@ -93,6 +93,13 @@ public sealed class StepMessageHandler
             return;
         }
 
+        if (blueprintNode.NodeKind is ExecutableBlueprintNodeKind.ConditionalBranch)
+        {
+            await scope.ServiceProvider.GetRequiredService<ConditionalBranchExecutionService>()
+                .ExecuteAsync(context, cancellationToken);
+            return;
+        }
+
         if (blueprintNode.NodeKind is ExecutableBlueprintNodeKind.CollectionIterator)
         {
             await scope.ServiceProvider.GetRequiredService<ICollectionIteratorExecutionService>()

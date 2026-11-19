@@ -13,7 +13,8 @@ public sealed record ActivationPlanningRequest(
     PluginExecutionResult ExecutionResult,
     ProcessStepIterationContext? IterationContext,
     IReadOnlyDictionary<string, Dictionary<string, JsonElement>> RuntimeNodeOverrides,
-    IReadOnlyDictionary<Guid, JoinReadinessSnapshot>? JoinReadinessSnapshots = null);
+    IReadOnlyDictionary<Guid, JoinReadinessSnapshot>? JoinReadinessSnapshots = null,
+    bool SourceSkipped = false);
 
 public sealed record CollectionIteratorActivationPlanningRequest(
     ExecutableBlueprint ExecutableBlueprint,
@@ -39,7 +40,8 @@ public sealed record ActivationIntent(
     ExecutableBlueprintNode DestinationNode,
     InputHydrationPlan InputHydrationPlan,
     ProcessStepIterationContext? IterationContext,
-    Guid? JoinStateId);
+    Guid? JoinStateId,
+    bool IsSkipped = false);
 
 public sealed record JoinSourceObservation(
     Guid ProcessId,
@@ -47,7 +49,8 @@ public sealed record JoinSourceObservation(
     Guid JoinStateId,
     Guid DestinationBlueprintNodeId,
     IReadOnlyCollection<string> RequiredBindingIds,
-    InputHydrationSource Source);
+    InputHydrationSource Source,
+    bool IsInactive = false);
 
 public sealed record JoinReadinessSnapshot(
     Guid ProcessId,
@@ -57,7 +60,8 @@ public sealed record JoinReadinessSnapshot(
     IReadOnlyCollection<string> RequiredBindingIds,
     IReadOnlyDictionary<string, InputHydrationSource> ReceivedSources,
     bool ActivationMaterialized,
-    Guid? MaterializedProcessStepId);
+    Guid? MaterializedProcessStepId,
+    IReadOnlySet<string>? InactiveBindingIds = null);
 
 public sealed class ActivationPlanner
 {
@@ -71,7 +75,8 @@ public sealed class ActivationPlanner
 
         foreach (var outputChannel in request.CurrentNode.OutputChannels.Values)
         {
-            if (!request.ExecutionResult.OutputData.ContainsKey(outputChannel.Name))
+            var inactive = request.SourceSkipped || !request.ExecutionResult.OutputData.ContainsKey(outputChannel.Name);
+            if (inactive && !request.SourceSkipped && request.CurrentNode.NodeKind != ExecutableBlueprintNodeKind.ConditionalBranch)
             {
                 continue;
             }
@@ -96,13 +101,14 @@ public sealed class ActivationPlanner
                     request.JoinReadinessSnapshots,
                     inlineInput: null,
                     intents,
-                    observations);
+                    observations,
+                    inactive);
             }
         }
 
         return intents.Count == 0 && observations.Count == 0
             ? ActivationPlan.Empty
-            : new ActivationPlan(intents, observations);
+            : new ActivationPlan(intents.DistinctBy(intent => intent.ProcessStepId).ToList(), observations);
     }
 
     public ActivationPlan PlanCollectionIteratorItemActivations(
@@ -164,7 +170,7 @@ public sealed class ActivationPlanner
 
         return intents.Count == 0 && observations.Count == 0
             ? ActivationPlan.Empty
-            : new ActivationPlan(intents, observations);
+            : new ActivationPlan(intents.DistinctBy(intent => intent.ProcessStepId).ToList(), observations);
     }
 
     private static void AddActivation(
@@ -180,7 +186,8 @@ public sealed class ActivationPlanner
         IReadOnlyDictionary<Guid, JoinReadinessSnapshot>? joinReadinessSnapshots,
         Dictionary<string, JsonElement>? inlineInput,
         List<ActivationIntent> intents,
-        List<JoinSourceObservation> observations)
+        List<JoinSourceObservation> observations,
+        bool inactive = false)
     {
         var source = CreateHydrationSource(
             sourceProcessStepId,
@@ -195,10 +202,10 @@ public sealed class ActivationPlanner
                 blueprintDefinitionId,
                 executableBlueprintId,
                 destinationNode,
-                [source],
+                inactive ? [] : [source],
                 iterationContext,
                 runtimeNodeOverrides,
-                joinStateId: null));
+                joinStateId: null) with { IsSkipped = inactive });
             return;
         }
 
@@ -212,7 +219,8 @@ public sealed class ActivationPlanner
             joinStateId,
             destinationNode.Id,
             requiredBindingIds,
-            source));
+            source,
+            inactive));
 
         if (joinReadinessSnapshots is null ||
             !joinReadinessSnapshots.TryGetValue(joinStateId, out var snapshot))
@@ -226,14 +234,15 @@ public sealed class ActivationPlanner
             return;
         }
 
-        var receivedSources = new Dictionary<string, InputHydrationSource>(
-            snapshot.ReceivedSources,
-            StringComparer.Ordinal)
+        var receivedSources = new Dictionary<string, InputHydrationSource>(snapshot.ReceivedSources, StringComparer.Ordinal);
+        if (!inactive)
         {
-            [source.BindingId] = source
-        };
+            receivedSources[source.BindingId] = source;
+        }
 
-        if (!requiredBindingIds.All(receivedSources.ContainsKey))
+        if (!requiredBindingIds.All(id => receivedSources.ContainsKey(id)
+            || snapshot.InactiveBindingIds?.Contains(id) == true
+            || (inactive && id == source.BindingId)))
         {
             return;
         }
@@ -243,13 +252,12 @@ public sealed class ActivationPlanner
             blueprintDefinitionId,
             executableBlueprintId,
             destinationNode,
-            requiredBindingIds
-                .OrderBy(bindingId => bindingId, StringComparer.Ordinal)
-                .Select(bindingId => receivedSources[bindingId])
+            receivedSources.OrderBy(entry => entry.Key, StringComparer.Ordinal)
+                .Select(entry => entry.Value)
                 .ToList(),
             iterationContext,
             runtimeNodeOverrides,
-            joinStateId));
+            joinStateId) with { IsSkipped = receivedSources.Count == 0 });
     }
 
     private static ActivationIntent CreateIntent(

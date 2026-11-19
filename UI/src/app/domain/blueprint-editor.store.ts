@@ -1,11 +1,14 @@
 import { Injectable, computed, signal } from '@angular/core';
 import { ConnectionModel } from './connection-model';
+import { markChangedConditionalFields } from './conditional-rule';
 import { NodeModel } from './node-model';
 import { ITaskDefinition, ITaskVersion } from '../interfaces/ITaskDefinition';
 import { getLatestTaskVersion } from './task-version-utils';
 import { CanvasModifierState } from '../components/blueprint-canvas-contract';
 import {
   BlueprintCollectionIteratorCreateRequest,
+  BlueprintConditionalBranchCreateRequest,
+  BlueprintConditionalRuleUpdate,
   BlueprintConnectionCreateRequest,
   BlueprintConnectionMappingUpdate,
   BlueprintDataBridgeInputPropertyRequest,
@@ -32,6 +35,7 @@ import {
 import {
   cloneBlueprintPropertyDefinitions,
   createBlueprintCollectionIteratorNodeModel,
+  createBlueprintConditionalBranchNodeModel,
   createBlueprintPluginTaskNodeModel,
   instantiateBlueprintNodeSnapshot,
   moveBlueprintNodeModel,
@@ -129,7 +133,7 @@ export class BlueprintEditorStore {
     const nodes = [...graph.nodes];
     this._nodes.set(nodes);
     this._connections.set(rebindBlueprintConnections(graph.connections, nodes));
-    this.retuneCollectionIteratorNodes();
+    this.retuneNativeNodes();
     this._selectedNodeIds.set([]);
     this._selectedConnectionIds.set([]);
     this._history.set([]);
@@ -184,6 +188,29 @@ export class BlueprintEditorStore {
     return node;
   }
 
+  createConditionalBranchNode(request: BlueprintConditionalBranchCreateRequest): NodeModel {
+    this.captureHistory();
+    const { x, y } = request.placement.coordinates;
+    const node = createBlueprintConditionalBranchNodeModel({
+      nodeId: this.allocateNodeId(), coordinates: { x: this.snap(x), y: this.snap(y) },
+    });
+    this._nodes.update(nodes => [...nodes, node]);
+    this.selectOnlyNode(node.id);
+    return node;
+  }
+
+  updateConditionalRule(request: BlueprintConditionalRuleUpdate): void {
+    const node = this.getNodeById(request.nodeId);
+    if (node?.nodeKind !== 'ConditionalBranch') return;
+    this.captureHistory();
+    const replacement = createBlueprintConditionalBranchNodeModel({
+      nodeId: node.id, coordinates: node, fields: node.inputPropertyDefinitions, rule: request.rule,
+      instanceId: node.instanceId,
+    });
+    this._nodes.update(nodes => nodes.map(current => current === node ? replacement : current));
+    this._connections.set(rebindBlueprintConnections(this._connections(), this._nodes()));
+  }
+
   createCollectionIteratorNode(request: BlueprintCollectionIteratorCreateRequest): NodeModel {
     this.captureHistory();
     const node = createBlueprintCollectionIteratorNodeModel({
@@ -230,6 +257,12 @@ export class BlueprintEditorStore {
       return null;
     }
 
+    if (to.nodeKind === 'ConditionalBranch' &&
+        (from.isDataBridge || !from.outputChannelNameForAnchor(request.source.anchor) ||
+          this._connections().some(connection => connection.to.id === to.id))) {
+      return null;
+    }
+
     if (!canCreateBlueprintConnection(from, to)) {
       return null;
     }
@@ -256,7 +289,7 @@ export class BlueprintEditorStore {
       propertyMappings: defaultMappings,
     });
     this._connections.update((connections) => [...connections, connection]);
-    this.retuneCollectionIteratorNodes();
+    this.retuneNativeNodes();
     this._selectedNodeIds.set([]);
     this._selectedConnectionIds.set([connection.id]);
     return this._connections().find((candidate) => candidate.id === connection.id) ?? connection;
@@ -433,12 +466,12 @@ export class BlueprintEditorStore {
     this._selectedConnectionIds.set(this._selectedConnectionIds().filter((connectionId) =>
       nextConnections.some((connection) => connection.id === connectionId),
     ));
-    this.retuneCollectionIteratorNodes();
+    this.retuneNativeNodes();
   }
 
   updateConnectionPropertyMappings(request: BlueprintConnectionMappingUpdate): void {
     const connection = this._connections().find((candidate) => candidate.id === request.connectionId);
-    if (!connection) {
+    if (!connection || connection.to.nodeKind === 'ConditionalBranch') {
       return;
     }
 
@@ -460,7 +493,7 @@ export class BlueprintEditorStore {
             propertyMappings: request.propertyMappings,
           }),
     ));
-    this.retuneCollectionIteratorNodes();
+    this.retuneNativeNodes();
   }
 
   selectOnlyNode(nodeId: number | null): void {
@@ -519,7 +552,7 @@ export class BlueprintEditorStore {
 
     this._nodes.set(remainingNodes);
     this._connections.set(rebindBlueprintConnections(remainingConnections, remainingNodes));
-    this.retuneCollectionIteratorNodes();
+    this.retuneNativeNodes();
     this.clearSelection();
   }
 
@@ -588,6 +621,7 @@ export class BlueprintEditorStore {
 
     this._nodes.set(nodes);
     this._connections.set([...this._connections(), ...nextConnections]);
+    this.retuneNativeNodes();
     this._selectedNodeIds.set(nextNodes.map((node) => node.id));
     this._selectedConnectionIds.set(nextConnections.map((connection) => connection.id));
     this.pasteCount += 1;
@@ -714,36 +748,74 @@ export class BlueprintEditorStore {
     this._selectedConnectionIds.set([...selection.selectedConnectionIds]);
   }
 
-  private retuneCollectionIteratorNodes(): void {
-    const nodes = this._nodes();
-    const tunedNodes = nodes.map((node) => {
-      if (node.nodeKind !== 'CollectionIterator') {
-        return node;
-      }
-
-      const incomingCollectionKind = collectionKindFromIncomingBlueprintMappings(node.id, this._connections());
-      const itemKind = incomingCollectionKind
-        ? toBlueprintScalarKind(incomingCollectionKind)
-        : null;
-      if (itemKind === node.collectionIteratorItemKind) {
-        return node;
-      }
-
-      return createBlueprintCollectionIteratorNodeModel({
-        nodeId: node.id,
-        coordinates: { x: node.x, y: node.y },
-        itemKind,
-        instanceId: node.instanceId,
-        expanded: node.expanded,
-      });
-    });
-
-    if (tunedNodes.every((node, index) => node === nodes[index])) {
-      return;
+  private retuneNativeNodes(): void {
+    const connections = this._connections();
+    const incoming = new Map<number, ConnectionModel[]>();
+    for (const connection of connections) {
+      const list = incoming.get(connection.to.id) ?? [];
+      list.push(connection);
+      incoming.set(connection.to.id, list);
     }
 
-    this._nodes.set(tunedNodes);
-    this._connections.set(rebindBlueprintConnections(this._connections(), tunedNodes));
+    // Resolve native chains from their upstream schemas, even when the canvas order differs.
+    const tuned = new Map<number, NodeModel>();
+    const visiting = new Set<number>();
+    const tune = (node: NodeModel): NodeModel => {
+      const cached = tuned.get(node.id);
+      if (cached) return cached;
+      if (visiting.has(node.id) || (node.nodeKind !== 'ConditionalBranch' && node.nodeKind !== 'CollectionIterator')) {
+        return node;
+      }
+      visiting.add(node.id);
+      const sources = (incoming.get(node.id) ?? []).map(connection => createBlueprintConnectionModel({
+        source: { node: tune(connection.from), anchor: connection.anchor },
+        destination: { node, side: connection.side, position: connection.pos },
+        id: connection.id, propertyMappings: connection.propertyMappings,
+      }));
+      let next = node;
+      if (node.nodeKind === 'ConditionalBranch') {
+        const source = sources[0];
+        const fields = source?.from.outputPropertyDefinitionsForAnchor(source.anchor) ?? [];
+        if (JSON.stringify(node.inputPropertyDefinitions) !== JSON.stringify(fields)) {
+          const rule = node.conditionalRule && markChangedConditionalFields(node.conditionalRule, node.inputPropertyDefinitions, fields);
+          next = createBlueprintConditionalBranchNodeModel({
+            nodeId: node.id, coordinates: node, fields, rule, instanceId: node.instanceId,
+          });
+        }
+      } else {
+        const kind = collectionKindFromIncomingBlueprintMappings(node.id, sources);
+        const itemKind = kind ? toBlueprintScalarKind(kind) : null;
+        const enumValues = itemKind === 'Enum' ? this.iteratorEnumValues(sources) : [];
+        if (itemKind !== node.collectionIteratorItemKind ||
+            JSON.stringify(enumValues) !== JSON.stringify(node.inputPropertyDefinitions[0]?.enumValues ?? [])) {
+          next = createBlueprintCollectionIteratorNodeModel({
+            nodeId: node.id, coordinates: node, itemKind, enumValues, instanceId: node.instanceId, expanded: node.expanded,
+          });
+        }
+      }
+      visiting.delete(node.id);
+      tuned.set(node.id, next);
+      return next;
+    };
+
+    const nodes = this._nodes();
+    const tunedNodes = nodes.map(tune);
+    if (tunedNodes.some((node, i) => node !== nodes[i])) {
+      this._nodes.set(tunedNodes);
+      this._connections.set(rebindBlueprintConnections(connections, tunedNodes));
+    }
+  }
+
+  private iteratorEnumValues(sources: readonly ConnectionModel[]): string[] {
+    const members = new Set<string>();
+    for (const edge of sources) {
+      const binding = edge.propertyMappings.find(mapping => mapping.targetProperty === 'items');
+      const sourceName = edge.propertyMappings.length ? binding?.sourceProperty : 'items';
+      const property = edge.from.outputPropertyDefinitionsForAnchor(edge.anchor)
+        .find(field => field.name === sourceName && field.kind === 'Enum[]');
+      for (const member of property?.enumValues ?? []) members.add(member);
+    }
+    return [...members].sort();
   }
 
   private snap(value: number): number {

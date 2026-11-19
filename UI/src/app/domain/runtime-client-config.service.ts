@@ -4,6 +4,7 @@ export interface RuntimeClientConfig {
   apiBaseUrl: string;
   signalRBaseUrl: string;
   grafanaBaseUrl: string;
+  features?: { conditionalBranchAuthoring?: boolean };
   authentication?: RuntimeAuthenticationConfig;
 }
 
@@ -45,6 +46,7 @@ export class RuntimeClientConfigService {
       apiBaseUrl: this.normalizeBaseUrl(config.apiBaseUrl),
       signalRBaseUrl: this.normalizeBaseUrl(config.signalRBaseUrl),
       grafanaBaseUrl: this.normalizeBaseUrl(config.grafanaBaseUrl),
+      features: config.features,
       authentication: this.normalizeAuthentication(config.authentication),
     };
   }
@@ -59,6 +61,10 @@ export class RuntimeClientConfigService {
 
   get grafanaBaseUrl(): string {
     return this.requireConfig().grafanaBaseUrl;
+  }
+
+  get conditionalBranchAuthoring(): boolean {
+    return this.config?.features?.conditionalBranchAuthoring === true;
   }
 
   get authentication(): RuntimeAuthenticationConfig {

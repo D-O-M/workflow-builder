@@ -25,7 +25,8 @@ public enum ProcessStepStatus
     Pending,
     InProgress,
     Completed,
-    Failed
+    Failed,
+    Skipped
 }
 
 public enum ProcessStepDispatchStatus
@@ -52,7 +53,8 @@ public enum ProcessStepFinalizationOutcome
 public enum ProcessStepFinalizationSource
 {
     Plugin,
-    CollectionIterator
+    CollectionIterator,
+    ConditionalBranch
 }
 
 public enum ProcessStepFinalizationStage
@@ -558,6 +560,11 @@ public sealed record PluginIngestionStatusPage(
 
 public sealed class ProcessRealtimeSummaryProjectionRecord
 {
+    // Increases as the canonical Process settles Steps or expands an iterator.
+    // A missing value means only Step contributions have been projected.
+    [JsonPropertyName("processProgressOrder")]
+    public long? ProcessProgressOrder { get; set; }
+
     private string _id = null!;
 
     [JsonPropertyName("id")]
@@ -598,6 +605,9 @@ public sealed class ProcessRealtimeSummaryProjectionRecord
 
     [JsonPropertyName("inProgressStepCount")]
     public int InProgressStepCount { get; set; }
+
+    [JsonPropertyName("skippedStepCount")]
+    public int SkippedStepCount { get; set; }
 
     [JsonPropertyName("completedStepCount")]
     public int CompletedStepCount { get; set; }
@@ -704,6 +714,12 @@ public sealed class ProcessRealtimeStepStatusContribution
 
 public sealed class ProcessNodeRealtimeStepContribution
 {
+
+    [JsonPropertyName("selectedChannel")]
+    public string? SelectedChannel { get; init; }
+    [JsonPropertyName("iterationContext")]
+    public ProcessStepIterationContext? IterationContext { get; init; }
+
     [JsonPropertyName("processStepId")]
     public required string ProcessStepId { get; init; }
 
@@ -1123,6 +1139,9 @@ public sealed class ProcessExecutionProgress
     [JsonPropertyName("failedStepIds")]
     public HashSet<string> FailedStepIds { get; set; } = new(StringComparer.Ordinal);
 
+    [JsonPropertyName("skippedStepIds")]
+    public HashSet<string> SkippedStepIds { get; set; } = new(StringComparer.Ordinal);
+
     [JsonPropertyName("expandedCollectionIteratorStepIds")]
     public HashSet<string> ExpandedCollectionIteratorStepIds { get; set; } = new(StringComparer.Ordinal);
 }
@@ -1419,6 +1438,9 @@ public sealed class NodeJoinStateRecord
 
     [JsonPropertyName("receivedSources")]
     public Dictionary<string, InputHydrationSource> ReceivedSources { get; set; } = new(StringComparer.Ordinal);
+
+    [JsonPropertyName("inactiveBindingIds")]
+    public HashSet<string> InactiveBindingIds { get; set; } = new(StringComparer.Ordinal);
 
     [JsonPropertyName("activationMaterialized")]
     public bool ActivationMaterialized { get; set; }

@@ -4,6 +4,7 @@ using Backend.Database.Relational;
 using Backend.Database.Relational.Entities;
 using Backend.Database.State.Objects;
 using Backend.Interfaces.Repositories;
+using Backend.Models;
 using Backend.Models.Realtime;
 using Backend.Models.Versioning;
 using Backend.Models.ViewModels;
@@ -133,9 +134,12 @@ public sealed class ProcessProjectionService
             BlueprintNodeId = blueprintNode.Id,
             Name = GetNodeDisplayName(blueprintNode),
             NodeKind = blueprintNode.NodeKind.ToString(),
+            ConditionalRule = blueprintNode.ConditionalRuleJson is null ? null : JsonSerializer.Deserialize<ConditionalRule>(blueprintNode.ConditionalRuleJson, JsonSerializerOptions.Web),
+            ConditionalFields = blueprintNode.ConditionalFieldsJson is null ? [] : JsonSerializer.Deserialize<List<ConditionalField>>(blueprintNode.ConditionalFieldsJson, JsonSerializerOptions.Web) ?? [],
+            SelectedChannel = SelectedChannel(blueprintNode, taskState),
             CollectionIteratorItemKind = blueprintNode.CollectionIteratorItemKind,
             RuntimeStepCount = taskStates?.Count ?? 0,
-            Iterations = BuildIterationViewModels(taskStates),
+            Iterations = BuildIterationViewModels(blueprintNode, taskStates),
             Status = MapAggregateStatus(taskStates),
             ResolvedVersion = taskState?.ResolvedTaskVersion ?? actualResolvedVersion?.Version.ToString() ?? "Native",
             StartedAt = CalculateAggregateStartedAt(taskStates),
@@ -504,7 +508,7 @@ public sealed class ProcessProjectionService
             BlueprintName = definition.DisplayName,
             BlueprintVersionId = blueprintVersionEntity.Id,
             BlueprintVersionNumber = blueprintVersionEntity.Version,
-            Status = NormalizeProcessStatus(processRecord.Status, processSteps),
+            Status = NormalizeProcessStatus(processRecord, processSteps),
             CreatedAt = processRecord.CreatedAt,
             UpdatedAt = processRecord.UpdatedAt,
             StartingBlueprintNodeId = blueprintVersionEntity.StartingBlueprintNodeId ?? Guid.Empty,
@@ -713,9 +717,10 @@ public sealed class ProcessProjectionService
             BlueprintName = blueprintName,
             BlueprintVersionId = blueprintVersionId,
             BlueprintVersionNumber = blueprintVersionNumber,
-            Status = NormalizeProcessStatus(processRecord.Status, processSteps),
+            Status = NormalizeProcessStatus(processRecord, processSteps),
             CreatedAt = processRecord.CreatedAt,
             UpdatedAt = processRecord.UpdatedAt,
+            SkippedTaskCount = processSteps.Count(task => task.Status == ProcessStepStatus.Skipped),
             CompletedTaskCount = processSteps.Count(task => task.Status == ProcessStepStatus.Completed),
             FailedTaskCount = processSteps.Count(task => task.Status == ProcessStepStatus.Failed),
             InProgressTaskCount = processSteps.Count(task => task.Status == ProcessStepStatus.InProgress),
@@ -736,9 +741,10 @@ public sealed class ProcessProjectionService
             BlueprintName = blueprintName,
             BlueprintVersionId = blueprintVersionId,
             BlueprintVersionNumber = blueprintVersionNumber,
-            Status = NormalizeProcessStatus(processRecord.Status, processSteps),
+            Status = NormalizeProcessStatus(processRecord, processSteps),
             CreatedAt = processRecord.CreatedAt,
             UpdatedAt = processRecord.UpdatedAt,
+            SkippedTaskCount = processSteps.Count(task => task.Status == ProcessStepStatus.Skipped),
             CompletedTaskCount = processSteps.Count(task => task.Status == ProcessStepStatus.Completed),
             FailedTaskCount = processSteps.Count(task => task.Status == ProcessStepStatus.Failed),
             InProgressTaskCount = processSteps.Count(task => task.Status == ProcessStepStatus.InProgress),
@@ -761,6 +767,7 @@ public sealed class ProcessProjectionService
             Status = projection.Status.ToString(),
             CreatedAt = projection.CreatedAt,
             UpdatedAt = projection.UpdatedAt,
+            SkippedTaskCount = projection.SkippedStepCount,
             CompletedTaskCount = projection.CompletedStepCount,
             FailedTaskCount = projection.FailedStepCount,
             InProgressTaskCount = projection.InProgressStepCount,
@@ -779,6 +786,13 @@ public sealed class ProcessProjectionService
         {
             InstanceId = blueprintNode.Id,
             NodeKind = blueprintNode.NodeKind.ToString(),
+            ConditionalRule = blueprintNode.ConditionalRuleJson is null ? null : JsonSerializer.Deserialize<ConditionalRule>(blueprintNode.ConditionalRuleJson, JsonSerializerOptions.Web),
+            ConditionalFields = blueprintNode.ConditionalFieldsJson is null ? [] : JsonSerializer.Deserialize<List<ConditionalField>>(blueprintNode.ConditionalFieldsJson, JsonSerializerOptions.Web) ?? [],
+            SelectedChannel = SelectedChannel(blueprintNode, taskState),
+            SelectedChannels = blueprintNode.NodeKind == BlueprintNodeKind.ConditionalBranch
+                ? (taskStates ?? []).Select(step => OccurrenceChannel(blueprintNode, step)).OfType<string>()
+                    .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList()
+                : null,
             CollectionIteratorItemKind = blueprintNode.CollectionIteratorItemKind,
             RuntimeStepCount = taskStates?.Count ?? 0,
             TaskDefinitionId = blueprintNode.TaskDefinitionId ?? 0,
@@ -789,7 +803,7 @@ public sealed class ProcessProjectionService
             Name = GetNodeDisplayName(blueprintNode),
             Status = MapAggregateStatus(taskStates),
             StartedAt = CalculateAggregateStartedAt(taskStates),
-            CompletedAt = taskStates is not null && taskStates.Count > 0 && taskStates.All(step => step.Status == ProcessStepStatus.Completed)
+            CompletedAt = taskStates is not null && taskStates.Count > 0 && taskStates.All(step => step.Status is ProcessStepStatus.Completed or ProcessStepStatus.Skipped)
                 ? taskStates.Max(step => step.CompletedAt)
                 : null,
             FailedAt = taskStates?.Where(step => step.FailedAt.HasValue).Max(step => step.FailedAt),
@@ -838,11 +852,13 @@ public sealed class ProcessProjectionService
         {
             InstanceId = blueprintNode.Id,
             BlueprintNodeId = Guid.Parse(taskState.Id),
+            SelectedChannel = SelectedChannel(blueprintNode, taskState),
+            Iterations = BuildIterationViewModels(blueprintNode, taskStates),
             Status = MapAggregateStatus(taskStates),
             ResolvedVersionId = taskState.ResolvedTaskVersionId ?? actualResolvedVersion?.Id ?? 0,
             ResolvedVersion = taskState.ResolvedTaskVersion ?? actualResolvedVersion?.Version.ToString() ?? "Native",
             StartedAt = CalculateAggregateStartedAt(taskStates),
-            CompletedAt = taskStates.Count > 0 && taskStates.All(step => step.Status == ProcessStepStatus.Completed)
+            CompletedAt = taskStates.Count > 0 && taskStates.All(step => step.Status is ProcessStepStatus.Completed or ProcessStepStatus.Skipped)
                 ? taskStates.Max(step => step.CompletedAt)
                 : null,
             FailedAt = taskStates.Where(step => step.FailedAt.HasValue).Max(step => step.FailedAt),
@@ -866,6 +882,20 @@ public sealed class ProcessProjectionService
         {
             InstanceId = blueprintNode.Id,
             BlueprintNodeId = latestProcessStepId,
+            SelectedChannel = blueprintNode.NodeKind == BlueprintNodeKind.ConditionalBranch &&
+                projection.StepContributions.TryGetValue(projection.LatestProcessStepId!, out var latest) && latest.IterationContext is null
+                ? latest.SelectedChannel : null,
+            Iterations = projection.StepContributions.Values.Where(c => c.IterationContext is not null)
+                .OrderBy(c => c.IterationContext!.ItemIndex).Select(c => new ProcessStepIterationViewModel
+                {
+                    RuntimeStepId = Guid.Parse(c.ProcessStepId),
+                    SourceIteratorStepId = c.IterationContext!.SourceIteratorStepId,
+                    SourceIteratorBlueprintNodeId = c.IterationContext.SourceIteratorBlueprintNodeId,
+                    ItemIndex = c.IterationContext.ItemIndex,
+                    ItemKey = c.IterationContext.ItemKey,
+                    Status = MapTaskStatus(c.Status),
+                    SelectedChannel = blueprintNode.NodeKind == BlueprintNodeKind.ConditionalBranch ? c.SelectedChannel : null
+                }).ToList(),
             Status = MapAggregateStatus(projection.AggregateStatus),
             ResolvedVersionId = projection.ResolvedTaskVersionId ?? actualResolvedVersion?.Id ?? 0,
             ResolvedVersion = projection.ResolvedTaskVersion ?? actualResolvedVersion?.Version.ToString() ?? "Native",
@@ -879,7 +909,7 @@ public sealed class ProcessProjectionService
 
     private static TaskVersion? ResolveActualVersion(BlueprintNode blueprintNode, ProcessStepRecord? taskState)
     {
-        if (blueprintNode.NodeKind is BlueprintNodeKind.CollectionIterator)
+        if (blueprintNode.NodeKind != BlueprintNodeKind.PluginTask)
         {
             return null;
         }
@@ -892,9 +922,13 @@ public sealed class ProcessProjectionService
     }
 
     private static string NormalizeProcessStatus(
-        ProcessStatus processStatus,
+        ProcessInstanceRecord process,
         IReadOnlyCollection<ProcessStepRecord> tasks)
     {
+        if (process.ExecutionProgress?.TotalStepCount > 0)
+            return process.Status.ToString();
+        // Older Process records can lack execution progress.
+        var processStatus = process.Status;
         if (tasks.Any(task => task.Status == ProcessStepStatus.Failed))
         {
             return "Failed";
@@ -912,7 +946,7 @@ public sealed class ProcessProjectionService
                 : "InProgress";
         }
 
-        if (tasks.Count > 0 && tasks.All(task => task.Status == ProcessStepStatus.Completed))
+        if (tasks.Count > 0 && tasks.All(task => task.Status is ProcessStepStatus.Completed or ProcessStepStatus.Skipped))
         {
             return "Completed";
         }
@@ -971,7 +1005,8 @@ public sealed class ProcessProjectionService
                 : "InProgress";
         }
 
-        return taskStates.All(step => step.Status == ProcessStepStatus.Completed)
+        if (taskStates.All(step => step.Status == ProcessStepStatus.Skipped)) return "Skipped";
+        return taskStates.All(step => step.Status is ProcessStepStatus.Completed or ProcessStepStatus.Skipped)
             ? "Completed"
             : "Pending";
     }
@@ -979,6 +1014,7 @@ public sealed class ProcessProjectionService
     private static string MapAggregateStatus(ProcessStepStatus status) =>
         status switch
         {
+            ProcessStepStatus.Skipped => "Skipped",
             ProcessStepStatus.Completed => "Completed",
             ProcessStepStatus.InProgress => "InProgress",
             ProcessStepStatus.Failed => "Failed",
@@ -999,22 +1035,25 @@ public sealed class ProcessProjectionService
 
         return taskStates.Any(step => step.Status == ProcessStepStatus.Failed)
             ? taskStates.Where(step => step.FailedAt.HasValue).Max(step => step.FailedAt)
-            : taskStates.All(step => step.Status == ProcessStepStatus.Completed)
+            : taskStates.All(step => step.Status is ProcessStepStatus.Completed or ProcessStepStatus.Skipped)
                 ? taskStates.Where(step => step.CompletedAt.HasValue).Max(step => step.CompletedAt)
                 : null;
     }
 
     private static string GetNodeDisplayName(BlueprintNode blueprintNode) =>
+        blueprintNode.NodeKind == BlueprintNodeKind.ConditionalBranch ? "Conditional Branch" :
         blueprintNode.NodeKind is BlueprintNodeKind.CollectionIterator
             ? "Collection Iterator"
             : blueprintNode.TaskDefinition?.DisplayName ?? blueprintNode.TaskDefinition?.Name ?? "Task";
 
     private static string? GetInputChannelName(BlueprintNode blueprintNode, TaskVersion? actualResolvedVersion) =>
+        blueprintNode.NodeKind == BlueprintNodeKind.ConditionalBranch ? "Input" :
         blueprintNode.NodeKind is BlueprintNodeKind.CollectionIterator
             ? "Collection"
             : actualResolvedVersion?.InputChannels.SingleOrDefault()?.Name;
 
     private static List<string> GetOutputChannelNames(BlueprintNode blueprintNode, TaskVersion? actualResolvedVersion) =>
+        blueprintNode.NodeKind == BlueprintNodeKind.ConditionalBranch ? ["True", "False"] :
         blueprintNode.NodeKind is BlueprintNodeKind.CollectionIterator
             ? ["Item"]
             : actualResolvedVersion?.OutputChannels
@@ -1022,7 +1061,15 @@ public sealed class ProcessProjectionService
                 .Select(channel => channel.Name)
                 .ToList() ?? [];
 
+    private static string? SelectedChannel(BlueprintNode node, ProcessStepRecord? step) =>
+        step?.IterationContext is null ? OccurrenceChannel(node, step) : null;
+
+    private static string? OccurrenceChannel(BlueprintNode node, ProcessStepRecord? step) =>
+        node.NodeKind == BlueprintNodeKind.ConditionalBranch && step?.OutputData?.Count == 1
+            ? step.OutputData.Keys.Single() : null;
+
     private static List<ProcessStepIterationViewModel> BuildIterationViewModels(
+        BlueprintNode node,
         IReadOnlyList<ProcessStepRecord>? taskStates) =>
         taskStates?
             .Where(step => step.IterationContext is not null)
@@ -1036,6 +1083,7 @@ public sealed class ProcessProjectionService
                 SourceIteratorBlueprintNodeId = step.IterationContext.SourceIteratorBlueprintNodeId,
                 ItemIndex = step.IterationContext.ItemIndex,
                 ItemKey = step.IterationContext.ItemKey,
+                SelectedChannel = OccurrenceChannel(node, step),
                 Status = MapTaskStatus(step.Status)
             })
             .ToList() ?? [];
@@ -1043,6 +1091,7 @@ public sealed class ProcessProjectionService
     private static string MapTaskStatus(ProcessStepStatus status) =>
         status switch
         {
+            ProcessStepStatus.Skipped => "Skipped",
             ProcessStepStatus.Completed => "Completed",
             ProcessStepStatus.InProgress => "InProgress",
             ProcessStepStatus.Failed => "Failed",
@@ -1076,7 +1125,7 @@ public sealed class ProcessProjectionService
         BlueprintNode blueprintNode,
         ProcessNodeRealtimeProjectionRecord projection)
     {
-        if (blueprintNode.NodeKind is BlueprintNodeKind.CollectionIterator)
+        if (blueprintNode.NodeKind != BlueprintNodeKind.PluginTask)
         {
             return null;
         }

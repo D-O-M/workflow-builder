@@ -8,7 +8,7 @@ namespace Backend.Repositories.Processes;
 
 public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectionService
 {
-    private const int MaxNodeUpdateAttempts = 10;
+    private const int MaxUpdateAttempts = 10;
 
     private readonly IProcessRealtimeProjectionRepository _repository;
     private readonly ILogger<ProcessRealtimeProjectionService>? _logger;
@@ -28,13 +28,7 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
         CancellationToken cancellationToken)
     {
         var incoming = CreateSummaryProjection(process, blueprintDefinitionId, blueprintVersionId);
-        var existing = await _repository.GetSummaryAsync(
-            Guid.Parse(process.ProcessId),
-            cancellationToken);
-
-        await _repository.UpsertSummaryAsync(
-            MergeSummary(existing, incoming),
-            cancellationToken);
+        await MergeAndSaveSummaryAsync(incoming, cancellationToken);
     }
 
     public async Task UpsertFromStepAsync(
@@ -55,15 +49,15 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
         CancellationToken cancellationToken)
     {
         var summary = CreateSummaryProjection(process, blueprintDefinitionId, blueprintVersionId);
-        foreach (var step in steps)
+        var current = steps;
+        foreach (var step in current)
         {
             summary.StepStatusContributions[step.Id] = CreateSummaryContribution(step);
         }
 
-        RecalculateSummary(summary);
-        await _repository.UpsertSummaryAsync(summary, cancellationToken);
+        await MergeAndSaveSummaryAsync(summary, cancellationToken);
 
-        foreach (var group in steps
+        foreach (var group in current
             .Where(step => Guid.TryParse(step.BlueprintNodeId, out _))
             .GroupBy(step => step.BlueprintNodeId, StringComparer.Ordinal))
         {
@@ -95,9 +89,7 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
         int blueprintVersionId,
         CancellationToken cancellationToken)
     {
-        var processId = Guid.Parse(step.ProcessId);
-        var existing = await _repository.GetSummaryAsync(processId, cancellationToken);
-        var summary = existing ?? new ProcessRealtimeSummaryProjectionRecord
+        var summary = new ProcessRealtimeSummaryProjectionRecord
         {
             id = step.ProcessId,
             ProcessId = step.ProcessId,
@@ -111,13 +103,21 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
             IndexedAt = DateTimeOffset.UtcNow
         };
 
-        summary.BlueprintDefinitionId = blueprintDefinitionId;
-        summary.BlueprintVersionId = blueprintVersionId;
-        summary.CreatedAt = Min(summary.CreatedAt, step.CreatedAt);
         summary.StepStatusContributions[step.Id] = CreateSummaryContribution(step);
-        RecalculateSummary(summary);
+        await MergeAndSaveSummaryAsync(summary, cancellationToken);
+    }
 
-        await _repository.UpsertSummaryAsync(summary, cancellationToken);
+    private async Task MergeAndSaveSummaryAsync(ProcessRealtimeSummaryProjectionRecord incoming, CancellationToken cancellationToken)
+    {
+        var processId = Guid.Parse(incoming.ProcessId);
+        for (var attempt = 0; attempt < MaxUpdateAttempts; attempt++)
+        {
+            var existing = await _repository.GetSummaryAsync(processId, cancellationToken);
+            var summary = MergeSummary(existing, incoming);
+            if (await _repository.TrySaveSummaryAsync(summary, create: existing is null, cancellationToken))
+                return;
+        }
+        throw new InvalidOperationException($"Could not update realtime summary for Process {processId}.");
     }
 
     private async Task UpsertNodeFromStepAsync(
@@ -130,7 +130,7 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
             return;
         }
 
-        for (var attempt = 0; attempt < MaxNodeUpdateAttempts; attempt++)
+        for (var attempt = 0; attempt < MaxUpdateAttempts; attempt++)
         {
             var existing = await _repository.GetNodeAsync(
                 processId,
@@ -138,7 +138,7 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
                 cancellationToken);
 
             var node = existing ?? CreateNodeProjection(step);
-            node.StepContributions[step.Id] = CreateNodeContribution(step);
+            MergeNodeContribution(node, step.Id, CreateNodeContribution(step));
             RecalculateNode(node);
 
             if (existing is null)
@@ -169,7 +169,7 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
         var processId = Guid.Parse(incoming.ProcessId);
         var blueprintNodeId = Guid.Parse(incoming.BlueprintNodeId);
 
-        for (var attempt = 0; attempt < MaxNodeUpdateAttempts; attempt++)
+        for (var attempt = 0; attempt < MaxUpdateAttempts; attempt++)
         {
             var existing = await _repository.GetNodeAsync(processId, blueprintNodeId, cancellationToken);
             var node = existing is null ? incoming : MergeNode(existing, incoming);
@@ -209,10 +209,12 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
             BlueprintDefinitionId = blueprintDefinitionId,
             BlueprintVersionId = blueprintVersionId,
             Status = process.Status,
+            ProcessProgressOrder = ProcessProgressOrder(process),
             TotalStepCount = Math.Max(
                 process.ExecutionProgress?.TotalStepCount ?? 0,
                 (process.ExecutionProgress?.CompletedStepIds.Count ?? 0) +
-                    (process.ExecutionProgress?.FailedStepIds.Count ?? 0)),
+                    (process.ExecutionProgress?.FailedStepIds.Count ?? 0) + (process.ExecutionProgress?.SkippedStepIds.Count ?? 0)),
+            SkippedStepCount = process.ExecutionProgress?.SkippedStepIds.Count ?? 0,
             CompletedStepCount = process.ExecutionProgress?.CompletedStepIds.Count ?? 0,
             FailedStepCount = process.ExecutionProgress?.FailedStepIds.Count ?? 0,
             PendingStepCount = process.Status is ProcessStatus.Pending ? 1 : 0,
@@ -221,6 +223,16 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
             UpdatedAt = process.UpdatedAt ?? process.CreatedAt,
             IndexedAt = DateTimeOffset.UtcNow
         };
+
+    private static long ProcessProgressOrder(ProcessInstanceRecord process)
+    {
+        // Cosmos ETags are opaque and finalization can replay an older completion time.
+        // These sets only grow and each iterator adjustment has a distinct expansion ID.
+        var progress = process.ExecutionProgress;
+        long effects = (progress?.CompletedStepIds.Count ?? 0) + (long)(progress?.FailedStepIds.Count ?? 0)
+            + (progress?.SkippedStepIds.Count ?? 0) + (progress?.ExpandedCollectionIteratorStepIds.Count ?? 0);
+        return effects * 4 + (int)process.Status;
+    }
 
     private static ProcessNodeRealtimeProjectionRecord CreateNodeProjection(ProcessStepRecord step) =>
         new()
@@ -249,6 +261,8 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
         {
             ProcessStepId = step.Id,
             Status = step.Status,
+            SelectedChannel = step.OutputData?.Count == 1 && step.OutputData.Keys.First() is "True" or "False" ? step.OutputData.Keys.First() : null,
+            IterationContext = step.IterationContext,
             ResolvedTaskVersionId = step.ResolvedTaskVersionId,
             ResolvedTaskVersion = step.ResolvedTaskVersion,
             StartedAt = step.StartedAt,
@@ -271,7 +285,10 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
 
         foreach (var (stepId, contribution) in incoming.StepStatusContributions)
         {
-            existing.StepStatusContributions[stepId] = contribution;
+            if (!existing.StepStatusContributions.TryGetValue(stepId, out var previous)
+                || AcceptContribution(0, previous.Status, previous.UpdatedAt ?? previous.CreatedAt,
+                    0, contribution.Status, contribution.UpdatedAt ?? contribution.CreatedAt))
+                existing.StepStatusContributions[stepId] = contribution;
         }
 
         existing.BlueprintDefinitionId = incoming.BlueprintDefinitionId;
@@ -279,12 +296,19 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
         existing.CreatedAt = Min(existing.CreatedAt, incoming.CreatedAt);
         existing.UpdatedAt = Max(existing.UpdatedAt, incoming.UpdatedAt);
         existing.IndexedAt = DateTimeOffset.UtcNow;
-        if (existing.StepStatusContributions.Count == 0)
+        if (incoming.ProcessProgressOrder is long order && order >= (existing.ProcessProgressOrder ?? -1))
         {
+            existing.ProcessProgressOrder = order;
             existing.Status = incoming.Status;
-            existing.TotalStepCount = Math.Max(existing.TotalStepCount, incoming.TotalStepCount);
-            existing.CompletedStepCount = Math.Max(existing.CompletedStepCount, incoming.CompletedStepCount);
-            existing.FailedStepCount = Math.Max(existing.FailedStepCount, incoming.FailedStepCount);
+            existing.TotalStepCount = incoming.TotalStepCount;
+            if (existing.StepStatusContributions.Count == 0)
+            {
+                existing.PendingStepCount = incoming.PendingStepCount;
+                existing.InProgressStepCount = incoming.InProgressStepCount;
+            }
+            existing.SkippedStepCount = incoming.SkippedStepCount;
+            existing.CompletedStepCount = incoming.CompletedStepCount;
+            existing.FailedStepCount = incoming.FailedStepCount;
         }
 
         RecalculateSummary(existing);
@@ -297,7 +321,7 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
     {
         foreach (var (stepId, contribution) in incoming.StepContributions)
         {
-            existing.StepContributions[stepId] = contribution;
+            MergeNodeContribution(existing, stepId, contribution);
         }
 
         existing.CreatedAt = Min(existing.CreatedAt, incoming.CreatedAt);
@@ -306,21 +330,52 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
         return existing;
     }
 
+    private static void MergeNodeContribution(ProcessNodeRealtimeProjectionRecord node, string stepId, ProcessNodeRealtimeStepContribution contribution)
+    {
+        if (!node.StepContributions.TryGetValue(stepId, out var previous)
+            || AcceptContribution(0, previous.Status, previous.UpdatedAt ?? previous.CreatedAt,
+                0, contribution.Status, contribution.UpdatedAt ?? contribution.CreatedAt))
+            node.StepContributions[stepId] = contribution;
+    }
+
+    private static bool AcceptContribution(long previousSequence, ProcessStepStatus previous, DateTimeOffset previousTime,
+        long incomingSequence, ProcessStepStatus incoming, DateTimeOffset incomingTime)
+    {
+        if (previousSequence != incomingSequence) return incomingSequence > previousSequence;
+        if (previous is ProcessStepStatus.Completed or ProcessStepStatus.Failed or ProcessStepStatus.Skipped)
+            return previous == incoming && incomingTime >= previousTime;
+        if (incoming is ProcessStepStatus.Completed or ProcessStepStatus.Failed or ProcessStepStatus.Skipped)
+            return true;
+        return incomingTime > previousTime || (incomingTime == previousTime && incoming >= previous);
+    }
+
     private static void RecalculateSummary(ProcessRealtimeSummaryProjectionRecord summary)
     {
         if (summary.StepStatusContributions.Count > 0)
         {
             var contributions = summary.StepStatusContributions.Values.ToList();
-            summary.TotalStepCount = contributions.Count;
+            summary.TotalStepCount = Math.Max(summary.TotalStepCount, contributions.Count);
             summary.PendingStepCount = contributions.Count(contribution => contribution.Status is ProcessStepStatus.Pending);
             summary.InProgressStepCount = contributions.Count(contribution => contribution.Status is ProcessStepStatus.InProgress);
-            summary.CompletedStepCount = contributions.Count(contribution => contribution.Status is ProcessStepStatus.Completed);
-            summary.FailedStepCount = contributions.Count(contribution => contribution.Status is ProcessStepStatus.Failed);
-            summary.Status = MapProcessStatus(contributions);
-            summary.UpdatedAt = contributions
-                .Select(contribution => contribution.UpdatedAt ?? contribution.CreatedAt)
-                .DefaultIfEmpty(summary.UpdatedAt ?? summary.CreatedAt)
-                .Max();
+            var completed = contributions.Count(c => c.Status == ProcessStepStatus.Completed);
+            var skipped = contributions.Count(c => c.Status == ProcessStepStatus.Skipped);
+            var failed = contributions.Count(c => c.Status == ProcessStepStatus.Failed);
+            summary.CompletedStepCount = Math.Max(summary.CompletedStepCount, completed);
+            summary.SkippedStepCount = Math.Max(summary.SkippedStepCount, skipped);
+            summary.FailedStepCount = Math.Max(summary.FailedStepCount, failed);
+            if (summary.ProcessProgressOrder is null)
+            {
+                summary.Status = contributions.All(step => step.Status == ProcessStepStatus.Pending)
+                    ? ProcessStatus.Pending : ProcessStatus.InProgress;
+            }
+            if (summary.FailedStepCount > 0)
+                summary.Status = ProcessStatus.Failed;
+            if (summary.Status is ProcessStatus.Completed)
+            {
+                summary.InProgressStepCount = 0;
+                summary.PendingStepCount = 0;
+            }
+            summary.UpdatedAt = Max(summary.UpdatedAt, contributions.Max(step => step.UpdatedAt ?? step.CreatedAt));
         }
 
         summary.IndexedAt = DateTimeOffset.UtcNow;
@@ -352,7 +407,7 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
             .Where(contribution => contribution.StartedAt.HasValue)
             .Select(contribution => contribution.StartedAt)
             .Min();
-        node.CompletedAt = contributions.All(contribution => contribution.Status is ProcessStepStatus.Completed)
+        node.CompletedAt = contributions.All(contribution => contribution.Status is ProcessStepStatus.Completed or ProcessStepStatus.Skipped)
             ? contributions
                 .Where(contribution => contribution.CompletedAt.HasValue)
                 .Select(contribution => contribution.CompletedAt)
@@ -377,31 +432,6 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
         node.IndexedAt = DateTimeOffset.UtcNow;
     }
 
-    private static ProcessStatus MapProcessStatus(IReadOnlyCollection<ProcessRealtimeStepStatusContribution> contributions)
-    {
-        if (contributions.Any(contribution => contribution.Status is ProcessStepStatus.Failed))
-        {
-            return ProcessStatus.Failed;
-        }
-
-        if (contributions.Any(contribution => contribution.Status is ProcessStepStatus.InProgress))
-        {
-            return ProcessStatus.InProgress;
-        }
-
-        if (contributions.Any(contribution => contribution.Status is ProcessStepStatus.Pending))
-        {
-            return contributions.All(contribution => contribution.Status is ProcessStepStatus.Pending)
-                ? ProcessStatus.Pending
-                : ProcessStatus.InProgress;
-        }
-
-        return contributions.Count > 0 &&
-            contributions.All(contribution => contribution.Status is ProcessStepStatus.Completed)
-                ? ProcessStatus.Completed
-                : ProcessStatus.Pending;
-    }
-
     private static ProcessStepStatus MapStepStatus(IReadOnlyCollection<ProcessNodeRealtimeStepContribution> contributions)
     {
         if (contributions.Any(contribution => contribution.Status is ProcessStepStatus.Failed))
@@ -421,7 +451,8 @@ public sealed class ProcessRealtimeProjectionService : IProcessRealtimeProjectio
                 : ProcessStepStatus.InProgress;
         }
 
-        return contributions.All(contribution => contribution.Status is ProcessStepStatus.Completed)
+        if (contributions.All(c => c.Status == ProcessStepStatus.Skipped)) return ProcessStepStatus.Skipped;
+        return contributions.All(contribution => contribution.Status is ProcessStepStatus.Completed or ProcessStepStatus.Skipped)
             ? ProcessStepStatus.Completed
             : ProcessStepStatus.Pending;
     }

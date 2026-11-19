@@ -15,7 +15,7 @@ namespace Backend.API.Services;
 
 public sealed class BlueprintPortabilityService
 {
-    private const int CurrentSchemaVersion = 3;
+    private const int CurrentSchemaVersion = 4;
     private static readonly JsonSerializerOptions CanonicalJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly BlueprintDbContext _context;
@@ -86,6 +86,7 @@ public sealed class BlueprintPortabilityService
             .Include(candidate => candidate.Versions)
                 .ThenInclude(version => version.BlueprintNodes)
                     .ThenInclude(taskInstance => taskInstance.OutgoingConnections)
+            .AsNoTracking()
             .AsSplitQuery()
             .FirstOrDefaultAsync(candidate => candidate.Key == definitionKey, cancellationToken);
 
@@ -93,6 +94,8 @@ public sealed class BlueprintPortabilityService
             .Select(task => new BlueprintNodeInputModel
             {
                 InstanceId = task.TaskKey,
+                PortableTaskKey = task.TaskKey,
+                ConditionalRule = task.ConditionalRule,
                 NodeKind = NormalizeNodeKind(task.NodeKind).ToString(),
                 TaskDefinitionId = NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.PluginTask
                     ? resolvedTasks[task.TaskKey].TaskDefinitionId
@@ -212,11 +215,11 @@ public sealed class BlueprintPortabilityService
     {
         var errors = new List<BlueprintImportValidationError>();
 
-        if (model.SchemaVersion != CurrentSchemaVersion)
+        if (model.SchemaVersion is not (3 or CurrentSchemaVersion))
         {
             errors.Add(new BlueprintImportValidationError(
                 BlueprintImportErrorCodes.UnsupportedSchemaVersion,
-                $"Only schemaVersion {CurrentSchemaVersion} is supported.",
+                $"Supported schema versions are 3 and {CurrentSchemaVersion}.",
                 nameof(model.SchemaVersion)));
         }
 
@@ -257,6 +260,9 @@ public sealed class BlueprintPortabilityService
                     $"tasks[{index}].nodeKind"));
                 continue;
             }
+
+            if (nodeKind == BlueprintNodeKind.ConditionalBranch && model.SchemaVersion < 4)
+                errors.Add(new(BlueprintImportErrorCodes.UnsupportedSchemaVersion, "Conditional Branch requires schemaVersion 4.", nameof(model.SchemaVersion)));
 
             if (nodeKind == BlueprintNodeKind.PluginTask && string.IsNullOrWhiteSpace(task.TaskDefinitionName))
             {
@@ -306,6 +312,8 @@ public sealed class BlueprintPortabilityService
 
         foreach (var (task, taskIndex) in model.Tasks.Select((task, taskIndex) => (task, taskIndex)))
         {
+            if (NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.ConditionalBranch)
+                continue; // The graph validator checks both conditional channels and their inherited schemas.
             if (NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.CollectionIterator)
             {
                 foreach (var (connection, connectionIndex) in task.OutgoingConnections.Select((connection, connectionIndex) => (connection, connectionIndex)))
@@ -383,9 +391,9 @@ public sealed class BlueprintPortabilityService
             task => task.TaskKey,
             task =>
             {
-                if (NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.CollectionIterator)
+                if (NormalizeNodeKind(task.NodeKind) != BlueprintNodeKind.PluginTask)
                 {
-                    return ResolvedImportTask.CollectionIterator;
+                    return ResolvedImportTask.Native;
                 }
 
                 var taskDefinition = taskDefinitionsByName[task.TaskDefinitionName!.Trim()];
@@ -404,17 +412,19 @@ public sealed class BlueprintPortabilityService
         BlueprintDefinition definition,
         BlueprintVersion version)
     {
+        var keys = version.BlueprintNodes.ToDictionary(node => node.Id, node => node.PortableTaskKey ?? node.Id);
         return new ExportedBlueprintViewModel
         {
-            SchemaVersion = CurrentSchemaVersion,
+            SchemaVersion = version.BlueprintNodes.Any(node => node.NodeKind == BlueprintNodeKind.ConditionalBranch) ? CurrentSchemaVersion : 3,
             DefinitionKey = definition.Key,
             DisplayName = definition.DisplayName,
-            StartingTaskKey = version.StartingBlueprintNodeId ?? Guid.Empty,
+            StartingTaskKey = keys.GetValueOrDefault(version.StartingBlueprintNodeId ?? Guid.Empty),
             Tasks = version.BlueprintNodes
                 .OrderBy(task => task.Id)
                 .Select(task => new ExportedBlueprintNodeViewModel
                 {
-                    TaskKey = task.Id,
+                    TaskKey = keys[task.Id],
+                    ConditionalRule = task.ConditionalRuleJson is null ? null : JsonSerializer.Deserialize<ConditionalRule>(task.ConditionalRuleJson, CanonicalJsonOptions),
                     NodeKind = task.NodeKind.ToString(),
                     TaskDefinitionName = task.NodeKind == BlueprintNodeKind.PluginTask
                         ? task.TaskDefinition?.Name
@@ -438,7 +448,7 @@ public sealed class BlueprintPortabilityService
                         .Select(connection => new ExportedBlueprintConnectionViewModel
                         {
                             ChannelName = connection.ChannelName,
-                            ConnectedTaskKey = connection.DestinationBlueprintNodeId!.Value,
+                            ConnectedTaskKey = keys[connection.DestinationBlueprintNodeId!.Value],
                             Anchor = connection.Anchor,
                             Side = connection.Side,
                             Position = connection.Position,
@@ -460,6 +470,7 @@ public sealed class BlueprintPortabilityService
                 .Select(task => new ComparableTask
                 {
                     TaskKey = task.TaskKey,
+                    ConditionalRule = task.ConditionalRule,
                     NodeKind = NormalizeNodeKind(task.NodeKind).ToString(),
                     TaskDefinitionName = NormalizeNodeKind(task.NodeKind) == BlueprintNodeKind.PluginTask
                         ? task.TaskDefinitionName?.Trim()
@@ -514,6 +525,7 @@ public sealed class BlueprintPortabilityService
                 .Select(task => new ComparableTask
                 {
                     TaskKey = task.TaskKey,
+                    ConditionalRule = task.ConditionalRule,
                     NodeKind = NormalizeNodeKind(task.NodeKind).ToString(),
                     TaskDefinitionName = task.TaskDefinitionName,
                     CollectionIteratorItemKind = task.CollectionIteratorItemKind,
@@ -556,7 +568,7 @@ public sealed class BlueprintPortabilityService
 
     private sealed record ResolvedImportTask(int TaskDefinitionId, TaskVersion? ResolvedVersion)
     {
-        public static ResolvedImportTask CollectionIterator { get; } = new(0, null);
+        public static ResolvedImportTask Native { get; } = new(0, null);
     }
 
     private sealed class ComparableBlueprint
@@ -571,6 +583,7 @@ public sealed class BlueprintPortabilityService
         public required Guid TaskKey { get; init; }
         public required string NodeKind { get; init; }
         public required string? TaskDefinitionName { get; init; }
+        public ConditionalRule? ConditionalRule { get; init; }
         public required string? CollectionIteratorItemKind { get; init; }
         public int AllowedMajor { get; init; }
         public int AllowedMinor { get; init; }

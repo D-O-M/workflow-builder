@@ -591,8 +591,15 @@
                     <span>Node type</span>
                     <strong>Native operator</strong>
 
-                    <span>Type binding</span>
-                    <strong>{{ iteratorBindingEquation(node) }}</strong>
+                    @if (node.nodeKind === 'CollectionIterator') {
+                      <span>Type binding</span>
+                      <strong>{{ iteratorBindingEquation(node) }}</strong>
+                    } @else if (node.nodeKind === 'ConditionalBranch') {
+                      @for (outcome of node.outputChannelNames; track outcome) {
+                        <span>{{ outcome }}</span>
+                        <strong>{{ branchDestination(node, outcome) }}</strong>
+                      }
+                    }
                   }
 
                   <span>Node id</span>
@@ -635,6 +642,19 @@
                       </button>
                     }
                   </div>
+                </mat-card-content>
+              </mat-card>
+            }
+
+            @if (node.nodeKind === 'ConditionalBranch' && node.conditionalRule; as rule) {
+              <mat-card appearance="outlined" class="blueprint-editor-page__settings-card">
+                <mat-card-content>
+                  <h4>Branch rules</h4>
+                  @if (!node.inputPropertyDefinitions.length) {
+                    <p>Connect an upstream output with typed fields to configure this rule.</p>
+                  }
+                  <app-conditional-rule-editor [fields]="node.inputPropertyDefinitions" [rule]="rule"
+                    (ruleChange)="editorStore.updateConditionalRule({nodeId: node.id, rule: $event})" />
                 </mat-card-content>
               </mat-card>
             }

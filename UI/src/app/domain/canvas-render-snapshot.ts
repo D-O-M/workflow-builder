@@ -103,7 +103,7 @@ export function buildCanvasRenderSnapshot(
             laneByConnectionId.get(connection.id) ?? DEFAULT_CONNECTION_LANE;
         const shade = connectionShadeForMode(
             shadeByConnectionId.get(connection.id) ?? DEFAULT_CONNECTION_SHADE,
-            from.renderStatus,
+            connection.pathNotTaken ? 'Skipped' : from.renderStatus,
             readOnly,
         );
         const routes = routeConnection({
@@ -387,6 +387,7 @@ function cloneNodeAtPosition(node: NodeModel, position: Point): NodeModel {
         node.nodeKind,
         node.collectionIteratorItemKind,
         node.instanceId,
+        node.conditionalRule,
     );
 }
 

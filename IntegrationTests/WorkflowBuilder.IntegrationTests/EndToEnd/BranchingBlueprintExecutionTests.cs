@@ -20,6 +20,37 @@ public sealed class BranchingBlueprintExecutionTests
     }
 
     [Test]
+    public async Task Exclusive_outputs_and_alternative_plugin_results_rejoin_once_on_either_route(
+        CancellationToken cancellationToken)
+    {
+        var graph = await BlueprintScenarioBuilder.CreateConditionalScenarioAsync(_environment, cancellationToken);
+        foreach (var (baseScore, selected, selectedId, skippedId) in new[]
+                 { (5, "True", graph.TrueTask, graph.FalseTask), (4, "False", graph.FalseTask, graph.TrueTask) })
+        {
+            var accepted = await StartProcessAsync(graph.DefinitionId, BlueprintScenarioBuilder.CreateProcessInput(
+                new { name = "north", baseScore }), cancellationToken);
+            var snapshot = await ProcessAssertions.WaitForSnapshotAsync(_environment, accepted.ProcessId, graph.VersionId,
+                state => state.Process.Status is ProcessStatus.Completed or ProcessStatus.Failed, cancellationToken);
+
+            snapshot.Process.Status.ShouldBe(ProcessStatus.Completed);
+            snapshot.RealSteps.Count.ShouldBe(7);
+            foreach (var nodeId in new[] { graph.Seed, graph.DirectBranch, graph.Transform, graph.Branch, selectedId, graph.SharedTask })
+                ProcessAssertions.GetRealStep(snapshot, nodeId).Status.ShouldBe(ProcessStepStatus.Completed);
+            ProcessAssertions.GetRealStep(snapshot, skippedId).Status.ShouldBe(ProcessStepStatus.Skipped);
+
+            var direct = ProcessAssertions.GetRealStep(snapshot, graph.DirectBranch);
+            direct.OutputData!.Keys.ShouldBe([selected]);
+            ProcessAssertions.GetOutput(direct, selected).GetProperty("Score").GetInt32().ShouldBe(baseScore + 1);
+            var decision = ProcessAssertions.GetRealStep(snapshot, graph.Branch);
+            decision.OutputData!.Keys.ShouldBe([selected]);
+            var finalScore = (baseScore + 1) * 3;
+            var shared = ProcessAssertions.GetRealStep(snapshot, graph.SharedTask);
+            ProcessAssertions.GetInput(shared, "Request").GetProperty("Message").GetString().ShouldBe($"Completed NORTH:{finalScore}");
+            ProcessAssertions.GetOutput(shared, "Success").GetProperty("FinalScore").GetInt32().ShouldBe(finalScore);
+        }
+    }
+
+    [Test]
     public async Task Fan_out_executes_each_downstream_node_once(
         CancellationToken cancellationToken)
     {

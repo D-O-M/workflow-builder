@@ -238,6 +238,45 @@ describe('BlueprintEditorStore', () => {
     expect(node.allowedMinor).toBe(0);
   });
 
+  it('rebinds native branch chains, preserves rules in history and binds each branch to one full channel', () => {
+    const store = new BlueprintEditorStore();
+    const branch = store.createConditionalBranchNode({ placement: { coordinates: { x: 400, y: 0 } } });
+    const second = store.createConditionalBranchNode({ placement: { coordinates: { x: 800, y: 0 } } });
+    const source = createStoreNode(store, createCollectionSourceTaskDefinition('Guid[]'), { x: 0, y: 0 });
+    createStoreConnection(store, branch.id, second.id, 2, 'left', 50);
+    const binding = createStoreConnection(store, source.id, branch.id, 0, 'left', 50)!;
+    expect(binding.propertyMappings).toEqual([]);
+    expect(createStoreConnection(store, source.id, second.id, 0, 'left', 50)).toBeNull();
+    expect(store.nodes().find(node => node.id === second.id)?.outputChannelProperties).toEqual({
+      True: { ids: 'Guid[]' }, False: { ids: 'Guid[]' },
+    });
+    const rule = { kind: 'comparison' as const, field: 'ids', operator: 'isEmpty', negated: true, operands: [] };
+    store.updateConditionalRule({ nodeId: branch.id, rule });
+    store.undo();
+    expect(store.nodes()[0].conditionalRule).toEqual({ kind: 'all', children: [] });
+    store.redo();
+    expect(store.nodes()[0].conditionalRule).toEqual(rule);
+    store.selectOnlyNode(branch.id);
+    store.copySelection();
+    store.pasteClipboard();
+    expect(store.nodes().at(-1)?.conditionalRule).toMatchObject(rule);
+    expect(store.nodes().at(-1)?.inputPropertyDefinitions).toEqual([]);
+  });
+
+  it('propagates an enum collection domain through Iterator Item into branch operands', () => {
+    const store = new BlueprintEditorStore();
+    const task = createCollectionSourceTaskDefinition('Enum[]');
+    task.versions[0].outputChannels[0].properties[0].enumValues = ['Gold', 'Silver'];
+    const source = createStoreNode(store, task, { x: 0, y: 0 });
+    const iterator = createStoreCollectionIteratorNode(store, { x: 400, y: 0 });
+    const branch = store.createConditionalBranchNode({ placement: { coordinates: { x: 800, y: 0 } } });
+    createStoreConnection(store, iterator.id, branch.id, 1, 'left', 50);
+    createStoreConnection(store, source.id, iterator.id, 0, 'left', 50);
+    expect(store.nodes().find(node => node.id === branch.id)?.inputPropertyDefinitions).toEqual([
+      { name: 'item', kind: 'Enum', required: true, enumValues: ['Gold', 'Silver'] },
+    ]);
+  });
+
   it('shows Collection Iterator ports as generic until a collection input is mapped', () => {
     const store = new BlueprintEditorStore();
     const iterator = createStoreCollectionIteratorNode(store, { x: 0, y: 0 });

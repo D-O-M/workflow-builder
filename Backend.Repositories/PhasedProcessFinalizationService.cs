@@ -62,6 +62,7 @@ public sealed class PhasedProcessFinalizationService
                 transition,
                 childBlueprintVersionId,
                 childProcessId,
+                sourcePhase.VersionPolicy == PhasedBlueprintPhaseVersionPolicy.Latest,
                 cancellationToken);
 
         PhaseCorrelationRecord? correlationRecord = null;
@@ -201,8 +202,13 @@ public sealed class PhasedProcessFinalizationService
         PhasedBlueprintTransition transition,
         int childBlueprintVersionId,
         Guid childProcessId,
+        bool resolveLatest,
         CancellationToken cancellationToken)
     {
+        var sourceIds = resolveLatest
+            ? await _phasedBlueprintRepository.ResolveHandoffNodeIdsAsync(childBlueprintVersionId,
+                transition.HandoffMappings.Select(m => m.SourceBlueprintNodeId).OfType<Guid>(), cancellationToken)
+            : null;
         var steps = await _processStepRepository.GetProcessStepsForProcess(
             childProcessId,
             cancellationToken);
@@ -216,7 +222,7 @@ public sealed class PhasedProcessFinalizationService
         {
             if (mapping.SourceBlueprintNodeId is not Guid sourceNodeId ||
                 string.IsNullOrWhiteSpace(mapping.SourceChannelName) ||
-                !stepsByNode.TryGetValue(sourceNodeId, out var sourceSteps))
+                !stepsByNode.TryGetValue(sourceIds?[sourceNodeId] ?? sourceNodeId, out var sourceSteps))
             {
                 continue;
             }
@@ -252,7 +258,7 @@ public sealed class PhasedProcessFinalizationService
         }
     }
 
-    private static string BuildHandoffResultKey(PhasedBlueprintHandoffMapping mapping) =>
+    public static string BuildHandoffResultKey(PhasedBlueprintHandoffMapping mapping) =>
         $"{mapping.TargetBlueprintNodeId:N}:{mapping.TargetProperty}";
 
     private static Dictionary<string, JsonElement> BuildCorrelationValues(

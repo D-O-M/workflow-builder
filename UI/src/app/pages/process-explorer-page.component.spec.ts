@@ -4,6 +4,7 @@ import {
   Provider,
   createEnvironmentInjector,
   runInInjectionContext,
+  signal,
   ɵChangeDetectionScheduler as ChangeDetectionScheduler,
   ɵEffectScheduler as EffectScheduler,
 } from '@angular/core';
@@ -20,6 +21,7 @@ import {
   ProcessDetailViewModel,
   ProcessSearchRequest,
   ProcessStepDetailViewModel,
+  ProcessStepIterationViewModel,
 } from '../domain/blueprint-editor.service';
 import {
   ProcessRealtimeService,
@@ -351,11 +353,66 @@ describe('ProcessExplorerPageComponent', () => {
     expect(counts).toEqual({
       total: 4,
       completed: 1,
+      skipped: 0,
       failed: 1,
       running: 1,
       pending: 1,
     });
     expect((component as any).stepCountSummary(counts)).toBe('1 running · 1 failed · 1 waiting');
+  });
+
+  it('keeps live branch decisions scoped to their Process and restores the refreshed HTTP outcome on reconnect', () => {
+    const view = component as any;
+    const detail = createProcessDetail();
+    const branch = detail.nodes[0];
+    branch.nodeKind = 'ConditionalBranch';
+    branch.selectedChannel = 'True';
+    branch.selectedChannels = ['True'];
+    branch.conditionalRule = { kind: 'comparison', field: 'Score', operator: 'gt', operands: [{ literal: '5' }] };
+    branch.conditionalFields = [{ name: 'Score', kind: 'Integer', required: true, enumValues: [] }];
+    branch.outgoingConnections = ['True', 'False'].map((channelName, index) => ({
+      channelName, anchor: index + 1, side: 'left', position: 0.5, blueprintNodeId: detail.nodes[index + 1].instanceId, propertyMappings: [],
+    }));
+    const fetched = signal(detail);
+    view.fetchedProcess = fetched;
+    view.activeProcessId = () => fetched().processId;
+    view.selectedStepInstanceId.set(branch.instanceId);
+    const inactiveEdges = () => view.processConnections().map((edge: { pathNotTaken: boolean }) => edge.pathNotTaken);
+    expect(view.chosenChannel()).toBe('True');
+    expect(inactiveEdges()).toEqual([false, true]);
+    expect(view.conditionalSummary()).toBe('Score Greater than 5');
+
+    const iterations: ProcessStepIterationViewModel[] = ['True', 'False'].map((selectedChannel, itemIndex) => ({
+      itemIndex, selectedChannel, itemKey: String(itemIndex), status: 'Completed', runtimeStepId: 'step-' + itemIndex,
+      sourceIteratorStepId: 'iterator-step', sourceIteratorBlueprintNodeId: 'iterator-node',
+    }));
+    nodeUpdates.next([{
+      processId: detail.processId, blueprintDefinitionId: 1, blueprintVersionId: 101,
+      nodes: [{ instanceId: branch.instanceId, blueprintNodeId: branch.instanceId, status: 'Completed',
+        selectedChannel: null, resolvedVersionId: 0, iterations }],
+    }]);
+    expect(view.chosenChannel()).toBeFalsy();
+    expect(view.decisionIterations()).toEqual(iterations);
+    expect(inactiveEdges()).toEqual([false, false]);
+
+    fetched.set({ ...detail, processId: 'another-process', nodes: [{ ...branch, selectedChannel: 'False' }, ...detail.nodes.slice(1)] });
+    expect(view.chosenChannel()).toBe('False');
+    expect(view.decisionIterations()).toEqual([]);
+    expect(inactiveEdges()).toEqual([true, false]);
+
+    fetched.set({ ...detail, nodes: [{ ...branch, selectedChannel: null, selectedChannels: ['False'] }, ...detail.nodes.slice(1)] });
+    reconnected.next();
+    expect(inactiveEdges()).toEqual([true, false]);
+  });
+
+  it('shows a fully completed chosen route with skipped Steps counted separately', () => {
+    const view = component as any;
+    const detail = createProcessDetail();
+    detail.nodes = [detail.nodes[0], { ...detail.nodes[1], status: 'Skipped' }];
+    view.selectedProcess = () => detail;
+    expect(view.selectedProcessProgressLabel()).toBe('1/1 steps completed');
+    expect(view.stepCountSummary(view.selectedProcessStepCounts())).toBe('1 skipped');
+    expect(view.statusLabel('Skipped')).toBe('Path not taken');
   });
 
   it('uses compact labels and icons for dense process status presentation', () => {

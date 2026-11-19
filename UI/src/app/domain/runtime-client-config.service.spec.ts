@@ -9,6 +9,7 @@ describe('RuntimeClientConfigService', () => {
   it('loads client config from the bootstrapped API origin', async () => {
     const service = new RuntimeClientConfigService();
     const fetch = mockConfigRequests('https://api.workflow.test', {
+      features: { conditionalBranchAuthoring: true },
       apiBaseUrl: 'https://api.workflow.test',
       signalRBaseUrl: 'https://signalr.workflow.test',
       grafanaBaseUrl: 'https://grafana.workflow.test',
@@ -31,6 +32,7 @@ describe('RuntimeClientConfigService', () => {
       credentials: 'omit',
       cache: 'no-store',
     });
+    expect(service.conditionalBranchAuthoring).toBe(true);
     expect(service.apiBaseUrl).toBe('https://api.workflow.test');
     expect(service.signalRBaseUrl).toBe('https://signalr.workflow.test');
     expect(service.grafanaBaseUrl).toBe('https://grafana.workflow.test');
@@ -79,6 +81,7 @@ describe('RuntimeClientConfigService', () => {
 
     await service.load();
 
+    expect(service.conditionalBranchAuthoring).toBe(false);
     expect(service.authentication).toEqual({
       enabled: false,
       authority: '',
@@ -87,6 +90,7 @@ describe('RuntimeClientConfigService', () => {
       audience: '',
     });
   });
+
 });
 
 function mockConfigRequests(apiBaseUrl: string, clientConfig: object) {

@@ -114,7 +114,7 @@ public class StepFinalizationService : IStepFinalizationService
         var record = await CreateOrGetFinalizationRecordAsync(
             context,
             executionResult,
-            ProcessStepFinalizationSource.Plugin,
+            GetFinalizationSource(context),
             collectionIteratorItemCount: null,
             collectionIteratorRepeatedBlueprintNodeCount: null,
             collectionIteratorBatchSize: null,
@@ -138,7 +138,7 @@ public class StepFinalizationService : IStepFinalizationService
         var record = await CreateOrGetFinalizationRecordAsync(
             context,
             executionResult,
-            ProcessStepFinalizationSource.Plugin,
+            GetFinalizationSource(context),
             collectionIteratorItemCount: null,
             collectionIteratorRepeatedBlueprintNodeCount: null,
             collectionIteratorBatchSize: null,
@@ -153,6 +153,11 @@ public class StepFinalizationService : IStepFinalizationService
                 cancellationToken),
             cancellationToken);
     }
+
+    private static ProcessStepFinalizationSource GetFinalizationSource(StepExecutionContext context) =>
+        context.BlueprintNode.NodeKind == ExecutableBlueprintNodeKind.ConditionalBranch
+            ? ProcessStepFinalizationSource.ConditionalBranch
+            : ProcessStepFinalizationSource.Plugin;
 
     public async Task<CollectionIteratorFinalizationResult> FinalizeSucceededCollectionIteratorStepAsync(
         StepExecutionContext context,
@@ -346,6 +351,11 @@ public class StepFinalizationService : IStepFinalizationService
         }
 
         _processLifecycleTelemetry.LogStepCompleted(context, activationResult);
+        if (record.Source == ProcessStepFinalizationSource.ConditionalBranch)
+        {
+            _logger.LogInformation("Conditional Branch selected {Outcome} for Process {ProcessId}, Step {ProcessStepId}.",
+                activationResult.OutputData.Keys.Single(), context.ProcessId, context.ProcessStepId);
+        }
 
         if (!HasReached(record, ProcessStepFinalizationStage.ProcessFinalizationCompleted))
         {
@@ -524,23 +534,44 @@ public class StepFinalizationService : IStepFinalizationService
             context,
             executionResult,
             joinReadinessSnapshots: null);
-        var plan = _activationPlanner.PlanReadyActivations(request);
-
-        if (plan.JoinSourceObservations.Count > 0)
+        var pending = new Queue<ActivationPlanningRequest>();
+        pending.Enqueue(request);
+        var skippedSteps = new HashSet<string>(StringComparer.Ordinal);
+        var scheduled = 0;
+        while (pending.TryDequeue(out var source))
         {
-            var snapshots = await _activationPersistenceService.RecordJoinSourceObservationsAsync(
-                plan,
-                timestamp,
-                cancellationToken);
-            plan = _activationPlanner.PlanReadyActivations(
-                request with { JoinReadinessSnapshots = snapshots });
+            var plan = _activationPlanner.PlanReadyActivations(source);
+            if (plan.JoinSourceObservations.Count > 0)
+            {
+                var snapshots = await _activationPersistenceService.RecordJoinSourceObservationsAsync(
+                    plan, timestamp, cancellationToken);
+                plan = _activationPlanner.PlanReadyActivations(source with { JoinReadinessSnapshots = snapshots });
+            }
+
+            var result = await _activationPersistenceService.PersistReadyActivationsAsync(
+                plan, timestamp, batchSize, cancellationToken);
+            scheduled += result.ScheduledStepCount;
+            foreach (var intent in plan.Intents.Where(intent => intent.IsSkipped))
+            {
+                if (skippedSteps.Add(intent.ProcessStepId.ToString()))
+                {
+                    pending.Enqueue(source with
+                    {
+                        CurrentNode = intent.DestinationNode,
+                        SourceProcessStepId = intent.ProcessStepId,
+                        SourceSkipped = true,
+                        IterationContext = intent.IterationContext,
+                        JoinReadinessSnapshots = null
+                    });
+                }
+            }
         }
 
-        return await _activationPersistenceService.PersistReadyActivationsAsync(
-            plan,
-            timestamp,
-            batchSize,
-            cancellationToken);
+        if (skippedSteps.Count > 0)
+        {
+            await RecordSkippedStepsAsync(context, skippedSteps, timestamp, cancellationToken);
+        }
+        return new ActivationPersistenceResult(scheduled);
     }
 
     private async Task<ActivationPersistenceResult> PlanAndPersistCollectionIteratorActivationsAsync(
@@ -694,7 +725,10 @@ public class StepFinalizationService : IStepFinalizationService
                 context,
                 ProcessStepStatus.Completed,
                 completedAt,
-                errorMessage: null),
+                errorMessage: null,
+                conditionalOutput: context.BlueprintNode.NodeKind == ExecutableBlueprintNodeKind.ConditionalBranch
+                    ? outputData
+                    : null),
             context.BlueprintDefinitionId,
             context.ExecutableBlueprintId,
             cancellationToken);
@@ -738,25 +772,24 @@ public class StepFinalizationService : IStepFinalizationService
         ProcessInstanceRecord process,
         CancellationToken cancellationToken)
     {
-        if (!_projectionOptions.SynchronousEngineUpdatesEnabled ||
-            _processIndexProjectionService is null)
+        if (!_projectionOptions.SynchronousEngineUpdatesEnabled)
         {
             return;
         }
 
         try
         {
-            await _processIndexProjectionService.UpsertFromProcessAsync(
-                process,
-                context.BlueprintDefinitionId,
-                context.ExecutableBlueprintId,
-                cancellationToken);
+            await Task.WhenAll(
+                _processIndexProjectionService?.UpsertFromProcessAsync(
+                    process, context.BlueprintDefinitionId, context.ExecutableBlueprintId, cancellationToken) ?? Task.CompletedTask,
+                _processRealtimeProjectionService?.UpsertFromProcessAsync(
+                    process, context.BlueprintDefinitionId, context.ExecutableBlueprintId, cancellationToken) ?? Task.CompletedTask);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _logger.LogWarning(
                 exception,
-                "Process index projection failed for process {ProcessId} during finalization.",
+                "Process projection failed for process {ProcessId} during finalization.",
                 context.ProcessId);
         }
     }
@@ -794,7 +827,8 @@ public class StepFinalizationService : IStepFinalizationService
         StepExecutionContext context,
         ProcessStepStatus status,
         DateTimeOffset timestamp,
-        string? errorMessage) =>
+        string? errorMessage,
+        Dictionary<string, JsonElement>? conditionalOutput = null) =>
         new()
         {
             Id = context.ProcessStepId.ToString(),
@@ -812,6 +846,7 @@ public class StepFinalizationService : IStepFinalizationService
             CompletedAt = status is ProcessStepStatus.Completed ? timestamp : null,
             FailedAt = status is ProcessStepStatus.Failed ? timestamp : null,
             ErrorMessage = errorMessage,
+            OutputData = conditionalOutput,
             Status = status,
             IterationContext = context.IterationContext
         };
@@ -848,11 +883,7 @@ public class StepFinalizationService : IStepFinalizationService
             process.UpdatedAt = completedAt;
             if (process.Status is not ProcessStatus.Failed)
             {
-                process.Status =
-                    process.ExecutionProgress.TotalStepCount > 0 &&
-                    process.ExecutionProgress.CompletedStepIds.Count >= process.ExecutionProgress.TotalStepCount
-                        ? ProcessStatus.Completed
-                        : ProcessStatus.InProgress;
+                process.Status = StatusAfterSettlingSteps(process.ExecutionProgress);
             }
 
             if (await _processInstanceRepository.TryUpdateProcessState(process, cancellationToken))
@@ -897,6 +928,39 @@ public class StepFinalizationService : IStepFinalizationService
             $"Could not update failed process progress for process {context.ProcessId} after {MaxProcessStateUpdateAttempts} attempts.");
     }
 
+    private static ProcessStatus StatusAfterSettlingSteps(ProcessExecutionProgress progress) =>
+        progress.TotalStepCount > 0 && progress.CompletedStepIds.Count + progress.SkippedStepIds.Count >= progress.TotalStepCount
+            ? ProcessStatus.Completed
+            : ProcessStatus.InProgress;
+
+    private async Task RecordSkippedStepsAsync(
+        StepExecutionContext context, HashSet<string> skippedSteps, DateTimeOffset timestamp, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < MaxProcessStateUpdateAttempts; attempt++)
+        {
+            var process = await _processInstanceRepository.GetProcessStateById(
+                context.ProcessId, context.ExecutableBlueprintId, cancellationToken);
+            StepClaimService.EnsureExecutionProgress(context, process);
+            if (process.ExecutionProgress.SkippedStepIds.IsSupersetOf(skippedSteps))
+            {
+                return;
+            }
+            process.ExecutionProgress.SkippedStepIds.UnionWith(skippedSteps);
+            if (process.Status != ProcessStatus.Failed)
+            {
+                process.Status = StatusAfterSettlingSteps(process.ExecutionProgress);
+            }
+            process.UpdatedAt = timestamp;
+            if (await _processInstanceRepository.TryUpdateProcessState(process, cancellationToken))
+            {
+                context.ApplyProcess(process);
+                await TryProjectProcessAsync(context, process, cancellationToken);
+                return;
+            }
+        }
+        throw new InvalidOperationException($"Could not record skipped Steps for Process {context.ProcessId}.");
+    }
+
     private async Task<bool> ApplyCollectionIteratorExpansionAsync(
         StepExecutionContext context,
         int repeatedBlueprintNodeCount,
@@ -921,17 +985,13 @@ public class StepFinalizationService : IStepFinalizationService
 
             var repeatedStepDelta = repeatedBlueprintNodeCount * itemCount - repeatedBlueprintNodeCount;
             process.ExecutionProgress.TotalStepCount = Math.Max(
-                process.ExecutionProgress.CompletedStepIds.Count,
+                process.ExecutionProgress.CompletedStepIds.Count + process.ExecutionProgress.SkippedStepIds.Count,
                 process.ExecutionProgress.TotalStepCount + repeatedStepDelta);
             process.ExecutionProgress.TotalNodeCount = process.ExecutionProgress.TotalStepCount;
             process.UpdatedAt = timestamp;
             if (process.Status is not ProcessStatus.Failed)
             {
-                process.Status =
-                    process.ExecutionProgress.TotalStepCount > 0 &&
-                    process.ExecutionProgress.CompletedStepIds.Count >= process.ExecutionProgress.TotalStepCount
-                        ? ProcessStatus.Completed
-                        : ProcessStatus.InProgress;
+                process.Status = StatusAfterSettlingSteps(process.ExecutionProgress);
             }
 
             if (await _processInstanceRepository.TryUpdateProcessState(process, cancellationToken))
@@ -1167,7 +1227,9 @@ public class StepFinalizationService : IStepFinalizationService
             JsonValueKind.Object => BuildNormalizedObject(element),
             JsonValueKind.Array => BuildNormalizedArray(element),
             JsonValueKind.String => JsonValue.Create(element.GetString()),
-            JsonValueKind.Number => BuildNormalizedNumberValue(element),
+            // Preserve the exact number. A later Conditional Branch may compare more
+            // digits than double or decimal can represent.
+            JsonValueKind.Number => JsonValue.Create(element.Clone()),
             JsonValueKind.True or JsonValueKind.False => JsonValue.Create(element.GetBoolean()),
             JsonValueKind.Null or JsonValueKind.Undefined => null,
             _ => throw new InvalidOperationException($"Unsupported JSON value kind '{element.ValueKind}'.")
@@ -1195,18 +1257,4 @@ public class StepFinalizationService : IStepFinalizationService
         return normalizedArray;
     }
 
-    private static JsonValue BuildNormalizedNumberValue(JsonElement element)
-    {
-        if (element.TryGetInt64(out var int64Value))
-        {
-            return JsonValue.Create(int64Value)!;
-        }
-
-        if (element.TryGetDecimal(out var decimalValue))
-        {
-            return JsonValue.Create(decimalValue)!;
-        }
-
-        return JsonValue.Create(element.GetDouble())!;
-    }
 }

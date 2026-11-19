@@ -228,6 +228,10 @@ export class ConnectionModel {
             connection: '#64748b',
             connectionSoft: 'rgba(100, 116, 139, 0.72)',
         },
+        Skipped: {
+            connection: '#94a3b8',
+            connectionSoft: 'rgba(148, 163, 184, 0.55)',
+        },
         NotExecuted: {
             connection: '#94a3b8',
             connectionSoft: 'rgba(148, 163, 184, 0.68)',
@@ -242,6 +246,7 @@ export class ConnectionModel {
         public pos: number,
         public id: string = crypto.randomUUID(),
         public propertyMappings: ConnectionPropertyMappingModel[] = [],
+        public pathNotTaken = false,
     ) {}
 
     segments(
@@ -267,7 +272,7 @@ export class ConnectionModel {
             showBehaviorCue?: boolean;
         },
     ): void {
-        const theme = this.from.renderStatus
+        const theme = this.pathNotTaken ? ConnectionModel.themeByStatus.Skipped : this.from.renderStatus
             ? ConnectionModel.themeByStatus[this.from.renderStatus]
             : ConnectionModel.themeByStatus.default;
         const selected = options?.selected ?? false;

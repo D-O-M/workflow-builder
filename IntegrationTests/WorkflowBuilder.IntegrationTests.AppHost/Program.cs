@@ -49,6 +49,7 @@ var signalR = builder.AddProject<Projects.Backend_SignalR>("backend-signalr")
 var signalRHttpEndpoint = signalR.GetEndpoint("http");
 
 builder.AddProject<Projects.Backend_API>("backend-api")
+    .WithEnvironment("Features__ConditionalBranchAuthoring__Enabled", "true")
     .WithReference(cosmos, connectionName: cosmosConnectionName)
     .WaitFor(cosmosDb)
     .WithReference(blobs)

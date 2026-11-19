@@ -21,7 +21,8 @@ public record ExecutableBlueprint
 public enum ExecutableBlueprintNodeKind
 {
     PluginTask,
-    CollectionIterator
+    CollectionIterator,
+    ConditionalBranch
 }
 
 public record ExecutableBlueprintNode
@@ -30,6 +31,8 @@ public record ExecutableBlueprintNode
     public required string Name { get; set; }
     public ExecutableBlueprintNodeKind NodeKind { get; set; } = ExecutableBlueprintNodeKind.PluginTask;
     public int TaskDefinitionId { get; set; }
+    public ConditionalRule? ConditionalRule { get; set; }
+    public List<ConditionalField> ConditionalFields { get; set; } = [];
     public string? CollectionIteratorItemKind { get; set; }
     public int AllowedMajor { get; set; }
     public int AllowedMinor { get; set; }

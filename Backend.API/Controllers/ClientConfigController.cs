@@ -14,13 +14,16 @@ public sealed class ClientConfigController : ControllerBase
 {
     private readonly ClientRuntimeConfigOptions _options;
     private readonly WorkflowAuthenticationOptions _authOptions;
+    private readonly ConditionalBranchAuthoringOptions _branchOptions;
 
     public ClientConfigController(
         IOptions<ClientRuntimeConfigOptions> options,
-        IOptions<WorkflowAuthenticationOptions> authOptions)
+        IOptions<WorkflowAuthenticationOptions> authOptions,
+        IOptions<ConditionalBranchAuthoringOptions> branchOptions)
     {
         _options = options.Value;
         _authOptions = authOptions.Value;
+        _branchOptions = branchOptions.Value;
     }
 
     [HttpGet]
@@ -38,7 +41,8 @@ public sealed class ClientConfigController : ControllerBase
             apiBaseUrl,
             signalRBaseUrl,
             grafanaBaseUrl,
-            authentication));
+            authentication,
+            new ClientRuntimeFeaturesViewModel(_branchOptions.Enabled)));
     }
 
     private static ClientRuntimeAuthenticationViewModel ResolveAuthentication(
@@ -81,7 +85,10 @@ public sealed class ClientConfigController : ControllerBase
         string ApiBaseUrl,
         string SignalRBaseUrl,
         string GrafanaBaseUrl,
-        ClientRuntimeAuthenticationViewModel Authentication);
+        ClientRuntimeAuthenticationViewModel Authentication,
+        ClientRuntimeFeaturesViewModel Features);
+
+    public sealed record ClientRuntimeFeaturesViewModel(bool ConditionalBranchAuthoring);
 
     public sealed record ClientRuntimeAuthenticationViewModel(
         bool Enabled,

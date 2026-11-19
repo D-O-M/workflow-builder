@@ -1,9 +1,11 @@
+import type { ConditionalRule } from './conditional-rule';
+import { createBlueprintConditionalBranchNodeModel } from './blueprint-editor-node-factory';
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { ConnectionModel, ConnectionPropertyMappingModel } from './connection-model';
 import { NodeKind, NodeModel, Point, Side, TaskPropertyBaseType, TaskPropertyType } from './node-model';
-import { ITaskChannel, ITaskDefinition } from '../interfaces/ITaskDefinition';
+import { ITaskChannel, ITaskDefinition, ITaskPropertyDefinition } from '../interfaces/ITaskDefinition';
 import { taskPropertyKindMap } from './task-property-form-utils';
 import { compareTaskVersions, getTaskVersionLane } from './task-version-utils';
 
@@ -26,6 +28,8 @@ interface BlueprintNodeInputModel {
   instanceId: string;
   nodeKind: NodeKind;
   taskDefinitionId?: number | null;
+  conditionalRule?: ConditionalRule | null;
+  conditionalFields?: ITaskPropertyDefinition[] | null;
   collectionIteratorItemKind?: TaskPropertyBaseType | null;
   allowedMajor: number;
   allowedMinor: number;
@@ -63,6 +67,8 @@ interface BlueprintNodeViewModel {
   instanceId: string;
   nodeKind?: NodeKind | null;
   taskDefinitionId?: number | null;
+  conditionalRule?: ConditionalRule | null;
+  conditionalFields?: ITaskPropertyDefinition[] | null;
   collectionIteratorItemKind?: TaskPropertyBaseType | null;
   allowedMajor: number;
   allowedMinor: number;
@@ -247,6 +253,7 @@ export interface ProcessSummaryViewModel {
   status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
   createdAt: string;
   updatedAt?: string | null;
+  skippedTaskCount?: number;
   completedTaskCount: number;
   failedTaskCount: number;
   inProgressTaskCount: number;
@@ -328,6 +335,11 @@ export interface ProcessSearchPageViewModel {
 }
 
 export interface ProcessStepViewModel {
+  conditionalRule?: ConditionalRule | null;
+  conditionalFields?: ITaskPropertyDefinition[];
+  selectedChannel?: string | null;
+  selectedChannels?: string[] | null;
+  iterations?: ProcessStepIterationViewModel[];
   instanceId: string;
   nodeKind?: NodeKind | null;
   collectionIteratorItemKind?: TaskPropertyBaseType | null;
@@ -338,7 +350,7 @@ export interface ProcessStepViewModel {
   resolvedVersionId: number;
   resolvedVersion?: string | null;
   name: string;
-  status: 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+  status: 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed' | 'Skipped';
   position: CoordinatesViewModel;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -364,12 +376,15 @@ export interface ProcessDetailViewModel {
 }
 
 export interface ProcessStepDetailViewModel {
+  conditionalRule?: ConditionalRule | null;
+  conditionalFields?: ITaskPropertyDefinition[];
+  selectedChannel?: string | null;
   blueprintNodeId: string;
   name: string;
   nodeKind?: NodeKind | null;
   collectionIteratorItemKind?: TaskPropertyBaseType | null;
   runtimeStepCount?: number;
-  status: 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+  status: 'NotExecuted' | 'Pending' | 'InProgress' | 'Completed' | 'Failed' | 'Skipped';
   resolvedVersion?: string | null;
   startedAt?: string | null;
   endedAt?: string | null;
@@ -389,7 +404,8 @@ export interface ProcessStepIterationViewModel {
   sourceIteratorBlueprintNodeId: string;
   itemIndex: number;
   itemKey: string;
-  status: 'Pending' | 'InProgress' | 'Completed' | 'Failed';
+  selectedChannel?: string | null;
+  status: 'Skipped' | 'Pending' | 'InProgress' | 'Completed' | 'Failed';
 }
 
 export interface ProcessStepIncomingMappingViewModel {
@@ -611,6 +627,9 @@ export class BlueprintEditorService {
       nodeKind: n.nodeKind,
       taskDefinitionId: n.nodeKind === 'PluginTask' ? n.taskDefinitionId : null,
       collectionIteratorItemKind: n.nodeKind === 'CollectionIterator' ? n.collectionIteratorItemKind : null,
+      ...(n.nodeKind === 'ConditionalBranch'
+        ? { conditionalRule: n.conditionalRule, conditionalFields: n.inputPropertyDefinitions }
+        : {}),
       allowedMajor: n.allowedMajor,
       allowedMinor: n.allowedMinor,
       position: { x: n.x, y: n.y },
@@ -675,6 +694,15 @@ export class BlueprintEditorService {
         }
 
         const nodes = version.tasks.map((task, index) => {
+          if (task.nodeKind === 'ConditionalBranch') {
+            return createBlueprintConditionalBranchNodeModel({
+              nodeId: index + 1,
+              coordinates: task.position,
+              fields: task.conditionalFields,
+              rule: task.conditionalRule,
+              instanceId: task.instanceId,
+            });
+          }
           if (task.nodeKind === 'CollectionIterator') {
             return this.createCollectionIteratorNodeModel(
               index + 1,

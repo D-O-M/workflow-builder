@@ -92,7 +92,7 @@ internal static class ProcessAssertions
         return step.OutputData[channelName];
     }
 
-    private static async Task<ProcessSnapshot> WaitForSnapshotAsync(
+    internal static async Task<ProcessSnapshot> WaitForSnapshotAsync(
         DistributedAppTestEnvironment environment,
         Guid processId,
         int blueprintVersionId,

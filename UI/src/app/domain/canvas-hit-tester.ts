@@ -79,8 +79,19 @@ export class CanvasHitTester {
     return node.inputSummaryPort();
   }
 
+  connectionNeighborIds(snapshot: CanvasRenderSnapshot, drag: CanvasConnectionDragContext): ReadonlySet<number> {
+    if (snapshot.nodeById.get(drag.from)?.base.nodeKind !== 'ConditionalBranch') return snapshot.getConnectedNodeIds(drag.from);
+    // A shared successor may be wired once per mutually exclusive outcome.
+    const blocked = new Set<number>();
+    for (const edge of snapshot.connections) {
+      if (edge.to.id === drag.from) blocked.add(edge.from.id);
+      if (edge.from.id === drag.from && edge.anchor === drag.anchor) blocked.add(edge.to.id);
+    }
+    return blocked;
+  }
+
   blockedTargetNodeIds(snapshot: CanvasRenderSnapshot, drag: CanvasConnectionDragContext): ReadonlySet<number> {
-    const blockedNodeIds = new Set([drag.from, ...snapshot.getConnectedNodeIds(drag.from)]);
+    const blockedNodeIds = new Set([drag.from, ...this.connectionNeighborIds(snapshot, drag)]);
     const sourceNode = snapshot.nodeById.get(drag.from) ?? null;
 
     for (const node of snapshot.nodes) {
@@ -107,7 +118,7 @@ export class CanvasHitTester {
     }
 
     const itemKind = collectionKind.slice(0, -2);
-    const blockedNodeIds = new Set([drag.from, ...snapshot.getConnectedNodeIds(drag.from)]);
+    const blockedNodeIds = new Set([drag.from, ...this.connectionNeighborIds(snapshot, drag)]);
     const labels = new Map<number, string>();
     for (const node of snapshot.nodes) {
       if (node.base.nodeKind === 'CollectionIterator' && !blockedNodeIds.has(node.id)) {

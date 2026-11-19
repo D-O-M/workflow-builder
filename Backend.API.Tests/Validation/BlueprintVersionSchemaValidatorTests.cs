@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Backend.API.Tests.TestSupport;
 using Backend.API.Validation.Blueprints;
 using Backend.Database.Relational.Entities;
+using Backend.Models;
 using Backend.Models.InputModels;
 using Backend.Models.ViewModels;
 using Shouldly;
@@ -145,6 +146,81 @@ public sealed class BlueprintVersionSchemaValidatorTests
 
         result.IsValid.ShouldBeFalse();
         result.Errors.ShouldContain(error => error.Code == "task.override.targetMissing");
+    }
+
+    [Test]
+    public async Task Exclusive_routes_can_map_one_required_input_and_each_route_must_supply_it()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var schema = new Dictionary<string, WorkflowPropertyKind> { ["Amount"] = WorkflowPropertyKind.Decimal };
+        var seed = await SeedTaskDefinitionAsync(database.Context, "Invoice", schema, ("Result", schema));
+        var sink = await SeedTaskDefinitionAsync(database.Context, "Approve",
+            new Dictionary<string, WorkflowPropertyKind> { ["Value"] = WorkflowPropertyKind.Decimal });
+        var start = Guid.NewGuid();
+        var branch = Guid.NewGuid();
+        var target = Guid.NewGuid();
+        var rule = new Backend.Models.ConditionalRule
+        {
+            Kind = "comparison", Field = "Amount", Operator = "gt",
+            Operands = [new() { Literal = JsonSerializer.SerializeToElement("9007199254740993.50") }]
+        };
+        var decision = new BlueprintNodeInputModel
+        {
+            InstanceId = branch, NodeKind = "ConditionalBranch", ConditionalRule = rule,
+            OutgoingConnections = [Connection(target, "True", ("Amount", "Value")), Connection(target, "False", ("Amount", "Value"))]
+        };
+        var source = Task(start, seed.Id, outgoing: [Connection(branch, "Result")]);
+        var version = Version(start, source, decision, Task(target, sink.Id));
+        var validator = new BlueprintVersionSchemaValidator(database.Context);
+        (await validator.ValidateAsync(version)).IsValid.ShouldBeTrue();
+
+        decision.OutgoingConnections[1].PropertyMappings.Clear();
+        (await validator.ValidateAsync(version)).Errors.ShouldContain(e => e.Code == "graph.route.requiredMissing");
+        decision.OutgoingConnections[1].PropertyMappings.Add(new() { SourceProperty = "Amount", TargetProperty = "Value" });
+        source.OutgoingConnections.Add(Connection(target, "Result", ("Amount", "Value")));
+        (await validator.ValidateAsync(version)).Errors.ShouldContain(e => e.Code == "graph.connection.mapping.duplicateTarget");
+        rule.Field = "Removed";
+        (await validator.ValidateAsync(version)).Errors.ShouldContain(e => e.Path == "tasks[1].conditionalRule.field");
+    }
+
+    [Test]
+    public async Task Importing_an_edited_condition_creates_an_immutable_version_and_reimport_matches_it()
+    {
+        await using var database = await SqliteBlueprintDb.CreateAsync();
+        var schema = new Dictionary<string, WorkflowPropertyKind> { ["Amount"] = WorkflowPropertyKind.Decimal };
+        var seed = await SeedTaskDefinitionAsync(database.Context, "Invoice", schema, ("Result", schema));
+        var start = Guid.NewGuid();
+        var branch = Guid.NewGuid();
+        var repository = new Backend.Repositories.BlueprintRepository(database.Context);
+        var service = new Backend.API.Services.BlueprintPortabilityService(database.Context, repository,
+            new BlueprintVersionSchemaValidator(database.Context));
+        var connection = new BlueprintConnectionInputModel
+        {
+            ConnectedBlueprintNodeId = branch, ChannelName = "Result", Side = "left", Anchor = 1
+        };
+        var created = await repository.CreateBlueprint(new()
+        {
+            Name = "Check amount", StartingBlueprintNodeId = start,
+            Tasks = [Task(start, seed.Id, outgoing: [connection]), new()
+            {
+                InstanceId = branch, NodeKind = "ConditionalBranch", Position = new(),
+                ConditionalRule = new() { Kind = "comparison", Field = "Amount", Operator = "gt",
+                    Operands = [new() { Literal = JsonSerializer.SerializeToElement("100.5") }] }
+            }]
+        }, CancellationToken.None);
+
+        var exported = await service.ExportLatestBlueprintAsync(created.Id, CancellationToken.None);
+        var options = JsonSerializerOptions.Web;
+        exported.SchemaVersion.ShouldBe(4);
+        var copy = JsonSerializer.Deserialize<ExportedBlueprintInputModel>(JsonSerializer.Serialize(exported, options), options)!;
+        copy.Tasks.Single(n => n.TaskKey == branch).ConditionalRule!.Negated = true;
+        var imported = await service.ImportBlueprintAsync(copy, CancellationToken.None);
+        imported.Status.ShouldBe(BlueprintImportStatus.CreatedVersion);
+        var first = await repository.GetFullBlueprintById(created.Versions.Single().BlueprintVersionId, CancellationToken.None);
+        var second = await repository.GetFullBlueprintById(imported.BlueprintVersionId, CancellationToken.None);
+        first.NodesById[branch].ConditionalRule!.Negated.ShouldBeFalse();
+        second.AllNodes.Single(n => n.ConditionalRule is not null).ConditionalRule!.Negated.ShouldBeTrue();
+        (await service.ImportBlueprintAsync(copy, CancellationToken.None)).Status.ShouldBe(BlueprintImportStatus.MatchedExistingVersion);
     }
 
     private static BlueprintVersionInputModel Version(Guid start, params BlueprintNodeInputModel[] tasks) =>

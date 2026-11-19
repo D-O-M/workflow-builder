@@ -1,3 +1,4 @@
+import '@angular/compiler';
 import { describe, expect, it } from 'vitest';
 import { buildProcessCanvasNodes, type ProcessCanvasDetail } from './process-canvas-model';
 import { NodeModel } from './node-model';
@@ -38,6 +39,18 @@ describe('buildProcessCanvasNodes', () => {
     expect(node.outputChannelNames).toEqual(['LegacyOutput']);
     expect(node.inputProperties).toEqual({});
     expect(node.outputChannelProperties).toEqual({});
+  });
+
+  it('renders a skipped native condition with both versioned output schemas', () => {
+    const field: ITaskPropertyDefinition = { name: 'Priority', kind: 'Integer', required: true, enumValues: [] };
+    const [node] = buildProcessCanvasNodes({ nodes: [{
+      ...createProcessDetail().nodes[0], nodeKind: 'ConditionalBranch', status: 'Skipped', conditionalFields: [field],
+      conditionalRule: { kind: 'comparison', field: 'Priority', operator: 'gt', operands: [{ literal: '100' }] },
+    }] }, []);
+    expect(node.name).toBe('Conditional Branch');
+    expect(node.renderStatus).toBe('Skipped');
+    expect(node.outputChannelPropertyDefinitions).toEqual({ True: [field], False: [field] });
+    expect(node.conditionalRule?.kind).toBe('comparison');
   });
 
   it('hydrates Collection Iterator process nodes as compact native operators', () => {

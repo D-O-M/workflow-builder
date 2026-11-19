@@ -19,7 +19,7 @@ using Shouldly;
 
 namespace Backend.Engine.Tests;
 
-public sealed class StepFinalizationServiceTests
+public sealed partial class StepFinalizationServiceTests
 {
     [Test]
     public async Task Success_finalization_persists_dispatch_intent_when_enqueue_fails_and_worker_later_sends()

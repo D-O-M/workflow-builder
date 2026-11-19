@@ -10,6 +10,7 @@ public sealed class ProcessSummaryViewModel
     public required string Status { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? UpdatedAt { get; init; }
+    public int SkippedTaskCount { get; init; }
     public int CompletedTaskCount { get; init; }
     public int FailedTaskCount { get; init; }
     public int InProgressTaskCount { get; init; }
