@@ -32,6 +32,24 @@ public class CosmosRepository<T> where T : class
         _partitionKeySelector = partitionKeySelector ?? throw new ArgumentNullException(nameof(partitionKeySelector));
     }
 
+    /// <summary>Publish only if the projection read for this merge is still current.</summary>
+    public async Task<bool> TrySaveProjectionAsync(T record, string? expectedETag, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (expectedETag is null)
+                await CreateAsync(record, cancellationToken);
+            else
+                await ReplaceAsync(record, cancellationToken, expectedETag);
+            return true;
+        }
+        catch (CosmosException ex) when (ex.StatusCode is System.Net.HttpStatusCode.Conflict
+            or System.Net.HttpStatusCode.PreconditionFailed or System.Net.HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Create a new item. Fails if the id already exists within the partition.</summary>
     public async Task<ItemResponse<T>> CreateAsync(
         T item,

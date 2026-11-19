@@ -15,15 +15,18 @@ public sealed class ClientConfigController : ControllerBase
     private readonly ClientRuntimeConfigOptions _options;
     private readonly WorkflowAuthenticationOptions _authOptions;
     private readonly ConditionalBranchAuthoringOptions _branchOptions;
+    private readonly bool _processRecoveryEnabled;
 
     public ClientConfigController(
         IOptions<ClientRuntimeConfigOptions> options,
         IOptions<WorkflowAuthenticationOptions> authOptions,
-        IOptions<ConditionalBranchAuthoringOptions> branchOptions)
+        IOptions<ConditionalBranchAuthoringOptions> branchOptions,
+        ProcessRecoveryAvailability recovery)
     {
         _options = options.Value;
         _authOptions = authOptions.Value;
         _branchOptions = branchOptions.Value;
+        _processRecoveryEnabled = recovery.Enabled;
     }
 
     [HttpGet]
@@ -42,7 +45,7 @@ public sealed class ClientConfigController : ControllerBase
             signalRBaseUrl,
             grafanaBaseUrl,
             authentication,
-            new ClientRuntimeFeaturesViewModel(_branchOptions.Enabled)));
+            new ClientRuntimeFeaturesViewModel(_branchOptions.Enabled, _processRecoveryEnabled)));
     }
 
     private static ClientRuntimeAuthenticationViewModel ResolveAuthentication(
@@ -88,7 +91,7 @@ public sealed class ClientConfigController : ControllerBase
         ClientRuntimeAuthenticationViewModel Authentication,
         ClientRuntimeFeaturesViewModel Features);
 
-    public sealed record ClientRuntimeFeaturesViewModel(bool ConditionalBranchAuthoring);
+    public sealed record ClientRuntimeFeaturesViewModel(bool ConditionalBranchAuthoring, bool ProcessRecoveryEnabled);
 
     public sealed record ClientRuntimeAuthenticationViewModel(
         bool Enabled,

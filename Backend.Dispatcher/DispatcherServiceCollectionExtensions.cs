@@ -1,4 +1,7 @@
 using Azure.Messaging.ServiceBus;
+using Backend.Database.Relational;
+using Backend.Interfaces.Repositories;
+using Microsoft.EntityFrameworkCore;
 using Backend.Interfaces.Queues;
 using Backend.Repositories;
 using Backend.Services.ProcessStepQueue;
@@ -14,6 +17,18 @@ public static class DispatcherServiceCollectionExtensions
         IConfiguration configuration,
         IHostEnvironment environment)
     {
+        var processRecoveryEnabled = configuration.GetValue<bool>("ProcessRecovery:Enabled");
+        if (processRecoveryEnabled)
+        {
+            var sql = LocalDevelopmentResourceSettings.GetTasksDbConnectionString(configuration, environment);
+            services.AddDbContextPool<BlueprintDbContext>(options => options.UseSqlServer(sql));
+        }
+        if (processRecoveryEnabled)
+        {
+            services.AddRelationalDataRepositories();
+            services.AddScoped<ProcessRecoveryExecutor>();
+        }
+
         var cosmosConnectionString = LocalDevelopmentResourceSettings.GetCosmosConnectionString(
             configuration,
             environment);
@@ -61,6 +76,8 @@ public static class DispatcherServiceCollectionExtensions
         services.AddSingleton<IProcessStepDispatcher>(provider =>
             provider.GetRequiredService<ProcessStepDispatchService>());
         services.AddHostedService<ProcessStepDispatchWorker>();
+        if (configuration.GetValue<bool>("ProcessRecovery:Enabled"))
+            services.AddHostedService<ProcessRecoveryWorker>();
 
         return services;
     }

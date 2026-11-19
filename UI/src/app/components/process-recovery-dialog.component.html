@@ -1,0 +1,196 @@
+<header class="recovery-header">
+  <div>
+    <h2 mat-dialog-title>{{ page() ? (page()!.status === 'Preview' ? 'Recovery preview' : 'Recovery progress') : 'history' in data ? 'Recovery history' : 'Step recovery' }}</h2>
+    @if (page(); as result) {
+      <p>{{ result.processCount }} {{ result.processCount === 1 ? 'Process' : 'Processes' }} · {{ result.stepCount }} failed {{ result.stepCount === 1 ? 'Step' : 'Steps' }} · Revision {{ result.revision }}</p>
+    }
+  </div>
+  <button mat-icon-button mat-dialog-close type="button" aria-label="Close recovery"><mat-icon>close</mat-icon></button>
+</header>
+@if (busy()) { <mat-progress-bar mode="indeterminate" aria-label="Loading recovery" /> }
+<mat-dialog-content class="recovery-content" data-testid="process-recovery-dialog">
+  @if (error()) {
+    <div class="issue" role="alert">
+      {{ error() }}
+      @if (page(); as result) {
+        <button mat-button type="button" [disabled]="busy()" (click)="open(result.id, offset())">Reload saved revision</button>
+      } @else {
+        <button mat-button type="button" [disabled]="busy()" (click)="initialize()">Try again</button>
+      }
+    </div>
+  }
+  @if (page(); as result) {
+    <div class="audit" aria-label="Recovery record">
+      <strong>{{ result.status }}</strong>
+      <span>{{ result.actor }} · {{ (result.confirmedAt || result.createdAt) | date:'medium' }}</span>
+      @if (result.reason) { <span>{{ result.reason }}</span> }
+      @if (!editable()) { <span>New paths and items · {{ newWorkPolicy() === 'Run' ? 'Run newly reached work' : 'Pause for review' }}</span> }
+    </div>
+    @if (result.confirmedRevisions.length > 0) {
+      <label>Recovery revision
+        <select [disabled]="busy() || dirty()" [value]="historicalRevision() ?? ''"
+          (change)="open(result.id, 0, $any($event.target).value ? +$any($event.target).value : undefined)">
+          <option value="">Current revision</option>
+          @for (revision of result.confirmedRevisions; track revision) {
+            <option [value]="revision" [selected]="historicalRevision() === revision">Confirmed revision {{ revision }}</option>
+          }
+        </select>
+      </label>
+    }
+    @if (result.status === 'Preview' && !hasEligibleCases()) {
+      <p>No eligible failed Steps remain in this selection.</p>
+    } @else if (result.status === 'Preview' && result.eligibleProcessCount !== undefined && result.eligibleProcessCount < result.processCount) {
+      <p>{{ result.eligibleProcessCount }} of {{ result.processCount }} Processes are eligible for recovery.</p>
+    }
+    @if (editable()) {
+      <fieldset class="settings" [disabled]="busy()">
+        <label>When new paths or items appear
+          <select [value]="newWorkPolicy()" (change)="newWorkPolicy.set($any($event.target).value)" data-testid="recovery-new-work-policy">
+            <option value="Pause">Pause for review</option><option value="Run">Run newly reached work</option>
+          </select>
+        </label>
+        @if (result.processCount > 1 && !groups()) {
+          <button mat-stroked-button type="button" (click)="loadGroups()">Edit shared decisions</button>
+        }
+      </fieldset>
+    }
+    @if (groups(); as shared) {
+      <section class="groups">
+        <h3>Shared decisions</h3>
+        @for (group of shared; track group.blueprintVersionId + group.blueprintNodeId) {
+          <fieldset class="group-row" [disabled]="busy()">
+            <span><strong>{{ group.name }}</strong><small>Blueprint version ID {{ group.blueprintVersionId }}</small>
+              <small>{{ group.inScopeSteps }} of {{ group.availableSteps }} Steps in scope across {{ group.affectedProcesses }} Processes</small>
+            </span>
+            <select [disabled]="!group.inScopeSteps" [attr.aria-label]="'Shared decision for ' + group.name" [value]="groupAction(group)"
+              (change)="groupEdit(group, {action: $any($event.target).value})">
+              <option value="" disabled>Keep current decisions</option>
+              @for (action of actions; track action.value) {
+                <option [value]="action.value" [selected]="groupAction(group) === action.value" [disabled]="action.value === 'Reuse' && group.hasUnrecordedSteps">{{ action.label }}</option>
+              }
+            </select>
+            @if (group.eligibleStarts) {
+              <button mat-button type="button" (click)="groupEdit(group, {continuation: true})">Start here ({{ group.eligibleStarts }} eligible)</button>
+            }
+          </fieldset>
+        }
+      </section>
+    }
+    @for (item of result.cases; track item.processId) {
+      <details class="recovery-case" [open]="result.processCount === 1">
+        <summary>
+          <span><strong>{{ item.status }}</strong><span class="identifier">{{ item.processId }}</span></span>
+          <small>Blueprint version ID {{ item.blueprintVersionId }}</small>
+        </summary>
+        <div class="case-body">
+          @if (item.blueprintDefinitionId > 0) {
+            <a [routerLink]="['/processes']" [queryParams]="{blueprintId: item.blueprintDefinitionId, processId: item.processId}" mat-dialog-close>Open Process history</a>
+          }
+          @if (item.message) { <p>{{ item.message }}</p> }
+          @if (item.plan; as plan) {
+            @for (issue of plan.issues; track $index) { <p class="issue">{{ issue }}</p> }
+            @for (step of plan.steps; track step.stepId) {
+              <fieldset class="step" [class.in-scope]="step.inScope" [disabled]="busy()">
+                <div class="step-top">
+                  <span>
+                    <strong>{{ step.name }}</strong>
+                    <small>{{ recordedStatus(step) }}
+                      @if (step.itemKey) { · Item {{ step.itemKey }} }
+                      @if (plan.continuationStepIds.includes(step.stepId)) { · Continuation point }
+                      @if (plan.targetStepIds.includes(step.stepId)) { · Selected failure }
+                    </small>
+                    @if (step.reusedFromStepId) { <small>Used outcome from attempt {{ step.reusedFromStepId }}</small> }
+                  </span>
+                  @if (editable() && (item.status === 'Preview' || item.status === 'Held')) {
+                    @if (step.canStartHere && !plan.continuationStepIds.includes(step.stepId)) {
+                      <button mat-button type="button" (click)="setEdit({...scope(item, step), continuation: true})">Start here</button>
+                    } @else if (plan.continuationStepIds.includes(step.stepId) && !plan.targetStepIds.includes(step.stepId)) {
+                      <button mat-button type="button" (click)="setEdit({...scope(item, step), continuation: false})">Remove start point</button>
+                    }
+                    @if (step.inScope) {
+                      <select [attr.aria-label]="'Decision for ' + step.name" [value]="draft(item, step).action"
+                        (change)="changeAction(item, step, $any($event.target).value)">
+                        @for (action of actions; track action.value) {
+                          <option [value]="action.value" [selected]="draft(item, step).action === action.value" [disabled]="action.value === 'Reuse' && step.status === 'NotExecuted'">{{ action.label }}</option>
+                        }
+                      </select>
+                    }
+                  } @else if (step.inScope) {
+                    <strong class="decision">{{ step.action === 'Reuse' ? 'Use recorded outcome' : step.action }}</strong>
+                  }
+                </div>
+                @if (step.inScope && draft(item, step).action === 'Run' && step.status === 'Completed') {
+                  <p class="repeat-note">This completed Step will execute again.</p>
+                } @else if (step.inScope && draft(item, step).action === 'Run' && step.status === 'Failed') {
+                  <p>Running this Step can repeat an external action taken during the failed attempt.</p>
+                }
+                @if (step.inScope && draft(item, step).action === 'Reuse' && step.history.length > 1 && editable() && item.status === 'Preview') {
+                  <label>Source attempt
+                    <select [value]="draft(item, step).source"
+                      (change)="setEdit({...scope(item, step), action: 'Reuse', reuseStepId: $any($event.target).value})">
+                      @for (attempt of step.history; track attempt.stepId) {
+                        <option [value]="attempt.stepId" [selected]="draft(item, step).source === attempt.stepId">{{ recordedStatus(attempt) }} · {{ attempt.stepId }}@if (attempt.reusedFromStepId) { · Source {{ attempt.reusedFromStepId }} }</option>
+                      }
+                    </select>
+                  </label>
+                }
+                @for (input of step.missingInputs; track $index) { <p class="issue">{{ step.name }} requires {{ input }}</p> }
+                @if (step.status !== 'NotExecuted') {
+                <details class="source">
+                  <summary>Recorded inputs and outputs</summary>
+                  @let attempt = recorded(item, step);
+                  <p>Attempt <code>{{ attempt.stepId }}</code></p>
+                  @if (attempt.recoveryAction) { <p>{{ recordedStatus(attempt) }}</p> }
+                  @if (attempt.reusedFromStepId) { <p>Source attempt <code>{{ attempt.reusedFromStepId }}</code></p> }
+                  <h4>Inputs</h4><pre>{{ (attempt.inputs | json) ?? 'No recorded inputs' }}</pre>
+                  <h4>Outputs</h4><pre>{{ (attempt.outputs | json) ?? 'No recorded outputs' }}</pre>
+                </details>
+                }
+              </fieldset>
+            }
+          }
+        </div>
+      </details>
+    }
+    @if (offset() || result.hasMore) {
+      <nav aria-label="Recovery case pages" class="pagination">
+        <button mat-button type="button" [disabled]="!offset() || busy() || dirty()" (click)="open(result.id, offset() - 25, historicalRevision())">Previous</button>
+        <span>{{ offset() + 1 }}–{{ offset() + result.cases.length }} of {{ result.processCount }}</span>
+        <button mat-button type="button" [disabled]="!result.hasMore || busy() || dirty()" (click)="open(result.id, offset() + 25, historicalRevision())">Next</button>
+      </nav>
+    }
+    @if (result.status === 'Preview' && hasEligibleCases()) {
+      <label class="reason">Reason for recovery
+        <textarea rows="2" maxlength="2000" [value]="reason()" (input)="reason.set($any($event.target).value)" data-testid="recovery-reason"></textarea>
+      </label>
+    }
+  } @else if (history(); as rows) {
+    @for (row of rows; track row.id) {
+      <button class="history-entry" type="button" (click)="open(row.id)" [disabled]="busy()">
+        <strong>{{ row.status }} · {{ row.processCount }} Processes · {{ row.stepCount }} Steps</strong>
+        <span>{{ row.actor }} · {{ row.createdAt | date:'medium' }} · Revision {{ row.revision }}</span>
+        @if (row.reason) { <span>{{ row.reason }}</span> }
+      </button>
+    } @empty { <p>No recoveries found.</p> }
+    @if (offset() || rows.length === 25) {
+      <nav class="pagination" aria-label="Recovery history pages">
+        <button mat-button type="button" [disabled]="busy() || !offset()" (click)="initialize(offset() - 25)">Previous</button>
+        <button mat-button type="button" [disabled]="busy() || rows.length < 25" (click)="initialize(offset() + 25)">Next</button>
+      </nav>
+    }
+  }
+</mat-dialog-content>
+@if (page(); as result) {
+  <mat-dialog-actions align="end">
+    @if ('history' in data) { <button mat-button type="button" [disabled]="busy()" (click)="initialize()">Back to history</button> }
+    @if (canResume()) {
+      <button mat-flat-button type="button" [disabled]="busy()" (click)="revise()">Review unresolved cases</button>
+    } @else if (dirty()) {
+      <button mat-flat-button type="button" [disabled]="busy()" (click)="revise()" data-testid="recovery-revise">Update preview</button>
+    } @else if (result.status === 'Preview' && hasEligibleCases()) {
+      <button mat-flat-button type="button" [disabled]="busy() || !reason().trim()" (click)="confirm()" data-testid="recovery-confirm">Confirm recovery</button>
+    } @else {
+      <button mat-button type="button" [disabled]="busy()" (click)="open(result.id, offset())">Refresh progress</button>
+    }
+  </mat-dialog-actions>
+}

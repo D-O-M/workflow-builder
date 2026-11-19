@@ -85,6 +85,7 @@ internal sealed class DistributedAppTestEnvironment : IAsyncDisposable
                 $"{WorkflowBuilderTopology.Cosmos.DatabaseNameKey}={CosmosDatabaseName}",
                 "AzureCosmos:PersistData=false",
                 "IntegrationTests:Enabled=true",
+                "ProcessRecovery:Enabled=true",
                 $"{WorkflowBuilderTopology.Storage.ResourceNameKey}=integration-storage",
                 $"{WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ResourceNameKey}={WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ResourceName}",
                 $"{WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameKey}={PluginsBlobContainerName}",

@@ -40,6 +40,10 @@
         "partitionKey": "/id"
       },
       {
+        "name": "processrecoveries",
+        "partitionKey": "/batchId"
+      },
+      {
         "name": "pluginingestionstatuses",
         "partitionKey": "/id"
       },

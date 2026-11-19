@@ -32,6 +32,7 @@ public static class WorkflowBuilderTopology
             public static readonly CosmosContainer ProcessSteps = new("processsteps", "/processId");
             public static readonly CosmosContainer ProcessStepDispatches = new("processstepdispatches", "/partitionKey");
             public static readonly CosmosContainer ProcessStepFinalizations = new("processstepfinalizations", "/id");
+            public static readonly CosmosContainer ProcessRecoveries = new("processrecoveries", "/batchId");
             public static readonly CosmosContainer PluginIngestionStatuses = new("pluginingestionstatuses", "/id");
             public static readonly CosmosContainer PluginTaskVersionRuntimeStatuses = new("plugintaskversionruntimestatuses", "/taskVersionId");
             public static readonly CosmosContainer NodeActivations = new("nodeactivations", "/processId");
@@ -179,6 +180,7 @@ public static class WorkflowBuilderTopology
                     Cosmos.Containers.ProcessSteps,
                     Cosmos.Containers.ProcessStepDispatches,
                     Cosmos.Containers.ProcessStepFinalizations,
+                    Cosmos.Containers.ProcessRecoveries,
                     Cosmos.Containers.PluginIngestionStatuses,
                     Cosmos.Containers.PluginTaskVersionRuntimeStatuses,
                     Cosmos.Containers.NodeActivations,

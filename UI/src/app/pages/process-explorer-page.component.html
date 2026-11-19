@@ -21,6 +21,9 @@
           </div>
 
           <div class="process-explorer-page__rail-actions">
+            @if (recoveryEnabled) {
+              <button mat-icon-button type="button" (click)="openRecovery({history: true})" matTooltip="Recovery history" aria-label="Recovery history" data-testid="process-recovery-history"><mat-icon>restore</mat-icon></button>
+            }
             <button mat-icon-button type="button" (click)="openAdvancedSearch()" matTooltip="Advanced search" aria-label="Advanced search" data-testid="process-explorer-history-advanced-search">
               <mat-icon>tune</mat-icon>
             </button>
@@ -198,6 +201,20 @@
             </div>
           }
 
+          @if (recoveryEnabled && searchResultsRows().length && !searchResultsLoading()) {
+            <div class="process-explorer-page__recovery-selection">
+              <label>
+                <input type="checkbox" [checked]="selectAllForRecovery()" (change)="selectAllMatches($any($event.target).checked)" data-testid="recovery-select-all" />
+                Select all matches across pages
+              </label>
+              <button mat-stroked-button type="button" [disabled]="!selectAllForRecovery() && !recoverySelection().size"
+                (click)="recoverSearch()" data-testid="process-recover-batch">
+                {{ selectAllForRecovery() ? 'Recover all matches' : 'Recover selected' }}
+              </button>
+              <small>{{ selectAllForRecovery() ? recoverySelection().size + ' excluded' : recoverySelection().size + ' selected' }}</small>
+            </div>
+          }
+
           <div class="process-explorer-page__rail-scroll">
             @if (searchResultsLoading()) {
               <div class="process-explorer-page__list-state">
@@ -217,6 +234,12 @@
             } @else {
               <div class="process-explorer-page__rail-list" aria-label="Search results" data-testid="process-explorer-search-results">
                 @for (processRow of searchResultsRows(); track trackProcess($index, processRow)) {
+                  <div class="process-explorer-page__recovery-row">
+                  @if (recoveryEnabled) {
+                    <input type="checkbox" [attr.aria-label]="'Include Process ' + processRow.processId + ' in recovery'"
+                      [checked]="selectAllForRecovery() !== recoverySelection().has(processRow.processId)"
+                      (change)="toggleRecoveryRow(processRow.processId)" data-testid="recovery-select-result" />
+                  }
                   <button
                     type="button"
                     class="process-explorer-page__rail-card process-explorer-page__rail-card--process"
@@ -240,6 +263,7 @@
                       <mat-icon>{{ statusIcon(processRow.status) }}</mat-icon>
                     </span>
                   </button>
+                  </div>
                 }
               </div>
 
@@ -307,7 +331,7 @@
           <article class="process-explorer-page__metric">
             <mat-icon>flag_circle</mat-icon>
             <span>Ended</span>
-            <strong>{{ selectedStepEndedAt() ? (selectedStepEndedAt() | date: 'dd MMM, HH:mm:ss') : selectedStepStatus() === 'Skipped' ? statusLabel('Skipped') : 'Still open' }}</strong>
+            <strong>{{ selectedStepEndedAt() ? (selectedStepEndedAt() | date: 'dd MMM, HH:mm:ss') : selectedStepStatus() === 'Skipped' ? recoveryStatusLabel(selectedStepDetail()?.runtimeStepId, 'Skipped') : 'Still open' }}</strong>
           </article>
           <article class="process-explorer-page__metric">
             <mat-icon>deployed_code</mat-icon>
@@ -331,7 +355,10 @@
         @if (decisionIterations().length) {
           <ul aria-label="Iteration outcomes">
             @for (item of decisionIterations(); track item.runtimeStepId) {
-              <li>Item {{ item.itemIndex + 1 }} · {{ statusLabel(item.status) }} @if (item.selectedChannel) { · {{ item.selectedChannel }} }
+              <li>Item {{ item.itemIndex + 1 }} · {{ recoveryStatusLabel(item.runtimeStepId, item.status) }} @if (item.selectedChannel) { · {{ item.selectedChannel }} }
+                @if (recoveryEnabled && item.status === 'Failed') {
+                  <button mat-button type="button" (click)="recoverStep(item.runtimeStepId)" [attr.aria-label]="'Recover Step for item ' + (item.itemIndex + 1)">Recover Step</button>
+                }
               </li>
             }
           </ul>
@@ -346,6 +373,29 @@
           </aside>
         }
 
+        @if (recoveryEnabled && selectedStepStatus() === 'Failed' && !decisionIterations().length && selectedStepDetail()?.runtimeStepId; as stepId) {
+          <button mat-stroked-button type="button" (click)="recoverStep(stepId)" data-testid="process-recover-step"><mat-icon>restart_alt</mat-icon>Recover Step</button>
+        }
+        @if (recoveryEnabled && selectedStepDetail()?.attempts; as attempts) {
+          @if (attempts.length > 1 || attempts[0]?.recoveryId) {
+            <details class="process-explorer-page__attempts">
+              <summary>Step history ({{ attempts.length }})</summary>
+              @for (attempt of attempts; track attempt.runtimeStepId) {
+                <div>
+                  <strong>{{ attempt.recoveryAction === 'Skip' ? 'Operator skipped' : attempt.recoveryAction === 'Reuse' ? 'Recorded outcome accepted' : attempt.status }}</strong>
+                  · {{ attempt.endedAt || attempt.startedAt | date:'medium' }}
+                  @if (attempt.resolvedVersion) { · Plugin {{ attempt.resolvedVersion }} }
+                  <small>{{ attempt.runtimeStepId }}</small>
+                  @if (attempt.reusedFromStepId) { <small>Source attempt · {{ attempt.reusedFromStepId }}</small> }
+                  @if (attempt.failureMessage) { <small>{{ attempt.failureMessage }}</small> }
+                  @if (attempt.recoveryId) {
+                    <button mat-button type="button" (click)="openRecovery({recoveryId: attempt.recoveryId})">View recovery</button>
+                  }
+                </div>
+              }
+            </details>
+          }
+        }
         <mat-tab-group
           class="process-explorer-page__step-tabs"
           animationDuration="0ms"
@@ -568,6 +618,9 @@
 
             @if (detailLoading()) {
               <mat-progress-bar mode="indeterminate" />
+            }
+            @if (recoveryEnabled) {
+              <button mat-button type="button" (click)="openRecovery({history: true, processId: process.processId})">Process recoveries</button>
             }
           </header>
 

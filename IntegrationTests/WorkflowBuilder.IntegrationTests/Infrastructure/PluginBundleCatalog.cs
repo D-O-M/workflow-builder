@@ -7,6 +7,7 @@ internal sealed class PluginBundleCatalog
     public const string ResultPlugin = "IntegrationResultPlugin";
     public const string FailurePlugin = "IntegrationFailurePlugin";
     public const string JoinProbePlugin = "IntegrationJoinProbePlugin";
+    public const string RecoveryProbePlugin = "IntegrationRecoveryProbePlugin";
 
     private readonly IReadOnlyDictionary<string, string> _bundlePathsByPluginName;
 

@@ -305,7 +305,6 @@ public sealed class ProcessQueryService
             filterSignature,
             normalizedRequest.Cursor);
         var items = new List<BlueprintProcessHistoryEntryViewModel>(normalizedRequest.Limit);
-        var processStepsCache = new Dictionary<string, IReadOnlyDictionary<string, ProcessStepRecord>>(StringComparer.Ordinal);
 
         while (items.Count < normalizedRequest.Limit)
         {
@@ -335,7 +334,6 @@ public sealed class ProcessQueryService
                 metadata,
                 nodeFilters,
                 propertyFilters,
-                processStepsCache,
                 cancellationToken);
             if (!candidateMatches)
             {
@@ -377,8 +375,6 @@ public sealed class ProcessQueryService
             : DecodeIndexSearchCursor(normalizedRequest.Cursor, filterSignature);
         var continuationToken = cursor?.ProjectionContinuationToken;
         var items = new List<BlueprintProcessHistoryEntryViewModel>(normalizedRequest.Limit);
-        var processStepsCache = new Dictionary<string, IReadOnlyDictionary<string, ProcessStepRecord>>(StringComparer.Ordinal);
-        var pageSize = Math.Clamp(normalizedRequest.Limit * 2, 10, 100);
         var sawProjectionRows = false;
         var emptyPageAdvances = 0;
 
@@ -386,7 +382,7 @@ public sealed class ProcessQueryService
         {
             var page = await _processIndexProjectionService!.GetRecentTenantSummariesAsync(
                 continuationToken,
-                pageSize,
+                normalizedRequest.Limit - items.Count,
                 normalizedRequest.CreatedFrom,
                 normalizedRequest.CreatedTo,
                 GetIndexSearchStatusFilter(normalizedRequest),
@@ -428,7 +424,6 @@ public sealed class ProcessQueryService
                     metadata,
                     nodeFilters,
                     propertyFilters,
-                    processStepsCache,
                     cancellationToken);
                 if (!candidateMatches)
                 {
@@ -944,7 +939,6 @@ public sealed class ProcessQueryService
         SearchVersionMetadata metadata,
         IReadOnlyList<SearchNodeFilterPlan> nodeFilters,
         IReadOnlyList<SearchPropertyFilterPlan> propertyFilters,
-        IDictionary<string, IReadOnlyDictionary<string, ProcessStepRecord>> processStepsCache,
         CancellationToken cancellationToken)
     {
         if (nodeFilters.Any(filter => !filter.MatchingVersionIds.Contains(metadata.BlueprintVersionId))
@@ -953,60 +947,62 @@ public sealed class ProcessQueryService
             return false;
         }
 
-        IReadOnlyDictionary<string, ProcessStepRecord>? processSteps = null;
+        if (nodeFilters.Count == 0 && propertyFilters.Count == 0) return true;
         var processId = Guid.Parse(summary.ProcessId);
-
-        if (nodeFilters.Count > 0 || propertyFilters.Count > 0)
+        IReadOnlyList<ProcessStepRecord> processSteps = await _processStepRepository.GetProcessStepsForProcess(processId, cancellationToken);
+        if (processSteps.Any(step => step.RecoveryId.HasValue))
         {
-            processSteps = await GetProcessStepsAsync(
-                summary.ProcessId,
-                processId,
-                processStepsCache,
-                cancellationToken);
-        }
-
-        if (processSteps is not null)
-        {
-            foreach (var filter in nodeFilters)
+            try
             {
-                if (!processSteps.TryGetValue(filter.BlueprintNodeId.ToString(), out var step)
-                    || (filter.Statuses.Count > 0 && !filter.Statuses.Contains(step.Status)))
-                {
-                    return false;
-                }
+                var process = await _processInstanceRepository.GetProcessStateById(processId, metadata.BlueprintVersionId, cancellationToken);
+                processSteps = ProcessRecoveryState.EffectiveSteps(process, processSteps);
             }
-
-            foreach (var filter in propertyFilters)
+            catch (EntityNotFoundException<ProcessInstanceRecord>)
             {
-                if (!filter.BlueprintNodeId.HasValue
-                    || !processSteps.TryGetValue(filter.BlueprintNodeId.Value.ToString(), out var step)
-                    || !TryGetNodePropertyValue(step, filter.Scope, filter.PropertyKey, out var propertyValue)
-                    || !MatchesPropertyFilter(propertyValue, filter))
-                {
-                    return false;
-                }
+                return false;
             }
         }
-
-        return true;
+        return MatchesAllNodes(processSteps, nodeFilters, propertyFilters);
     }
 
-    private async Task<IReadOnlyDictionary<string, ProcessStepRecord>> GetProcessStepsAsync(
-        string cacheKey,
-        Guid processId,
-        IDictionary<string, IReadOnlyDictionary<string, ProcessStepRecord>> cache,
-        CancellationToken cancellationToken)
+    private static bool MatchesAllNodes(IReadOnlyList<ProcessStepRecord> steps, IReadOnlyList<SearchNodeFilterPlan> nodes,
+        IReadOnlyList<SearchPropertyFilterPlan> properties)
     {
-        if (cache.TryGetValue(cacheKey, out var processSteps))
-        {
-            return processSteps;
-        }
+        var requiredNodes = nodes.Select(n => n.BlueprintNodeId).Concat(properties.Select(p => p.BlueprintNodeId!.Value)).Distinct();
+        return requiredNodes.All(node => steps.Any(step => Guid.TryParse(step.BlueprintNodeId, out var id) && id == node
+            && MatchesOccurrence(step, node, nodes, properties)));
+    }
 
-        processSteps = (await _processStepRepository.GetProcessStepsForProcess(processId, cancellationToken))
-            .GroupBy(step => step.BlueprintNodeId, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.OrderByDescending(step => step.CreatedAt).First(), StringComparer.Ordinal);
-        cache[cacheKey] = processSteps;
-        return processSteps;
+    private static bool MatchesOccurrence(ProcessStepRecord step, Guid node, IReadOnlyList<SearchNodeFilterPlan> nodes,
+        IReadOnlyList<SearchPropertyFilterPlan> properties) =>
+        nodes.Where(f => f.BlueprintNodeId == node).All(f => f.Statuses.Count == 0 || f.Statuses.Contains(step.Status))
+        && properties.Where(f => f.BlueprintNodeId == node).All(f =>
+            TryGetNodePropertyValue(step, f.Scope, f.PropertyKey, out var value) && MatchesPropertyFilter(value, f));
+
+    public static List<Guid> FindFailedRecoverySteps(ProcessSearchRequestInputModel request, int definitionId, int versionId,
+        IReadOnlyList<ProcessStepRecord> effectiveSteps)
+    {
+        var normalized = NormalizeProcessSearchRequest(request);
+        var metadata = new Dictionary<int, SearchVersionMetadata>
+        {
+            [versionId] = new(definitionId, "", versionId, 0, effectiveSteps.Select(step => Guid.Parse(step.BlueprintNodeId)).ToHashSet())
+        };
+        var nodes = BuildSearchNodeFilters(normalized, metadata);
+        var properties = BuildSearchPropertyFilters(normalized, metadata);
+        if (nodes.Any(f => !f.MatchingVersionIds.Contains(versionId)) || properties.Any(f => !f.MatchingVersionIds.Contains(versionId))
+            || !MatchesAllNodes(effectiveSteps, nodes, properties)) return [];
+        var failedNodes = nodes.Where(f => f.Statuses.Contains(ProcessStepStatus.Failed)).Select(f => f.BlueprintNodeId).ToHashSet();
+        return effectiveSteps.Where(step => step.Status == ProcessStepStatus.Failed
+            && Guid.TryParse(step.BlueprintNodeId, out var node)
+            && (failedNodes.Count == 0 || failedNodes.Contains(node))
+            && MatchesOccurrence(step, node, nodes, properties)).Select(step => Guid.Parse(step.Id)).ToList();
+    }
+
+    public static bool MatchesRecoveryProcessScope(ProcessSearchRequestInputModel request, int definitionId, ProcessInstanceRecord process)
+    {
+        var criteria = NormalizeProcessSearchRequest(request);
+        return MatchesProcessScope(definitionId, process.Status, criteria)
+            && process.CreatedAt >= criteria.CreatedFrom && process.CreatedAt <= criteria.CreatedTo;
     }
 
     private static bool TryGetNodePropertyValue(
@@ -1366,25 +1362,27 @@ public sealed class ProcessQueryService
     private static bool IndexSummaryMatchesSearchScope(
         ProcessSummaryProjectionRecord summary,
         SearchVersionMetadata metadata,
-        NormalizedProcessSearchRequest request)
+        NormalizedProcessSearchRequest request) => MatchesProcessScope(metadata.BlueprintDefinitionId, summary.Status, request);
+
+    private static bool MatchesProcessScope(int definitionId, ProcessStatus status, NormalizedProcessSearchRequest request)
     {
         if (request.BlueprintDefinitionIds.Count > 0 &&
-            !request.BlueprintDefinitionIds.Contains(metadata.BlueprintDefinitionId))
+            !request.BlueprintDefinitionIds.Contains(definitionId))
         {
             return false;
         }
 
         var blueprintFilter = request.BlueprintFilters
-            .FirstOrDefault(filter => filter.BlueprintDefinitionId == metadata.BlueprintDefinitionId);
+            .FirstOrDefault(filter => filter.BlueprintDefinitionId == definitionId);
 
         if (blueprintFilter is not null)
         {
             return blueprintFilter.Statuses.Count == 0 ||
-                blueprintFilter.Statuses.Contains(summary.Status);
+                blueprintFilter.Statuses.Contains(status);
         }
 
         return request.ProcessStatuses.Count == 0 ||
-            request.ProcessStatuses.Contains(summary.Status);
+            request.ProcessStatuses.Contains(status);
     }
 
     private static string EncodeIndexSearchCursor(string filterSignature, string projectionContinuationToken)

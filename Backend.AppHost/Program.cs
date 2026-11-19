@@ -58,6 +58,8 @@ internal class Program
         var frontendEnabled = builder.Configuration.GetValue("Frontend:Enabled", true);
         var signalREnabled = builder.Configuration.GetValue("SignalR:Enabled", !nftMinimalServices || frontendEnabled);
         var dispatcherEnabled = builder.Configuration.GetValue("Dispatcher:Enabled", true);
+        var recoveryEnabled = dispatcherEnabled && builder.Configuration.GetValue("ProcessRecovery:Enabled",
+            builder.Environment.IsDevelopment() && !nftEnabled);
         var projectionWorkerEnabled = builder.Configuration.GetValue("ProjectionWorker:Enabled", !nftMinimalServices || nftEnabled);
         var maintenanceEnabled = builder.Configuration.GetValue("Maintenance:Enabled", !nftMinimalServices);
         var pluginDetectorEnabled = builder.Configuration.GetValue("PluginDetector:Enabled", !nftMinimalServices);
@@ -214,6 +216,7 @@ internal class Program
         }
 
         api.WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+            .WithEnvironment("ProcessRecovery__Enabled", recoveryEnabled.ToString())
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
             .WithEnvironment(WorkflowBuilderTopology.ServiceBus.Queues.ProcessStep.ConnectionNameEnvironmentVariable, processStepQueueConnectionName)
@@ -313,6 +316,7 @@ internal class Program
             .WaitFor(sqlDb)
             .WaitForCompletion(migrations);
         engine.WithEnvironment(WorkflowBuilderTopology.Cosmos.ConnectionNameEnvironmentVariable, cosmosConnectionName)
+            .WithEnvironment("ProcessRecovery__Enabled", recoveryEnabled.ToString())
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.ResourceNameEnvironmentVariable, cosmosResourceName)
             .WithEnvironment(WorkflowBuilderTopology.Cosmos.DatabaseNameEnvironmentVariable, cosmosDatabaseName)
             .WithEnvironment(WorkflowBuilderTopology.Storage.BlobContainers.Plugins.ContainerNameEnvironmentVariable, pluginsBlobContainerName)
@@ -357,6 +361,8 @@ internal class Program
         {
             var dispatcher = builder.AddProject<Projects.Backend_Dispatcher>(
                     "backend-dispatcher")
+                .WithEnvironment("ProcessRecovery__Enabled", recoveryEnabled.ToString())
+                .WithReference(sqlDb)
                 .WithReference(cosmos, connectionName: cosmosConnectionName)
                 .WaitFor(cosmosDb)
                 .WithReference(processStepQueue, connectionName: processStepQueueConnectionName)

@@ -64,7 +64,8 @@ public sealed class ProcessProjectionService
                     Guid.Parse(processRecord.ProcessId),
                     cancellationToken);
 
-                summaries.Add(BuildSummary(definition.Id, definition.DisplayName, version, processRecord, tasks));
+                summaries.Add(BuildSummary(definition.Id, definition.DisplayName, version, processRecord,
+                    ProcessRecoveryState.EffectiveSteps(processRecord, tasks)));
             }
         }
 
@@ -131,6 +132,12 @@ public sealed class ProcessProjectionService
 
         return new ProcessStepDetailViewModel
         {
+            RuntimeStepId = Guid.TryParse(taskState?.Id, out var representativeId) ? representativeId : null,
+            Attempts = context.AllAttempts.Where(step => Guid.TryParse(step.BlueprintNodeId, out var id) && id == blueprintNodeId)
+                .OrderByDescending(step => step.CreatedAt)
+                .Select(step => new ProcessStepAttemptViewModel(step.Id, step.LogicalStepId ?? step.Id, step.Status.ToString(),
+                    step.StartedAt, step.FailedAt ?? step.CompletedAt, step.ResolvedTaskVersion, step.RecoveryId,
+                    step.RecoveryAction, step.ReusedFromStepId, step.ErrorMessage)).ToList(),
             BlueprintNodeId = blueprintNode.Id,
             Name = GetNodeDisplayName(blueprintNode),
             NodeKind = blueprintNode.NodeKind.ToString(),
@@ -253,10 +260,11 @@ public sealed class ProcessProjectionService
             processId,
             blueprintVersionId,
             cancellationToken);
-        var processSteps = await _processStepRepository.GetProcessStepsForProcess(
+        var allAttempts = await _processStepRepository.GetProcessStepsForProcess(
             processId,
             cancellationToken);
 
+        var processSteps = ProcessRecoveryState.EffectiveSteps(processRecord, allAttempts);
         if (repairProjection && _processRealtimeProjectionService is not null)
         {
             try
@@ -589,14 +597,7 @@ public sealed class ProcessProjectionService
         var processSteps = await _processStepRepository.GetProcessStepsForProcess(
             processId,
             cancellationToken);
-        var processStepsByBlueprintNodeId = GroupProcessStepsByBlueprintNodeId(processSteps);
-
-        return new ProcessProjectionContext(
-            definition,
-            blueprintVersionEntity,
-            processRecord,
-            processSteps,
-            processStepsByBlueprintNodeId);
+        return CreateContext(definition, blueprintVersionEntity, processRecord, processSteps);
     }
 
     private async Task<ProcessProjectionContext> LoadProcessContextByIdAsync(
@@ -648,14 +649,14 @@ public sealed class ProcessProjectionService
         var processSteps = await _processStepRepository.GetProcessStepsForProcess(
             Guid.Parse(directory.ProcessId),
             cancellationToken);
-        var processStepsByBlueprintNodeId = GroupProcessStepsByBlueprintNodeId(processSteps);
+        return CreateContext(definition, blueprintVersionEntity, processRecord, processSteps);
+    }
 
-        return new ProcessProjectionContext(
-            definition,
-            blueprintVersionEntity,
-            processRecord,
-            processSteps,
-            processStepsByBlueprintNodeId);
+    private static ProcessProjectionContext CreateContext(BlueprintDefinition definition, BlueprintVersion version,
+        ProcessInstanceRecord process, IReadOnlyList<ProcessStepRecord> allAttempts)
+    {
+        var current = ProcessRecoveryState.EffectiveSteps(process, allAttempts);
+        return new(definition, version, process, current, GroupProcessStepsByBlueprintNodeId(current), allAttempts);
     }
 
     private static JsonElement? SerializePayloads(IReadOnlyDictionary<string, JsonElement>? payloads)
@@ -1142,7 +1143,8 @@ public sealed class ProcessProjectionService
         BlueprintVersion BlueprintVersion,
         ProcessInstanceRecord ProcessRecord,
         IReadOnlyCollection<ProcessStepRecord> ProcessSteps,
-        IReadOnlyDictionary<Guid, IReadOnlyList<ProcessStepRecord>> ProcessStepsByBlueprintNodeId);
+        IReadOnlyDictionary<Guid, IReadOnlyList<ProcessStepRecord>> ProcessStepsByBlueprintNodeId,
+        IReadOnlyList<ProcessStepRecord> AllAttempts);
 
     private static List<BlueprintPropertyMappingViewModel> DeserializePropertyMappings(string? json)
     {

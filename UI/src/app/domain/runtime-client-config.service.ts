@@ -4,7 +4,7 @@ export interface RuntimeClientConfig {
   apiBaseUrl: string;
   signalRBaseUrl: string;
   grafanaBaseUrl: string;
-  features?: { conditionalBranchAuthoring?: boolean };
+  features?: { conditionalBranchAuthoring?: boolean; processRecoveryEnabled?: boolean };
   authentication?: RuntimeAuthenticationConfig;
 }
 
@@ -65,6 +65,10 @@ export class RuntimeClientConfigService {
 
   get conditionalBranchAuthoring(): boolean {
     return this.config?.features?.conditionalBranchAuthoring === true;
+  }
+
+  get processRecoveryEnabled(): boolean {
+    return this.config?.features?.processRecoveryEnabled === true;
   }
 
   get authentication(): RuntimeAuthenticationConfig {

@@ -153,6 +153,14 @@ public sealed class StepClaimService
         EnsureExecutionProgress(context, process);
         context.ApplyClaimedStep(step, process);
 
+        if (process.Recovery is { } recovery &&
+            (!recovery.Active || recovery.RecoveryId != step.RecoveryId || recovery.Revision != step.RecoveryRevision ||
+             !recovery.EffectiveAttemptIds.TryGetValue(step.LogicalStepId ?? step.Id, out var current) || current != step.Id))
+        {
+            // A delivery for a superseded physical attempt can settle without invoking its Plugin.
+            return new StepClaimResult(false, false);
+        }
+
         if (process.Status is ProcessStatus.Pending)
         {
             process.Status = ProcessStatus.InProgress;

@@ -83,6 +83,32 @@ internal static class BlueprintScenarioBuilder
         };
     }
 
+    public static async Task<BlueprintScenario> CreateRecoveryScenarioAsync(
+        DistributedAppTestEnvironment environment, Guid probeId, CancellationToken cancellationToken)
+    {
+        var version = GetTaskVersion(await environment.GetTasksAsync(cancellationToken),
+            PluginBundleCatalog.RecoveryProbePlugin, environment.Settings.RunVersion);
+        var lookup = Guid.NewGuid();
+        var payment = Guid.NewGuid();
+        var delivery = Guid.NewGuid();
+        var blueprint = await CreateBlueprintAsync(environment, new BlueprintInputModel
+        {
+            Name = $"Receipt recovery {probeId:N}",
+            StartingBlueprintNodeId = lookup,
+            Tasks =
+            [
+                CreateTask(lookup, version, 100, 100, Settings("lookup"),
+                    [CreateConnection(payment, "Success", ("Address", "Address")), CreateConnection(delivery, "Success", ("Address", "Address"))]),
+                CreateTask(payment, version, 400, 200, Settings("charge"),
+                    [CreateConnection(delivery, "Success", ("Receipt", "Receipt"))]),
+                CreateTask(delivery, version, 700, 100, Settings("deliver"))
+            ]
+        }, cancellationToken);
+        return new(blueprint.BlueprintDefinitionId, blueprint.BlueprintVersionId, lookup, payment, delivery);
+
+        Dictionary<string, JsonElement> Settings(string operation) => CreateOverrides(("ProbeId", probeId), ("Operation", operation));
+    }
+
     public static Task<BlueprintScenario> CreateHappyPathAsync(
         DistributedAppTestEnvironment environment,
         CancellationToken cancellationToken) =>

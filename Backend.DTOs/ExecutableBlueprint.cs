@@ -50,6 +50,7 @@ public record ExecutableBlueprintChannel
     public int Id { get; set; }
     public required string Name { get; set; }
     public required Dictionary<string, string> Properties { get; set; }
+    public List<string> RequiredProperties { get; set; } = [];
     public required List<ExecutableBlueprintBinding> OutboundBindings { get; set; }
 }
 

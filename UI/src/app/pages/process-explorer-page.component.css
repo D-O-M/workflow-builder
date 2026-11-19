@@ -4,6 +4,25 @@
   min-height: 0;
 }
 
+.process-explorer-page__recovery-selection,
+.process-explorer-page__recovery-row {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+}
+
+.process-explorer-page__recovery-selection {
+  flex-wrap: wrap;
+  padding-block: .35rem;
+}
+
+.process-explorer-page__recovery-selection label { flex-basis: 100%; }
+.process-explorer-page__recovery-row button { flex: 1; min-width: 0; }
+.process-explorer-page__attempts { padding: .75rem; border: 1px solid var(--app-outline); border-radius: .5rem; }
+.process-explorer-page__attempts summary { cursor: pointer; }
+.process-explorer-page__attempts div { margin-top: .6rem; }
+.process-explorer-page__attempts small { display: block; overflow-wrap: anywhere; }
+
 .process-explorer-page.app-page {
   --process-rail-width: clamp(22rem, 28vw, 27rem);
   --process-step-drawer-width: clamp(26rem, 34vw, 35rem);

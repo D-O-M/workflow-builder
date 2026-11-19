@@ -236,6 +236,12 @@ variable "dispatcher_min_replicas" {
   default = 0
 }
 
+variable "enable_process_recovery" {
+  type        = bool
+  default     = false
+  description = "Enable individual and batch Step recovery after deploying attempt-aware workers. Keeps a Dispatcher replica running to drain confirmed recoveries."
+}
+
 variable "dispatcher_max_replicas" {
   type    = number
   default = 1

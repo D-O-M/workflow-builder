@@ -17,7 +17,7 @@ using Shouldly;
 
 namespace Backend.API.Tests;
 
-public sealed class ProcessQueryServiceTests
+public sealed partial class ProcessQueryServiceTests
 {
     [Test]
     public async Task GetProcessHistoryAsync_returns_blueprint_name_and_version_number()
@@ -888,7 +888,8 @@ public sealed class ProcessQueryServiceTests
             Guid taskInstanceId,
             Guid processId,
             CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+            Task.FromResult(_stepsByProcessId.GetValueOrDefault(processId)?.SingleOrDefault(step => step.Id == taskInstanceId.ToString())
+                ?? throw new EntityNotFoundException<ProcessStepRecord>(taskInstanceId.ToString()));
 
         public Task<List<ProcessStepRecord>> GetProcessStepsForProcess(
             Guid processId,

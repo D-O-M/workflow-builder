@@ -243,7 +243,23 @@ resource "azurerm_app_configuration_key" "secret_values" {
   depends_on = [module.role_assignments]
 }
 
+resource "terraform_data" "process_recovery_prerequisites" {
+  count = var.enable_process_recovery ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = var.authentication_enabled
+      error_message = "Enable product authentication before enabling Process recovery."
+    }
+    precondition {
+      condition     = var.enable_engine_queue_scaling || var.engine_min_replicas >= 1
+      error_message = "Process recovery requires Engine queue scaling or at least one running Engine replica."
+    }
+  }
+}
+
 module "api" {
+  depends_on                   = [terraform_data.process_recovery_prerequisites]
   source                       = "./modules/container-app"
   name                         = module.naming.container_apps.api
   resource_group_name          = module.resource_group.name
@@ -322,6 +338,7 @@ module "engine" {
 }
 
 module "dispatcher" {
+  depends_on                   = [terraform_data.process_recovery_prerequisites]
   source                       = "./modules/container-app-worker"
   name                         = module.naming.container_apps.dispatcher
   resource_group_name          = module.resource_group.name
@@ -330,7 +347,7 @@ module "dispatcher" {
   container_name               = "backend-dispatcher"
   cpu                          = var.default_cpu
   memory                       = var.default_memory
-  min_replicas                 = var.dispatcher_min_replicas
+  min_replicas                 = max(var.dispatcher_min_replicas, var.enable_process_recovery ? 1 : 0)
   max_replicas                 = var.dispatcher_max_replicas
   identity_ids                 = [module.identities.ids.dispatcher]
   registry_server              = startswith(var.dispatcher_image, "${local.acr_login_server}/") ? local.acr_login_server : null

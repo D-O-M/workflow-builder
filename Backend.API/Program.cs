@@ -95,6 +95,8 @@ public class Program
         builder.Services.AddScoped<TaskCatalogQueryService>();
         builder.Services.AddScoped<BlueprintPortabilityService>();
         builder.Services.AddScoped<ProcessQueryService>();
+        builder.Services.AddScoped<ProcessRecoveryService>();
+        builder.Services.AddSingleton<ProcessRecoveryAvailability>();
         builder.Services.AddScoped<ObservabilityQueryService>();
         builder.Services.Configure<ClientRuntimeConfigOptions>(
             builder.Configuration.GetSection(WorkflowBuilderTopology.ClientConfig.SectionName));

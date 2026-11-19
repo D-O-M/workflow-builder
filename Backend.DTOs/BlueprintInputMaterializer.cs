@@ -4,6 +4,17 @@ namespace Backend.Models;
 
 public static class BlueprintInputMaterializer
 {
+    public static void ApplyInputPresence(ISet<string> available, IReadOnlyDictionary<string, JsonElement> values)
+    {
+        foreach (var (name, value) in values)
+        {
+            if (value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+                available.Remove(name);
+            else
+                available.Add(name);
+        }
+    }
+
     public static Dictionary<string, JsonElement> MaterializePartialInput(
         JsonElement sourcePayload,
         IReadOnlyCollection<ExecutableBlueprintPropertyMapping> mappings)

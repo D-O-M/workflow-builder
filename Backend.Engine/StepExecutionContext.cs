@@ -61,6 +61,7 @@ public class StepExecutionContext
     public string[] OutputChannelsPopulated { get; set; } = [];
     public ExecutableBlueprintNode BlueprintNode => _blueprintNode.Value;
     public ProcessPhaseMetadata? PhaseMetadata { get; private set; }
+    public bool RecoveryControlsActivation { get; private set; }
     public Activity? ExecutionActivity { get; set; }
     public DateTimeOffset ProcessingWindowExpiresAt => _queueMessage.LockedUntil;
 
@@ -113,6 +114,7 @@ public class StepExecutionContext
     {
         ProcessNodeOverrides = process.NodeOverrides;
         PhaseMetadata = process.Phase;
+        RecoveryControlsActivation = process.Recovery is not null;
     }
 
     public void AttachLockRenewal(IAsyncDisposable lockRenewal)

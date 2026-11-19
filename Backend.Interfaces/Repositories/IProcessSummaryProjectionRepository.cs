@@ -13,6 +13,12 @@ public interface IProcessSummaryProjectionRepository
         ProcessSummaryProjectionRecord record,
         CancellationToken cancellationToken);
 
+    async Task<bool> TrySaveProjectionAsync(ProcessSummaryProjectionRecord record, string? expectedETag, CancellationToken cancellationToken)
+    {
+        await UpsertAsync(record, cancellationToken);
+        return true;
+    }
+
     Task<ProcessSummaryProjectionPage> QueryRecentAsync(
         ProcessSummaryProjectionScope scope,
         string tenantId,

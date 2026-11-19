@@ -4,6 +4,8 @@ namespace Backend.Models.ViewModels;
 
 public sealed class ProcessStepDetailViewModel
 {
+    public Guid? RuntimeStepId { get; init; }
+    public List<ProcessStepAttemptViewModel> Attempts { get; init; } = [];
     public required Guid BlueprintNodeId { get; init; }
     public required string Name { get; init; }
     public string NodeKind { get; init; } = "PluginTask";
@@ -25,6 +27,10 @@ public sealed class ProcessStepDetailViewModel
     public JsonElement? RuntimeOverrides { get; init; }
     public List<ProcessStepIterationViewModel> Iterations { get; init; } = [];
 }
+
+public sealed record ProcessStepAttemptViewModel(string RuntimeStepId, string LogicalStepId, string Status,
+    DateTimeOffset? StartedAt, DateTimeOffset? EndedAt, string? ResolvedVersion, Guid? RecoveryId,
+    string? RecoveryAction, string? ReusedFromStepId, string? FailureMessage);
 
 public sealed class ProcessStepIterationViewModel
 {

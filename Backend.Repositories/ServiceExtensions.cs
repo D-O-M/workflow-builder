@@ -90,6 +90,10 @@ public static class ServiceExtensions
                 client.GetContainer(databaseName, stepFinalizationsContainerName));
         });
 
+        services.AddSingleton(sp => new ProcessRecoveryStore(sp.GetRequiredService<CosmosClient>()
+            .GetContainer(databaseName, WorkflowBuilderTopology.Cosmos.Containers.ProcessRecoveries.Name)));
+        services.AddSingleton<IProcessRecoveryStore>(sp => sp.GetRequiredService<ProcessRecoveryStore>());
+
         services.AddSingleton<IProcessStepDispatchIntentRepository>(sp =>
         {
             var client = sp.GetRequiredService<CosmosClient>();

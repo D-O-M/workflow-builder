@@ -80,6 +80,7 @@ import { LogEventStream } from '../domain/log-event-stream';
 import { TaskDefinitionsService } from '../domain/task-definitions.service';
 import { ITaskDefinition } from '../interfaces/ITaskDefinition';
 import { ProcessSearchDialogComponent } from '../components/process-search-dialog.component';
+import type { RecoveryDialogData } from '../components/process-recovery-dialog.component';
 import { summarizeConditionalRule } from '../domain/conditional-rule';
 import { buildProcessCanvasNodes } from '../domain/process-canvas-model';
 
@@ -187,6 +188,9 @@ export class ProcessExplorerPageComponent {
   protected readonly blueprintSearch = new FormControl('', { nonNullable: true });
   protected readonly taskDefinitions = toSignal(this.taskDefinitionsService.getTaskDefinitions(), { initialValue: [] as ITaskDefinition[] });
   protected readonly activeSearchRequest = signal<ProcessSearchRequest | null>(null);
+  protected readonly recoveryEnabled = this.runtimeClientConfig.processRecoveryEnabled;
+  protected readonly selectAllForRecovery = signal(false);
+  protected readonly recoverySelection = signal<ReadonlySet<string>>(new Set());
   private readonly searchResultRows = signal<BlueprintProcessHistoryEntryViewModel[]>([]);
   private readonly searchResultsNextCursor = signal<string | null>(null);
   private readonly searchResultsHasMoreState = signal(false);
@@ -454,12 +458,14 @@ export class ProcessExplorerPageComponent {
           blueprintDefinitionId: process.blueprintDefinitionId,
           processId: process.processId,
           blueprintNodeId,
+          refreshVersion: this.refreshVersion(),
         };
       })).pipe(
         distinctUntilChanged((left, right) =>
           left?.blueprintDefinitionId === right?.blueprintDefinitionId &&
           left?.processId === right?.processId &&
-          left?.blueprintNodeId === right?.blueprintNodeId,
+          left?.blueprintNodeId === right?.blueprintNodeId &&
+          left?.refreshVersion === right?.refreshVersion,
         ),
       ),
       ({ blueprintDefinitionId, processId, blueprintNodeId }) =>
@@ -543,7 +549,8 @@ export class ProcessExplorerPageComponent {
       : version ? `Version ${version}` : 'Version not resolved';
     const logLabel = logCount === 1 ? '1 log entry' : `${logCount} log entries`;
 
-    return `${versionLabel} · ${logLabel}`;
+    const stepId = this.decisionIterations().length > 1 ? null : this.selectedStepDetail()?.runtimeStepId;
+    return `${this.recoveryStatusLabel(stepId, this.selectedStepStatus())} · ${versionLabel} · ${logLabel}`;
   });
   private readonly stepLogHistoryRequest = computed<StepLogHistoryRequest | null>(() => {
     const process = this.selectedProcess();
@@ -1100,6 +1107,44 @@ export class ProcessExplorerPageComponent {
     await this.applyAdvancedSearch(result);
   }
 
+  protected selectAllMatches(enabled: boolean): void {
+    this.selectAllForRecovery.set(enabled);
+    this.recoverySelection.set(new Set());
+  }
+
+  protected toggleRecoveryRow(processId: string): void {
+    this.recoverySelection.update(current => {
+      const next = new Set(current);
+      if (next.has(processId)) next.delete(processId);
+      else next.add(processId);
+      return next;
+    });
+  }
+
+  protected recoverSearch(): void {
+    const search = this.activeSearchRequest();
+    const allMatches = this.selectAllForRecovery();
+    const ids = [...this.recoverySelection()];
+    if (!search || (!allMatches && !ids.length)) return;
+    void this.openRecovery({ selection: { search, allMatches, ...(allMatches ? { excludedProcessIds: ids } : { selectedProcessIds: ids }) } });
+  }
+
+  protected recoverStep(runtimeStepId: string): void {
+    const processId = this.activeProcessId();
+    if (processId && runtimeStepId) void this.openRecovery({ selection: { processId, runtimeStepId } });
+  }
+
+  protected async openRecovery(data: RecoveryDialogData): Promise<void> {
+    if (!this.recoveryEnabled) return;
+    const { ProcessRecoveryDialogComponent } = await import('../components/process-recovery-dialog.component');
+    const dialog = this.dialog.open(ProcessRecoveryDialogComponent, {
+      data, width: 'min(58rem, calc(100vw - 1rem))', maxWidth: '100vw',
+      maxHeight: '92dvh', autoFocus: false, ariaLabel: 'Step recovery',
+    });
+    await firstValueFrom(dialog.afterClosed());
+    this.refreshVersion.update(value => value + 1);
+  }
+
   protected returnToBlueprintPicker(): void {
     this.historyPanelMode.set('blueprints');
     this.openHistoryDrawer();
@@ -1314,6 +1359,13 @@ export class ProcessExplorerPageComponent {
     }
   }
 
+  protected recoveryStatusLabel(runtimeStepId: string | null | undefined, status: string): string {
+    const attempt = this.selectedStepDetail()?.attempts?.find(item => item.runtimeStepId === runtimeStepId && item.status === status);
+    if (attempt?.recoveryAction === 'Skip') return 'Operator skipped';
+    if (attempt?.recoveryAction === 'Reuse') return 'Recorded outcome accepted';
+    return this.statusLabel(status);
+  }
+
   protected statusIcon(status: string): string {
     switch (status) {
       case 'Skipped':
@@ -1471,6 +1523,7 @@ export class ProcessExplorerPageComponent {
   }
 
   private async applyAdvancedSearch(request: ProcessSearchRequest): Promise<void> {
+    this.selectAllMatches(false);
     this.closeStepDrawer();
     this.openHistoryDrawer();
     this.searchResultsLoading.set(true);
@@ -1506,6 +1559,7 @@ export class ProcessExplorerPageComponent {
   }
 
   private resetSearchResultsState(): void {
+    this.selectAllMatches(false);
     this.activeSearchRequest.set(null);
     this.searchResultRows.set([]);
     this.searchResultsNextCursor.set(null);

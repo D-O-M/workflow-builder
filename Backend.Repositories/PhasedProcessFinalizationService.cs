@@ -10,6 +10,12 @@ using Microsoft.Extensions.Logging;
 
 namespace Backend.Repositories;
 
+public sealed class MissingRecoveredHandoffException(Guid? sourceNodeId, string targetField)
+    : InvalidOperationException($"The Data Bridge requires '{targetField}' from Step '{sourceNodeId}'.")
+{
+    public Guid? SourceNodeId { get; } = sourceNodeId;
+}
+
 public sealed class PhasedProcessFinalizationService
 {
     private const int MaxUpdateAttempts = 10;
@@ -48,7 +54,8 @@ public sealed class PhasedProcessFinalizationService
         int childBlueprintVersionId,
         Guid childProcessId,
         DateTimeOffset completedAt,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ProcessInstanceRecord? recoveredProcess = null)
     {
         var version = await _phasedBlueprintRepository.GetVersionGraphAsync(
             metadata.PhasedBlueprintVersionId,
@@ -63,7 +70,7 @@ public sealed class PhasedProcessFinalizationService
                 childBlueprintVersionId,
                 childProcessId,
                 sourcePhase.VersionPolicy == PhasedBlueprintPhaseVersionPolicy.Latest,
-                cancellationToken);
+                cancellationToken, recoveredProcess);
 
         PhaseCorrelationRecord? correlationRecord = null;
         if (transition is not null)
@@ -95,8 +102,12 @@ public sealed class PhasedProcessFinalizationService
             var phaseRecord = parent.Phases.FirstOrDefault(phase => phase.PhaseId == metadata.PhaseId)
                 ?? throw new InvalidOperationException($"Phased process {metadata.PhasedProcessId} does not contain phase {metadata.PhaseId}.");
 
+            // A replay may arrive after the next phase has already consumed its trigger.
+            if (phaseRecord.Status == PhasedProcessStatus.Completed && phaseRecord.ChildProcessId == childProcessId.ToString())
+                break;
             parent.PhaseResults[metadata.PhaseId] = CloneJsonMap(result);
             phaseRecord.Status = PhasedProcessStatus.Completed;
+            phaseRecord.FailureMessage = null;
             phaseRecord.CompletedAt = completedAt;
             phaseRecord.BlueprintVersionId ??= childBlueprintVersionId;
             phaseRecord.ChildProcessId ??= childProcessId.ToString();
@@ -153,6 +164,8 @@ public sealed class PhasedProcessFinalizationService
             var phaseRecord = parent.Phases.FirstOrDefault(phase => phase.PhaseId == metadata.PhaseId)
                 ?? throw new InvalidOperationException($"Phased process {metadata.PhasedProcessId} does not contain phase {metadata.PhaseId}.");
 
+            if (phaseRecord.Status == PhasedProcessStatus.Completed && phaseRecord.ChildProcessId == childProcessId.ToString())
+                return;
             phaseRecord.Status = PhasedProcessStatus.Failed;
             phaseRecord.CompletedAt = failedAt;
             phaseRecord.BlueprintVersionId ??= childBlueprintVersionId;
@@ -203,7 +216,8 @@ public sealed class PhasedProcessFinalizationService
         int childBlueprintVersionId,
         Guid childProcessId,
         bool resolveLatest,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ProcessInstanceRecord? recoveredProcess)
     {
         var sourceIds = resolveLatest
             ? await _phasedBlueprintRepository.ResolveHandoffNodeIdsAsync(childBlueprintVersionId,
@@ -212,7 +226,8 @@ public sealed class PhasedProcessFinalizationService
         var steps = await _processStepRepository.GetProcessStepsForProcess(
             childProcessId,
             cancellationToken);
-        var stepsByNode = steps
+        var effective = recoveredProcess is null ? steps : ProcessRecoveryState.EffectiveSteps(recoveredProcess, steps);
+        var stepsByNode = effective
             .Where(step => Guid.TryParse(step.BlueprintNodeId, out _))
             .GroupBy(step => Guid.Parse(step.BlueprintNodeId))
             .ToDictionary(group => group.Key, group => group.ToList());
@@ -224,6 +239,8 @@ public sealed class PhasedProcessFinalizationService
                 string.IsNullOrWhiteSpace(mapping.SourceChannelName) ||
                 !stepsByNode.TryGetValue(sourceIds?[sourceNodeId] ?? sourceNodeId, out var sourceSteps))
             {
+                if (recoveredProcess is not null)
+                    throw new MissingRecoveredHandoffException(mapping.SourceBlueprintNodeId, mapping.TargetProperty);
                 continue;
             }
 
@@ -234,8 +251,11 @@ public sealed class PhasedProcessFinalizationService
             if (step?.OutputData is null ||
                 !step.OutputData.TryGetValue(mapping.SourceChannelName, out var channelValue) ||
                 channelValue.ValueKind != JsonValueKind.Object ||
-                !channelValue.TryGetProperty(mapping.SourceProperty, out var propertyValue))
+                !channelValue.TryGetProperty(mapping.SourceProperty, out var propertyValue) ||
+                (recoveredProcess is not null && propertyValue.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined))
             {
+                if (recoveredProcess is not null)
+                    throw new MissingRecoveredHandoffException(Guid.Parse(step?.BlueprintNodeId ?? sourceNodeId.ToString()), mapping.TargetProperty);
                 continue;
             }
 

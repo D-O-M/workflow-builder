@@ -124,6 +124,7 @@ public class BlueprintRepository : IBlueprintRepository
             Id = inputChannelEntity.Id,
             Name = inputChannelEntity.Name,
             Properties = MapChannelProperties(inputChannelEntity.Properties),
+            RequiredProperties = inputChannelEntity.Properties.Where(property => property.IsRequired).Select(property => property.Name).ToList(),
             OutboundBindings = []
         };
 
@@ -163,6 +164,7 @@ public class BlueprintRepository : IBlueprintRepository
         {
             Name = name,
             Properties = fields.ToDictionary(field => field.Name, field => field.Kind, StringComparer.Ordinal),
+            RequiredProperties = fields.Where(field => field.Required).Select(field => field.Name).ToList(),
             OutboundBindings = []
         };
         return new ExecutableBlueprintNode
@@ -199,6 +201,7 @@ public class BlueprintRepository : IBlueprintRepository
             {
                 Id = 0,
                 Name = "Collection",
+                RequiredProperties = ["items"],
                 Properties = new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     ["items"] = WorkflowPropertyTypeName.ToCollectionKindName(itemKind)

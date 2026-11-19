@@ -11,4 +11,10 @@ public interface IProcessDirectoryRepository
     Task<ProcessDirectoryRecord> UpsertAsync(
         ProcessDirectoryRecord record,
         CancellationToken cancellationToken);
+
+    async Task<bool> TrySaveProjectionAsync(ProcessDirectoryRecord record, string? expectedETag, CancellationToken cancellationToken)
+    {
+        await UpsertAsync(record, cancellationToken);
+        return true;
+    }
 }

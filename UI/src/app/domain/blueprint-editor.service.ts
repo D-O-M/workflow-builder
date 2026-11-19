@@ -376,6 +376,19 @@ export interface ProcessDetailViewModel {
 }
 
 export interface ProcessStepDetailViewModel {
+  runtimeStepId?: string | null;
+  attempts?: {
+    runtimeStepId: string;
+    logicalStepId: string;
+    status: string;
+    startedAt?: string | null;
+    endedAt?: string | null;
+    resolvedVersion?: string | null;
+    recoveryId?: string | null;
+    recoveryAction?: 'Run' | 'Reuse' | 'Skip' | null;
+    reusedFromStepId?: string | null;
+    failureMessage?: string | null;
+  }[];
   conditionalRule?: ConditionalRule | null;
   conditionalFields?: ITaskPropertyDefinition[];
   selectedChannel?: string | null;

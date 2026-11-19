@@ -270,6 +270,10 @@ public class ProcessInstanceRecord
 
     [JsonPropertyName("start")]
     public ProcessStartState? Start { get; set; }
+
+    [JsonPropertyName("recovery")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ProcessRecoveryState? Recovery { get; set; }
 }
 
 public sealed class ProcessStartState
@@ -289,6 +293,8 @@ public sealed class ProcessStartState
 
 public sealed class ProcessDirectoryRecord
 {
+    [JsonPropertyName("recoverySequence")]
+    public long RecoverySequence { get; init; }
     private string _id = null!;
 
     [JsonPropertyName("id")]
@@ -345,6 +351,8 @@ public sealed class ProcessDirectoryRecord
 
 public sealed class ProcessSummaryProjectionRecord
 {
+    [JsonPropertyName("recoverySequence")]
+    public long RecoverySequence { get; init; }
     private string _id = null!;
 
     [JsonPropertyName("id")]
@@ -560,6 +568,8 @@ public sealed record PluginIngestionStatusPage(
 
 public sealed class ProcessRealtimeSummaryProjectionRecord
 {
+    [JsonPropertyName("recoverySequence")]
+    public long RecoverySequence { get; set; }
     // Increases as the canonical Process settles Steps or expands an iterator.
     // A missing value means only Step contributions have been projected.
     [JsonPropertyName("processProgressOrder")]
@@ -698,6 +708,8 @@ public sealed class ProcessNodeRealtimeProjectionRecord
 
 public sealed class ProcessRealtimeStepStatusContribution
 {
+    [JsonPropertyName("attemptOrder")]
+    public long AttemptOrder { get; init; }
     [JsonPropertyName("processStepId")]
     public required string ProcessStepId { get; init; }
 
@@ -714,6 +726,8 @@ public sealed class ProcessRealtimeStepStatusContribution
 
 public sealed class ProcessNodeRealtimeStepContribution
 {
+    [JsonPropertyName("attemptOrder")]
+    public long AttemptOrder { get; init; }
 
     [JsonPropertyName("selectedChannel")]
     public string? SelectedChannel { get; init; }
@@ -766,6 +780,34 @@ public sealed class ProcessNodeRealtimeFailureSummary
 
 public class ProcessStepRecord
 {
+    [JsonPropertyName("logicalStepId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LogicalStepId { get; init; }
+
+    [JsonPropertyName("recoveryId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? RecoveryId { get; init; }
+
+    [JsonPropertyName("recoveryRevision")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int RecoveryRevision { get; init; }
+
+    [JsonPropertyName("recoverySequence")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long RecoverySequence { get; init; }
+
+    [JsonPropertyName("recoveryAction")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RecoveryAction { get; init; }
+
+    [JsonPropertyName("reusedFromStepId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ReusedFromStepId { get; init; }
+
+    [JsonPropertyName("recoverySourceStepId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RecoverySourceStepId { get; init; }
+
     private string _id = null!;
 
     [JsonPropertyName("id")]
@@ -842,6 +884,9 @@ public class ProcessStepRecord
 
     [JsonPropertyName("iterationContext")]
     public ProcessStepIterationContext? IterationContext { get; set; }
+
+    [JsonIgnore]
+    public bool IsDispatchable => Status == ProcessStepStatus.Pending;
 
     [JsonPropertyName("dispatch")]
     public ProcessStepDispatchState? Dispatch { get; set; }

@@ -121,6 +121,7 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
             BlueprintDefinitionId = blueprintDefinitionId,
             BlueprintVersionId = blueprintVersionId,
             ProcessPartitionKey = process.BlueprintId,
+            RecoverySequence = process.Recovery?.Sequence ?? 0,
             Status = process.Status,
             CreatedAt = process.CreatedAt,
             UpdatedAt = process.UpdatedAt,
@@ -138,26 +139,25 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
         CancellationToken cancellationToken)
     {
         var processId = Guid.Parse(process.ProcessId);
-        var existingDirectory = await _directoryRepository.GetByProcessIdAsync(processId, cancellationToken);
-        var directory = Merge(
-            existingDirectory,
-            CreateDirectoryRecord(process, blueprintDefinitionId, blueprintVersionId, indexedAt));
-
-        await _directoryRepository.UpsertAsync(directory, cancellationToken);
+        var incoming = CreateDirectoryRecord(process, blueprintDefinitionId, blueprintVersionId, indexedAt);
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var existing = await _directoryRepository.GetByProcessIdAsync(processId, cancellationToken);
+            if (await _directoryRepository.TrySaveProjectionAsync(Merge(existing, incoming), existing?.ETag, cancellationToken)) return;
+        }
+        throw new InvalidOperationException($"Could not update the Process directory for {processId}.");
     }
 
     private async Task UpsertSummaryAsync(
         ProcessSummaryProjectionRecord summary,
         CancellationToken cancellationToken)
     {
-        var existingSummary = await _summaryRepository.GetByIdAsync(
-            summary.Id,
-            summary.PartitionKey,
-            cancellationToken);
-
-        await _summaryRepository.UpsertAsync(
-            Merge(existingSummary, summary),
-            cancellationToken);
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var existing = await _summaryRepository.GetByIdAsync(summary.Id, summary.PartitionKey, cancellationToken);
+            if (await _summaryRepository.TrySaveProjectionAsync(Merge(existing, summary), existing?.ETag, cancellationToken)) return;
+        }
+        throw new InvalidOperationException($"Could not update Process summary {summary.Id}.");
     }
 
     private static IReadOnlyList<ProcessSummaryProjectionRecord> CreateSummaryRecords(
@@ -220,6 +220,7 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
             BlueprintDefinitionId = blueprintDefinitionId,
             BlueprintVersionId = blueprintVersionId,
             ProcessPartitionKey = process.BlueprintId,
+            RecoverySequence = process.Recovery?.Sequence ?? 0,
             Status = process.Status,
             CreatedAt = process.CreatedAt,
             UpdatedAt = process.UpdatedAt,
@@ -251,7 +252,8 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
 
         var incomingUpdatedAt = incoming.UpdatedAt ?? incoming.CreatedAt;
         var existingUpdatedAt = existing.UpdatedAt ?? existing.CreatedAt;
-        var latest = incomingUpdatedAt >= existingUpdatedAt ? incoming : existing;
+        var latest = (incoming.RecoverySequence, incomingUpdatedAt).CompareTo((existing.RecoverySequence, existingUpdatedAt)) >= 0
+            ? incoming : existing;
 
         return new ProcessDirectoryRecord
         {
@@ -262,10 +264,11 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
             BlueprintVersionId = incoming.BlueprintVersionId,
             ProcessPartitionKey = incoming.ProcessPartitionKey,
             Status = latest.Status,
+            RecoverySequence = latest.RecoverySequence,
             CreatedAt = incoming.CreatedAt <= existing.CreatedAt ? incoming.CreatedAt : existing.CreatedAt,
             UpdatedAt = Max(existing.UpdatedAt, incoming.UpdatedAt),
-            CompletedAt = Max(existing.CompletedAt, incoming.CompletedAt),
-            FailedAt = Max(existing.FailedAt, incoming.FailedAt),
+            CompletedAt = latest.RecoverySequence > 0 ? latest.CompletedAt : Max(existing.CompletedAt, incoming.CompletedAt),
+            FailedAt = latest.RecoverySequence > 0 ? latest.FailedAt : Max(existing.FailedAt, incoming.FailedAt),
             IndexedAt = Max(existing.IndexedAt, incoming.IndexedAt) ?? incoming.IndexedAt,
         };
     }
@@ -281,7 +284,8 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
 
         var incomingUpdatedAt = incoming.UpdatedAt ?? incoming.CreatedAt;
         var existingUpdatedAt = existing.UpdatedAt ?? existing.CreatedAt;
-        var latest = incomingUpdatedAt >= existingUpdatedAt ? incoming : existing;
+        var latest = (incoming.RecoverySequence, incomingUpdatedAt).CompareTo((existing.RecoverySequence, existingUpdatedAt)) >= 0
+            ? incoming : existing;
 
         return new ProcessSummaryProjectionRecord
         {
@@ -297,10 +301,11 @@ public sealed class ProcessIndexProjectionService : IProcessIndexProjectionServi
             BlueprintVersionId = incoming.BlueprintVersionId,
             ProcessPartitionKey = incoming.ProcessPartitionKey,
             Status = latest.Status,
+            RecoverySequence = latest.RecoverySequence,
             CreatedAt = incoming.CreatedAt <= existing.CreatedAt ? incoming.CreatedAt : existing.CreatedAt,
             UpdatedAt = Max(existing.UpdatedAt, incoming.UpdatedAt),
-            CompletedAt = Max(existing.CompletedAt, incoming.CompletedAt),
-            FailedAt = Max(existing.FailedAt, incoming.FailedAt),
+            CompletedAt = latest.RecoverySequence > 0 ? latest.CompletedAt : Max(existing.CompletedAt, incoming.CompletedAt),
+            FailedAt = latest.RecoverySequence > 0 ? latest.FailedAt : Max(existing.FailedAt, incoming.FailedAt),
             IndexedAt = Max(existing.IndexedAt, incoming.IndexedAt) ?? incoming.IndexedAt,
         };
     }

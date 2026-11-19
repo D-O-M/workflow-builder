@@ -17,6 +17,7 @@ locals {
     processsteps                     = { partition_key = "/processId" }
     processstepdispatches            = { partition_key = "/partitionKey" }
     processstepfinalizations         = { partition_key = "/id" }
+    processrecoveries                = { partition_key = "/batchId" }
     pluginingestionstatuses          = { partition_key = "/id" }
     plugintaskversionruntimestatuses = { partition_key = "/taskVersionId" }
     nodeactivations                  = { partition_key = "/processId" }
@@ -68,6 +69,10 @@ locals {
   app_config_env_by_service = {
     api = concat(local.app_config_env_base, [
       {
+        name  = "ProcessRecovery__Enabled"
+        value = tostring(var.enable_process_recovery)
+      },
+      {
         name  = "AzureAppConfiguration__ManagedIdentityClientId"
         value = module.identities.client_ids.api
       },
@@ -104,6 +109,10 @@ locals {
     ])
     engine = concat(local.app_config_env_base, [
       {
+        name  = "ProcessRecovery__Enabled"
+        value = tostring(var.enable_process_recovery)
+      },
+      {
         name  = "AzureAppConfiguration__ManagedIdentityClientId"
         value = module.identities.client_ids.engine
       },
@@ -122,6 +131,10 @@ locals {
       }
     ])
     dispatcher = concat(local.app_config_env_base, [
+      {
+        name  = "ProcessRecovery__Enabled"
+        value = tostring(var.enable_process_recovery)
+      },
       {
         name  = "AzureAppConfiguration__ManagedIdentityClientId"
         value = module.identities.client_ids.dispatcher

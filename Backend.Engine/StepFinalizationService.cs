@@ -326,14 +326,15 @@ public class StepFinalizationService : IStepFinalizationService
 
         if (!HasReached(record, ProcessStepFinalizationStage.DownstreamActivationCompleted))
         {
-            if (record.Source is ProcessStepFinalizationSource.CollectionIterator)
+            // Recovery plans own routing, binding resolution and phase handoff for their attempts.
+            if (!context.RecoveryControlsActivation && record.Source is ProcessStepFinalizationSource.CollectionIterator)
             {
                 collectionResult = await EnqueueCollectionIteratorDownstreamStepsAsync(
                     context,
                     record,
                     cancellationToken);
             }
-            else
+            else if (!context.RecoveryControlsActivation)
             {
                 await PlanAndPersistReadyActivationsAsync(
                     context,
@@ -359,7 +360,7 @@ public class StepFinalizationService : IStepFinalizationService
 
         if (!HasReached(record, ProcessStepFinalizationStage.ProcessFinalizationCompleted))
         {
-            if (await IsProcessCompletedAsync(context, cancellationToken))
+            if (!context.RecoveryControlsActivation && await IsProcessCompletedAsync(context, cancellationToken))
             {
                 if (context.PhaseMetadata is not null)
                 {
@@ -426,7 +427,7 @@ public class StepFinalizationService : IStepFinalizationService
 
         if (!HasReached(record, ProcessStepFinalizationStage.ProcessFinalizationCompleted))
         {
-            if (context.PhaseMetadata is not null)
+            if (!context.RecoveryControlsActivation && context.PhaseMetadata is not null)
             {
                 await _phasedProcessFinalizationService.MarkPhaseFailedAsync(
                     context.PhaseMetadata,
@@ -438,10 +439,8 @@ public class StepFinalizationService : IStepFinalizationService
             }
 
             _processLifecycleTelemetry.LogStepFailed(context, result);
-            _processLifecycleTelemetry.LogProcessFailed(
-                context,
-                record.CompletedAt,
-                record.ErrorMessage);
+            if (!context.RecoveryControlsActivation)
+                _processLifecycleTelemetry.LogProcessFailed(context, record.CompletedAt, record.ErrorMessage);
 
             record = await AdvanceStageAsync(
                 record.Id,
@@ -490,7 +489,7 @@ public class StepFinalizationService : IStepFinalizationService
             record.CompletedAt,
             cancellationToken);
 
-        if (record.Source is ProcessStepFinalizationSource.CollectionIterator)
+        if (!context.RecoveryControlsActivation && record.Source is ProcessStepFinalizationSource.CollectionIterator)
         {
             await ApplyCollectionIteratorExpansionAsync(
                 context,
@@ -715,6 +714,12 @@ public class StepFinalizationService : IStepFinalizationService
             completedAt,
             cancellationToken);
 
+        if (context.RecoveryControlsActivation)
+        {
+            await ProjectRecoveryAttemptAsync(context, cancellationToken);
+            return false;
+        }
+
         var completed = await UpdateProcessStateAfterSuccessAsync(
             context,
             completedAt,
@@ -751,6 +756,12 @@ public class StepFinalizationService : IStepFinalizationService
             failedAt,
             cancellationToken);
 
+        if (context.RecoveryControlsActivation)
+        {
+            await ProjectRecoveryAttemptAsync(context, cancellationToken);
+            return;
+        }
+
         await UpdateProcessStateAfterFailureAsync(
             context,
             failedAt,
@@ -765,6 +776,15 @@ public class StepFinalizationService : IStepFinalizationService
             context.BlueprintDefinitionId,
             context.ExecutableBlueprintId,
             cancellationToken);
+    }
+
+    private async Task ProjectRecoveryAttemptAsync(StepExecutionContext context, CancellationToken cancellationToken)
+    {
+        if (_projectionOptions.SynchronousEngineUpdatesEnabled && _processRealtimeProjectionService is not null)
+        {
+            var step = await _stepClaimService.GetPersistedStepAsync(context, cancellationToken);
+            await TryProjectRealtimeStepAsync(step, context.BlueprintDefinitionId, context.ExecutableBlueprintId, cancellationToken);
+        }
     }
 
     private async Task TryProjectProcessAsync(
@@ -861,7 +881,7 @@ public class StepFinalizationService : IStepFinalizationService
             cancellationToken);
         StepClaimService.EnsureExecutionProgress(context, process);
         context.ApplyProcess(process);
-        return process.Status is ProcessStatus.Completed;
+        return process.Recovery is null && process.Status is ProcessStatus.Completed;
     }
 
     private async Task<bool> UpdateProcessStateAfterSuccessAsync(
@@ -877,6 +897,11 @@ public class StepFinalizationService : IStepFinalizationService
                 cancellationToken);
 
             StepClaimService.EnsureExecutionProgress(context, process);
+            if (process.Recovery is not null)
+            {
+                context.ApplyProcess(process);
+                return false;
+            }
             var wasCompleted = process.Status is ProcessStatus.Completed;
             process.ExecutionProgress.CompletedNodeIds.Add(context.BlueprintNodeId.ToString());
             process.ExecutionProgress.CompletedStepIds.Add(context.ProcessStepId.ToString());
@@ -911,6 +936,11 @@ public class StepFinalizationService : IStepFinalizationService
                 cancellationToken);
 
             StepClaimService.EnsureExecutionProgress(context, process);
+            if (process.Recovery is not null)
+            {
+                context.ApplyProcess(process);
+                return;
+            }
             process.ExecutionProgress.FailedNodeIds.Add(context.BlueprintNodeId.ToString());
             process.ExecutionProgress.FailedStepIds.Add(context.ProcessStepId.ToString());
             process.Status = ProcessStatus.Failed;
@@ -941,7 +971,7 @@ public class StepFinalizationService : IStepFinalizationService
             var process = await _processInstanceRepository.GetProcessStateById(
                 context.ProcessId, context.ExecutableBlueprintId, cancellationToken);
             StepClaimService.EnsureExecutionProgress(context, process);
-            if (process.ExecutionProgress.SkippedStepIds.IsSupersetOf(skippedSteps))
+            if (process.Recovery is not null || process.ExecutionProgress.SkippedStepIds.IsSupersetOf(skippedSteps))
             {
                 return;
             }
@@ -977,7 +1007,7 @@ public class StepFinalizationService : IStepFinalizationService
                 cancellationToken);
 
             StepClaimService.EnsureExecutionProgress(context, process);
-            if (!process.ExecutionProgress.ExpandedCollectionIteratorStepIds.Add(expansionKey))
+            if (process.Recovery is not null || !process.ExecutionProgress.ExpandedCollectionIteratorStepIds.Add(expansionKey))
             {
                 context.ApplyProcess(process);
                 return process.Status is ProcessStatus.Completed;

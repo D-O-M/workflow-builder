@@ -483,6 +483,26 @@ describe('ProcessExplorerPageComponent', () => {
     expect((component as any).selectedProcess()).toBe(selectedProcess);
   });
 
+  it('retains the selected Process IDs across search pages and separates all-match exclusions', () => {
+    const explorer = component as any;
+    const open = vi.spyOn(explorer, 'openRecovery').mockResolvedValue(undefined);
+    const search: ProcessSearchRequest = { blueprintDefinitionIds: [], processStatuses: ['Failed'],
+      createdFrom: '2026-01-01', createdTo: '2026-01-31', nodeFilters: [], propertyFilters: [], limit: 25 };
+    explorer.activeSearchRequest.set(search);
+    explorer.toggleRecoveryRow('page-one-process');
+    explorer.toggleRecoveryRow('page-two-process');
+    explorer.recoverSearch();
+    expect(open).toHaveBeenLastCalledWith({ selection: { search, allMatches: false,
+      selectedProcessIds: ['page-one-process', 'page-two-process'] } });
+    explorer.selectAllMatches(true);
+    explorer.toggleRecoveryRow('excluded-process');
+    explorer.recoverSearch();
+    expect(open).toHaveBeenLastCalledWith({ selection: { search, allMatches: true, excludedProcessIds: ['excluded-process'] } });
+    explorer.clearAdvancedSearch();
+    expect(explorer.recoverySelection().size).toBe(0);
+    expect(explorer.selectAllForRecovery()).toBe(false);
+  });
+
   it('keeps the history drawer closed for the default explorer route', async () => {
     (component as any).openHistoryDrawer();
 

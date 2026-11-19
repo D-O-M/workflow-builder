@@ -466,6 +466,41 @@ public sealed class ProcessProjectionServiceTests
     }
 
     [Test]
+    public async Task Recovery_replaces_one_logical_contribution_and_ignores_redelivered_failure()
+    {
+        var service = new ProcessRealtimeProjectionService(new InMemoryProcessRealtimeProjectionRepository());
+        var processId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+        var failed = new ProcessStepRecord
+        {
+            Id = Guid.NewGuid().ToString(), ProcessId = processId.ToString(), BlueprintNodeId = nodeId.ToString(),
+            BlueprintId = "7", Status = ProcessStepStatus.Failed, CreatedAt = DateTimeOffset.UtcNow
+        };
+        var completed = new ProcessStepRecord
+        {
+            Id = Guid.NewGuid().ToString(), LogicalStepId = failed.Id, RecoveryId = Guid.NewGuid(), RecoverySequence = 1,
+            RecoveryAction = "Run", ProcessId = failed.ProcessId, BlueprintNodeId = failed.BlueprintNodeId,
+            BlueprintId = "7", Status = ProcessStepStatus.Completed, CreatedAt = failed.CreatedAt.AddSeconds(1)
+        };
+        var recovered = new ProcessInstanceRecord
+        {
+            id = processId.ToString(), BlueprintId = "7", Recovery = new() { Sequence = 1 }, Status = ProcessStatus.Completed,
+            ExecutionProgress = new() { CompletedStepIds = [completed.Id], TotalStepCount = 1 }
+        };
+        await service.UpsertFromStepAsync(failed, 3, 7, CancellationToken.None);
+        await service.UpsertFromProcessAsync(recovered, 3, 7, CancellationToken.None);
+        await service.UpsertFromStepAsync(completed, 3, 7, CancellationToken.None);
+        await service.UpsertFromStepAsync(failed, 3, 7, CancellationToken.None);
+        var summary = await service.GetSummaryAsync(processId, CancellationToken.None);
+        summary!.FailedStepCount.ShouldBe(0);
+        summary.CompletedStepCount.ShouldBe(1);
+        summary.Status.ShouldBe(ProcessStatus.Completed);
+        var node = (await service.GetNodeProjectionsAsync(processId, [nodeId], CancellationToken.None)).Single();
+        node.RuntimeStepCount.ShouldBe(1);
+        node.LatestProcessStepId.ShouldBe(completed.Id);
+    }
+
+    [Test]
     public async Task ProcessRealtimeProjectionService_aggregates_fan_out_runtime_steps()
     {
         var repository = new InMemoryProcessRealtimeProjectionRepository();

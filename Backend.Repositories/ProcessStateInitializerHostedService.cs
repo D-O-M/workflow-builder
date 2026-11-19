@@ -62,6 +62,10 @@ public sealed class ProcessStateInitializerHostedService : IHostedService
             new ContainerProperties(_options.StepFinalizationsContainerName, "/id"),
             cancellationToken: cancellationToken);
 
+        var recoveries = Backend.Topology.WorkflowBuilderTopology.Cosmos.Containers.ProcessRecoveries;
+        await databaseResponse.Database.CreateContainerIfNotExistsAsync(
+            new ContainerProperties(recoveries.Name, "/batchId"), cancellationToken: cancellationToken);
+
         await databaseResponse.Database.CreateContainerIfNotExistsAsync(
             new ContainerProperties(_options.PluginIngestionStatusesContainerName, "/id"),
             cancellationToken: cancellationToken);
